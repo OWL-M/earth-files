@@ -8,26 +8,16 @@
 //! [`HasSelectableText`]
 //! to get a context menu with Copy, Select All, and optionally Cut/Paste.
 //!
-//! Internally uses libcosmic's [`Menu`](crate::ui::widget::menu) system for
-//! proper rendering, hover effects, and positioning.
+//! Internally uses the [`Menu`](crate::ui::widget::menu) system for proper
+//! rendering, hover effects, and positioning.
 //!
 //! On Wayland, [`create_text_context_popup`] can be used instead to show
 //! the context menu as a native popup surface.
 //!
-//! Vendored from pop-os/libcosmic d9431dc, src/widget/text_context_menu.rs
+//! Vendored from pop-os/libcosmic, src/widget/text_context_menu.rs
 //!
-//! Upstream's `wayland_platform` cfg alias expands to `feature = "wayland"` on
-//! free unix and never reaches a downstream crate. Here it gates the entire
-//! Wayland-popup path, which this app does use, so it is mapped to this
-//! crate's `wayland` feature, the same treatment `menu` and `context_menu`
-//! got.
-//!
-//! The queues below are drained by [`crate::ui::shell::runner::Shell`], which
-//! replaced the `Cosmic::update`/`subscription`/`view` that drained them
-//! upstream (`app/cosmic.rs:495-513`, `:679-683`, `:708`).
+//! The queues below are drained by [`crate::ui::shell::runner::Shell`].
 
-// The fork puts these in `iced_core::widget::widget::text`; this crate's copy
-// lives in `ui::widget::text`, beside the rest of libcosmic's `widget::text`.
 pub use crate::ui::widget::text::{HasSelectableText, clipboard_has_text};
 
 use iced_core::window;
@@ -66,7 +56,7 @@ use std::cell::Cell;
 
 thread_local! {
     // `Option` rather than the sentinel: `window::none()` is a lazily allocated
-    // id now (upstream `window::Id` has no `NONE` const, see `ui::window`), so
+    // id (`window::Id` has no `NONE` const, see `ui::window`), so
     // it cannot appear in a `const` initializer.
     static CURRENT_WINDOW_ID: Cell<Option<iced_core::window::Id>> = const { Cell::new(None) };
 }
@@ -74,8 +64,9 @@ thread_local! {
 use crate::ui::surface::PopupSettings;
 
 /// A request to create a text context-menu popup surface, queued by a widget
-/// during `update()` and drained by `Cosmic::update()` so the popup goes
-/// through the normal `get_popup()` Task + `surface_views` pipeline.
+/// during `update()` and drained by the shell runner
+/// ([`crate::ui::shell::runner::Shell`]) so the popup goes through the normal
+/// popup Task + view pipeline.
 pub(crate) struct PopupRequest {
     settings: PopupSettings,
     menu: Menu<'static, TextCtxAction>,
@@ -140,8 +131,8 @@ thread_local! {
 /// Queues a context-menu popup for teardown.
 ///
 /// Mirrors [`create_text_context_popup`]'s request queue: widgets running
-/// inside `update()` can't reach `Cosmic` to issue a Task, so they push the
-/// id here and `Cosmic::update()` drains it into a `destroy_popup` Task that
+/// inside `update()` can't reach the shell to issue a Task, so they push the
+/// id here and the shell runner drains it into a window-removal Task that
 /// flows through the normal surface pipeline.
 fn queue_destroy_popup(id: iced_core::window::Id) {
     PENDING_POPUP_DESTROYS.with(|q| q.borrow_mut().push(id));
@@ -154,7 +145,7 @@ static WAKE_TX: std::sync::OnceLock<iced::futures::channel::mpsc::Sender<()>> =
 /// Stable identity for [`wake_subscription`].
 struct PopupWake;
 
-/// Nudges the runtime so `Cosmic::update()` runs and drains the popup queues.
+/// Nudges the runtime so the shell runner runs and drains the popup queues.
 fn wake_runtime() {
     if let Some(tx) = WAKE_TX.get() {
         let _ = tx.clone().try_send(());
@@ -163,7 +154,7 @@ fn wake_runtime() {
 
 /// Subscription that backs [`wake_runtime`]: it owns the receiving end of the
 /// wake channel and re-emits each ping as [`crate::ui::Action::None`]. Add it to
-/// the app's subscriptions (done by `Cosmic::subscription`) so popup creation
+/// the app's subscriptions (done by the shell runner) so popup creation
 /// and teardown queued from widget `update()` get drained promptly.
 pub(crate) fn wake_subscription<Message: Send + 'static>()
 -> iced::Subscription<crate::ui::Action<Message>> {
@@ -184,7 +175,7 @@ pub(crate) fn wake_subscription<Message: Send + 'static>()
 
 /// Drains all popup teardown requests queued by widgets this frame.
 ///
-/// Called by `Cosmic::update()`, which turns each id into a `destroy_popup()`
+/// Called by the shell runner, which turns each id into a window-removal
 /// Task. Drained before the creation queue so a destroy-then-recreate (a
 /// second right-click reusing the same id) keeps its order.
 pub(crate) fn take_popup_destroys() -> Vec<iced_core::window::Id> {
@@ -479,9 +470,9 @@ where
 
 /// Queues a Wayland popup surface containing the text context menu.
 ///
-/// Pushes a [`PopupRequest`] onto the request queue; `Cosmic::update()`
-/// drains it and creates the popup through `get_popup()`, so it flows
-/// through the normal Task + `surface_views` pipeline.
+/// Pushes a [`PopupRequest`] onto the request queue; the shell runner drains
+/// it and creates the popup, so it flows through the normal Task + view
+/// pipeline.
 pub(crate) fn create_text_context_popup(
     click_position: Point,
     selected_text: Option<String>,
@@ -592,9 +583,9 @@ pub(crate) fn create_text_context_popup(
         ..Default::default()
     };
 
-    // Queue the request. `Cosmic::update()` drains it and creates the popup
-    // through `get_popup()`, so it flows through the normal Task +
-    // `surface_views` pipeline (rendering and teardown included).
+    // Queue the request. The shell runner drains it and creates the popup, so
+    // it flows through the normal Task + view pipeline (rendering and
+    // teardown included).
     let settings = PopupSettings {
         parent: window_id,
         id,
@@ -724,15 +715,14 @@ impl<Message: Clone + 'static> iced_core::widget::Widget<Message, crate::ui::The
         shell: &mut Shell<'_, Message>,
         viewport: &Rectangle,
     ) {
-        // The compositor dismissed this popup. Upstream iced has no
+        // The compositor dismissed this popup. iced has no
         // `PlatformSpecific::Wayland` event carrying the dismissed popup's id,
         // so the shell records it and this claims it; see
         // `ui::surface::dismissal`.
         //
-        // The `Unfocused` half of the fork's `PopupEvent` is gone with it:
-        // exwlshell reports only the destruction, which means the surface is
-        // already gone and the explicit `queue_destroy_popup` it used to need
-        // would now be a destroy for a dead id.
+        // exwlshell reports only the destruction, so the surface is already
+        // gone and no `queue_destroy_popup` is needed here: it would be a
+        // destroy for a dead id.
         {
             let popup_id = self.menu.window_id;
             if crate::ui::surface::dismissal::claim(popup_id) {

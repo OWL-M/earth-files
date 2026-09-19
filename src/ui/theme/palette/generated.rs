@@ -1,17 +1,10 @@
 // Copyright 2026 System76 <info@system76.com>
 // SPDX-License-Identifier: GPL-3.0-only
 
-//! Generated. See the module documentation in `../palette.rs`.
+//! Generated snapshot. See the module documentation in `../palette.rs`.
 //!
-//! Captured from `cosmic_theme::Theme::{dark_default, light_default}` at
-//! libcosmic `d9431dc` by `examples/gen_theme_palette.rs`. Regenerate with
-//!
-//! ```sh
-//! cargo run --example gen_theme_palette > src/ui/theme/palette/generated.rs
-//! ```
-//!
-//! while libcosmic is a dependency. Phase 3 removes both libcosmic and the
-//! generator, leaving this snapshot.
+//! Captured from cosmic-theme at pop-os/libcosmic d9431dc
+//! (`Theme::{dark_default, light_default}`).
 
 #![allow(clippy::unreadable_literal)]
 
@@ -20,7 +13,7 @@ use palette::Srgba;
 use super::{Component, Container, CornerRadii, Palette, Raw};
 use crate::ui::theme::Spacing;
 
-/// Snapshot of `cosmic_theme::Theme::dark_default()`.
+/// The built-in dark palette.
 pub static DARK: Palette = Palette {
     name: "cosmic-dark",
     background: Container {
@@ -376,7 +369,7 @@ pub static DARK: Palette = Palette {
     accent_text: None,
 };
 
-/// Snapshot of `cosmic_theme::Theme::light_default()`.
+/// The built-in light palette.
 pub static LIGHT: Palette = Palette {
     name: "cosmic-light",
     background: Container {

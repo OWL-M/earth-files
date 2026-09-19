@@ -3,26 +3,16 @@
 
 //! Surface requests a widget can publish for the shell to carry out.
 //!
-//! This replaces `cosmic::surface`, which was `libcosmic`'s. Upstream's
-//! `Action` has fifteen variants across popups, subsurfaces, windows and
-//! layer shells, half of them type-erased through `Arc<Box<dyn Any>>` so a
-//! builder could borrow the application. This app publishes exactly three,
-//! `Popup`, `DestroyPopup` and `ResponsiveMenuBar`, and every popup builder
-//! it hands over captures its own content and takes no `&App`, so nothing here
-//! needs `Any` or a downcast: the settings are a concrete struct and the view
-//! is a concrete closure type.
+//! [`Action`] has exactly three variants, `Popup`, `DestroyPopup` and
+//! `ResponsiveMenuBar`. Every popup builder captures its own content and takes
+//! no `&App`, so nothing here needs `Any` or a downcast: the settings are a
+//! concrete struct and the view is a concrete closure type.
 //!
-//! [`Positioner`] keeps the field names of the `SctkPositioner` the widgets
-//! were written against, so the eight popup sites changed an import rather
-//! than their bodies. It converts to exwlshell's [`IcedNewPopupSettings`] in
-//! one place, [`PopupSettings::to_exwlshell`].
-//!
-//! Two fields of `SctkPositioner` have no exwlshell equivalent and are gone:
-//! `offset`, which `xdg_positioner.set_offset` would carry but exwlshell never
-//! sends, and `reactive`, which exwlshell sets unconditionally for positioner
-//! version 3 and up (`exwlshellev/src/lib.rs:3825`). Every site here asked for
-//! `reactive: true`, so behaviour is unchanged. `LiveSettings`/`CornerRadius`
-//! are gone with them; see the note on [`PopupSettings`].
+//! [`Positioner`] converts to exwlshell's [`IcedNewPopupSettings`] in one
+//! place, [`PopupSettings::to_exwlshell`]. It has no `offset`, which
+//! `xdg_positioner.set_offset` would carry but exwlshell never sends, and no
+//! `reactive` flag, which exwlshell sets unconditionally for positioner
+//! version 3 and up (`exwlshellev/src/lib.rs:3825`).
 
 use crate::ui::Element;
 use crate::ui::iced::{self, Rectangle, Size};
@@ -46,9 +36,6 @@ pub type View<M> =
 pub type Settings = Arc<dyn Fn() -> PopupSettings + Send + Sync + 'static>;
 
 /// Where a popup sits relative to its parent.
-///
-/// Field-for-field the subset of `iced_runtime`'s `SctkPositioner` this app
-/// used, so that the widgets that build one did not have to change.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Positioner {
     /// The popup's own size. `None` means "one pixel", which no caller wants;
@@ -92,15 +79,9 @@ fn pixel_size(width: i32, height: i32) -> PixelSize {
 
 /// Everything needed to open one popup surface.
 ///
-/// Dropped from `SctkPopupSettings`: `parent_size` and `input_zone` (always
-/// `None` here); `close_with_children`, which exwlshell does not model (it was
-/// `false` at every live site and `true` only in `dropdown`'s
-/// `cfg(wayland_platform)` block, which never compiles in this crate); and
-/// `grab`: exwlshell takes a grab for every popup it opens, so it was never a
-/// choice. The
-/// `LiveSettings::corners` every call site set is dropped too: exwlshell has no
-/// corner-radius request, so a popup's outer edge is square and rounding can
-/// only be drawn client-side inside the surface.
+/// exwlshell takes a grab for every popup it opens, so that is not a choice
+/// here. It also has no corner-radius request, so a popup's outer edge is
+/// square and rounding can only be drawn client-side inside the surface.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PopupSettings {
     /// The id the popup surface will be given.
@@ -235,10 +216,6 @@ pub mod action {
     }
 
     /// Used to create a popup action from within a widget.
-    ///
-    /// Upstream's `simple_popup` took a `LiveSettings` builder as its first
-    /// argument; the only live setting any caller in this app set was the
-    /// corner radius, which exwlshell cannot express, so the parameter is gone.
     #[must_use]
     pub fn simple_popup<M: 'static>(
         settings: impl Fn() -> PopupSettings + Send + Sync + 'static,
@@ -255,13 +232,10 @@ pub mod action {
 
 /// Which popups the compositor has torn down.
 ///
-/// libcosmic's iced fork delivered this as an event carrying the id,
-/// `event::wayland::Event::Popup(PopupEvent::Done, _, popup)`, so a widget
-/// running in the parent surface could see its own popup die. Upstream iced
-/// has no `PlatformSpecific::Wayland` variant, and `window::Event::Closed`
-/// carries no id: it is delivered to the closed window. So the id has to get
-/// from the shell, which does see it (`app::Action::SurfaceClosed`), to the
-/// widget, which needs it.
+/// iced's `window::Event::Closed` carries no id: it is delivered to the closed
+/// window, so a widget running in the parent surface cannot see its own popup
+/// die. The id has to get from the shell, which does see it
+/// (`app::Action::SurfaceClosed`), to the widget, which needs it.
 ///
 /// A thread-local does that. `update` for every widget and the shell's own
 /// `update` run on the same thread in the same loop;

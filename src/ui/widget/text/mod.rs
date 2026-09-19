@@ -1,13 +1,10 @@
 // Copyright 2022 System76 <info@system76.com>
 // SPDX-License-Identifier: MPL-2.0
 
-//! Vendored from pop-os/libcosmic d9431dc, src/widget/text.rs
+//! Vendored from pop-os/libcosmic, src/widget/text.rs
 //!
-//! The `Text` widget itself is no longer iced's: [`widget`] carries the fork's
-//! selectable `Text` (libcosmic's iced fork, `iced/core/src/widget/text.rs`),
-//! which upstream has no counterpart for. The typography presets below build
-//! that one, so `selectable_text` has a selectable widget to wrap and
-//! `ui::widget::text(..)` behaves as it did under libcosmic.
+//! [`widget`] carries a selectable `Text`, not iced's. The typography presets
+//! below build that one, so `selectable_text` has a selectable widget to wrap.
 
 use iced::Renderer;
 use iced_core::text::LineHeight;
@@ -16,16 +13,8 @@ pub mod widget;
 pub use widget::{Catalog, Format, Style, StyleFn, Text, draw, layout};
 use std::borrow::Cow;
 
-// `HasSelectableText` and `clipboard_has_text` are not from libcosmic's
-// `src/widget/text.rs` but from its *iced fork*, `iced/core/src/widget/text.rs`
-// (`:1054`, `:1062`), which upstream `iced_core 0.14` has no counterpart for at
-// any layer. They are vendored into this module because it is this crate's
-// `widget::text`, which is where the fork keeps them.
-//
-// The fork's own two impls read private, fork-only fields of iced's widget
-// state, so neither could be written against iced's types from outside. Both
-// are now implemented against types this crate owns instead: `widget::Text`
-// below, and `ui::widget::text_editor::TextEditor`.
+// `HasSelectableText` is implemented by `widget::Text` below and by
+// `ui::widget::text_editor::TextEditor`.
 use iced_core::widget::tree::Tree as WidgetTree;
 use iced_core::{Clipboard, Point};
 
@@ -37,7 +26,7 @@ pub fn clipboard_has_text(clipboard: &dyn Clipboard) -> bool {
 }
 
 /// Implement this on a widget to enable context menu support for
-/// text selection (Copy, Select All, and optionally Cut / Paste) in libcosmic
+/// text selection (Copy, Select All, and optionally Cut / Paste).
 pub trait HasSelectableText {
     /// Returns the currently selected text, if any.
     fn selected_text(&self, tree: &WidgetTree) -> Option<String>;
@@ -233,12 +222,7 @@ pub fn monotext<'a>(text: impl Into<Cow<'a, str>> + 'a) -> Text<'a, crate::ui::T
 
 
 // ---------------------------------------------------------------------------
-// `HasSelectableText` for the vendored `Text`.
-//
-// Ported from the fork's own impl (`iced/core/src/widget/text.rs:1129`), which
-// could not be written against iced's `Text` because it reads
-// `State::selection`, a fork-only private field. `widget::State` is this
-// crate's, so the impl is a straight copy.
+// `HasSelectableText` for `Text`.
 // ---------------------------------------------------------------------------
 
 impl<Theme: Catalog> HasSelectableText for Text<'_, Theme, Renderer> {

@@ -3,42 +3,28 @@
 
 //! A multi-line text editor
 //!
-//! Vendored from pop-os/libcosmic d9431dc, src/widget/text_editor.rs
-//!
-//! `wayland_platform`, which selects between the Wayland popup and the
-//! in-window overlay, is mapped to this crate's `wayland` feature, and the
-//! windowing system is read from `crate::ui::shell::runner`.
+//! Vendored from pop-os/libcosmic, src/widget/text_editor.rs
 //!
 //! ## The `text_editor` delta
 //!
-//! Upstream `iced_widget 0.14`'s `text_editor` already has native selection and
-//! `Binding::Copy`. libcosmic's iced fork (fork
-//! `iced/widget/src/text_editor.rs`, 1702 lines vs upstream's 1526) adds
-//! right-click context-menu integration: three private `State` fields
-//! (`context_menu_position`, `clipboard_has_text`, `pending_edit`) and a block
-//! at the head of `update` that runs *before* the widget's `on_edit` gate.
+//! `iced_widget 0.14`'s `text_editor` has native selection and `Binding::Copy`
+//! but no right-click context menu. This wrapper adds it without duplicating
+//! the editor: it owns the tree state (`EditorWrapperState`, holding
+//! `context_menu_position`, `clipboard_has_text` and `pending_edit`) and
+//! [`TextEditor::update`] runs the context-menu block *before* forwarding the
+//! event to the inner editor's `update` and its `on_edit` gate.
 //!
-//! This wrapper implements the additions without duplicating the upstream
-//! editor's 1526 lines. It owns the tree state (`EditorWrapperState`) and runs
-//! before the inner editor's `update`. The three fields live in that state,
-//! and [`TextEditor::update`] runs the fork's pre-gate block before forwarding
-//! the event, preserving the fork's observable behaviour.
-//!
-//! Upstream's `TextEditor::update` returns immediately when `on_edit` is
-//! `None`. The fork has the same gate: it dispatches `pending_edit` only
-//! through `on_edit`. Neither of this app's two call sites (`tab.rs:2247`,
-//! `tab.rs:4902`, the text-file preview)
-//! sets `on_action`, so on both, under libcosmic exactly as here, the editor
-//! never focuses through the gated path and Select All is inert. The fork's
-//! pre-gate right-click block still runs here, so the menu opens with Copy
-//! disabled because there is no selection.
+//! The inner `TextEditor::update` returns immediately when `on_edit` is
+//! `None`, and `pending_edit` is dispatched only through `on_edit`. Neither of
+//! this app's two call sites (`tab.rs:2247`, `tab.rs:4902`, the text-file
+//! preview) sets `on_action`, so on both the editor never focuses through the
+//! gated path and Select All is inert. The right-click block still runs, so
+//! the menu opens with Copy disabled because there is no selection.
 
 pub use iced::widget::text_editor::{
     Action, Binding, Catalog, Content, Cursor, Edit, KeyPress, Line, LineEnding, Motion,
     Position, Selection, State, Status, Style, StyleFn,
 };
-// The fork re-exported `Id` from `text_editor`; upstream's widget ids are one
-// type, `iced::advanced::widget::Id`.
 pub use iced::advanced::widget::Id;
 
 use crate::ui::widget::menu::MenuBarState;
@@ -60,20 +46,15 @@ pub struct TextEditor<'a, Message> {
     inner: InnerEditor<'a, Message>,
     has_context_menu: bool,
     window_id: window::Id,
-    // `selected_text`/`has_text` read the content directly, as the fork's impl
-    // does (`self.content.selection()`, `!self.content.is_empty()`).
+    // `selected_text`/`has_text` read the content directly.
     content: &'a Content<iced::Renderer>,
     // Kept alongside the copy handed to the inner editor so `update` can
-    // dispatch a pending edit through it, exactly as the fork does. `Rc`
-    // because `on_action` takes a non-`Clone` `impl Fn`.
+    // dispatch a pending edit through it. `Rc` because `on_action` takes a
+    // non-`Clone` `impl Fn`.
     on_action: Option<Rc<dyn Fn(Action) -> Message + 'a>>,
 }
 
-/// The wrapper's tree state.
-///
-/// `context_menu_position`, `clipboard_has_text` and `pending_edit` are the
-/// fork's three private `text_editor::State` additions, held here instead.
-/// See the module docs.
+/// The wrapper's tree state. See the module docs.
 struct EditorWrapperState {
     menu_bar_state: MenuBarState,
     pending_action: crate::ui::widget::text_context_menu::PendingAction,
@@ -84,7 +65,6 @@ struct EditorWrapperState {
 }
 
 impl EditorWrapperState {
-    /// The fork's `State::clear_focus`, for the parts this wrapper owns.
     fn clear_focus(&mut self) {
         self.focused = false;
         self.context_menu_position = None;
@@ -325,10 +305,9 @@ impl<'a, Message: Clone + 'static> Widget<Message, crate::ui::Theme, iced::Rende
     ) {
         if self.has_context_menu {
             // ---------------------------------------------------------------
-            // The fork's pre-gate block (`iced/widget/src/text_editor.rs:716`).
-            // Run this before the inner editor sees the event. Upstream and
-            // the fork both return immediately from `update` when `on_edit`
-            // is `None`, so only this block runs for a read-only editor.
+            // Run this before the inner editor sees the event: the inner
+            // `update` returns immediately when `on_edit` is `None`, so only
+            // this block runs for a read-only editor.
             // ---------------------------------------------------------------
             {
                 let text_bounds = layout.bounds();
@@ -375,9 +354,9 @@ impl<'a, Message: Clone + 'static> Widget<Message, crate::ui::Theme, iced::Rende
                 viewport,
             );
 
-            // The fork dispatches a context-menu edit through `on_edit`, so the
-            // app performs it on its `Content` (fork `:760`). With no
-            // `on_action`, the edit is dropped, as it is in the fork.
+            // A context-menu edit is dispatched through `on_edit`, so the app
+            // performs it on its `Content`. With no `on_action`, the edit is
+            // dropped.
             {
                 let pending = tree
                     .state
@@ -549,12 +528,8 @@ impl<'a, Message: Clone + 'static> Widget<Message, crate::ui::Theme, iced::Rende
 
 }
 
-// ---------------------------------------------------------------------------
-// Ported from the fork's impl (`iced/widget/src/text_editor.rs:1636`), which
-// could not be written against upstream's `TextEditor` because it reads three
-// private, fork-only `State` fields. Those live in `EditorWrapperState` here,
-// so the impl is on the wrapper and reads the wrapper's own tree state.
-// ---------------------------------------------------------------------------
+// Implemented on the wrapper rather than the inner `TextEditor` because it
+// reads `EditorWrapperState`, the wrapper's own tree state.
 
 impl<Message> crate::ui::widget::text::HasSelectableText for TextEditor<'_, Message> {
     fn selected_text(&self, _tree: &Tree) -> Option<String> {

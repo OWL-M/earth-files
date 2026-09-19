@@ -2,7 +2,7 @@
 // Copyright 2019 Héctor Ramón, Iced contributors
 // SPDX-License-Identifier: MPL-2.0 AND MIT
 
-//! Vendored from pop-os/libcosmic d9431dc, src/widget/dropdown/multi/mod.rs
+//! Vendored from pop-os/libcosmic, src/widget/dropdown/multi/mod.rs
 
 mod model;
 pub use model::{List, Model, list, model};

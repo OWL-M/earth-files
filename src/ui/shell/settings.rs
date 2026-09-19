@@ -3,12 +3,7 @@
 
 //! Startup settings for [`crate::ui::shell::run`].
 //!
-//! A copy of libcosmic's `src/app/settings.rs` (rev `d9431dc`). It had to be
-//! copied rather than reused: every field there is `pub(crate)`, so a runner
-//! outside libcosmic cannot read the size, theme or font it is configured with.
-//!
-//! Dropped: `autosize` (gated on a cfg libcosmic only sets for itself, and
-//! never set by this app).
+//! Ported from pop-os/libcosmic d9431dc, src/app/settings.rs.
 
 use crate::ui::Theme;
 use crate::ui::iced_core::Font;

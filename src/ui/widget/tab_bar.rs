@@ -1,7 +1,7 @@
 // Copyright 2023 System76 <info@system76.com>
 // SPDX-License-Identifier: MPL-2.0
 
-//! Vendored from pop-os/libcosmic d9431dc, src/widget/tab_bar.rs
+//! Vendored from pop-os/libcosmic, src/widget/tab_bar.rs
 //!
 //! A collection of tabs for developing a tabbed interface.
 //!
@@ -22,8 +22,6 @@ pub fn horizontal<SelectionMode: Default, Message: Clone + 'static>(
 where
     Model<SelectionMode>: Selectable,
 {
-    // Upstream reads the active COSMIC theme's spacing; this app owns its
-    // spacing tables (`crate::ui::theme::spacing()`).
     let spacing = crate::ui::theme::spacing();
     let space_s = spacing.space_s;
     let space_xs = spacing.space_xs;
@@ -47,8 +45,6 @@ where
     Model<SelectionMode>: Selectable,
     SelectionMode: Default,
 {
-    // Upstream reads the active COSMIC theme's spacing; this app owns its
-    // spacing tables (`crate::ui::theme::spacing()`).
     let spacing = crate::ui::theme::spacing();
     let space_s = spacing.space_s;
     let space_xs = spacing.space_xs;

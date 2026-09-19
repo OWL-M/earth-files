@@ -1,7 +1,7 @@
 // Copyright 2022 System76 <info@system76.com>
 // SPDX-License-Identifier: MPL-2.0
 
-//! Vendored from pop-os/libcosmic d9431dc, src/widget/segmented_button/horizontal.rs
+//! Vendored from pop-os/libcosmic, src/widget/segmented_button/horizontal.rs
 //!
 //! Implementation details for the horizontal layout of a segmented button.
 

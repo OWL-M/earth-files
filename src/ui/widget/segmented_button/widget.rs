@@ -1,14 +1,10 @@
 // Copyright 2022 System76 <info@system76.com>
 // SPDX-License-Identifier: MPL-2.0
 
-//! Vendored from pop-os/libcosmic d9431dc, src/widget/segmented_button/widget.rs
+//! Vendored from pop-os/libcosmic, src/widget/segmented_button/widget.rs
 
 use super::model::{Entity, Model, Selectable};
 use super::{InsertPosition, ReorderEvent};
-// Upstream reads libcosmic's `pub(crate)` `WINDOWING_SYSTEM`; this app's
-// shell keeps its own. Upstream's `wayland_platform` cfg alias expands to
-// `feature = "wayland"` on free unix, and never reaches a downstream crate,
-// so this crate's `wayland` feature is the equivalent condition.
 use crate::ui::shell::runner::{WindowingSystem, windowing_system};
 use crate::ui::widget::menu::{
     self, CloseCondition, ItemHeight, ItemWidth, MenuBarState, PathHighlight, menu_roots_children,
@@ -46,9 +42,6 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use crate::ui::convert::{ToColor, ToRadius};
 
-// `cosmic::Plain` is a private type alias in libcosmic's `src/lib.rs`
-// (`type Plain = ...`, no `pub`), so it cannot be imported. Restated here
-// verbatim, as `dropdown` does: a transparent alias over a public type.
 type Plain = iced_core::text::paragraph::Plain<
     <iced::Renderer as iced_core::text::Renderer>::Paragraph,
 >;
@@ -58,10 +51,7 @@ thread_local! {
     static LAST_FOCUS_UPDATE: LazyCell<Cell<Instant>> = LazyCell::new(|| Cell::new(Instant::now()));
 }
 
-// Under `earth_files` so `RUST_LOG=earth_files=trace` reaches it. It was
-// `libcosmic::widget::tab_reorder`, inherited from the fork, which meant the
-// entire press -> candidate -> threshold -> start trace was invisible to the
-// filter anyone would reasonably try.
+// Under `earth_files` so `RUST_LOG=earth_files=trace` reaches it.
 const TAB_REORDER_LOG_TARGET: &str = "earth_files::widget::tab_reorder";
 
 /// A command that focuses a segmented item stored in a widget.
@@ -190,16 +180,10 @@ where
     pub(super) on_context: Option<Box<dyn Fn(Entity) -> Message + 'static>>,
     #[setters(skip)]
     pub(super) on_middle_press: Option<Box<dyn Fn(Entity) -> Message + 'static>>,
-    // The fork's `on_dnd_drop` / `mimes` / `on_dnd_enter` / `on_dnd_leave` /
-    // `drag_id` fields are not coming back: they were typed on
-    // `iced::clipboard::dnd::DndAction`, `iced::clipboard::mime::AllowedMimeTypes`
-    // and `cosmic::widget::dnd_destination::DragId`, none of which exist
-    // upstream. `on_file_drop` below is what they were for. It needs no `mimes`
-    // (`ui::dnd` negotiates those), no `DndAction` (move or copy is decided by
-    // the modifier at the drop), and no `enter`/`leave` pair, because this
-    // widget now tracks the hovered destination itself in
-    // `LocalState::file_drop_target` and draws it with the hover style it
-    // already had.
+    // `on_file_drop` below needs no mime list (`ui::dnd` negotiates those), no
+    // drop action (move or copy is decided by the modifier at the drop), and
+    // no enter/leave pair: this widget tracks the hovered destination itself
+    // in `LocalState::file_drop_target` and draws it with the hover style.
     #[setters(skip)]
     pub(super) tab_drag: Option<TabDragSource<Message>>,
     #[setters(skip)]
@@ -714,8 +698,7 @@ where
     }
 
     fn button_is_hovered(&self, state: &LocalState, key: Entity) -> bool {
-        // The button a file drag is over is drawn hovered. That is the clause
-        // the fork had on `dnd_state.drag_offer`, restored: during a Wayland
+        // The button a file drag is over is drawn hovered: during a Wayland
         // drag no pointer event reaches iced at all, so `state.hovered` alone
         // would leave the whole bar looking untouched while a drag crossed it.
         if state.file_drop_target == Some(key) {
@@ -791,9 +774,8 @@ where
             tab_drag.threshold
         );
 
-        // Upstream iced 0.14 has no `start_dnd`, and the fork's
-        // `clipboard::DndSource::Widget` path went with it. `ui::dnd` speaks
-        // `wl_data_device` directly instead; the clipboard is not involved.
+        // `ui::dnd` speaks `wl_data_device` directly; the clipboard is not
+        // involved.
         let _ = clipboard;
         state.tab_drag_candidate = None;
 
@@ -1127,11 +1109,6 @@ where
             };
             let parent = self.window_id;
 
-            // The rounded outer edge this used to request through
-            // `LiveSettings::corners` is gone: exwlshell has no corner-radius
-            // request. Upstream also had a private copy of `simple_popup` here,
-            // only so its view could map through `Action::App` rather than
-            // `action::app`; the shared one now takes the view as-is.
             shell.publish((surface_action)(
                 crate::ui::surface::action::simple_popup(
                     move || PopupSettings {
@@ -1262,7 +1239,7 @@ where
         let state = tree.state.downcast_mut::<LocalState>();
 
         // The compositor dismissed our context menu popup: nothing else tells this state
-        // about it. Upstream iced has no `PlatformSpecific::Wayland` event
+        // about it. iced has no `PlatformSpecific::Wayland` event
         // carrying the dismissed popup's id, so the shell records it and we
         // claim it here; see `ui::surface::dismissal`.
         {
@@ -1324,18 +1301,8 @@ where
 
         let hovered_before = state.hovered;
 
-        // The fork's `Event::Dnd(..)` arm of `update` (~255 lines) is gone along
-        // with `let my_id = self.get_drag_id();`. It handled
-        // `DndEvent::Source`/`DndEvent::Offer` (Enter/Leave/Motion/Drop/
-        // SelectedAction/Data) through `cosmic::widget::dnd_destination::State`
-        // and published `on_dnd_enter`/`on_dnd_leave`/`on_dnd_drop`, all of
-        // which belonged to *file* drag-and-drop and were removed in Phase 0.
-        // `iced::Event::Dnd`, `iced::clipboard::dnd` and
-        // `dnd_destination::State` are fork-only with no upstream equivalent,
-        // so `Self::poll_tab_drag` handles the remaining task: turning a
-        // tab-drag drop into `on_reorder`. It runs
-        // above, against `ui::dnd`'s own `wl_data_device` rather than against a
-        // toolkit event.
+        // `Self::poll_tab_drag`, called above, turns a tab-drag drop into
+        // `on_reorder` using `ui::dnd`'s own `wl_data_device`.
 
         if cursor_position.is_over(my_bounds) {
             let fingers_pressed = state.fingers_pressed.len();
@@ -1943,8 +1910,6 @@ where
             );
         }
 
-        // Upstream reads libcosmic's `pub(crate)` theme handle;
-        // `theme::active()` is the public equivalent.
         let rad_0 = crate::ui::theme::active().cosmic().corner_radii.radius_0;
 
         let divider_background = Background::Color(
@@ -2373,8 +2338,6 @@ where
         )
     }
 
-    // TODO(dnd): removed the `Widget::drag_destinations` leaf that registered this
-    // widget as a drop target (upstream iced 0.14 has no such method).
 }
 
 impl<'a, Variant, SelectionMode, Message> From<SegmentedButton<'a, Variant, SelectionMode, Message>>
@@ -2411,8 +2374,6 @@ impl<Message> TabDragSource<Message> {
     }
 }
 
-// TODO(dnd): removed `SimpleDragData` and its `iced::clipboard::mime::AsMimeTypes`
-// impl, the one-mime drag payload `start_tab_drag` handed to `start_dnd`.
 #[derive(Clone, Copy)]
 struct TabDragCandidate {
     entity: Entity,
@@ -2467,8 +2428,6 @@ pub struct LocalState {
     file_drag_done: Option<u64>,
     /// Time since last tab activation from wheel movements.
     wheel_timestamp: Option<Instant>,
-    // TODO(dnd): removed `dnd_state: cosmic::widget::dnd_destination::State<..>`
-    // and `offer_mimes: Vec<String>`.
     /// Tracks multi-touch events
     fingers_pressed: HashSet<Finger>,
     /// The currently pressed item
@@ -2669,10 +2628,9 @@ pub struct Id(widget::Id);
 impl Id {
     /// Creates a custom [`Id`].
     ///
-    /// Upstream `iced_core`'s `widget::Id::new` is a `const fn` taking
-    /// `&'static str`, where the fork's took `impl Into<Cow<'static, str>>`.
-    /// Keep this signature because `crate::tab` passes a `format!`. Split on
-    /// the `Cow` and use upstream's `From<String>` for the owned half.
+    /// `widget::Id::new` is a `const fn` taking `&'static str`. This signature
+    /// takes a `Cow` because `crate::tab` passes a `format!`; the owned half
+    /// goes through `From<String>`.
     pub fn new(id: impl Into<std::borrow::Cow<'static, str>>) -> Self {
         Self(match id.into() {
             std::borrow::Cow::Borrowed(id) => widget::Id::new(id),
@@ -2751,11 +2709,8 @@ fn draw_icon<Message: 'static>(
         &Tree::empty(),
         renderer,
         theme,
-        // `renderer::Style` upstream carries only `text_color`; the fork's
-        // `icon_color` and `scale_factor` are gone (see
-        // `crate::ui::theme::icon_color`). Here the loss is nil: the fork gave
-        // `icon_color` and `text_color` the same `color`, and the icon reads
-        // the channel out of `text_color`.
+        // `renderer::Style` carries only `text_color`; the icon reads its
+        // colour out of it (see `crate::ui::theme::icon_color`).
         &renderer::Style { text_color: color },
         Layout::new(&layout_node),
         cursor,

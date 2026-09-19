@@ -3,18 +3,11 @@
 
 //! The app's theme and layout tokens.
 //!
-//! [`Theme`] has the same four fields as libcosmic's selector: the palette,
-//! surface [`Layer`], blur setting and list position. [`Palette`] holds the
-//! colours, and [`style`] implements the vendored widgets' `Catalog` traits.
+//! [`Theme`] selects the palette, surface [`Layer`], blur setting and list
+//! position. [`Palette`] holds the colours, and [`style`] implements the
+//! vendored widgets' `Catalog` traits.
 //!
-//! [`active`] reads the theme written by [`set_active`]. libcosmic stores its
-//! active theme in a `pub(crate)` static, which an external shell cannot
-//! update. Widgets using `cosmic::theme::active()` therefore kept the compiled
-//! dark default, drawing dark dividers and menu chrome even in light mode.
-//!
-//! All three libcosmic density tables are copied here verbatim. The app's
-//! `Config` selects the density; `cosmic::theme::spacing()` instead uses the
-//! active COSMIC theme's spacing and follows the system density setting.
+//! The app's `Config` selects the density used by [`spacing`].
 
 use mundy::{ColorScheme, Interest, Preferences};
 use ::palette::Srgba;
@@ -28,8 +21,7 @@ pub mod palette;
 pub mod style;
 
 pub use palette::{Component, Container as PaletteContainer, CornerRadii, Palette};
-// Style selectors for `.class(…)`, matching
-// `cosmic::theme::{Button, Container, …}` under this crate's path.
+// Style selectors for `.class(…)`.
 pub use style::{
     Button, Checkbox, Container, MenuBarStyle, ProgressBar, Rule, Scrollable, SegmentedButton, Svg,
     Text, TextEditor, TextInput, menu_bar,
@@ -37,8 +29,8 @@ pub use style::{
 
 /// Straight-alpha "a over b", on non-linear sRGB.
 ///
-/// `cosmic_theme::composite::over`, which the ported style code calls to lay a
-/// translucent state colour over the surface beneath it.
+/// The style code calls this to lay a translucent state colour over the
+/// surface beneath it.
 #[must_use]
 pub fn over(a: Srgba, b: Srgba) -> Srgba {
     let alpha = (a.alpha + b.alpha * (1.0 - a.alpha)).clamp(0.0, 1.0);
@@ -54,10 +46,6 @@ pub fn over(a: Srgba, b: Srgba) -> Srgba {
 }
 
 /// Which of the two built-in palettes a [`Theme`] renders with.
-///
-/// `AppTheme::theme` uses only `dark()` and `light()`. libcosmic's additional
-/// `HighContrast{Dark,Light}`, `Custom` and `System` variants were unreachable
-/// here. `Custom` and `System` required `cosmic_config`, removed in Phase 0.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum ThemeType {
     /// The built-in dark theme.
@@ -88,8 +76,7 @@ impl ThemeType {
 
 /// The theme a widget is drawn with.
 ///
-/// Matches `cosmic::Theme` field for field. [`Palette`] holds the colours;
-/// the remaining fields control how widgets use them. Widgets can cheaply
+/// [`Palette`] holds the colours; the remaining fields control how widgets use them. Widgets can cheaply
 /// clone the theme and adjust `layer` to select a nested surface's container,
 /// or `list_item_position` to round only a row's outer corners.
 #[must_use]
@@ -108,9 +95,7 @@ pub struct Theme {
 impl Theme {
     /// The colours and metrics this theme renders with.
     ///
-    /// The name refers to the COSMIC design system and matches the ported
-    /// libcosmic styles. It also avoids a collision with iced's distinct
-    /// `Base::palette` method, which [`Theme`] also implements.
+    /// The name refers to the COSMIC design system.
     #[inline]
     pub fn cosmic(&self) -> &'static Palette {
         self.theme_type.cosmic()
@@ -168,8 +153,7 @@ impl Theme {
 ///
 /// An atomic stores the two possible [`ThemeType`] values, as [`DENSITY`]
 /// does. All other [`Theme`] fields use their defaults, so no lock is needed
-/// and mutex poisoning cannot occur. libcosmic's `pub(crate)` `Mutex<Theme>`
-/// prevented an external shell from changing the dark default.
+/// and mutex poisoning cannot occur.
 static ACTIVE: AtomicU8 = AtomicU8::new(0);
 
 /// Set the theme returned by [`active`].
@@ -193,33 +177,22 @@ pub fn active() -> Theme {
 
 /// The inherited symbolic icon colour.
 ///
-/// libcosmic's iced fork added `icon_color` to `iced_core::renderer::Style`
-/// (fork `iced/core/src/renderer.rs:93`), `iced_core::theme::Style` (fork
-/// `iced/runtime/src/lib.rs:156`) and `iced_widget::container::Style` (fork
-/// `iced/widget/src/container.rs:612`). The application style initialized it
-/// with `on_bg_color()`. Containers overrode it for their subtree (fork
-/// `container.rs:365-372`), as did `button`, `text_input` and `segmented_button`
-/// for their content. The fork's `Svg::symbolic` read the inherited colour
-/// (fork `iced/widget/src/svg.rs:308-311`).
-///
-/// Upstream's `renderer::Style` has only `text_color`. This carries the icon
-/// colour too: the fork's fifteen container `icon_color` initialisers in
-/// [`crate::ui::theme::style::iced`] matched `text_color`, except for
-/// [`Container::HeaderBar`]. Upstream containers propagate `text_color` in the
-/// same way the fork propagated `icon_color`.
+/// `iced_core::renderer::Style` has only `text_color`, which containers
+/// propagate to their subtree. The icon colour follows `text_color` for every
+/// container class in [`crate::ui::theme::style::iced`] except
+/// [`Container::HeaderBar`].
 ///
 /// Widgets with different icon and text colours call [`with_icon_color`].
 /// The override records both colours. [`icon_color`] uses the override while
 /// the supplied renderer style's `text_color` matches the recorded value.
 /// A container that replaces `text_color` supersedes the override; its text
-/// colour also supplies its icon colour. This follows the fork's
-/// `unwrap_or(renderer_style.icon_color)` inheritance chain.
+/// colour also supplies its icon colour.
 ///
 /// [`crate::ui::widget::button`] installs an override around its content.
 /// [`crate::ui::widget::header_bar`] installs one for `HeaderBar`, the only
 /// container class with different icon and text colours. `segmented_button`
 /// and `text_input` draw standalone icons with the icon colour passed as
-/// `text_color`, where the fork passed it as `icon_color`.
+/// `text_color`.
 ///
 /// [`crate::ui::widget::svg::Svg::symbolic`] reads this colour, as do `button`
 /// and `text_input` for icons they paint themselves.
@@ -266,9 +239,6 @@ pub fn system_preference() -> Theme {
 }
 
 /// Spacing steps, in logical pixels.
-///
-/// Field names match `cosmic_theme::Spacing`, so destructuring call sites
-/// can use this type by changing the import path.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Deserialize, Serialize)]
 pub struct Spacing {
     /// No spacing
@@ -376,9 +346,8 @@ impl Density {
 /// The active density.
 ///
 /// `spacing()` is called from view code that has no handle on `Config`, so the
-/// density is a process global set at startup and whenever the config changes,
-/// like libcosmic's active theme. A single atomic `u8` needs no lock and cannot
-/// suffer mutex poisoning.
+/// density is a process global set at startup and whenever the config changes.
+/// A single atomic `u8` needs no lock and cannot suffer mutex poisoning.
 static DENSITY: AtomicU8 = AtomicU8::new(Density::Standard.as_u8());
 static HEADER_SIZE: AtomicU8 = AtomicU8::new(Density::Standard.as_u8());
 
@@ -417,7 +386,7 @@ const COLOR_SCHEME_TIMEOUT: Duration = Duration::from_millis(300);
 
 /// Whether a reported colour scheme means "use the dark theme".
 ///
-/// `NoPreference` resolves to dark, matching libcosmic's own fallback.
+/// `NoPreference` resolves to dark.
 pub fn prefers_dark(scheme: ColorScheme) -> bool {
     !matches!(scheme, ColorScheme::Light)
 }
@@ -521,7 +490,6 @@ mod tests {
     fn color_scheme_maps_to_dark_preference() {
         assert!(prefers_dark(ColorScheme::Dark));
         assert!(!prefers_dark(ColorScheme::Light));
-        // No stated preference matches libcosmic's own fallback, which is dark.
         assert!(prefers_dark(ColorScheme::NoPreference));
     }
 
@@ -543,8 +511,7 @@ mod tests {
 
     #[test]
     fn standard_matches_libcosmic_defaults() {
-        // Match libcosmic's Spacing::default() values; changes affect every
-        // user's layout.
+        // Changing these values affects every user's layout.
         let s = Spacing::from(Density::Standard);
         assert_eq!(
             (s.space_none, s.space_xxxs, s.space_xxs, s.space_xs, s.space_s),

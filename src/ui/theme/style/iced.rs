@@ -3,15 +3,11 @@
 
 //! Stylesheet implementations for widgets native to iced.
 //!
-//! Upstream iced `0.14` has no `icon_color` field on `iced_core::theme::Style`,
-//! `iced_core::renderer::Style` or `iced_widget::container::Style`. libcosmic's
-//! fork added these fields to pass inherited symbolic icon colours down the
-//! widget tree.
-//!
-//! Of the fifteen `icon_color` initialisers removed from this file, all but
-//! [`Container::HeaderBar`] matched the adjacent `text_color`. The styles use
-//! upstream's `text_color` for icon inheritance; see
-//! [`crate::ui::theme::icon_color`] and [`header_bar_colors`] for the override.
+//! iced has no `icon_color` field on `iced_core::theme::Style`,
+//! `iced_core::renderer::Style` or `iced_widget::container::Style`, so the
+//! styles use `text_color` for symbolic icon inheritance; see
+//! [`crate::ui::theme::icon_color`] and [`header_bar_colors`] for the
+//! [`Container::HeaderBar`] override.
 
 use iced_core::{Background, Border, Color, Shadow, Vector};
 use iced::overlay::menu;
@@ -21,8 +17,7 @@ use iced::widget::{
     button as iced_button, checkbox as iced_checkbox, container as iced_container, pick_list,
     progress_bar, radio, rule, scrollable, svg, text_editor, text_input,
 };
-// `toggler`'s `Style`/`Catalog` are vendored from the fork rather than iced's:
-// see `crate::ui::widget::toggler`. `Status` is unchanged between the two.
+// `toggler`'s `Style`/`Catalog` are this crate's vendored ones, not iced's.
 use crate::ui::widget::toggler;
 use palette::WithAlpha;
 use std::rc::Rc;
@@ -33,7 +28,6 @@ use crate::ui::convert::{ToBackground, ToColor, ToRadius};
 
 pub mod application {
     use crate::ui::convert::{ToColor};
-    // The fork's `iced_runtime::Appearance` is upstream's `iced::theme::Style`.
     use iced::theme::Style as Appearance;
 
     use crate::ui::theme::Theme;
@@ -93,8 +87,6 @@ impl iced_button::Catalog for Theme {
         let corner_radii = &cosmic.corner_radii;
         let component = class.cosmic(self);
 
-        // Upstream `button::Style` stores the radius in `border`. The fork
-        // also had a flat `border_radius`, set to the same value here.
         let mut appearance = iced_button::Style {
             border: Border {
                 radius: match class {
@@ -482,10 +474,8 @@ impl<'a> From<iced_container::StyleFn<'a, Theme>> for Container<'a> {
 /// The header bar's `(icon colour, text colour)`.
 ///
 /// `Container::HeaderBar` is the only container class with different icon and
-/// text colours. The fork used `icon_color: accent_text_color()` and
-/// `text_color: background.on` for focused header bars (libcosmic
-/// `src/theme/style/iced.rs:546-561`). `crate::ui::widget::header_bar` reads
-/// this pair to install an override with `crate::ui::theme::with_icon_color`.
+/// text colours. `crate::ui::widget::header_bar` reads this pair to install an
+/// override with `crate::ui::theme::with_icon_color`.
 #[must_use]
 pub fn header_bar_colors(theme: &Theme, focused: bool) -> (Color, Color) {
     let cosmic = theme.cosmic();
@@ -1233,8 +1223,8 @@ impl From<Color> for Text {
     }
 }
 
-// This crate's `ui::widget::text::Style` includes the fork's `selected_fill`
-// and `selected_text_color` fields; upstream `text::Style` has only `color`.
+// This crate's `ui::widget::text::Style` adds `selected_fill` and
+// `selected_text_color` to iced's `text::Style`, which has only `color`.
 // `Theme` implements this crate's catalog for vendored selectable `Text` and
 // iced's catalog for the plain `Text` used internally by iced widgets.
 // `Text::Custom` returns the style with selection colours, and iced's

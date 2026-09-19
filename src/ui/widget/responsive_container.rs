@@ -2,16 +2,12 @@
 // SPDX-License-Identifier: MPL-2.0
 //
 // Vendored from libcosmic `src/widget/responsive_container.rs` (rev `d9431dc`).
-// It is `pub(crate)` there, and `responsive_menu_bar` (vendored
-// alongside it) needs it.
 
 //! Responsive Container, which will notify of size changes.
 
 use crate::ui::iced::Size;
-use crate::ui::iced_core::layout::Limits;
-// Upstream imports `event::{self, Event}`; only `Event` is used under this
-// crate's feature set.
 use crate::ui::iced_core::event::Event;
+use crate::ui::iced_core::layout::Limits;
 use crate::ui::iced_core::widget::{Id, Operation, Tree, tree};
 use crate::ui::iced_core::{
     Clipboard, Element, Layout, Length, Rectangle, Shell, Vector, Widget, layout, mouse, overlay,
@@ -282,9 +278,9 @@ where
         )
     }
 
-    // TODO(dnd): removed the `Widget::drag_destinations` router (upstream iced 0.14
-    // has no such method). Tab drag-to-reorder must be rebuilt on smithay-clipboard;
-    // without this pass-through the tab bar leaf is unreachable from the root walk.
+    // TODO(dnd): tab drag-to-reorder must be rebuilt on smithay-clipboard. iced
+    // 0.14's `Widget` has no `drag_destinations` pass-through, so the tab bar
+    // leaf is unreachable from the root walk.
 
 }
 

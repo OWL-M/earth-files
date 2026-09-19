@@ -1,7 +1,7 @@
 // Copyright 2022 System76 <info@system76.com>
 // SPDX-License-Identifier: MPL-2.0
 
-//! Vendored from pop-os/libcosmic d9431dc, src/widget/scrollable/mod.rs
+//! Vendored from pop-os/libcosmic, src/widget/scrollable/mod.rs
 
 mod scrollable;
 
@@ -9,9 +9,8 @@ pub use scrollable::{horizontal, scrollable, vertical};
 
 pub use iced::widget::scrollable::{AbsoluteOffset, RelativeOffset, Viewport};
 
-// `scroll_to`/`scroll_by`/`snap_to` were `Task`-returning helpers on the fork's
-// `iced::widget::scrollable`. Upstream ships them as bare `Operation`s in
-// `iced_core::widget::operation::scrollable`; these wrap them back into tasks.
+// `scroll_to`/`scroll_by`/`snap_to` are bare `Operation`s in
+// `iced_core::widget::operation::scrollable`; these wrap them into `Task`s.
 use iced_core::widget::Id;
 use iced_core::widget::operation::scrollable as op;
 use iced_runtime::Task;

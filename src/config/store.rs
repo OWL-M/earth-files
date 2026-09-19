@@ -1,7 +1,7 @@
 // Copyright 2026 System76 <info@system76.com>
 // SPDX-License-Identifier: GPL-3.0-only
 
-//! On-disk configuration, replacing `cosmic_config`.
+//! On-disk configuration.
 //!
 //! Values live in RON under `$XDG_CONFIG_HOME/earth-files/`. A missing or
 //! unreadable file yields `Default` rather than an error: a corrupt config must

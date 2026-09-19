@@ -1,7 +1,7 @@
 // Copyright 2022 System76 <info@system76.com>
 // SPDX-License-Identifier: MPL-2.0
 
-//! Vendored from pop-os/libcosmic d9431dc, src/widget/list/list_column.rs
+//! Vendored from pop-os/libcosmic, src/widget/list/list_column.rs
 
 use crate::ui::theme;
 use crate::ui::widget::divider;
@@ -21,12 +21,9 @@ pub struct ListButton<'a, Message> {
     selected: bool,
 }
 
-// TODO(dnd): removed `DndSourceBuilder`/`DndDestinationBuilder`, the two
-// `Option<Box<..>>` fields on `ListButton`, the `with_dnd_source` /
-// `with_dnd_destination` builders and the two wrap sites in `into_element`.
-// They wrapped a list button in libcosmic's `DndSource`/`DndDestination`, which
-// are built on `iced::clipboard::{dnd, mime}`, fork-only API with no upstream
-// equivalent. Neither builder had a caller in this app.
+// TODO(dnd): `ListButton` has no `with_dnd_source`/`with_dnd_destination`
+// builders; `iced::clipboard::{dnd, mime}` is not available in iced 0.14.
+// Nothing in this app needs them.
 
 /// Creates a [`ListButton`] with the given content.
 pub fn button<'a, Message>(content: impl Into<Element<'a, Message>>) -> ListButton<'a, Message> {

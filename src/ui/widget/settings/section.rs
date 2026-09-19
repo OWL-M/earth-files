@@ -1,7 +1,7 @@
 // Copyright 2022 System76 <info@system76.com>
 // SPDX-License-Identifier: MPL-2.0
 
-//! Vendored from pop-os/libcosmic d9431dc, src/widget/settings/section.rs
+//! Vendored from pop-os/libcosmic, src/widget/settings/section.rs
 
 use crate::ui::Element;
 use crate::ui::widget::list::list_column::IntoListItem;

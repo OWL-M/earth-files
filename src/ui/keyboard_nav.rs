@@ -1,9 +1,7 @@
 // Copyright 2023 System76 <info@system76.com>
 // SPDX-License-Identifier: MPL-2.0
 
-//! Vendored from pop-os/libcosmic d9431dc, src/keyboard_nav.rs, verbatim except
-//! for the import of `listen_raw`, which upstream iced re-exports as
-//! `iced::event::listen_raw` (`iced/src/lib.rs:585`).
+//! Vendored from pop-os/libcosmic, src/keyboard_nav.rs
 //!
 //! Subscribe to common application keyboard shortcuts.
 

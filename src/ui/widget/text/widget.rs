@@ -4,39 +4,23 @@
 
 //! A selectable, focusable text widget.
 //!
-//! Vendored from pop-os/libcosmic d9431dc, `iced/core/src/widget/text.rs`,
-//! libcosmic's iced fork, not its own `src/widget/text.rs`. Upstream
-//! `iced_core 0.14`'s text widget is 477 lines and has no selection at all;
-//! the fork's is 1250, and the ~773-line difference is the click-and-drag
-//! selection, focus, keyboard navigation, Ctrl+C / Ctrl+A and the right-click
-//! context-menu hooks that `ui::widget::selectable_text` delegates to.
+//! Vendored from pop-os/libcosmic, iced/core/src/widget/text.rs.
 //!
-//! `src/tab.rs` uses this widget in the details pane to let users select and
-//! copy a filename, path or timestamp.
-//!
-//! Changes needed for upstream iced:
+//! Provides click-and-drag selection, focus, keyboard navigation, Ctrl+C /
+//! Ctrl+A and the right-click context-menu hooks that
+//! `ui::widget::selectable_text` delegates to. `src/tab.rs` uses this widget
+//! in the details pane to let users select and copy a filename, path or
+//! timestamp.
 //!
 //!   * The `Widget` impl, and everything that constructs one, is concrete in
-//!     `iced::Renderer`. The fork keeps it generic, but the selection highlight
-//!     needs `Paragraph::highlight`, a fork-only trait method; this crate ports
-//!     it in [`crate::ui::widget::paragraph`] as a free function over the
-//!     concrete `iced_graphics::text::Paragraph`. Every call site in this crate
-//!     already used `iced::Renderer`, so this preserves the renderer type.
-//!   * `Format::ellipsize` and the `Text::ellipsize` builder are dropped, along
-//!     with the `Ellipsize` re-export. `Ellipsize` is a fork-only addition to
-//!     `iced_core::text` and to `core::text::Text`, and is documented as
-//!     unsuitable for vendoring; this crate ellipsizes with its own standalone
+//!     `iced::Renderer`: the selection highlight needs `Paragraph::highlight`,
+//!     which [`crate::ui::widget::paragraph`] provides as a free function over
+//!     the concrete `iced_graphics::text::Paragraph`.
+//!   * There is no `ellipsize` here; this crate ellipsizes with the standalone
 //!     [`crate::ui::widget::ellipsize::Ellipsize`] widget instead.
-//!   * The fork-only `Widget::id`/`set_id` methods are dropped, following
-//!     commit `91755dd` for the other vendored widgets. The `id` field and
-//!     the `a11y` node walk that used it are also dropped.
-//!   * `Style` keeps the fork's `selected_fill`/`selected_text_color`, which
-//!     upstream's one-field `text::Style` has no room for, so this module
-//!     carries its own `Style` and `Catalog`. `crate::ui::Theme` implements this
+//!   * `Style` carries `selected_fill`/`selected_text_color`, so this module
+//!     has its own `Style` and `Catalog`. `crate::ui::Theme` implements this
 //!     `Catalog` in `ui::theme::style::iced`.
-//!   * The fork's `impl Catalog for iced_core::Theme` and its `base`/`primary`/
-//!     `secondary`/`success`/`warning`/`danger` helpers are dropped: they style
-//!     iced's own built-in theme, which this app does not use.
 //!   * `text::Affinity` is `cosmic_text::Affinity` (see
 //!     [`crate::ui::widget::paragraph`]).
 
@@ -301,10 +285,8 @@ impl<P: Paragraph> State<P> {
     }
 
     // The three accessors below exist because `selection` and
-    // `clipboard_has_text` are private, exactly as in the fork. The fork's
-    // `HasSelectableText` impl lives in this same module and reaches them
-    // directly; this crate's lives in the parent module, so they are exposed
-    // here rather than the fields being widened.
+    // `clipboard_has_text` are private and the `HasSelectableText` impl lives
+    // in the parent module.
 
     /// The selection as an ordered grapheme range, or `None` if empty.
     pub fn selection_range(&self) -> Option<(usize, usize)> {
@@ -376,9 +358,9 @@ impl<P: Paragraph> iced_core::widget::operation::Focusable for State<P> {
     }
 }
 
-// Concrete in `iced::Renderer`, not generic as the fork has it: the selection
-// highlight needs `Paragraph::highlight`, which upstream's `text::Paragraph`
-// trait does not have, so it is reached on the concrete paragraph type through
+// Concrete in `iced::Renderer`: the selection highlight needs
+// `Paragraph::highlight`, which the `text::Paragraph` trait does not have, so
+// it is reached on the concrete paragraph type through
 // `crate::ui::widget::paragraph`.
 type Renderer = iced::Renderer;
 
@@ -912,11 +894,9 @@ where
     }
 }
 
-// The fork's `impl From<&str> for Element` is dropped: inside `iced_core` it was
-// a local impl, but from this crate both `&str` and `Element` are foreign, so
-// the orphan rule forbids it. Upstream iced provides its own, which yields
-// iced's plain `Text`, the same non-selectable result a bare `"...".into()`
-// produced before.
+// There is no `impl From<&str> for Element` here: both types are foreign, so
+// the orphan rule forbids it. iced's own impl applies and yields its plain,
+// non-selectable `Text`.
 
 /// The appearance of some text.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -959,11 +939,6 @@ pub trait Catalog: Sized {
 ///
 /// This is just a boxed closure: `Fn(&Theme, Status) -> Style`.
 pub type StyleFn<'a, Theme> = Box<dyn Fn(&Theme) -> Style + 'a>;
-
-// The fork's `impl Catalog for iced_core::Theme` and its `base`/`primary`/
-// `secondary`/`success`/`warning`/`danger` helpers style iced's own built-in
-// theme, which this app does not use. `crate::ui::Theme` implements this
-// `Catalog` in `ui::theme::style::iced` instead.
 
 const DEFAULT_SELECTION_COLOR: Color = Color {
     r: 0.0,

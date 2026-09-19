@@ -2,7 +2,7 @@
 // Copyright 2019 Héctor Ramón, Iced contributors
 // SPDX-License-Identifier: MPL-2.0 AND MIT
 
-//! Vendored from pop-os/libcosmic d9431dc, src/widget/dropdown/mod.rs
+//! Vendored from pop-os/libcosmic, src/widget/dropdown/mod.rs
 //!
 //! Displays a list of options in a popover menu on select.
 
@@ -19,10 +19,6 @@ pub use widget::*;
 
 use crate::ui::surface;
 
-// `cosmic::Plain` and `cosmic::Paragraph` are private type aliases in
-// libcosmic's `src/lib.rs` (`type Plain = ...`, no `pub`), so they cannot be
-// named from here. They are restated below from their public definitions,
-// verbatim apart from the path rewrites.
 pub(crate) type Plain = iced_core::text::paragraph::Plain<Paragraph>;
 pub(crate) type Paragraph =
     <iced::Renderer as iced_core::text::Renderer>::Paragraph;

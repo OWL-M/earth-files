@@ -1,8 +1,9 @@
 // Copyright 2026 System76 <info@system76.com>
 // SPDX-License-Identifier: GPL-3.0-only
 
-//! Application runner adapted from `libcosmic::app::run` and
-//! `libcosmic::app::cosmic::Cosmic`.
+//! Application runner.
+//!
+//! Ported from pop-os/libcosmic d9431dc, src/app/mod.rs and src/app/cosmic.rs.
 //!
 //! [`run`] uses [`iced_exwlshell::build_pattern::daemon`]. Its base window is
 //! an `xdg_toplevel` opened with `NewBaseWindow`, and its popups are
@@ -22,10 +23,6 @@
 //!   [`crate::ui::command`].
 //! - exwlshell reports no `xdg_toplevel` configure states, so nothing sets
 //!   `Core::window.is_maximized` or `sharp_corners`.
-//!
-//! The three `watch_config` subscriptions are omitted for different reasons.
-//! See [`crate::ui::app::Action`] for each variant and [`crate::ui::config`]
-//! for the two `CosmicTk` reads.
 
 use super::{Application, Core};
 use crate::ui::app::Task as AppTask;
@@ -37,14 +34,12 @@ use crate::ui::convert::{ToColor};
 
 /// The windowing system the app is running under.
 ///
-/// libcosmic keeps this in a `pub(crate)` `OnceLock` that only its own shell
-/// can write (`app/cosmic.rs:50`), so a replacement shell has to keep its own.
 /// Read by [`crate::ui::widget::responsive_menu_bar`] and by every widget that
 /// decides between a Wayland popup and an in-window overlay.
 pub(crate) static WINDOWING_SYSTEM: std::sync::OnceLock<WindowingSystem> =
     std::sync::OnceLock::new();
 
-/// The backends libcosmic distinguished.
+/// The windowing backends.
 ///
 /// Only [`WindowingSystem::Wayland`] is reachable because `iced_exwlshell`
 /// has no other backend. Readers use
@@ -77,9 +72,7 @@ const EMBEDDED_FONTS: &[&[u8]] = &[
 
 /// Load the interface fonts into the shared font system.
 ///
-/// libcosmic does this in `iced_settings` from fonts embedded in its crate;
-/// neither the function nor the bytes are reachable from here, so the same
-/// seven files are carried in `res/fonts/`. Without this the app renders in
+/// The fonts are carried in `res/fonts/`. Without this the app renders in
 /// whatever fontconfig picks for "Open Sans", which on most systems is not
 /// Open Sans.
 fn preload_fonts() {
@@ -94,12 +87,8 @@ fn preload_fonts() {
 
 /// Split [`super::Settings`] into what the daemon takes and what the shell keeps.
 ///
-/// This was `libcosmic::app::iced_settings`. Most of the `iced::window::Settings`
-/// it built has no counterpart: `IcedXdgWindowSettings` carries a size and a
-/// decoration mode and nothing else, so `min_size`/`max_size`, `resizable` and
-/// the resize border, `transparent` and `exit_on_close_request` are all dropped.
-/// The application id becomes the daemon's namespace rather than a
-/// `platform_specific.application_id`.
+/// `IcedXdgWindowSettings` carries a size and a decoration mode and nothing
+/// else. The application id becomes the daemon's namespace.
 fn split_settings<App: Application>(
     settings: super::Settings,
 ) -> (
@@ -117,10 +106,8 @@ fn split_settings<App: Application>(
     core.set_window_width(settings.size.width);
     core.set_window_height(settings.size.height);
 
-    // `cosmic::icon_theme::set_default` used to be called here from
-    // `Settings::default_icon_theme`. `ui::icon_theme` (`2848d63`) owns the
-    // icon theme now and resolves it from the desktop portal, so the setting is
-    // only consulted as an override.
+    // `ui::icon_theme` resolves the icon theme from the desktop portal, so the
+    // setting is only consulted as an override.
     if let Some(icon_theme) = settings.default_icon_theme.clone() {
         crate::ui::icon_theme::set_default(icon_theme);
     }
@@ -212,8 +199,7 @@ pub fn run<App: Application>(
     }
 
     // One-shot: `boot` takes `&self`, so the flags and `Core` are moved out on
-    // the first call and a second call panics, exactly as upstream's
-    // `BootData` does.
+    // the first call and a second call panics.
     let boot_data = RefCell::new(Some((core, flags, window_settings, theme)));
     let boot = move || {
         let (mut core, flags, window_settings, theme) = boot_data
@@ -249,31 +235,23 @@ pub fn run<App: Application>(
     .run()
 }
 
-/// The shell: owns the app and the state libcosmic's `Cosmic` used to own.
+/// The shell: owns the app, the theme and the popup surfaces.
 pub struct Shell<App: Application> {
     pub app: App,
     /// The theme every window renders with.
-    ///
-    /// libcosmic keeps this in its `pub(crate)` `theme::THEME` mutex, which no
-    /// code outside libcosmic can write. See the note on [`Self::cosmic_update`]'s
-    /// `AppThemeChange` arm.
     theme: Theme,
     /// View builders for the Wayland popup surfaces this shell has opened:
     /// the ones [`crate::ui::widget::text_context_menu`] queues, and the ones
     /// [`crate::ui::surface::Action::Popup`] carries in from `menu`,
     /// `context_menu`, `segmented_button` and `dropdown`.
     ///
-    /// Equivalent to libcosmic's `surface_views` (`app/cosmic.rs:92`). Each
-    /// builder captures its content and takes no `&App`. The `App*` variants
-    /// of libcosmic's `surface::Action`, whose builders borrow the app, have
-    /// no counterpart here.
+    /// Each builder captures its content and takes no `&App`.
     popup_views: std::collections::HashMap<
         window::Id,
         Box<dyn Fn() -> Element<'static, crate::ui::Action<App::Message>> + Send + Sync>,
     >,
-    /// Refcount of open surfaces per id, upstream's `opened_surfaces`
-    /// (`app/cosmic.rs:108`). Text context menus can reuse an id on a second
-    /// right-click before the previous surface's `SurfaceClosed` arrives
+    /// Refcount of open surfaces per id. Text context menus can reuse an id on
+    /// a second right-click before the previous surface's `SurfaceClosed` arrives
     /// (`drain_text_context_popups`). Counting open surfaces prevents that
     /// stale close from deleting the new popup's view.
     opened_surfaces: std::collections::HashMap<window::Id, u32>,
@@ -312,9 +290,6 @@ impl<App: Application> Shell<App> {
         {
             crate::ui::theme::style::iced::application::style(&self.theme)
         } else {
-            // Upstream's `iced_core::theme::Style` has only
-            // `background_color` and `text_color`; `icon_color` was a
-            // libcosmic-fork addition with no reader upstream.
             iced::theme::Style {
                 background_color: iced::Color::TRANSPARENT,
                 text_color: self.theme.cosmic().on_bg_color().to_color(),
@@ -324,12 +299,10 @@ impl<App: Application> Shell<App> {
 
     pub fn view(&self, id: window::Id) -> Element<'_, crate::ui::Action<App::Message>> {
         // Text widgets read this to learn which window they are being laid out
-        // in, so a right-click can anchor its popup to the right parent surface
-        // (`app/cosmic.rs:708`).
+        // in, so a right-click can anchor its popup to the right parent surface.
         crate::ui::widget::text_context_menu::set_current_window_id(id);
 
-        // A popup surface renders the view its creator handed us, not the app
-        // (`app/cosmic.rs:709-712`).
+        // A popup surface renders the view its creator handed us, not the app.
         if let Some(view) = self.popup_views.get(&id) {
             return view();
         }
@@ -343,8 +316,8 @@ impl<App: Application> Shell<App> {
             return self.app.view_window(id).map(crate::ui::Action::App);
         }
 
-        // `use_template` is upstream's switch between the composed chrome and
-        // a bare view (`app/cosmic.rs:723-727`); this app never sets it false.
+        // `use_template` switches between the composed chrome and a bare view;
+        // this app never sets it false.
         let view = if self.app.core().window.use_template {
             self.app.view_main()
         } else {
@@ -382,8 +355,7 @@ impl<App: Application> Shell<App> {
     ///
     /// `crate::ui::widget::text_context_menu` cannot issue a Task from inside a
     /// widget's `update()`, so it pushes onto two thread-local queues and pings
-    /// [`text_context_menu::wake_subscription`] to make this run. Upstream
-    /// drains them in `Cosmic::update` (`app/cosmic.rs:495-513`); without a
+    /// [`text_context_menu::wake_subscription`] to make this run. Without a
     /// drainer the queues just grow and no popup ever appears.
     ///
     /// Drain teardowns first to preserve destroy-then-recreate order when a
@@ -395,9 +367,8 @@ impl<App: Application> Shell<App> {
         use crate::ui::widget::text_context_menu;
 
         for id in text_context_menu::take_popup_destroys() {
-            // The view stays in `popup_views` until `SurfaceClosed`, exactly as
-            // upstream keeps its `surface_views` entry (`app/cosmic.rs:496-498`
-            // destroys the popup and nothing else). Dropping it here leaves the
+            // The view stays in `popup_views` until `SurfaceClosed`. Dropping it
+            // here leaves the
             // still-live surface without a view, and `Shell::view` then falls
             // through to `App::view_window`, which renders the main view into
             // the popup's tiny limits.
@@ -431,8 +402,7 @@ impl<App: Application> Shell<App> {
     /// Whether `id` names a popup surface this shell opened.
     ///
     /// The embedded case (`crate::dialog`) needs this to route a window id to
-    /// the nested shell that owns it, the way upstream reads its
-    /// `surface_views` map directly (`app/cosmic.rs:92`).
+    /// the nested shell that owns it.
     #[must_use]
     pub fn has_popup_view(&self, id: &window::Id) -> bool {
         self.popup_views.contains_key(id)
@@ -462,11 +432,7 @@ impl<App: Application> Shell<App> {
                 iced::Task::none()
             }
             // `menu`, `context_menu`, `segmented_button` and `dropdown` all
-            // build their popups with `surface::action::simple_popup`. Upstream
-            // had to type-erase the settings builder through `Arc<Box<dyn Any>>`
-            // and downcast it here, because the same variant also carried
-            // builders that borrow the application; ours carries only the one
-            // kind, so the builder is called directly.
+            // build their popups with `surface::action::simple_popup`.
             crate::ui::surface::Action::Popup(settings, view) => {
                 let settings = settings();
                 let id = settings.id;
@@ -482,9 +448,8 @@ impl<App: Application> Shell<App> {
                 ))
             }
             crate::ui::surface::Action::DestroyPopup(id) => {
-                // Upstream's arm is `destroy_popup(id)` alone
-                // (`app/cosmic.rs:242-244`); the view is dropped in
-                // `Action::SurfaceClosed`, once the surface is really gone. The
+                // The view is dropped in `Action::SurfaceClosed`, once the
+                // surface is really gone. The
                 // popup keeps drawing between the two, and a popup without a
                 // view falls through to `App::view_window`; see the comment in
                 // `drain_text_context_popups`.
@@ -551,13 +516,10 @@ impl<App: Application> Shell<App> {
                 self.app.core_mut().nav_bar_toggle_condensed();
             }
 
-            // Setting `theme::set_active` alongside is what upstream could not
-            // let a replacement shell do: libcosmic's own global is
-            // `pub(crate)`, so widgets reading `theme::active()` for colours
-            // rather than taking them from the theme passed to `draw`, notably
-            // `segmented_button`'s dividers, stayed on the compiled-in dark
-            // default, and light mode came out with dark dividers. Ours is
-            // writable, so they now follow the theme being rendered.
+            // Widgets that read `theme::active()` for colours rather than taking
+            // them from the theme passed to `draw`, notably `segmented_button`'s
+            // dividers, follow the theme being rendered only because
+            // `set_active` is updated here too.
             Action::AppThemeChange(theme) => {
                 self.theme = theme;
                 crate::ui::theme::set_active(&self.theme);
@@ -587,8 +549,7 @@ impl<App: Application> Shell<App> {
                 // reopen with the same id before this late close arrives, see
                 // `drain_text_context_popups`), a still-live surface is sharing
                 // it. Only drop the view once every opened surface for this id
-                // has been closed, matching upstream's refcount
-                // (`app/cosmic.rs:1193-1199`).
+                // has been closed.
                 if self.opened_surfaces.get_mut(&id).is_some_and(|v| {
                     *v = v.saturating_sub(1);
                     *v == 0
@@ -672,7 +633,7 @@ impl<App: Application> Shell<App> {
 
         // Drives the text context-menu popup queues: a right-click queues a
         // popup but publishes no message, so this re-emits `Action::None` to
-        // make `update()` run and drain the queue (`app/cosmic.rs:685-691`).
+        // make `update()` run and drain the queue.
         subscriptions
             .push(crate::ui::widget::text_context_menu::wake_subscription::<App::Message>());
 

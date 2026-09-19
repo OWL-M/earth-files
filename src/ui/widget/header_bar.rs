@@ -3,35 +3,14 @@
 
 //! The window header bar.
 //!
-//! Vendored from pop-os/libcosmic d9431dc, src/widget/header_bar.rs
+//! Vendored from pop-os/libcosmic, src/widget/header_bar.rs
 //!
-//! Changes needed for the move off libcosmic:
-//!
-//!   * `crate::{Element, Theme, Renderer, theme, widget}` become this crate's
-//!     own, so the bar is built with `ui::Theme` directly and `ui::shell`'s
-//!     `view_main` no longer round-trips it through `ui::theme_bridge`.
-//!   * `crate::config::header_size` is a CosmicTk read (libcosmic
-//!     `src/config/mod.rs:66`), which this crate does not do. The
-//!     density comes from [`crate::ui::theme::density`] instead. Both default to
-//!     `Density::Standard`, so the default padding is unchanged, as with the
-//!     font families in `ui::font`.
-//!   * `Widget::diff` takes `&self` upstream, not `&mut self`.
-//!   * `Widget::drag_destinations` is dropped: a libcosmic-fork addition to
-//!     `iced_core`'s `Widget` trait with no upstream counterpart.
-//!   * The title used the fork's `Text::ellipsize`, a fork-only method on
-//!     iced's `Text`. This crate ellipsizes with its own standalone
-//!     [`crate::ui::widget::ellipsize::Ellipsize`] widget instead, given the
-//!     same size, line height and font as `text::heading` so the title renders
-//!     as before.
-//!   * `mouse_area`'s double-click setter is `on_double_click` here, which is
-//!     what this crate's vendored `mouse_area` calls the fork's
-//!     `on_double_press`.
+//! The title is ellipsized with the standalone
+//! [`crate::ui::widget::ellipsize::Ellipsize`] widget, given the same size,
+//! line height and font as `text::heading`.
 
 use crate::ui::theme::{Density, Spacing};
 use crate::ui::widget::ellipsize::{Ellipsize, Mode as EllipsizeMode};
-// libcosmic's `row::with_children`/`row::with_capacity` free functions are its
-// own; upstream has the same constructors as `Row::with_children` and
-// `Row::with_capacity`.
 use crate::ui::widget::Row;
 use crate::ui::{Element, theme, widget};
 use apply::Apply;
@@ -191,7 +170,6 @@ impl<'a, Message> HeaderBarWidget<'a, Message> {
 impl<'a, Message: Clone + 'static> Widget<Message, crate::ui::Theme, crate::ui::Renderer>
     for HeaderBarWidget<'a, Message>
 {
-    // Upstream's `Widget::diff` is `&self`; the fork's is `&mut self`.
     fn diff(&self, tree: &mut tree::Tree) {
         if let Some(center) = &self.center {
             tree.diff_children(&[&self.start, &self.end, center]);
@@ -282,12 +260,12 @@ impl<'a, Message: Clone + 'static> Widget<Message, crate::ui::Theme, crate::ui::
         viewport: &iced_core::Rectangle,
     ) {
         // The enclosing `container` carries `Container::HeaderBar`, the one
-        // class whose icon colour differs from its text colour: the fork gave
-        // a focused header bar `icon_color: accent_text_color()` beside
-        // `text_color: background.on`, and the container wrote both into
-        // `renderer::Style`. Upstream's container writes only `text_color`, so
-        // the icon half is re-installed here, directly inside that container.
-        // See `crate::ui::theme::icon_color`.
+        // class whose icon colour differs from its text colour (a focused
+        // header bar has `icon_color: accent_text_color()` beside
+        // `text_color: background.on`). iced's container writes only
+        // `text_color` into `renderer::Style`, so the icon half is installed
+        // here, directly inside that container. See
+        // `crate::ui::theme::icon_color`.
         let (icon_color, _text_color) =
             crate::ui::theme::style::iced::header_bar_colors(theme, self.focused);
 
@@ -425,9 +403,6 @@ impl<'a, Message: Clone + 'static> HeaderBar<'a, Message> {
                     .into(),
             )
         } else if !self.title.is_empty() {
-            // The fork ellipsizes on `Text` itself; this crate has a
-            // standalone `Ellipsize` widget. Size, line height and font are
-            // `text::heading`'s, so the title is unchanged.
             Some(
                 Ellipsize::new(self.title, EllipsizeMode::End(1))
                     .size(14.0)
@@ -452,15 +427,14 @@ impl<'a, Message: Clone + 'static> HeaderBar<'a, Message> {
             })
             .height(Length::Fixed(32.0 + padding[0] as f32 + padding[2] as f32))
             .padding(padding.to_padding())
-            // `iced`'s `MouseArea` has no `on_drag`; the fork's does, and so
-            // does this crate's vendored `mouse_area`.
+            // `iced`'s `MouseArea` has no `on_drag`; this crate's vendored
+            // `mouse_area` does.
             .apply(crate::mouse_area::MouseArea::new);
 
-        // The fork's `MouseArea` setters took a bare `Message`; this crate's
-        // vendored `mouse_area` takes a closure of the event's geometry
+        // `mouse_area`'s setters take a closure of the event's geometry
         // (`OnDrag = Fn(Option<Rectangle>) -> Message`, `OnMouseButton =
-        // Fn(Option<Point>) -> Message`). Discarding the argument makes the two
-        // equivalent; the header bar does not use the position.
+        // Fn(Option<Point>) -> Message`). The header bar does not use the
+        // position, so the argument is discarded.
         if let Some(message) = self.on_drag {
             widget = widget.on_drag(move |_| message.clone());
         }

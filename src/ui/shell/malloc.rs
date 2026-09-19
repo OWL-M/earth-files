@@ -1,8 +1,9 @@
 // Copyright 2026 System76 <info@system76.com>
 // SPDX-License-Identifier: GPL-3.0-only
 
-//! glibc allocator tuning, ported from libcosmic's `src/malloc.rs` (rev
-//! `d9431dc`), which is `pub(crate)` there and so unreachable from here.
+//! glibc allocator tuning.
+//!
+//! Ported from pop-os/libcosmic d9431dc, src/malloc.rs.
 
 use std::os::raw::c_int;
 

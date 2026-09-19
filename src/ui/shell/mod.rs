@@ -4,17 +4,11 @@
 //! This app's application shell: the code that sits between iced and
 //! `crate::app::App`.
 //!
-//! Phase 2 replaces `libcosmic::app::Application` + `libcosmic::app::cosmic::Cosmic`
-//! with [`Application`] + [`Shell`], driving `iced::daemon` directly the way
-//! `libcosmic::app::run` does. The toolkit is unchanged: still libcosmic's
-//! iced fork, still `crate::ui::Theme`, still `cosmic::widget` for anything not
-//! yet vendored.
+//! [`Application`] and [`Shell`] drive `iced::daemon` directly.
 //!
 //! `src/dialog.rs` is a second, nested [`Application`]: its file-picker
 //! windows embed a [`Shell`] of their own inside this app's daemon, driving it
 //! through the public `app`, `init` and popup accessors on [`Shell`].
-//!
-//! Reference: `docs/superpowers/specs/2026-09-17-libcosmic-shell-anatomy.md`.
 
 pub mod context_drawer;
 pub mod core;
@@ -35,12 +29,6 @@ use crate::ui::convert::{PushMaybe, ToColor, ToRadius};
 use crate::ui::convert::{ToPadding};
 
 /// An interactive application driven by [`Shell`].
-///
-/// The method set mirrors `libcosmic::app::Application` (plus the handful of
-/// `ApplicationExt` methods this app calls) so that moving `src/app.rs` across
-/// is a change of import path, not of behaviour. Dropped from upstream's trait:
-/// `type Executor` (unused on the `multi-window` path), the `single-instance`
-/// D-Bus hooks, and `nav_bar`'s default body (this app overrides it).
 #[allow(unused_variables)]
 pub trait Application
 where
@@ -161,17 +149,6 @@ where
         Task::none()
     }
 
-    // `system_theme_update` / `system_theme_mode_update` were here. They were
-    // typed on `cosmic_theme::{Theme, ThemeMode}` and fed by the two
-    // `watch_config` subscriptions the shell port removed, so by Phase 3's
-    // theme step they had no caller left and no implementor that read either
-    // argument (`app.rs`'s override ignored both and triggered the idempotent
-    // `update_config`; the plan records this as "already dead for rendered
-    // output"). Keeping them would have meant taking a direct dependency on
-    // `cosmic-theme` purely to spell the signature of two dead methods.
-    // Dark/light still comes from the cached mundy portal answer via
-    // `theme::system_preference`.
-
     /// Constructs the view for the main window.
     fn view(&self) -> Element<'_, Self::Message>;
 
@@ -182,10 +159,8 @@ where
 
     /// Composes the application chrome around [`Application::view`].
     ///
-    /// Ported from `libcosmic`'s `ApplicationExt::view_main`
-    /// (`src/app/mod.rs:614-889`, rev `d9431dc`). Padding values, the
-    /// `id_container` strings and the element order are reproduced exactly;
-    /// see `docs/superpowers/specs/2026-09-17-libcosmic-shell-anatomy.md` §2.2.
+    /// Ported from pop-os/libcosmic d9431dc, src/app/mod.rs
+    /// (`ApplicationExt::view_main`).
     #[allow(clippy::too_many_lines)]
     fn view_main(&self) -> Element<'_, crate::ui::Action<Self::Message>> {
         use crate::ui::app::Action;
@@ -390,11 +365,6 @@ where
                         header = header.on_minimize(crate::ui::Action::Cosmic(Action::Minimize));
                     }
 
-                    // `header_bar` and `nav_bar_toggle` are vendored now
-                    // (`ui::widget::header_bar`, `ui::widget::nav_bar_toggle`),
-                    // so the bar is built with this crate's own `Theme` and the
-                    // `ui::theme_bridge` round trip that used to carry our
-                    // elements into libcosmic's bar and back is gone.
                     for element in self.header_start() {
                         header = header.start(element.map(crate::ui::Action::App));
                     }
@@ -473,8 +443,6 @@ where
         }
 
         let view_element: Element<'_, crate::ui::Action<Self::Message>> = popover.into();
-        // `cosmic::prelude::ElementExt::debug` is implemented only for
-        // libcosmic's `Element`; this is its body.
         if core.debug {
             view_element.explain(crate::ui::iced::Color::WHITE)
         } else {
@@ -487,7 +455,7 @@ where
         None
     }
 
-    // --- provided helpers, upstream's `ApplicationExt` ---
+    // --- provided helpers ---
 
     /// Initiates a window drag.
     fn drag(&mut self) -> Task<Self::Message> {
@@ -522,8 +490,6 @@ where
     /// Set the title of a window.
     fn set_window_title(&mut self, title: String, id: window::Id) -> Task<Self::Message> {
         self.core_mut().title.insert(id, title.clone());
-        // Upstream chains `Core::set_title`, a documented no-op on this
-        // platform: `libcosmic::command::set_title` returns `Task::none()`.
         // The daemon's `.title(..)` closure supplies the compositor with the
         // title from the `title` map.
         Task::none()

@@ -1,15 +1,13 @@
 // Copyright 2026 System76 <info@system76.com>
 // SPDX-License-Identifier: GPL-3.0-only
 
-//! Menu bar styling, ported from libcosmic `d9431dc`, `src/theme/style/menu_bar.rs`
-//! (itself from `iced_aw`, MIT).
+//! Menu bar styling.
+//!
+//! Ported from pop-os/libcosmic d9431dc, src/theme/style/menu_bar.rs (itself
+//! from `iced_aw`, MIT).
 //!
 //! [`Appearance`] and [`StyleSheet`] are vendored here for
 //! [`crate::ui::theme::Theme`], and [`crate::ui::widget::menu`] uses these types.
-//! Re-exporting `cosmic::style::menu_bar` was necessary while libcosmic owned
-//! the implementation for `cosmic::Theme`: a vendored trait would have been a
-//! distinct type. Phase 3 moves both the theme and implementation into this
-//! crate.
 
 use iced_core::Color;
 
@@ -46,12 +44,7 @@ pub trait StyleSheet {
 
 /// The style of a menu bar and its menus.
 ///
-/// Every call site uses `Default`, so this omits libcosmic's
-/// `Custom(Arc<dyn StyleSheet<Style = Theme>>)` variant and its
-/// `impl From<fn(&Theme) -> Appearance>` and
-/// `impl StyleSheet for fn(&Theme) -> Appearance`. Those implementations could
-/// be added with the local trait; they were not permitted while the trait
-/// belonged to libcosmic.
+/// Every call site uses `Default`, so there is no custom variant.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum MenuBarStyle {
     /// The default style.

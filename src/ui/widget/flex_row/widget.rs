@@ -1,7 +1,7 @@
 // Copyright 2023 System76 <info@system76.com>
 // SPDX-License-Identifier: MPL-2.0
 
-//! Vendored from pop-os/libcosmic d9431dc, src/widget/flex_row/widget.rs
+//! Vendored from pop-os/libcosmic, src/widget/flex_row/widget.rs
 
 use iced::Renderer;
 
@@ -254,9 +254,9 @@ impl<Message: 'static + Clone> Widget<Message, crate::ui::Theme, Renderer> for F
         )
     }
 
-    // TODO(dnd): removed the `Widget::drag_destinations` router (upstream iced 0.14
-    // has no such method). Tab drag-to-reorder must be rebuilt on smithay-clipboard;
-    // without this pass-through the tab bar leaf is unreachable from the root walk.
+    // TODO(dnd): tab drag-to-reorder must be rebuilt on smithay-clipboard. iced
+    // 0.14's `Widget` has no `drag_destinations` pass-through, so the tab bar
+    // leaf is unreachable from the root walk.
 }
 
 impl<'a, Message: 'static + Clone> From<FlexRow<'a, Message>> for Element<'a, Message> {

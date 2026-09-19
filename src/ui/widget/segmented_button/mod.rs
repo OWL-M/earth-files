@@ -1,7 +1,7 @@
 // Copyright 2022 System76 <info@system76.com>
 // SPDX-License-Identifier: MPL-2.0
 
-//! Vendored from pop-os/libcosmic d9431dc, src/widget/segmented_button/
+//! Vendored from pop-os/libcosmic, src/widget/segmented_button/
 //!
 //! A widget providing a conjoined set of linear items that function in conjunction as a single button.
 //!
@@ -11,8 +11,8 @@
 //!
 //! ```ignore
 //! use iced_core::Length;
-//! use cosmic::theme;
-//! use cosmic::widget::segmented_button;
+//! use crate::ui::theme;
+//! use crate::ui::widget::segmented_button;
 //!
 //! enum AppMessage {
 //!     Selected(segmented_button::Key)
@@ -85,10 +85,6 @@ pub use self::model::{
     BuilderEntity, Entity, EntityMut, Model, ModelBuilder, MultiSelect, MultiSelectEntityMut,
     MultiSelectModel, Selectable, SingleSelect, SingleSelectEntityMut, SingleSelectModel,
 };
-// `style.rs` is vendored as of Phase 3. It was re-exported from libcosmic for
-// as long as the trait was implemented for `cosmic::Theme` inside libcosmic:
-// a vendored copy would then have been a distinct nominal type that nothing
-// implemented. `crate::ui::theme::style::segmented_button` writes the impl now.
 mod style;
 pub use self::style::{Appearance, ItemAppearance, ItemStatusAppearance, StyleSheet};
 pub use self::vertical::{VerticalSegmentedButton, vertical};

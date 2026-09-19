@@ -3,12 +3,10 @@
 
 //! Ellipsized text, implemented above iced.
 //!
-//! Upstream `iced 0.14.0` has no `text::Ellipsize`; libcosmic's fork does,
-//! and it cannot be vendored (see the Ellipsize section of
-//! `docs/superpowers/plans/2026-09-18-phase-3-toolkit-swap.md`). So this
-//! widget measures the string with the font, size and shaping it will be
-//! drawn with, truncates it on grapheme boundaries, inserts `…`, and hands a
-//! plain `String` to iced's own text layout.
+//! `iced 0.14.0` has no `text::Ellipsize`, so this widget measures the string
+//! with the font, size and shaping it will be drawn with, truncates it on
+//! grapheme boundaries, inserts `…`, and hands a plain `String` to iced's own
+//! text layout.
 //!
 //! It reproduces `cosmic-text 0.19`'s algorithm (`shape.rs::layout_middle`
 //! and the `max_line_count` path):

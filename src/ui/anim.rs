@@ -1,7 +1,7 @@
 // Copyright 2023 System76 <info@system76.com>
 // SPDX-License-Identifier: MPL-2.0
 
-//! Vendored from pop-os/libcosmic d9431dc, src/anim.rs, verbatim.
+//! Vendored from pop-os/libcosmic, src/anim.rs
 //!
 //! Interpolation helpers and the small animation clock the vendored widgets use.
 

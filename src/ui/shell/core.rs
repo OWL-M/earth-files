@@ -1,18 +1,9 @@
 // Copyright 2026 System76 <info@system76.com>
 // SPDX-License-Identifier: GPL-3.0-only
 
-//! This app's `Core`: the window/nav-bar state libcosmic's shell used to own.
+//! This app's `Core`: the window and nav-bar state owned by the shell.
 //!
-//! Ported from libcosmic `src/core.rs` (rev `d9431dc`). Field and method names
-//! are kept identical so the app's call sites change by path only, and the
-//! derived state (`is_condensed`, `nav_bar.active`) is recomputed by exactly
-//! the same rules and from exactly the same setters.
-//!
-//! Dropped, because nothing in this app reads them: `applet`, `single_instance`,
-//! `settings_daemon`, `portal_*`, `theme_sub_counter`, `icon_theme_override`,
-//! and the blur / corner-radius trio (`auto_blur`, `auto_corner_radius`,
-//! `app_type`); see `docs/superpowers/specs/2026-09-17-libcosmic-shell-anatomy.md`
-//! §6.4 for what dropping the last three costs.
+//! Ported from pop-os/libcosmic d9431dc, src/core.rs.
 
 use crate::ui::iced::{Size, window};
 use crate::ui::iced_core::layout::Limits;
@@ -28,7 +19,7 @@ pub struct NavBar {
     toggled_condensed: bool,
 }
 
-/// COSMIC-specific settings for windows.
+/// Window chrome settings.
 #[allow(clippy::struct_excessive_bools)]
 #[derive(Clone)]
 pub struct Window {
@@ -40,11 +31,9 @@ pub struct Window {
     pub sharp_corners: bool,
     /// Whether the context drawer is shown.
     ///
-    /// Public as in upstream. Three sites write it directly:
-    /// `src/app.rs:2062`, `src/app.rs:3758` and `src/dialog.rs:820`. They bypass
-    /// [`Core::set_show_context`] and its `is_condensed` recompute. Keep this
-    /// behavior, including the public field and writes without recomputation,
-    /// to match the pre-migration reference screenshot for this phase.
+    /// Three sites write it directly: `src/app.rs:2062`, `src/app.rs:3758` and
+    /// `src/dialog.rs:820`. They bypass [`Core::set_show_context`] and its
+    /// `is_condensed` recompute.
     pub show_context: bool,
     pub show_headerbar: bool,
     pub show_window_menu: bool,
@@ -294,7 +283,7 @@ impl Core {
 
     /// Set the height of the main window.
     ///
-    /// Plain assignment: upstream does not recompute `is_condensed` here.
+    /// Plain assignment; `is_condensed` is not recomputed here.
     #[inline]
     pub(crate) const fn set_window_height(&mut self, new_height: f32) {
         self.window.height = new_height;

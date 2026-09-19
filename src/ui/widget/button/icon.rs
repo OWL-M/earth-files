@@ -1,7 +1,7 @@
 // Copyright 2023 System76 <info@system76.com>
 // SPDX-License-Identifier: MPL-2.0
 
-//! Vendored from pop-os/libcosmic d9431dc, src/widget/button/icon.rs
+//! Vendored from pop-os/libcosmic, src/widget/button/icon.rs
 
 use super::{Builder, ButtonClass};
 use crate::ui::Element;

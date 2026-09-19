@@ -3,17 +3,17 @@
 
 //! The app's colour palette.
 //!
-//! `cosmic_theme::Theme` contains about 300 derived colours, produced from an
-//! 11-step Oklch neutral ramp by `cosmic-theme`'s `steps`/`composite` modules
-//! and WCAG contrast picks. Vendored widget styles read these fields directly
-//! (`component.hover`, `container.divider`, `control_7()`, …), so the palette
-//! must reproduce them exactly to preserve the app's appearance.
+//! A [`Palette`] holds about 300 derived colours, produced from an 11-step
+//! Oklch neutral ramp by colour stepping, compositing and WCAG contrast picks.
+//! Vendored widget styles read these fields directly (`component.hover`,
+//! `container.divider`, `control_7()`, …), so the palette must reproduce them
+//! exactly to preserve the app's appearance.
 //!
-//! [`DARK`] and [`LIGHT`] are snapshots of
-//! `cosmic_theme::Theme::{dark_default, light_default}`, emitted as Rust source
-//! into `generated.rs`. They preserve the derived colours without computing
-//! them at runtime. Porting the derivation would require several hundred lines
-//! of colour maths and two palette RON files to compute these two constants.
+//! [`DARK`] and [`LIGHT`] are snapshots of the COSMIC dark and light themes,
+//! stored as Rust source in `generated.rs`. They preserve the derived colours
+//! without computing them at runtime. Deriving them would require several
+//! hundred lines of colour maths and two palette RON files to compute these
+//! two constants.
 //!
 //! `iced::theme::palette::Extended::generate` produces five
 //! `weak`/`base`/`strong` pairs through lightening and mixing. COSMIC uses a
@@ -21,7 +21,7 @@
 //! would change every colour and require rewriting the palette's consumers.
 //!
 //! Custom COSMIC accent colours are not followed. `AppTheme::theme` requests
-//! only the two built-in themes; `cosmic_config` was removed in Phase 0.
+//! only the two built-in themes.
 
 use palette::Srgba;
 
@@ -32,8 +32,6 @@ mod generated;
 pub use generated::{DARK, LIGHT};
 
 /// The colours of one widget, in each of its states.
-///
-/// Field-for-field `cosmic_theme::Component`.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Component {
     /// The base color of the widget
@@ -63,8 +61,6 @@ pub struct Component {
 }
 
 /// A fully transparent component, for styles that paint nothing.
-///
-/// `cosmic::theme::TRANSPARENT_COMPONENT`.
 pub static TRANSPARENT_COMPONENT: Component = {
     const CLEAR: Srgba = Srgba::new(0.0, 0.0, 0.0, 0.0);
     Component {
@@ -117,8 +113,6 @@ impl Component {
 
 /// One surface level: its background, the components on it, its dividers and
 /// its text.
-///
-/// Field-for-field `cosmic_theme::Container`.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Container {
     /// The color of the container
@@ -135,8 +129,6 @@ pub struct Container {
 
 /// Corner radii, in logical pixels, as `[top_left, top_right, bottom_right,
 /// bottom_left]`.
-///
-/// Field-for-field `cosmic_theme::CornerRadii`.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct CornerRadii {
     /// Corner radii of 0
@@ -156,8 +148,7 @@ pub struct CornerRadii {
 /// The raw palette the derived colours were generated from.
 ///
 /// Style code reads only the neutral ramp, through [`Palette::control_0`] and
-/// related accessors. The named accents from `cosmic_theme` keep the snapshot
-/// complete for comparison with its source.
+/// related accessors. The remaining fields keep the snapshot complete.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Raw {
     /// Name of the palette
@@ -230,9 +221,6 @@ pub struct Raw {
 
 /// Every colour and metric one theme renders with.
 ///
-/// Fields and accessors match `cosmic_theme::Theme` for use by the ported
-/// libcosmic styles. Fields used only by `cosmic-comp` are omitted: window
-/// gaps, the active hint, the window hint colour and blur/frost settings.
 /// This app never enables blur, so `transparent` is always false. The
 /// `transparent_*` containers are included for completeness.
 #[derive(Clone, Debug, PartialEq)]
@@ -302,8 +290,7 @@ impl Palette {
     /// The background container.
     ///
     /// `transparent` selects the blurred variant. It is always false in this
-    /// app, which never enables blur. The argument matches libcosmic's API
-    /// for use by the ported styles.
+    /// app, which never enables blur.
     #[inline]
     pub fn background(&self, transparent: bool) -> &Container {
         if transparent {

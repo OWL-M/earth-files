@@ -329,9 +329,9 @@ impl<Message: Clone> Widget<Message, crate::ui::Theme, Renderer> for ContextDraw
         })))
     }
 
-    // TODO(dnd): removed the `Widget::drag_destinations` router (upstream iced 0.14
-    // has no such method). Tab drag-to-reorder must be rebuilt on smithay-clipboard;
-    // without this pass-through the tab bar leaf is unreachable from the root walk.
+    // TODO(dnd): tab drag-to-reorder must be rebuilt on smithay-clipboard. iced
+    // 0.14's `Widget` has no `drag_destinations` pass-through, so the tab bar
+    // leaf is unreachable from the root walk.
 
 }
 

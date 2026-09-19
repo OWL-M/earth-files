@@ -929,7 +929,6 @@ impl App {
     #[cfg(feature = "desktop")]
     fn exec_entry_action(entry: &crate::desktop_entry::DesktopEntryData, action: usize) {
         if let Some(action) = entry.desktop_actions.get(action) {
-            // Largely copied from COSMIC app library
             let mut exec = shlex::Shlex::new(&action.exec);
             match exec.next() {
                 Some(cmd) if !cmd.contains('=') => {
@@ -2753,8 +2752,7 @@ impl Application for App {
                 }
             }
             // Intentionally a no-op: this handler was desktop-mode-only and desktop mode
-            // is gone, but DialogPages still emits this message. The family is slated
-            // for removal with the Phase 2 shell rewrite.
+            // is gone, but DialogPages still emits this message.
             Message::DesktopDialogs(_show) => {}
             Message::DialogCancel => {
                 if let Some((_page, task)) = self.dialog_pages.pop_front() {
@@ -4699,7 +4697,7 @@ impl Application for App {
                 }
             }
             Message::Cosmic(cosmic) => {
-                // Forward cosmic messages
+                // Forward shell actions to the shell.
                 return Task::perform(async move { cosmic }, crate::ui::action::cosmic);
             }
             Message::None => {}
@@ -5302,9 +5300,8 @@ impl Application for App {
                         last_kind = kind;
                     }
                     column = column.add(
-                        // `iced`'s `MouseArea` has no `on_double_press`; the
-                        // fork's does, and so does this crate's vendored
-                        // `mouse_area`, where it is called `on_double_click`.
+                        // `iced`'s `MouseArea` has no `on_double_press`; this
+                        // crate's vendored `mouse_area` has `on_double_click`.
                         crate::mouse_area::MouseArea::new(
                             widget::button::custom(
                                 widget::Row::with_children([
@@ -5847,11 +5844,8 @@ impl Application for App {
                     widget::tab_bar::horizontal(&self.tab_model)
                         .button_height(32)
                         .button_spacing(space_xxs)
-                        // Drag-to-reorder tabs. This rides on libcosmic's drag-and-drop
-                        // machinery (segmented_button starts a drag with this mime), but
-                        // it is a distinct feature from file drag-and-drop, now removed.
-                        // Phase 2 must re-solve tab reordering when segmented_button is
-                        // vendored onto iced.
+                        // Drag-to-reorder tabs: segmented_button starts a drag with
+                        // this mime. A distinct feature from file drag-and-drop.
                         .enable_tab_drag(String::from("x-earth-files/tab-drag"))
                         .on_reorder(Message::ReorderTab)
                         .tab_drag_threshold(25.)
@@ -6508,8 +6502,7 @@ pub(crate) mod test_utils {
             TabConfig::default(),
             ThumbCfg::default(),
             None,
-            // The fork's `Display for Id` printed "Undefined" for a unique
-            // id, so that is the name this preview tab was already getting.
+            // The scrollable's name; see `Tab::scrollable_name`.
             std::borrow::Cow::Borrowed("Undefined"),
             None,
         );

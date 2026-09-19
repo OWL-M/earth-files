@@ -3,12 +3,7 @@
 
 //! Text with a selection and a right-click context menu.
 //!
-//! Vendored from pop-os/libcosmic d9431dc, src/widget/selectable_text.rs
-//!
-//! Upstream has no licence header on this file; the standard libcosmic one is
-//! added here. `wayland_platform`, which selects between the Wayland popup and
-//! the in-window overlay, is mapped to this crate's `wayland` feature, and the
-//! windowing system is read from `crate::ui::shell::runner`.
+//! Vendored from pop-os/libcosmic, src/widget/selectable_text.rs
 
 use iced::Renderer;
 use crate::ui::widget::menu::MenuBarState;
@@ -27,9 +22,8 @@ use iced_core::{
 use std::borrow::Cow;
 use crate::ui::convert::{ToColor, ToRadius};
 
-// The fork's `iced_core::widget::text::Text`, which this crate now vendors as
-// `ui::widget::text::Text`. Upstream iced's `Text` is not selectable and has no
-// `selectable()`, so this wrapper would have nothing to delegate to.
+// iced's `Text` is not selectable and has no `selectable()`; this crate's
+// `ui::widget::text::Text` is.
 type InnerText<'a> = crate::ui::widget::text::Text<'a, crate::ui::Theme, Renderer>;
 
 /// A selectable text widget with right-click context menu support.
@@ -299,8 +293,8 @@ impl<'a, Message: Clone + 'static> Widget<Message, crate::ui::Theme, Renderer> f
 
         // draw a border when the text is focused
         use iced_core::renderer::Renderer as RendererExt;
-        // The vendored `Text`'s state, not iced's: `is_keyboard_focused` is
-        // part of the fork's focus machinery, which upstream has no trace of.
+        // The vendored `Text`'s state, not iced's: `is_keyboard_focused` lives
+        // there.
         use crate::ui::widget::text::widget::State as TextState;
 
         let state = inner_tree.state.downcast_ref::<TextState>();

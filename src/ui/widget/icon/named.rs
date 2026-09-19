@@ -1,7 +1,7 @@
 // Copyright 2023 System76 <info@system76.com>
 // SPDX-License-Identifier: MPL-2.0
 
-//! Vendored from pop-os/libcosmic d9431dc, src/widget/icon/named.rs
+//! Vendored from pop-os/libcosmic, src/widget/icon/named.rs
 
 use super::{Handle, Icon};
 use std::borrow::Cow;
@@ -80,9 +80,6 @@ impl Named {
             lookup.find()
         };
 
-        // `crate::ui::icon_theme` is libcosmic's `icon_theme` vendored, minus
-        // its tie to `com.system76.CosmicTk`; `default()` returns an owned
-        // `String`, as upstream's does, so the borrows below are `as_str()`.
         use crate::ui::icon_theme;
 
         let theme = icon_theme::default();

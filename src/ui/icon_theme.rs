@@ -1,40 +1,30 @@
 // Copyright 2023 System76 <info@system76.com>
 // SPDX-License-Identifier: MPL-2.0
 
-//! Vendored from pop-os/libcosmic d9431dc, src/icon_theme.rs, with the
-//! `com.system76.CosmicTk` read replaced by a desktop-neutral resolver.
+//! Vendored from pop-os/libcosmic, src/icon_theme.rs
 //!
 //! Select the preferred icon theme.
 //!
-//! Upstream's global is seeded from `cosmic::config::icon_theme()`, a read of
-//! `com.system76.CosmicTk`, and kept current by a watcher on that service.
-//! To remove that dependency, this module resolves the theme once at startup
-//! from the first source that answers:
+//! The theme is resolved once at startup from the first source that answers:
 //!
 //! 1. this app's own `Config::icon_theme`, when the user has set it;
 //! 2. the XDG settings portal, `org.freedesktop.portal.Settings`, key
 //!    `icon-theme` of `org.gnome.desktop.interface`, what GTK, Qt and every
 //!    sandboxed app ask, and what a COSMIC session answers too;
-//! 3. `gtk-icon-theme-name` from `gtk-4.0/settings.ini`, else
+//! 3. `icon-theme` as `gsettings` reports it, the one step that only answers
+//!    with an installed theme;
+//! 4. `gtk-icon-theme-name` from `gtk-4.0/settings.ini`, else
 //!    `gtk-3.0/settings.ini`, for a session with no portal running;
-//! 4. [`HICOLOR`], the freedesktop fallback theme every icon set is required to
+//! 5. [`HICOLOR`], the freedesktop fallback theme every icon set is required to
 //!    inherit from, so the worst case is the same icons GTK would show with no
 //!    theme configured, not blank rows.
 //!
-//! The initial default, libcosmic's `"Cosmic"` theme, left every icon missing
-//! on desktops where that theme was not installed.
-//!
 //! It stays a process global because the only caller,
 //! [`crate::ui::widget::icon::Named::path`], is on the draw path and takes no
-//! arguments, exactly as upstream's does. Resolution happens once, in
-//! [`set_from_config`], because step 2 is a D-Bus round trip that costs the
-//! full [`PORTAL_TIMEOUT`] on a machine with no portal. It is const-initialised
-//! to [`HICOLOR`], so a read before that yields the final fallback rather than
-//! panicking.
-//!
-//! libcosmic's own global is untouched and still set in `ui::shell::runner`: it
-//! feeds the icons in `cosmic::widget::header_bar`, the last chrome this app
-//! does not draw itself. That goes away with the toolkit flip, not here.
+//! arguments. Resolution happens once, in [`set_from_config`], because step 2
+//! is a D-Bus round trip that costs the full [`PORTAL_TIMEOUT`] on a machine
+//! with no portal. It is const-initialised to [`HICOLOR`], so a read before
+//! that yields the final fallback rather than panicking.
 
 use std::borrow::Cow;
 use std::path::Path;
@@ -43,8 +33,9 @@ use std::time::Duration;
 
 use crate::config::Config;
 
-/// libcosmic's own icon theme, kept as the secondary theme of the lookup chain
-/// in [`crate::ui::widget::icon::Named::path`], as upstream has it.
+/// The COSMIC desktop's icon theme, searched after the resolved theme as the
+/// secondary theme of the lookup chain in
+/// [`crate::ui::widget::icon::Named::path`].
 pub const COSMIC: &str = "Cosmic";
 
 /// The freedesktop fallback theme, and ours when nothing else answers.
@@ -95,8 +86,7 @@ fn resolve(configured: Option<&str>) -> String {
 /// Sits between the portal and `settings.ini` because it is the only step that
 /// validates: it returns a name only when that theme is actually installed,
 /// having found it in the crate's own theme index. The other steps report
-/// whatever the setting says, installed or not, which is how defaulting to
-/// "Cosmic" on a machine without it silently cost every icon in the app.
+/// whatever the setting says, installed or not.
 ///
 /// It shells out to `gsettings`, so it yields `None` wherever that is absent
 /// (this machine among them) or the `org.gnome.desktop.interface` schema is not

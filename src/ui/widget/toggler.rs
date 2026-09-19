@@ -1,7 +1,7 @@
 //! Show toggle controls using togglers.
 
 // `Instant` is unused under this crate's feature set; kept so the vendored
-// file stays byte-comparable with upstream.
+// file stays comparable with its source.
 #[allow(unused_imports)]
 use std::time::{Duration, Instant};
 
@@ -18,20 +18,17 @@ use iced_core::{
 use iced::widget::Id;
 pub use iced::widget::toggler::Status;
 
-// `Style` and `Catalog` were re-exported from iced, as libcosmic does. They
-// are vendored from the fork now, because upstream `iced_widget 0.14`'s
-// `toggler::Style` is a different shape:
+// `Style` and `Catalog` are defined here rather than re-exported from iced,
+// because `iced_widget 0.14`'s `toggler::Style` is a different shape:
 //
-//   * fork-only `handle_radius: Radius` and `handle_margin: f32`: this
-//     widget's `draw` reads both (the handle's corner radius, and the inset of
-//     the handle from the track). Upstream has neither: its handle is always
-//     inset by a ratio of the height and always drawn perfectly round.
-//   * `border_radius` is `Radius` in the fork and `Option<Radius>` upstream,
-//     where `None` means "perfectly round".
+//   * it has no `handle_radius: Radius` or `handle_margin: f32`, which this
+//     widget's `draw` reads (the handle's corner radius, and the inset of the
+//     handle from the track); iced's handle is always inset by a ratio of the
+//     height and always drawn perfectly round.
+//   * its `border_radius` is `Option<Radius>`, where `None` means "perfectly
+//     round"; here it is a plain `Radius`.
 //
-// Vendoring the fork's shape keeps this app's toggler pixel-identical and
-// keeps `theme::style::iced`'s `Catalog` impl exactly as libcosmic wrote it.
-// Copied from fork `iced/widget/src/toggler.rs:694-712`.
+// This shape is what `theme::style::iced`'s `Catalog` impl fills in.
 
 /// The appearance of a toggler.
 #[derive(Debug, Clone, Copy, PartialEq)]

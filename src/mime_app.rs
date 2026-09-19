@@ -196,7 +196,6 @@ pub struct MimeApp {
 }
 
 impl MimeApp {
-    //TODO: move to libcosmic, support multiple files
     pub fn command<O: AsRef<OsStr>>(&self, path_opt: &[O]) -> Option<Vec<process::Command>> {
         exec_to_command(
             self.exec.as_deref()?,

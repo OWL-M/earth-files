@@ -310,8 +310,7 @@ impl<M: Send + 'static> Dialog<M> {
 
         // The nested shell renders into the outer application's daemon, so
         // its own `theme()`/`style()` are never called; the theme it is handed
-        // here is only what its config watchers update. The active toolkit
-        // theme is what `Cosmic` read out of libcosmic's global `THEME`.
+        // here is only what its config watchers update.
         let (shell, shell_command) = Shell::<App>::init(core, flags, crate::ui::theme::active());
         (
             Self {
@@ -385,9 +384,8 @@ impl<M: Send + 'static> Dialog<M> {
             .map(DialogMessage)
             .map(move |message| crate::ui::action::app(mapper(message)));
         if let Some(result) = self.shell.app.result_opt.take() {
-            // Every surface our shell tracks is a Wayland popup, so unlike
-            // libcosmic's `surface_views` there is no surface kind to switch
-            // on here.
+            // Every surface our shell tracks is a Wayland popup, so there is
+            // no surface kind to switch on here.
             let mut tasks: Vec<Task<M>> = self
                 .shell
                 .popup_view_ids()
@@ -1027,9 +1025,7 @@ impl Application for App {
             flags.config.dialog_tab(),
             ThumbCfg::default(),
             None,
-            // `Tab::new` takes the scrollable's name because upstream `widget::Id` has
-            // no `Display` for `tab.rs` to use. The fork printed "Undefined" for a
-            // unique id, which was this tab's previous name.
+            // The scrollable's name; see `Tab::scrollable_name`.
             std::borrow::Cow::Borrowed("Undefined"),
             None,
         );

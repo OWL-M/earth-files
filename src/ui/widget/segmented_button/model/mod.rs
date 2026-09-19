@@ -1,7 +1,7 @@
 // Copyright 2023 System76 <info@system76.com>
 // SPDX-License-Identifier: MPL-2.0
 
-//! Vendored from pop-os/libcosmic d9431dc, src/widget/segmented_button/model/mod.rs
+//! Vendored from pop-os/libcosmic, src/widget/segmented_button/model/mod.rs
 
 mod builder;
 pub use self::builder::{BuilderEntity, ModelBuilder};

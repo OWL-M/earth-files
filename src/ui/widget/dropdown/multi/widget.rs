@@ -2,7 +2,7 @@
 // Copyright 2019 Héctor Ramón, Iced contributors
 // SPDX-License-Identifier: MPL-2.0 AND MIT
 
-//! Vendored from pop-os/libcosmic d9431dc, src/widget/dropdown/multi/widget.rs
+//! Vendored from pop-os/libcosmic, src/widget/dropdown/multi/widget.rs
 
 use super::menu::{self, Menu};
 use crate::ui::widget::icon;

@@ -21,10 +21,7 @@ pub const ICON_SIZE_GRID: u16 = 64;
 // TODO: 5 is an arbitrary number. Maybe there's a better icon size max
 pub const ICON_SCALE_MAX: u16 = 5;
 
-// Default font families. These are libcosmic's own defaults (the
-// `SANS_FAMILY_DEFAULT`/`MONO_FAMILY_DEFAULT` of its `CosmicTk`), so an app
-// with no fonts configured renders exactly as it did when the families came
-// from `com.system76.CosmicTk`.
+// Default font families.
 pub const INTERFACE_FONT_DEFAULT: &str = "Open Sans";
 pub const MONOSPACE_FONT_DEFAULT: &str = "Noto Sans Mono";
 
@@ -44,11 +41,6 @@ pub enum AppTheme {
 
 impl AppTheme {
     /// The theme to render with.
-    ///
-    /// These are libcosmic's built-in themes, not the desktop's own. The
-    /// `prefer_dark` calls this used to carry are gone with them: that setter
-    /// only writes through `ThemeType::System`, so on a built-in `Dark` or
-    /// `Light` it did nothing.
     pub fn theme(&self) -> theme::Theme {
         let dark = match self {
             Self::Dark => true,
@@ -187,11 +179,9 @@ pub struct Config {
     pub dialog: DialogConfig,
     pub context_actions: Vec<ContextActionPreset>,
     pub density: Density,
-    /// Header-bar size. libcosmic keeps this separate from interface density
-    /// (`CosmicTk::{header_size, interface_density}`): the header bar reads
-    /// `header_size` while everything else reads `interface_density`, and a
-    /// desktop can legitimately set them differently. Collapsing the two made
-    /// the header 47px where libcosmic rendered 39.
+    /// Header-bar size, kept separate from interface density: the header bar
+    /// reads `header_size` while everything else reads `density`, and a
+    /// desktop can legitimately set them differently.
     pub header_size: Density,
     pub thumb_cfg: ThumbCfg,
     pub favorites: Vec<Favorite>,

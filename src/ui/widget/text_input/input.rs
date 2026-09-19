@@ -36,11 +36,6 @@ use iced_core::{
 use iced_runtime::{Action, Task, task};
 use crate::ui::convert::{ToColor, ToRadius};
 
-// `ColorExt` lives in libcosmic's private `mod ext` (`src/lib.rs:146`) and has
-// no public equivalent, so it is restated verbatim. A vendored trait is a
-// distinct nominal type, which is why `StyleSheet` above must stay on
-// `cosmic::`, but this one is purely internal colour arithmetic that never
-// crosses the boundary, so a local copy is equivalent.
 pub(crate) trait ColorExt {
     /// Combines color with background to create appearance of transparency.
     #[must_use]
@@ -58,10 +53,6 @@ impl ColorExt for iced::Color {
     }
 }
 
-// `cosmic::Plain` and `cosmic::Paragraph` are private type aliases in
-// libcosmic's `src/lib.rs` (`type Plain = ...`, no `pub`), so they cannot be
-// imported. Both are transparent aliases over public types, so restating them
-// here yields the same type; `dropdown/mod.rs` does the same.
 pub(crate) type Plain = iced_core::text::paragraph::Plain<
     <iced::Renderer as iced_core::text::Renderer>::Paragraph,
 >;
@@ -237,7 +228,6 @@ pub struct TextInput<'a, Message> {
     leading_icon: Option<Element<'a, Message, crate::ui::Theme, iced::Renderer>>,
     trailing_icon: Option<Element<'a, Message, crate::ui::Theme, iced::Renderer>>,
     style: <crate::ui::Theme as StyleSheet>::Style,
-    // TODO(dnd): removed `on_create_dnd_source` and its `on_start_dnd` builder.
     surface_ids: Option<(window::Id, window::Id)>,
     dnd_icon: bool,
     line_height: text::LineHeight,
@@ -299,10 +289,6 @@ where
             window_id: crate::ui::widget::text_context_menu::current_window_id(),
         }
     }
-
-    // TODO(dnd): removed `dnd_id`, which unwrapped `iced_core::id::Internal` to
-    // get the `u128` this widget registered as a drop destination with. `mod id`
-    // is private upstream and the destination registry is gone.
 
     /// Sets the input to be always active.
     /// This makes it behave as if it was always focused.
@@ -583,10 +569,9 @@ where
 
     /// Write back the parts of `self` that are owned by the widget's tree state.
     ///
-    /// Upstream's `Widget::diff` takes `&self`, so these three write-backs moved
-    /// out of `diff` and into the top of `layout`, which upstream still gives as
-    /// `&mut self`. `layout` runs after `diff` and before `update`/`draw`, so the
-    /// ordering the fork relied on is preserved.
+    /// `Widget::diff` takes `&self`, so these write-backs happen at the top of
+    /// `layout`, which takes `&mut self` and runs after `diff` and before
+    /// `update`/`draw`.
     fn sync_from_state(&mut self, tree: &mut Tree) {
         let state = tree.state.downcast_mut::<State>();
 
@@ -673,11 +658,10 @@ where
     }
 
     fn diff(&self, tree: &mut Tree) {
-        // Upstream's `Widget::diff` takes `&self`, so the three write-backs this
-        // used to make into `self` (`value`, `is_read_only`, `trailing_icon`) now
-        // happen in `sync_from_state`, called at the top of `layout`. Everything
-        // below reads the effective value/read-only through locals instead, so the
-        // ordering within this function is unchanged.
+        // `Widget::diff` takes `&self`, so the write-backs into `self` (`value`,
+        // `is_read_only`, `trailing_icon`) happen in `sync_from_state`, called at
+        // the top of `layout`. Everything below reads the effective
+        // value/read-only through locals instead.
         let state = tree.state.downcast_mut::<State>();
 
         let value = if !self.manage_value
@@ -1048,10 +1032,6 @@ where
             }
         }
 
-        // `Widget::id` is a fork-only trait method (dropped from the vendored
-        // widgets in `91755dd`). libcosmic's impl for this widget was
-        // `Some(self.id.clone())` (`src/widget/text_input/input.rs:1232`), so
-        // the field is read directly.
         let id = Some(self.id.clone());
         update(
             id,
@@ -1267,8 +1247,6 @@ where
         )
     }
 
-    // TODO(dnd): removed the `Widget::drag_destinations` leaf that registered this
-    // widget as a drop target (upstream iced 0.14 has no such method).
 }
 
 impl<'a, Message> From<TextInput<'a, Message>>
@@ -1911,14 +1889,9 @@ pub fn update<'a, Message: Clone + 'static>(
                 shell.capture_event();
                 return;
             }
-            // TODO(dnd): removed the block that turned a press-and-drag on a
-            // selection into a real drag: it built the payload, called
-            // `iced_core::clipboard::start_dnd` with a
-            // `clipboard::DndSource::Widget` and a `clipboard::IconSurface`
-            // carrying a `dnd_icon(true)` TextInput, and moved the state to
-            // `DraggingState::Dnd`. `start_dnd`, `DndSource` and `IconSurface`
-            // are all fork-only. The `PrepareDnd` state is kept so a click on a
-            // selection still behaves as before up to the drag threshold.
+            // TODO(dnd): dragging a selection out of the input as a real drag is
+            // not implemented. `PrepareDnd` is kept so a click on a selection
+            // still behaves as before up to the drag threshold.
         }
         Event::Keyboard(keyboard::Event::KeyPressed {
             key,
@@ -2316,11 +2289,8 @@ pub fn update<'a, Message: Clone + 'static>(
                 shell.request_redraw();
             }
         }
-        // TODO(dnd): removed the seven `Event::Dnd(DndEvent::..)` arms (~160
-        // lines): source Finished/Cancelled, and offer Enter/Motion/Drop/Leave/
-        // Data, which accepted a `text/*` drop, moved the caret to the drop point
-        // and pasted the payload. `iced::Event::Dnd` and `iced::clipboard::dnd`
-        // are fork-only; rebuild on smithay-clipboard.
+        // TODO(dnd): accepting a `text/*` drop (move the caret to the drop point
+        // and paste the payload) is not implemented.
         _ => {}
     }
 }
@@ -2547,12 +2517,9 @@ pub fn draw<'a, Message>(
             tree,
             renderer,
             theme,
-            // `renderer::Style` upstream carries only `text_color`. The
-            // fork's `scale_factor` was pure pass-through, and its
-            // `icon_color` is the channel `crate::ui::theme::icon_color`
-            // rebuilds. The element here is an icon and nothing else, so
-            // handing it `icon_color` as its `text_color` delivers exactly
-            // what the fork delivered on `icon_color`.
+            // `renderer::Style` carries only `text_color`. The element here is
+            // an icon and nothing else, so its `text_color` is the icon colour
+            // (see `crate::ui::theme::icon_color`).
             &renderer::Style {
                 text_color: icon_color,
             },
@@ -2570,8 +2537,8 @@ pub fn draw<'a, Message>(
     let actual_width = text_width.max(text_bounds.width);
 
     let radius_0 = crate::ui::theme::active().cosmic().corner_radii.radius_0.to_radius();
-    // TODO(dnd): was `!matches!(state.dnd_offer, DndOfferState::None)`. The
-    // caret was drawn while a drop offer hovered this input.
+    // TODO(dnd): drop offers are not tracked yet; the caret should also be
+    // drawn while a drop offer hovers this input.
     let handling_dnd_offer = false;
     let (cursors, offset, is_selecting) = if let Some(focus) =
         state.is_focused.filter(|f| f.focused).or_else(|| {
@@ -2781,12 +2748,9 @@ pub fn draw<'a, Message>(
             tree,
             renderer,
             theme,
-            // `renderer::Style` upstream carries only `text_color`. The
-            // fork's `scale_factor` was pure pass-through, and its
-            // `icon_color` is the channel `crate::ui::theme::icon_color`
-            // rebuilds. The element here is an icon and nothing else, so
-            // handing it `icon_color` as its `text_color` delivers exactly
-            // what the fork delivered on `icon_color`.
+            // `renderer::Style` carries only `text_color`. The element here is
+            // an icon and nothing else, so its `text_color` is the icon colour
+            // (see `crate::ui::theme::icon_color`).
             &renderer::Style {
                 text_color: icon_color,
             },
@@ -2839,20 +2803,11 @@ pub fn mouse_interaction(
 #[derive(Debug, Clone)]
 pub struct TextInputString(pub String);
 
-// TODO(dnd): removed the `iced::clipboard::mime::AsMimeTypes` impl for
-// `TextInputString`, which published `SUPPORTED_TEXT_MIME_TYPES` for the drag
-// payload.
-
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum DraggingState {
     Selection,
     PrepareDnd(Point),
-    // TODO(dnd): removed the `Dnd(DndAction, String)` variant, which held the
-    // payload of an in-flight drag.
 }
-
-// TODO(dnd): removed `DndOfferState` (None / HandlingOffer(mimes, DndAction) /
-// Dropped), which tracked an incoming drop offer.
 
 /// The state of a [`TextInput`].
 #[derive(Default, Clone)]
@@ -2939,9 +2894,6 @@ impl State {
             }
         }
     }
-
-    // TODO(dnd): removed `State::dragged_text`, which read the in-flight drag
-    // payload out of `DraggingState::Dnd`.
 
     /// Creates a new [`State`], representing a focused [`TextInput`].
     pub fn focused(is_secure: bool, is_read_only: bool) -> Self {
@@ -3148,10 +3100,8 @@ impl operation::TextInput for State {
 
 #[inline(never)]
 fn measure_cursor_and_scroll_offset(
-    // Upstream's `text::Paragraph` has no `cursor_position`; that is a fork
-    // addition. The concrete type is taken so `super::paragraph`'s port of it
-    // can reach the underlying `cosmic_text::Buffer`. Every call site already
-    // passes this type.
+    // The concrete type is taken so `super::paragraph`'s `cursor_position` can
+    // reach the underlying `cosmic_text::Buffer`.
     paragraph: &crate::ui::widget::paragraph::Paragraph,
     text_bounds: Rectangle,
     cursor_index: usize,
@@ -3194,9 +3144,8 @@ fn find_cursor_position(
 ) -> Option<(usize, Affinity)> {
     let value_str = value.to_string();
 
-    // The fork widens `Hit::CharOffset` to carry the affinity; upstream's
-    // carries only the index, so the affinity-aware hit test is ported in
-    // `super::paragraph`.
+    // `Hit::CharOffset` carries only the index; the affinity-aware hit test
+    // lives in `super::paragraph`.
     let (char_offset, affinity) = crate::ui::widget::paragraph::hit_test_with_affinity(
         state.value.raw(),
         Point::new(x + state.scroll_offset, text_bounds.height / 2.0),

@@ -3,12 +3,11 @@
 
 //! Embedded icons for platforms which do not support icon themes yet.
 //!
-//! Vendored from pop-os/libcosmic d9431dc, src/widget/icon/bundle.rs
+//! Vendored from pop-os/libcosmic, src/widget/icon/bundle.rs
 //!
-//! The non-unix arm `include!`s `$OUT_DIR/bundled_icons.rs`, which libcosmic's
-//! build script generates. This crate's build script does not, so that arm
-//! would not build here. It is `cfg`'d out on the platforms this app targets
-//! and kept verbatim to preserve the upstream source.
+//! The non-unix arm `include!`s `$OUT_DIR/bundled_icons.rs`, which this
+//! crate's build script does not generate, so that arm does not build here.
+//! It is `cfg`'d out on the platforms this app targets.
 
 /// Icon bundling is not enabled on unix platforms.
 #[cfg(all(unix, not(target_os = "macos")))]

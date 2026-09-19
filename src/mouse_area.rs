@@ -535,9 +535,8 @@ fn update<Message: Clone>(
     state: &mut State,
     viewport: &Rectangle,
 ) {
-    // `Layout::virtual_offset` is fork-only and dropped in Phase 3; substituting
-    // `Vector::ZERO` was proven pixel-identical, and this read fed only
-    // `on_right_press_window_position`, which nothing in this app enables.
+    // No virtual offset: this fed only `on_right_press_window_position`, which
+    // nothing in this app enables.
     let offset = iced_core::Vector::ZERO;
     let layout_bounds = layout.bounds();
 

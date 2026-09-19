@@ -1,7 +1,7 @@
 // Copyright 2023 System76 <info@system76.com>
 // SPDX-License-Identifier: MPL-2.0
 
-//! Vendored from pop-os/libcosmic d9431dc, src/widget/icon/handle.rs
+//! Vendored from pop-os/libcosmic, src/widget/icon/handle.rs
 
 use super::Icon;
 use iced::widget::{image, svg};
@@ -35,16 +35,10 @@ pub enum Data {
     Svg(svg::Handle),
 }
 
-// `Hash` was derived. It cannot be any more: libcosmic's iced fork derives
-// `Hash` on `iced_core::image::Handle` (fork `iced/core/src/image.rs:87`) and
-// upstream `0.14` does not; upstream gives it `Clone, PartialEq, Eq` only.
-// (`svg::Handle` is fine either way: upstream writes the same `impl Hash` by
-// hand at `iced_core/src/svg.rs:123`, hashing its `id`.)
-//
-// So the image arm is hashed by `Handle::id()`, which upstream exposes and
-// which is `Hash`. That is the same identity `svg::Handle`'s own impl uses, and
-// it is what the derived impl was distinguishing handles by in practice: `Id`
-// is either a unique counter value or a hash of the image's contents.
+// `iced_core::image::Handle` is `Clone, PartialEq, Eq` but not `Hash`, so
+// `Hash` cannot be derived here. The image arm is hashed by `Handle::id()`
+// instead: `Id` is either a unique counter value or a hash of the image's
+// contents, the same identity `svg::Handle`'s own `impl Hash` uses.
 impl Hash for Data {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         std::mem::discriminant(self).hash(state);

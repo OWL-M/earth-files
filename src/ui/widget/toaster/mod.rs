@@ -3,22 +3,10 @@
 
 //! A widget that displays toasts.
 //!
-//! Vendored from pop-os/libcosmic d9431dc, src/widget/toaster/
+//! Vendored from pop-os/libcosmic, src/widget/toaster/
 //!
 //! Load-bearing for the Undo affordance after a move to trash
 //! (`app.rs` `Message::UndoTrash`), so it is vendored rather than dropped.
-//!
-//! Changes from upstream, all forced by the move off libcosmic:
-//!   * The element type is this crate's [`crate::ui::Theme`] rather than
-//!     `cosmic::Theme`, which is what lets `app.rs` stop routing the result
-//!     through `ui::theme_bridge::from_cosmic`.
-//!   * Spacing comes from [`crate::ui::theme::spacing`] instead of
-//!     `crate::theme::active().cosmic().spacing`; both read the same density.
-//!   * `crate::task::future` is `iced::Task::future`, which is what libcosmic's
-//!     helper wrapped.
-//!   * `Widget::drag_destinations` is dropped: it is a libcosmic-fork addition
-//!     to `iced_core`'s `Widget` trait and has no upstream counterpart. The
-//!     override only forwarded to the content, which upstream reaches anyway.
 
 use std::collections::VecDeque;
 use std::rc::Rc;
@@ -29,9 +17,6 @@ use slotmap::{SlotMap, new_key_type};
 use widget::Toaster;
 
 use crate::ui::theme::{Container as ContainerClass, Spacing, spacing};
-// libcosmic's `row::with_capacity`/`column::with_capacity` free functions are
-// its own; upstream has the same constructors as `Row::with_capacity` and
-// `Column::with_capacity`.
 use crate::ui::widget::{Column, Row, button, container, icon, text};
 use crate::ui::convert::{PushMaybe, ToPadding, ToPixels};
 

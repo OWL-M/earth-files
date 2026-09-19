@@ -1,10 +1,7 @@
 // Copyright 2026 System76 <info@system76.com>
 // SPDX-License-Identifier: GPL-3.0-only
 
-//! Desktop entry actions, replacing libcosmic's `desktop` module.
-//!
-//! Only the parts earth-files uses: an entry's name and its declared
-//! actions. Parsing itself comes from `freedesktop-desktop-entry`.
+//! Desktop entry actions.
 
 use std::path::PathBuf;
 

@@ -3,7 +3,7 @@
 
 // From iced_aw, license MIT
 
-//! Vendored from pop-os/libcosmic d9431dc, src/widget/menu.rs
+//! Vendored from pop-os/libcosmic, src/widget/menu.rs
 //!
 //! A [`MenuBar`] widget for displaying [`MenuTree`]s
 //!
@@ -59,10 +59,6 @@
 //! ```
 //!
 
-// Upstream re-exports several crate-internal items for its own `context_menu`
-// and `text_context_menu` widgets. `context_menu` is vendored alongside this
-// module; `text_context_menu` is not, which is why one re-export below is
-// still unused here.
 pub mod action;
 
 pub use action::MenuAction as Action;
@@ -85,8 +81,6 @@ pub use menu_tree::{
 };
 
 pub use crate::ui::theme::menu_bar::{Appearance, StyleSheet};
-// `menu_roots_children` is only used by upstream's unvendored
-// `text_context_menu` and `segmented_button`.
 #[allow(unused_imports)]
 pub(crate) use menu_bar::{menu_roots_children, menu_roots_diff};
 pub use menu_inner::{CloseCondition, ItemHeight, ItemWidth, PathHighlight};

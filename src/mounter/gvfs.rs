@@ -379,9 +379,8 @@ impl Item {
 
     /// Path of this item's icon.
     ///
-    /// Split out of `icon()` so `src/dialog.rs`, which is still built on
-    /// libcosmic's `Application` and so needs libcosmic's `icon::Handle`, can
-    /// build its handle from the same path.
+    /// Split out of `icon()` so `src/dialog.rs` can build its handle from the
+    /// same path.
     pub fn icon_path(&self, symbolic: bool) -> Option<PathBuf> {
         if symbolic {
             self.icon_symbolic_opt.clone()

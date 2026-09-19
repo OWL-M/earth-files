@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MPL-2.0
 //! Show a circular progress indicator.
 //!
-//! Vendored from pop-os/libcosmic d9431dc, src/widget/progress_bar/circular.rs
+//! Vendored from pop-os/libcosmic, src/widget/progress_bar/circular.rs
 
 use super::animation::{Animation, Progress};
 use super::style::StyleSheet;

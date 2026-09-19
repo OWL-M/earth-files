@@ -3,7 +3,7 @@
 
 // From iced_aw, license MIT
 
-//! Vendored from pop-os/libcosmic d9431dc, src/widget/menu/menu_tree.rs
+//! Vendored from pop-os/libcosmic, src/widget/menu/menu_tree.rs
 //!
 //! A tree structure for constructing a hierarchical menu
 
@@ -17,13 +17,8 @@ use crate::ui::widget::menu::action::MenuAction;
 use crate::ui::widget::menu::key_bind::KeyBind;
 use crate::ui::widget::button::Button;
 use crate::ui::theme;
-// `icon` is still libcosmic's: it is vendored last, because its `Icon`/`Handle`
-// types sit in the public API of several widgets vendored before it.
 use crate::ui::widget::RcElementWrapper;
 use crate::ui::widget::icon;
-// Our own widget module, so the already-vendored widgets this file builds on
-// (`button`, `text`, `divider`) are the vendored ones; everything else still
-// falls through the `pub use cosmic::widget::*` glob.
 use crate::ui::widget;
 use iced_core::{Alignment, Length};
 use crate::ui::convert::{ToColor};
@@ -384,10 +379,9 @@ pub fn menu_items<
     key_binds: &HashMap<KeyBind, A>,
     children: Vec<MenuItem<A, L>>,
 ) -> Vec<MenuTree<Message>> {
-    // `theme::Text::Custom` holds a `fn(&Theme) -> crate::ui::widget::text::Style`.
-    // That is this crate's vendored text `Style` (colour plus the two selection
-    // colours the fork's selectable `Text` needs), not `iced_core`'s one-field
-    // `text::Style` this file imports as `TextStyle` for other purposes.
+    // `theme::Text::Custom` holds a `fn(&Theme) -> crate::ui::widget::text::Style`:
+    // this crate's text `Style` (colour plus the two selection colours), not
+    // `iced_core`'s one-field `text::Style` this file imports as `TextStyle`.
     fn key_style(theme: &crate::ui::Theme) -> crate::ui::widget::text::Style {
         let mut color = theme.cosmic().background(theme.transparent).component.on;
         color.alpha *= 0.75;

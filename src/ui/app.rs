@@ -3,26 +3,6 @@
 
 //! The shell's own internal message type, and the task alias every
 //! `Application` method returns.
-//!
-//! Adapted from `cosmic::app::Action`. These upstream variants are omitted
-//! because they no longer have producers:
-//!
-//! - `Activate`, `DbusConnection`, `single-instance` D-Bus activation, never
-//!   enabled in this build.
-//! - `SuggestedBounds`, the `applet` feature.
-//! - `DesktopSettings`, libcosmic's `xdg_portal` theme path; `ui::icon_theme`
-//!   and `ui::theme` read the portal themselves.
-//! - `ToolkitConfig`, the `CosmicTk` cosmic-config watcher, gone with
-//!   libcosmic. Its two readers, `show_maximize`/`show_minimize`, are now
-//!   [`crate::ui::config`].
-//! - `SystemThemeChange`, `SystemThemeModeChange`, the `cosmic_theme::Theme`
-//!   and `ThemeMode` cosmic-config watchers. Both were traced to an
-//!   implementation that ignores its arguments and triggers an idempotent
-//!   recompute; light/dark comes from the cached mundy portal read.
-//! - `BlurEnabled`, `WmCapabilities`, `WindowMaximized`, `WindowState`,
-//!   no producer under `iced_exwlshell`, which reports neither
-//!   `xdg_toplevel.configure` states nor window-manager capabilities. See the
-//!   note on [`crate::ui::command`].
 
 use crate::ui::iced::window;
 use crate::ui::keyboard_nav;

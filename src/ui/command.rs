@@ -1,7 +1,7 @@
 // Copyright 2026 System76 <info@system76.com>
 // SPDX-License-Identifier: GPL-3.0-only
 
-//! Window-management commands, as `cosmic::command` had them.
+//! Window-management commands.
 //!
 //! # What `iced_exwlshell` does and does not carry
 //!
@@ -63,8 +63,8 @@ pub fn show_window_menu<M>(id: window::Id) -> Task<Action<M>> {
 
 /// Sets the title of a window.
 ///
-/// A no-op, as it was in libcosmic: the title is served to the compositor from
-/// the shell's `title` map through the daemon's `.title(..)` closure.
+/// A no-op: the title is served to the compositor from the shell's `title`
+/// map through the daemon's `.title(..)` closure.
 #[allow(unused_variables, clippy::needless_pass_by_value)]
 pub fn set_title<M>(id: window::Id, title: String) -> Task<Action<M>> {
     Task::none()

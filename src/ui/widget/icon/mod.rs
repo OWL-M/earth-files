@@ -3,7 +3,7 @@
 
 //! Lazily-generated SVG icon widget for Iced.
 //!
-//! Vendored from pop-os/libcosmic d9431dc, src/widget/icon/mod.rs
+//! Vendored from pop-os/libcosmic, src/widget/icon/mod.rs
 
 mod bundle;
 mod named;
@@ -95,10 +95,10 @@ impl Icon {
         };
 
         let from_svg = |handle| {
-            // `Svg::symbolic` is fork-only (`iced/widget/src/svg.rs:143`), and
-            // so is the `renderer::Style::icon_color` its `draw` reads. Both
-            // are reproduced in `crate::ui::widget::svg`, whose `draw` resolves
-            // the inherited colour through `crate::ui::theme::icon_color`.
+            // `iced::widget::Svg` has no `symbolic` flag and `renderer::Style`
+            // no `icon_color`; both are provided by `crate::ui::widget::svg`,
+            // whose `draw` resolves the inherited colour through
+            // `crate::ui::theme::icon_color`.
             let class = self.class.clone();
 
             Svg::<crate::ui::Theme>::new(handle)

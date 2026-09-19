@@ -1,13 +1,10 @@
 // Copyright 2024 System76 <info@system76.com>
 // SPDX-License-Identifier: MPL-2.0
 
-//! Vendored from pop-os/libcosmic d9431dc, src/app/context_drawer.rs
+//! Vendored from pop-os/libcosmic, src/app/context_drawer.rs.
 //!
 //! The data an [`crate::ui::shell::Application`] hands the shell to fill the
-//! context drawer with. It holds `Element`s, so it moved here with the theme:
-//! libcosmic's spells them with `cosmic::Theme`. Upstream's `about` helper is
-//! unconditional here, libcosmic gates it on its own `about` feature, and this
-//! crate always builds the vendored `widget::about`.
+//! context drawer with.
 
 use std::borrow::Cow;
 

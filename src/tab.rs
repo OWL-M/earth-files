@@ -208,7 +208,6 @@ fn button_style(
     accent: bool,
     condensed_radius: bool,
 ) -> Button {
-    //TODO: move to libcosmic?
     Button::Custom {
         active: Box::new(move |focused, theme| {
             button_appearance(
@@ -259,10 +258,9 @@ fn button_style(
 
 /// XDG icon name for a directory, without the `-symbolic` suffix.
 ///
-/// Split out of `folder_icon`/`folder_icon_symbolic` so `src/dialog.rs`, which
-/// is still built on libcosmic's `Application` and so needs libcosmic's
-/// `icon::Handle`, can build its icon from the same name without duplicating
-/// the `SPECIAL_DIRS` lookup.
+/// Split out of `folder_icon`/`folder_icon_symbolic` so `src/dialog.rs` can
+/// build its icon from the same name without duplicating the `SPECIAL_DIRS`
+/// lookup.
 pub fn folder_icon_name(path: &PathBuf) -> &'static str {
     SPECIAL_DIRS.get(path).map_or("folder", |x| *x)
 }
@@ -2658,14 +2656,9 @@ pub struct Tab {
     pub gallery: bool,
     pub(crate) parent_item_opt: Option<Box<Item>>,
     pub(crate) items_opt: Option<Vec<Item>>,
-// libcosmic's iced fork uses its own `iced_core::id::Id` for `iced_core::widget::Id`
-// (fork `iced/core/src/widget.rs:6` -> `iced/core/src/id.rs`). This accessibility type
-// has `Internal::{Unique(u64), Custom(u64, Cow), Set(Vec)}` and a `Display` impl
-// (`id.rs:78`) that prints "Undefined", the custom string, or "Set".
-//
-// Upstream `iced_core 0.14` uses a different type (`widget/id.rs`) with no `Display`
-// and a private `Internal`, so the name cannot be recovered from an `Id`. Store it
-// alongside the id; every producer already has it as a literal.
+    // `iced_core::widget::Id` has no `Display` and a private `Internal`, so the
+    // name cannot be recovered from an `Id`. Store it alongside the id; every
+    // producer already has it as a literal.
     pub(crate) scrollable_id: widget::Id,
     /// The string `scrollable_id` was built from; see the note above.
     pub(crate) scrollable_name: std::borrow::Cow<'static, str>,
@@ -5158,7 +5151,6 @@ impl Tab {
                 .width
         }
         fn text_width_body(content: &str) -> f32 {
-            //TODO: should libcosmic set the font when using widget::text::body?
             text_width(content, font::default(), 14.0, 20.0)
         }
         fn text_width_heading(content: &str) -> f32 {
@@ -7093,8 +7085,7 @@ mod tests {
             TabConfig::default(),
             ThumbCfg::default(),
             None,
-            // `Tab::new` takes the scrollable's name; the fork's `Display for
-            // Id` printed "Undefined" for a unique id.
+            // The scrollable's name; see `Tab::scrollable_name`.
             std::borrow::Cow::Borrowed("Undefined"),
             None,
         );
@@ -7205,8 +7196,7 @@ mod tests {
             TabConfig::default(),
             ThumbCfg::default(),
             None,
-            // `Tab::new` takes the scrollable's name; the fork's `Display for
-            // Id` printed "Undefined" for a unique id.
+            // The scrollable's name; see `Tab::scrollable_name`.
             std::borrow::Cow::Borrowed("Undefined"),
             None,
         );
@@ -7348,8 +7338,7 @@ mod tests {
             TabConfig::default(),
             ThumbCfg::default(),
             None,
-            // `Tab::new` takes the scrollable's name; the fork's `Display for
-            // Id` printed "Undefined" for a unique id.
+            // The scrollable's name; see `Tab::scrollable_name`.
             std::borrow::Cow::Borrowed("Undefined"),
             None,
         );
@@ -7379,8 +7368,7 @@ mod tests {
             TabConfig::default(),
             ThumbCfg::default(),
             None,
-            // `Tab::new` takes the scrollable's name; the fork's `Display for
-            // Id` printed "Undefined" for a unique id.
+            // The scrollable's name; see `Tab::scrollable_name`.
             std::borrow::Cow::Borrowed("Undefined"),
             None,
         );
@@ -7422,8 +7410,7 @@ mod tests {
             TabConfig::default(),
             ThumbCfg::default(),
             None,
-            // `Tab::new` takes the scrollable's name; the fork's `Display for
-            // Id` printed "Undefined" for a unique id.
+            // The scrollable's name; see `Tab::scrollable_name`.
             std::borrow::Cow::Borrowed("Undefined"),
             None,
         );

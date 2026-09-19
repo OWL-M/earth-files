@@ -3,14 +3,9 @@
 
 //! Toolkit preferences this app's chrome reads.
 //!
-//! These were `cosmic::config::show_maximize()` / `show_minimize()`, backed by
-//! `COSMIC_TK`, a `LazyLock` reading cosmic-config on first access, kept live
-//! by the `CosmicTk` watcher in the shell's subscription. Both are gone with
-//! libcosmic, and the watcher with them.
-//!
 //! They stay as functions rather than becoming a literal `true` at the two call
 //! sites, so that when this app grows a config of its own they have somewhere
-//! to move to. Both defaulted to `true` upstream.
+//! to move to.
 //!
 //! Note the buttons they gate are currently inert under `iced_exwlshell`; see
 //! [`crate::ui::command`].

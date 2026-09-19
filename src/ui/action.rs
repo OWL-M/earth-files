@@ -1,10 +1,9 @@
 // Copyright 2026 System76 <info@system76.com>
 // SPDX-License-Identifier: GPL-3.0-only
 
-//! Messages handled by the shell's daemon, adapted from `cosmic::Action`.
+//! Messages handled by the shell's daemon.
 //!
-//! `DbusActivation` is omitted because this build never enabled
-//! `single-instance`. [`Action::Exwl`] carries requests to `iced_exwlshell`.
+//! [`Action::Exwl`] carries requests to `iced_exwlshell`.
 //!
 //! exwlshell requires `Message: TryInto<ExwlShellCustomActionWithId,
 //! Error = Message>`. Its `#[to_exwlshell_message]` macro implements this by

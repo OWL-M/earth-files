@@ -1,7 +1,7 @@
 // Copyright 2022 System76 <info@system76.com>
 // SPDX-License-Identifier: MPL-2.0
 
-//! Vendored from pop-os/libcosmic d9431dc, src/widget/popover.rs
+//! Vendored from pop-os/libcosmic, src/widget/popover.rs
 
 //! A container which displays an overlay when a popup widget is attached.
 
@@ -282,9 +282,9 @@ where
         }
     }
 
-    // TODO(dnd): removed the `Widget::drag_destinations` router (upstream iced 0.14
-    // has no such method). Tab drag-to-reorder must be rebuilt on smithay-clipboard;
-    // without this pass-through the tab bar leaf is unreachable from the root walk.
+    // TODO(dnd): tab drag-to-reorder must be rebuilt on smithay-clipboard. iced
+    // 0.14's `Widget` has no `drag_destinations` pass-through, so the tab bar
+    // leaf is unreachable from the root walk.
 
 }
 

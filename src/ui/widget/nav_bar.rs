@@ -1,7 +1,7 @@
 // Copyright 2022 System76 <info@system76.com>
 // SPDX-License-Identifier: MPL-2.0
 
-//! Vendored from pop-os/libcosmic d9431dc, src/widget/nav_bar.rs
+//! Vendored from pop-os/libcosmic, src/widget/nav_bar.rs
 //!
 //! Navigation side panel for switching between views.
 //!
@@ -33,14 +33,6 @@ pub fn nav_bar<Message: Clone + 'static>(
     }
 }
 
-// The fork had a second constructor, `nav_bar_dnd`, taking `AllowedMimeTypes`,
-// a `DndAction` and a `dnd_destination::DragId` and wiring
-// `on_dnd_enter`/`on_dnd_leave`/`on_dnd_drop`/`drag_id` onto the vertical
-// segmented button. This fork-only toolkit API had no callers in this app
-// and will not be restored. `NavBar::on_file_drop` below provides the same
-// capability as a builder on the ordinary constructor. `ui::dnd` manages the
-// MIME types, and the action is decided at the drop.
-
 #[must_use]
 pub struct NavBar<'a, Message: Clone + 'static> {
     segmented_button:
@@ -59,11 +51,6 @@ impl<'a, Message: Clone + 'static> NavBar<'a, Message> {
         self.segmented_button = self.segmented_button.context_menu(context_menu);
         self
     }
-
-    // TODO(dnd): removed the `drag_id` pass-through without a replacement. A
-    // `dnd_destination::DragId` existed so the fork's toolkit could route a
-    // `DndEvent` to one widget, and `ui::dnd` has no such registry. The bar
-    // polls the one live drag and hit-tests it itself (`on_file_drop` above).
 
     /// Pre-convert this widget into the [`Container`] widget that it becomes.
     #[must_use]
@@ -101,11 +88,10 @@ impl<'a, Message: Clone + 'static> NavBar<'a, Message> {
 
     /// Make the bookmarks destinations for a file drag.
     ///
-    /// The fork's three pass-throughs (`on_dnd_drop`/`on_dnd_enter`/
-    /// `on_dnd_leave`) are one here, because the segmented button now tracks
-    /// the hovered destination itself and draws it with its existing hover
-    /// style, without sending `enter`/`leave` notifications to the application.
-    /// `None` marks a bookmark that is not a destination.
+    /// The segmented button tracks the hovered destination itself and draws it
+    /// with its existing hover style, without sending `enter`/`leave`
+    /// notifications to the application. `None` marks a bookmark that is not
+    /// a destination.
     pub fn on_file_drop<T>(mut self, on_file_drop: T) -> Self
     where
         T: Fn(Id) -> Option<Message> + 'static,
@@ -149,9 +135,6 @@ impl<'a, Message: Clone + 'static> From<NavBar<'a, Message>>
     for Container<'a, Message, crate::ui::Theme, iced::Renderer>
 {
     fn from(this: NavBar<'a, Message>) -> Self {
-        // Upstream reads the active COSMIC theme's spacing; this app owns its
-        // spacing tables (`crate::ui::theme::spacing()`), which is a plain
-        // struct rather than the accessor methods upstream calls.
         let spacing = crate::ui::theme::spacing();
         let space_s = spacing.space_s;
         let space_xxs = spacing.space_xxs;

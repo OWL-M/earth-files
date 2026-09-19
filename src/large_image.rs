@@ -18,7 +18,7 @@ const GALLERY_MEMORY_LIMIT_MB: u64 = 2000;
 
 /// Threshold for considering an image "large" requiring GPU tiling
 /// Atlas fragment/tile size in pixels. Large images are split into fragments of this size.
-/// Must match the atlas SIZE constant in libcosmic/iced/wgpu/src/image/atlas.rs
+/// Must match the atlas size constant in `iced_wgpu`'s `src/image/atlas.rs`.
 pub const ATLAS_FRAGMENT_SIZE: u32 = 4096;
 
 /// Conversion factor: 1 MB = 1024 * 1024 bytes (binary megabyte, used for RAM calculations)

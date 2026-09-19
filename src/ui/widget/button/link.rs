@@ -1,7 +1,7 @@
 // Copyright 2023 System76 <info@system76.com>
 // SPDX-License-Identifier: MPL-2.0
 
-//! Vendored from pop-os/libcosmic d9431dc, src/widget/button/link.rs
+//! Vendored from pop-os/libcosmic, src/widget/button/link.rs
 //!
 //! Hyperlink button widget
 

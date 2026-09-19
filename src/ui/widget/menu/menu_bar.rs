@@ -3,7 +3,7 @@
 
 // From iced_aw, license MIT
 
-//! Vendored from pop-os/libcosmic d9431dc, src/widget/menu/menu_bar.rs
+//! Vendored from pop-os/libcosmic, src/widget/menu/menu_bar.rs
 //!
 //! A widget that handles menu trees
 use std::collections::HashMap;
@@ -14,10 +14,6 @@ use super::menu_inner::{
 };
 use super::menu_tree::MenuTree;
 use iced::Renderer;
-// Upstream reads libcosmic's `pub(crate)` `WINDOWING_SYSTEM`; this app's
-// shell keeps its own. Upstream's `wayland_platform` cfg alias expands to
-// `feature = "wayland"` on free unix, and never reaches a downstream crate,
-// so this crate's `wayland` feature is the equivalent condition.
 use crate::ui::shell::runner::{WindowingSystem, windowing_system};
 use crate::ui::theme::menu_bar::StyleSheet;
 use crate::ui::widget::RcWrapper;
@@ -122,8 +118,6 @@ where
         .collect()
 }
 
-// Upstream `Tree::diff_children` takes `&[impl Borrow<dyn Widget>]`, so the
-// `*const -> *mut` cast the fork needed here is gone.
 pub(crate) fn menu_roots_diff<Message>(menu_roots: &[MenuTree<Message>], tree: &mut Tree)
 where
     Message: Clone + 'static,
@@ -569,7 +563,7 @@ where
         let my_state = tree.state.downcast_mut::<MenuBarState>();
 
         // The compositor dismissed our popup: nothing else tells this state
-        // about it. Upstream iced has no `PlatformSpecific::Wayland` event
+        // about it. iced has no `PlatformSpecific::Wayland` event
         // carrying the dismissed popup's id, so the shell records it and we
         // claim it here; see `ui::surface::dismissal`.
         my_state.inner.with_data_mut(|d| {

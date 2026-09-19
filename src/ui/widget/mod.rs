@@ -1,7 +1,7 @@
 // Copyright 2026 System76 <info@system76.com>
 // SPDX-License-Identifier: GPL-3.0-only
 
-//! Widgets. Vendored copies shadow libcosmic's as they land.
+//! Widgets.
 //!
 //! See `README.md` in this directory for the provenance of each vendored
 //! widget.
@@ -11,27 +11,26 @@
 // app's own dead-code warnings meaningful.
 #![allow(dead_code)]
 
-// `button` is the first vendored widget whose upstream code warns under this
-// crate's feature set: four `let mut button` bindings are reassigned only
-// inside `#[cfg(feature = "a11y")]` blocks, and `button::draw`'s `is_image`
-// parameter is unused. Keep both: `mut` is required when
-// a11y is on, and `draw` is public API. Scoped here for the same reason as
-// `dead_code` above: it keeps the app's own warnings meaningful.
+// `button`'s vendored code warns under this crate's feature set: four
+// `let mut button` bindings are reassigned only inside
+// `#[cfg(feature = "a11y")]` blocks, and `button::draw`'s `is_image`
+// parameter is unused. Keep both: `mut` is required when a11y is on, and
+// `draw` is public API. Scoped here for the same reason as `dead_code` above:
+// it keeps the app's own warnings meaningful.
 #![allow(unused_mut, unused_variables)]
 
 // `text_input::input::draw`'s `icon_layout` is assigned up to three times as it
 // walks the layout children, and only the last is read. The dead writes are how
-// upstream advances the iterator, so they cannot be removed without changing
+// it advances the iterator, so they cannot be removed without changing
 // behaviour. Scoped here for the same reason as the allows above.
 #![allow(unused_assignments)]
 
 // `segmented_button`'s `SegmentedButton::tab_drag` is `pub(super)` while its
-// `TabDragSource` type is private. Upstream builds with the same visibilities
-// and the same warning; neither may be widened without changing the module's
-// public surface. Scoped here for the same reason as the allows above.
+// `TabDragSource` type is private; neither may be widened without changing the
+// module's public surface. Scoped here for the same reason as the allows above.
 #![allow(private_interfaces)]
 
-// Everything not yet vendored still comes from libcosmic.
+// Everything not vendored comes from `iced`.
 pub use iced::widget::*;
 
 // Vendored, shadowing the glob above. Rust gives explicit items and explicit
@@ -94,9 +93,8 @@ pub mod menu;
 pub mod nav_bar;
 pub use nav_bar::{NavBar, nav_bar};
 
-// Not a libcosmic module: the fork-only `Paragraph` additions
-// (`cursor_position`, `highlight`, the affinity-carrying `Hit`) are ported
-// here, since upstream iced has none of them.
+// Not vendored: `Paragraph` queries (`cursor_position`, `highlight`, the
+// affinity-carrying `Hit`) that iced lacks.
 pub mod paragraph;
 
 pub mod popover;

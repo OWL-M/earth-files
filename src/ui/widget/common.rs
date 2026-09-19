@@ -1,11 +1,7 @@
 // Copyright 2023 System76 <info@system76.com>
 // SPDX-License-Identifier: MPL-2.0
 
-//! Vendored from pop-os/libcosmic d9431dc, src/widget/common.rs
-//!
-//! Vendored as a shared dependency of `button` (and, later,
-//! `segmented_button` and `dropdown`); it is `pub(crate) mod common`
-//! upstream and so unreachable from here. No direct call sites in this crate.
+//! Vendored from pop-os/libcosmic, src/widget/common.rs
 
 use iced::widget::svg;
 use std::sync::OnceLock;

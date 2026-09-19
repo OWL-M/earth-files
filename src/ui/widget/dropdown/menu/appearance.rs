@@ -2,12 +2,8 @@
 // Copyright 2019 Héctor Ramón, Iced contributors
 // SPDX-License-Identifier: MPL-2.0 AND MIT
 
-//! Vendored from pop-os/libcosmic d9431dc, src/widget/dropdown/menu/appearance.rs
+//! Vendored from pop-os/libcosmic, src/widget/dropdown/menu/appearance.rs
 //!
-//! Re-exported from libcosmic until Phase 3, for the same nominal-type reason
-//! as `segmented_button::style`. `crate::ui::theme::style::dropdown` writes
-//! the impl.
-
 //! Change the appearance of menus.
 use iced_core::border::Radius;
 use iced_core::{Background, Color};

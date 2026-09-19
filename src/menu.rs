@@ -22,10 +22,9 @@ use crate::ui::theme::spacing;
 
 /// The name of the responsive menu bar's widget id.
 ///
-/// Previously a `LazyLock<Id>`: the fork's `Id::new` assigned a fresh counter on each
-/// call, so recreating it per frame would miss the `Core::menu_bars` key. Upstream ids
-/// compare by their input string, so storing the name is sufficient.
-/// `responsive_menu_bar` also needs the name because upstream `Id` has no `Display`.
+/// `widget::Id`s compare by their input string, so storing the name is
+/// sufficient. `responsive_menu_bar` also needs the name because `Id` has no
+/// `Display`.
 const MENU_ID: &str = "responsive-menu";
 
 const fn menu_button_optional(

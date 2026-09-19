@@ -3,11 +3,7 @@
 
 //! Create choices using radio buttons.
 //!
-//! Vendored from pop-os/libcosmic d9431dc, src/widget/radio.rs
-//!
-//! Vendored solely so `settings::Item::radio()` can reach
-//! `Radio::new_no_label`, which is `pub(crate)` upstream. This crate has no
-//! direct call sites for `radio`.
+//! Vendored from pop-os/libcosmic, src/widget/radio.rs
 use crate::ui::Theme;
 use crate::ui::theme;
 use iced::border;
@@ -38,11 +34,8 @@ where
 ///
 /// # Example
 ///
-/// Inherited from libcosmic and not adapted to the upstream-iced flip: the
-/// `text::heading(..) -> Into<Element>` inference in it no longer resolves.
-/// Marked `ignore` rather than rewritten, because guessing at what the example
-/// meant to demonstrate would document behaviour nobody checked. The widget
-/// itself compiles and is exercised by the crate.
+/// Marked `ignore`: the `text::heading(..) -> Into<Element>` inference in it
+/// does not resolve. The widget itself compiles and is exercised by the crate.
 /// ```ignore
 /// # type Radio<'a, Message> =
 /// #     earth_files::ui::widget::Radio<'a, Message>;
@@ -417,9 +410,9 @@ where
         )
     }
 
-    // TODO(dnd): removed the `Widget::drag_destinations` router (upstream iced 0.14
-    // has no such method). Tab drag-to-reorder must be rebuilt on smithay-clipboard;
-    // without this pass-through the tab bar leaf is unreachable from the root walk.
+    // TODO(dnd): tab drag-to-reorder must be rebuilt on smithay-clipboard. iced
+    // 0.14's `Widget` has no `drag_destinations` pass-through, so the tab bar
+    // leaf is unreachable from the root walk.
 }
 
 impl<'a, Message, Renderer> From<Radio<'a, Message, Renderer>>

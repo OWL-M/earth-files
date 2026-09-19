@@ -1,9 +1,9 @@
 // Copyright 2023 System76 <info@system76.com>
 // SPDX-License-Identifier: MPL-2.0
 
-//! Vendored from pop-os/libcosmic d9431dc, src/widget/button/mod.rs
+//! Vendored from pop-os/libcosmic, src/widget/button/mod.rs
 //!
-//! Button widgets for COSMIC applications.
+//! Button widgets.
 
 pub use crate::ui::theme::Button as ButtonClass;
 
@@ -26,12 +26,6 @@ pub use image::Button as ImageButton;
 #[doc(inline)]
 pub use image::image;
 
-// `Catalog` used to be re-exported from libcosmic rather than vendored: the
-// trait was implemented for `cosmic::Theme` inside libcosmic's own `theme`
-// module, so a vendored copy would have been a distinct nominal type that
-// `cosmic::Theme` did not implement. In Phase 3 the theme
-// is `crate::ui::Theme` now and `crate::ui::theme::style::button` writes the
-// impl, so the trait and its `Style` are vendored here.
 mod style;
 #[doc(inline)]
 pub use style::{Catalog, Style};

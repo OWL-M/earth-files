@@ -3,9 +3,9 @@
 
 //! MIME-typed clipboard reads and writes using `wl_data_device` directly.
 //!
-//! Upstream `iced_runtime::clipboard` supports only plain-text `read`/`write`.
-//! The libcosmic fork adds `read_data`/`write_data` and their generic traits,
-//! `AllowedMimeTypes`/`AsMimeTypes`, using `window_clipboard`'s `mime` crate.
+//! `iced_runtime::clipboard` supports only plain-text `read`/`write`; this
+//! module adds `read_data`/`write_data` and their generic traits,
+//! `AllowedMimeTypes`/`AsMimeTypes`.
 //!
 //! `iced_exwlshell` pins `smithay-clipboard 0.7.3` through
 //! `window_clipboard 0.5.1`, which has no MIME-typed API. The fork with that API

@@ -3,8 +3,7 @@
 
 //! Wayland drag-and-drop using `wl_data_device_manager` directly.
 //!
-//! libcosmic's iced fork provides `start_dnd`, `Event::Dnd` and
-//! `dnd_destination`; upstream has none of them. The published
+//! iced has no drag-and-drop API of its own, and the published
 //! `smithay-clipboard` 0.7.3 has no DnD support. The fork with DnD uses version
 //! 0.8.0, so a `[patch.crates-io]` against `clipboard_wayland`'s
 //! `smithay-clipboard = "0.7"` is semver-incompatible and silently ignored.

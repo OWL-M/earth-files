@@ -3,7 +3,7 @@
 
 // From iced_aw, license MIT
 
-//! Vendored from pop-os/libcosmic d9431dc, src/widget/menu/flex.rs
+//! Vendored from pop-os/libcosmic, src/widget/menu/flex.rs
 
 use iced_core::Widget;
 use iced_core::widget::Tree;

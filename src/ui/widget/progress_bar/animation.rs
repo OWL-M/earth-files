@@ -1,7 +1,7 @@
 // Copyright 2022 System76 <info@system76.com>
 // SPDX-License-Identifier: MPL-2.0
 
-//! Vendored from pop-os/libcosmic d9431dc, src/widget/progress_bar/animation.rs
+//! Vendored from pop-os/libcosmic, src/widget/progress_bar/animation.rs
 
 use crate::ui::anim::smootherstep;
 use iced::time::Instant;

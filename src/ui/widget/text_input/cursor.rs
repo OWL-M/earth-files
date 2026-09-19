@@ -3,10 +3,6 @@
 // SPDX-License-Identifier: MIT
 
 //! Track the cursor of a text input.
-// libcosmic's iced fork declares `Affinity` in `iced_core::text`; upstream does
-// not. The fork's enum is a structural copy of cosmic-text's original (same two
-// variants, same `Before` default), so the original is used directly. See
-// `super::paragraph` for the rest of the affinity port.
 use cosmic_text::Affinity;
 
 use super::value::Value;

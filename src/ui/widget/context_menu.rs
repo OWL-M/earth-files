@@ -1,14 +1,10 @@
 // Copyright 2024 System76 <info@system76.com>
 // SPDX-License-Identifier: MPL-2.0
 
-//! Vendored from pop-os/libcosmic d9431dc, src/widget/context_menu.rs
+//! Vendored from pop-os/libcosmic, src/widget/context_menu.rs
 //!
 //! A context menu is a menu in a graphical user interface that appears upon user interaction, such as a right-click mouse operation.
 
-// Upstream reads libcosmic's `pub(crate)` `WINDOWING_SYSTEM`; this app's
-// shell keeps its own. Upstream's `wayland_platform` cfg alias expands to
-// `feature = "wayland"` on free unix, and never reaches a downstream crate,
-// so this crate's `wayland` feature is the equivalent condition.
 use crate::ui::shell::runner::{WindowingSystem, windowing_system};
 use crate::ui::widget::menu::{
     self, CloseCondition, Direction, ItemHeight, ItemWidth, MenuBarState, PathHighlight,
@@ -365,9 +361,9 @@ impl<Message: 'static + Clone> Widget<Message, crate::ui::Theme, iced::Renderer>
         )
     }
 
-    // TODO(dnd): removed the `Widget::drag_destinations` router (upstream iced 0.14
-    // has no such method). Tab drag-to-reorder must be rebuilt on smithay-clipboard;
-    // without this pass-through the tab bar leaf is unreachable from the root walk.
+    // TODO(dnd): tab drag-to-reorder must be rebuilt on smithay-clipboard. iced
+    // 0.14's `Widget` has no `drag_destinations` pass-through, so the tab bar
+    // leaf is unreachable from the root walk.
 
     fn operate(
         &mut self,
@@ -397,7 +393,7 @@ impl<Message: 'static + Clone> Widget<Message, crate::ui::Theme, iced::Renderer>
         let bounds = layout.bounds();
 
         // The compositor dismissed our popup: nothing else tells this state
-        // about it. Upstream iced has no `PlatformSpecific::Wayland` event
+        // about it. iced has no `PlatformSpecific::Wayland` event
         // carrying the dismissed popup's id, so the shell records it and we
         // claim it here; see `ui::surface::dismissal`.
         state.menu_bar_state.inner.with_data_mut(|d| {

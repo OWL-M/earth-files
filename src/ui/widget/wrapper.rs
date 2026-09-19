@@ -1,7 +1,7 @@
 // Copyright 2024 System76 <info@system76.com>
 // SPDX-License-Identifier: MPL-2.0
 
-//! Vendored from pop-os/libcosmic d9431dc, src/widget/wrapper.rs
+//! Vendored from pop-os/libcosmic, src/widget/wrapper.rs
 //!
 //! Reference-counted wrappers used to share widget state and elements.
 
@@ -198,9 +198,9 @@ impl<M> Widget<M, crate::ui::Theme, iced::Renderer> for RcElementWrapper<M> {
         })
     }
 
-    // TODO(dnd): removed the `Widget::drag_destinations` router (upstream iced 0.14
-    // has no such method). Tab drag-to-reorder must be rebuilt on smithay-clipboard;
-    // without this pass-through the tab bar leaf is unreachable from the root walk.
+    // TODO(dnd): tab drag-to-reorder must be rebuilt on smithay-clipboard. iced
+    // 0.14's `Widget` has no `drag_destinations` pass-through, so the tab bar
+    // leaf is unreachable from the root walk.
 }
 
 impl<Message: 'static> From<RcElementWrapper<Message>> for Element<'static, Message> {

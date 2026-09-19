@@ -1,7 +1,7 @@
 // Copyright 2025 System76 <info@system76.com>
 // SPDX-License-Identifier: MPL-2.0 AND MIT
 
-//! Vendored from pop-os/libcosmic d9431dc, src/widget/dropdown/operation.rs
+//! Vendored from pop-os/libcosmic, src/widget/dropdown/operation.rs
 //!
 //! Operate on dropdown widgets.
 

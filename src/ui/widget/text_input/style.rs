@@ -2,12 +2,8 @@
 // Copyright 2023 System76 <info@system76.com>
 // SPDX-License-Identifier: MIT
 
-//! Vendored from pop-os/libcosmic d9431dc, src/widget/text_input/style.rs
+//! Vendored from pop-os/libcosmic, src/widget/text_input/style.rs
 //!
-//! Re-exported from libcosmic until Phase 3, for the same nominal-type reason
-//! as `segmented_button::style`. `crate::ui::theme::style::text_input` writes
-//! the impl.
-
 //! Change the appearance of a text input.
 
 use iced_core::border::Radius;

@@ -1,7 +1,7 @@
 // Copyright 2023 System76 <info@system76.com>
 // SPDX-License-Identifier: MPL-2.0
 
-//! Vendored from pop-os/libcosmic d9431dc, src/widget/dropdown/multi/menu.rs
+//! Vendored from pop-os/libcosmic, src/widget/dropdown/multi/menu.rs
 
 use super::Model;
 pub use crate::ui::widget::dropdown::menu::{Appearance, StyleSheet};
@@ -552,15 +552,6 @@ where
                             height: 16.0,
                         };
 
-                        // `iced_core::Svg::border_radius` is fork-only (fork
-                        // `iced/core/src/svg.rs:68`, backed by a `border_radius:
-                        // [f32; 4]` field on the draw primitive at `:34`). Upstream's
-                        // `iced_core::Svg` has no such field and no way to round an
-                        // SVG's corners, so the call is dropped. It was being handed
-                        // the *menu's* corner radius and applied to a 16x16 checkmark
-                        // with a transparent background, so the visible effect is at
-                        // most a clipped corner on that one glyph, unverified either
-                        // way, and not approximated.
                         let svg_handle =
                             svg::Svg::new(crate::ui::widget::common::object_select().clone())
                                 .color(appearance.selected_text_color);
@@ -622,10 +613,6 @@ where
                 }
 
                 OptionElement::Separator => {
-                    // `Rule::height` is fork-only (fork `iced/widget/src/rule.rs:114`).
-                    // Upstream sizes a rule from its constructor, and
-                    // `divider::horizontal::light()` is already `rule::horizontal(1)`,
-                    // so the dropped `.height(1.0)` was a no-op restatement.
                     let divider = crate::ui::widget::divider::horizontal::light();
 
                     let layout_node = layout::Node::new(Size {

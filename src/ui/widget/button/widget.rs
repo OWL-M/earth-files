@@ -2,7 +2,7 @@
 // Copyright 2023 System76 <info@system76.com>
 // SPDX-License-Identifier: MIT
 
-//! Vendored from pop-os/libcosmic d9431dc, src/widget/button/widget.rs
+//! Vendored from pop-os/libcosmic, src/widget/button/widget.rs
 //!
 //! Allow your users to perform actions by pressing a button.
 //!
@@ -514,13 +514,10 @@ impl<'a, Message: 'a + Clone> Widget<Message, crate::ui::Theme, iced::Renderer>
             *viewport,
             &styling,
             |renderer, _styling| {
-                // `renderer::Style` upstream has only `text_color`; the
-                // fork's `icon_color` and `scale_factor` are gone.
-                // `scale_factor` was pure pass-through. `icon_color` was an
-                // inheritance channel, which this crate carries separately;
-                // see `crate::ui::theme::icon_color`. The fork passed
-                // `icon_color` here for a content element that draws its own
-                // symbolic icon; the override below is that same hand-off.
+                // `renderer::Style` has only `text_color`; the icon colour is
+                // an inheritance channel this crate carries separately (see
+                // `crate::ui::theme::icon_color`) for content that draws its
+                // own symbolic icon.
                 crate::ui::theme::with_icon_color(icon_color, text_color, || {
                     self.content.as_widget().draw(
                         &tree.children[0],

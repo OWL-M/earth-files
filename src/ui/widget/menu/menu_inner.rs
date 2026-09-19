@@ -3,7 +3,7 @@
 
 // From iced_aw, license MIT
 
-//! Vendored from pop-os/libcosmic d9431dc, src/widget/menu/menu_inner.rs
+//! Vendored from pop-os/libcosmic, src/widget/menu/menu_inner.rs
 //!
 //! Menu tree overlay
 use std::borrow::Cow;
@@ -11,10 +11,6 @@ use std::sync::Arc;
 
 use super::menu_bar::MenuBarState;
 use super::menu_tree::MenuTree;
-// Upstream reads libcosmic's `pub(crate)` `WINDOWING_SYSTEM`; this app's
-// shell keeps its own. Upstream's `wayland_platform` cfg alias expands to
-// `feature = "wayland"` on free unix, and never reaches a downstream crate,
-// so this crate's `wayland` feature is the equivalent condition.
 use crate::ui::shell::runner::{WindowingSystem, windowing_system};
 use crate::ui::theme::menu_bar::StyleSheet;
 
@@ -1104,9 +1100,7 @@ impl<Message: std::clone::Clone + 'static> Widget<Message, crate::ui::Theme, ice
                 gravity,
                 ..Default::default()
             };
-            // Disable slide_x if it is set in the default. Upstream's field was
-            // a raw `u32` and this was `&= !(1 << 0)`; exwlshell's is a bitflags
-            // `ConstraintAdjustment`, whose `SlideX` is that same bit 0.
+            // Disable slide_x if it is set in the default.
             positioner
                 .constraint_adjustment
                 .remove(crate::ui::surface::PopupConstraintAdjustment::SlideX);

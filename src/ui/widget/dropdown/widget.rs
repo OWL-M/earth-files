@@ -2,7 +2,7 @@
 // Copyright 2019 Héctor Ramón, Iced contributors
 // SPDX-License-Identifier: MPL-2.0 AND MIT
 
-//! Vendored from pop-os/libcosmic d9431dc, src/widget/dropdown/widget.rs
+//! Vendored from pop-os/libcosmic, src/widget/dropdown/widget.rs
 
 use super::Id;
 use super::menu::{self, Menu};
@@ -113,7 +113,6 @@ where
 
     #[cfg(wayland_platform)]
     /// Handle dropdown requests for popup creation.
-    /// Intended to be used with [`cosmic::app::message::get_popup`]
     pub fn with_popup<NewAppMessage>(
         self,
         parent_id: window::Id,
@@ -612,11 +611,9 @@ pub fn update<
                                 + icon_width as u32,
                             10,
                         )),
-                        // `offset` is dropped with the fork's `SctkPositioner`:
-                        // exwlshell never sends `xdg_positioner.set_offset`.
-                        // `translation` is `Vector::ZERO`, so all that is lost
-                        // is the `-padding.left` nudge; the anchor rect absorbs
-                        // it here instead.
+                        // exwlshell never sends `xdg_positioner.set_offset`, so
+                        // the `-padding.left` nudge is folded into the anchor
+                        // rect instead.
                         anchor_rect: Rectangle {
                             x: anchor_rect.x - padding.left as i32,
                             ..anchor_rect

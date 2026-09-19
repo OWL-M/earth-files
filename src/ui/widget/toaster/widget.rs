@@ -1,14 +1,8 @@
 // Copyright 2024 wiiznokes
 // SPDX-License-Identifier: MPL-2.0
 
-//! Vendored from pop-os/libcosmic d9431dc, src/widget/toaster/widget.rs
-//!
-//! `Widget::drag_destinations` is dropped: it is a libcosmic-fork addition to
-//! `iced_core`'s `Widget` trait with no upstream counterpart. The override only
-//! forwarded to the content, which upstream's default reaches anyway.
+//! Vendored from pop-os/libcosmic, src/widget/toaster/widget.rs
 
-// `Limits` and `Size` are re-exported from `iced`'s root in libcosmic's fork;
-// upstream keeps them in `iced_core`.
 use iced_core::Size;
 use iced_core::layout::Limits;
 use iced_core::layout::Node;
@@ -87,8 +81,6 @@ where
         vec![Tree::new(&self.content), Tree::new(&self.toasts)]
     }
 
-    // The fork takes `&mut self` here and hands `diff_children` mutable
-    // element references; upstream's `Widget::diff` is `&self`.
     fn diff(&self, tree: &mut Tree) {
         tree.diff_children(&[&self.content, &self.toasts]);
     }

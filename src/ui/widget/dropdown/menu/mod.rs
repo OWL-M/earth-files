@@ -2,16 +2,11 @@
 // Copyright 2019 Héctor Ramón, Iced contributors
 // SPDX-License-Identifier: MPL-2.0 AND MIT
 
-//! Vendored from pop-os/libcosmic d9431dc, src/widget/dropdown/menu/mod.rs
+//! Vendored from pop-os/libcosmic, src/widget/dropdown/menu/mod.rs
 
 use std::borrow::Cow;
 use std::sync::{Arc, Mutex};
 
-// `appearance.rs` is vendored as of Phase 3. It was re-exported from libcosmic
-// for as long as `StyleSheet` was implemented for `cosmic::Theme` inside
-// libcosmic's `theme` module, which made a vendored copy a distinct nominal
-// type that nothing implemented. `crate::ui::theme::style::dropdown` writes
-// the impl now.
 mod appearance;
 pub use appearance::{Appearance, StyleSheet};
 
@@ -635,15 +630,6 @@ where
                     appearance.selected_background,
                 );
 
-                // `iced_core::Svg::border_radius` is fork-only (fork
-                // `iced/core/src/svg.rs:68`, backed by a `border_radius:
-                // [f32; 4]` field on the draw primitive at `:34`). Upstream's
-                // `iced_core::Svg` has no such field and no way to round an
-                // SVG's corners, so the call is dropped. It was being handed
-                // the *menu's* corner radius and applied to a 16x16 checkmark
-                // with a transparent background, so the visible effect is at
-                // most a clipped corner on that one glyph, unverified either
-                // way, and not approximated.
                 let svg_handle =
                     iced_core::Svg::new(crate::ui::widget::common::object_select().clone())
                         .color(appearance.selected_text_color);

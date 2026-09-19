@@ -3,7 +3,7 @@
 
 //! An element to distinguish a boundary between two elements.
 //!
-//! Vendored from pop-os/libcosmic d9431dc, src/widget/mod.rs (divider module)
+//! Vendored from pop-os/libcosmic, src/widget/mod.rs (divider module)
 
 /// Horizontal variant of a divider.
 pub mod horizontal {

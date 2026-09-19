@@ -3,20 +3,14 @@
 
 //! This app's About section.
 //!
-//! Not a vendored copy: `libcosmic::widget::about` cannot be vendored. Its
-//! `fl!` calls expand to `$crate::localize::…`, and libcosmic's `localize`
-//! module is private, so a copy fails to compile with `error[E0603]`. The
-//! layout below reproduces `libcosmic/src/widget/about.rs` (rev `d9431dc`)
-//! element for element, built from this app's vendored widgets and localised
-//! through this app's own `fl!` (`i18n/en/earth_files.ftl`).
+//! Layout reproduces pop-os/libcosmic d9431dc, src/widget/about.rs.
 //!
-//! Because libcosmic's strings are unreachable, the section headings come from
-//! this app's catalog and may differ in wording from libcosmic's.
+//! Localised through this app's own `fl!` (`i18n/en/earth_files.ftl`).
 //!
-//! Trimmed against upstream: the `artists`, `designers`, `documenters` and
-//! `translators` sections are gone. This app never populates them, and
-//! `fl!` validates its `message_id` at compile time, so carrying them would
-//! mean four never-rendered strings shipped to Weblate for translation.
+//! There are no `artists`, `designers`, `documenters` or `translators`
+//! sections: this app never populates them, and `fl!` validates its
+//! `message_id` at compile time, so carrying them would mean four
+//! never-rendered strings shipped to Weblate for translation.
 
 use crate::fl;
 use crate::ui::iced::{Alignment, ContentFit, Length};

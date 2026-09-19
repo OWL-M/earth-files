@@ -1,16 +1,14 @@
 // Copyright 2019 Héctor Ramón, Iced contributors
 // SPDX-License-Identifier: MIT
 //
-// Vendored from `iced_widget 0.14.2`, `src/svg.rs`, with one addition taken
-// from pop-os/libcosmic's iced fork (`iced/widget/src/svg.rs:143` and `:308`):
-// the `symbolic` flag and the four lines of `draw` that fill in a symbolic
-// icon's colour from the inherited icon colour when the class leaves it unset.
+// Vendored from `iced_widget 0.14.2`, `src/svg.rs`, with one addition: the
+// `symbolic` flag and the four lines of `draw` that fill in a symbolic icon's
+// colour from the inherited icon colour when the class leaves it unset.
 //
-// Upstream's `Svg` ignores the `renderer::Style` it is handed; the fork's reads
-// `renderer_style.icon_color` from it. `icon_color` does not exist upstream, so
-// the value comes from [`crate::ui::theme::icon_color`], which resolves the
-// same channel out of `renderer::Style::text_color` plus the explicit scope
-// that [`crate::ui::theme::with_icon_color`] installs where the two diverge.
+// `renderer::Style` has no `icon_color`, so the value comes from
+// [`crate::ui::theme::icon_color`], which resolves the same channel out of
+// `renderer::Style::text_color` plus the explicit scope that
+// [`crate::ui::theme::with_icon_color`] installs where the two diverge.
 //
 //! A vector graphics widget that honours the inherited symbolic icon colour.
 
@@ -236,8 +234,8 @@ where
 
         let mut style = theme.style(&self.class, self.status.unwrap_or(Status::Idle));
 
-        // The fork's four lines (`iced/widget/src/svg.rs:308-311`), with the
-        // inherited colour resolved from the channel this crate rebuilt.
+        // Fill in a symbolic icon's colour from the inherited icon colour when
+        // the class leaves it unset.
         if self.symbolic && style.color.is_none() {
             style.color = Some(crate::ui::theme::icon_color(renderer_style));
         }

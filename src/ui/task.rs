@@ -2,10 +2,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 //! Create asynchronous actions to be performed in the background.
-//!
-//! Adapted from `cosmic::task`, with the three helpers this app calls.
-//! `batch`, `stream` and `none` had no callers outside libcosmic itself;
-//! `iced::Task` already provides all three under the same names.
 
 use std::future::Future;
 

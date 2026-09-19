@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MPL-2.0
 //! Show a linear progress indicator.
 //!
-//! Vendored from pop-os/libcosmic d9431dc, src/widget/progress_bar/linear.rs
+//! Vendored from pop-os/libcosmic, src/widget/progress_bar/linear.rs
 
 use super::animation::{Animation, Progress};
 use super::style::StyleSheet;

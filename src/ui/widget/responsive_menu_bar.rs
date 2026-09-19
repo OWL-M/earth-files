@@ -2,8 +2,6 @@
 // SPDX-License-Identifier: MPL-2.0
 //
 // Vendored from libcosmic `src/widget/responsive_menu_bar.rs` (rev `d9431dc`).
-// It reads the shell's `Core::menu_bars`, which this app now owns, and
-// libcosmic's copy can only read libcosmic's `Core`.
 
 use std::collections::HashMap;
 
@@ -31,10 +29,6 @@ impl Default for ResponsiveMenuBar {
     fn default() -> ResponsiveMenuBar {
         ResponsiveMenuBar {
             collapsed_item_width: {
-                // Upstream gates this on libcosmic's own `wayland_platform`
-                // cfg, which never reaches a downstream crate; this app's
-                // `wayland` feature is what turns that cfg on inside libcosmic,
-                // so it is the equivalent condition here.
                 if matches!(
                     crate::ui::shell::runner::windowing_system(),
                     Some(crate::ui::shell::runner::WindowingSystem::Wayland)
@@ -85,12 +79,11 @@ impl ResponsiveMenuBar {
         self,
         core: &Core,
         key_binds: &HashMap<menu::KeyBind, A>,
-        // The name rather than the `Id`: upstream `iced_core::widget::Id` has
-        // no `Display` and no way to read its string back, where the fork's
-        // (a different type, `iced_core::id::Id`) had both. The two derived
+        // The name rather than the `Id`: `iced_core::widget::Id` has no
+        // `Display` and no way to read its string back, and the two derived
         // ids below need the string, so it is passed in and the `Id` is built
-        // from it here. Upstream's `Id` compares by that string, so rebuilding
-        // it per frame still matches the `core.menu_bars` key.
+        // from it here. `Id` compares by that string, so rebuilding it per
+        // frame still matches the `core.menu_bars` key.
         id_name: &'static str,
         action_message: impl Fn(crate::ui::surface::Action<Message>) -> Message
         + Send

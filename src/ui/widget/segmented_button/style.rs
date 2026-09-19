@@ -1,13 +1,7 @@
 // Copyright 2022 System76 <info@system76.com>
 // SPDX-License-Identifier: MPL-2.0
 
-//! Vendored from pop-os/libcosmic d9431dc, src/widget/segmented_button/style.rs
-//!
-//! Re-exported from libcosmic until Phase 3: the trait was implemented for
-//! `cosmic::Theme` inside libcosmic, so a vendored copy would have been a
-//! distinct nominal type. The theme is `crate::ui::Theme` now and
-//! `crate::ui::theme::style::segmented_button` writes the impl.
-
+//! Vendored from pop-os/libcosmic, src/widget/segmented_button/style.rs
 
 use iced::Border;
 use iced_core::{Background, Color};

@@ -3,7 +3,7 @@
 
 //! A button for toggling the navigation side panel.
 //!
-//! Vendored from pop-os/libcosmic d9431dc, src/widget/nav_bar_toggle.rs
+//! Vendored from pop-os/libcosmic, src/widget/nav_bar_toggle.rs
 //!
 //! Verbatim apart from the paths: `crate::Element` is this crate's
 //! [`crate::ui::Element`] and `crate::theme::Button` is

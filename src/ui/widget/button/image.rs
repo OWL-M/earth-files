@@ -1,7 +1,7 @@
 // Copyright 2023 System76 <info@system76.com>
 // SPDX-License-Identifier: MPL-2.0
 
-//! Vendored from pop-os/libcosmic d9431dc, src/widget/button/image.rs
+//! Vendored from pop-os/libcosmic, src/widget/button/image.rs
 
 use super::Builder;
 use crate::ui::Element;
@@ -77,9 +77,6 @@ impl<'a, Message> Button<'a, Message> {
 
 impl<'a, Message> From<Button<'a, Message>> for Element<'a, Message>
 where
-    // `Handle: Hash` was required because the fork derived `Hash` on
-    // `iced_core::image::Handle`; upstream `0.14` does not, and nothing in this
-    // builder hashes the handle.
     Handle: Clone,
     Message: Clone + 'static,
 {

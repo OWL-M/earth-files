@@ -1,7 +1,7 @@
 // Copyright 2023 System76 <info@system76.com>
 // SPDX-License-Identifier: MPL-2.0
 
-//! Vendored from pop-os/libcosmic d9431dc, src/widget/menu/menu_column.rs
+//! Vendored from pop-os/libcosmic, src/widget/menu/menu_column.rs
 //!
 //! Distribute content vertically.
 use iced_core::alignment::{self, Alignment};
@@ -356,9 +356,6 @@ where
         )
     }
 
-    // TODO(dnd): removed the `Widget::drag_destinations` router (upstream iced 0.14
-    // has no such method). Tab drag-to-reorder must be rebuilt on smithay-clipboard;
-    // without this pass-through the tab bar leaf is unreachable from the root walk.
 }
 
 impl<'a, Message, Renderer> From<MenuColumn<'a, Message, Renderer>>

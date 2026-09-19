@@ -1,42 +1,23 @@
 // Copyright 2026 System76 <info@system76.com>
 // SPDX-License-Identifier: GPL-3.0-only
 
-//! The conversions libcosmic's `iced` fork added as blanket `From` impls,
-//! restated as extension traits because we cannot restate them as `From`.
+//! Conversions into `iced_core` types (`Pixels`, `Padding`, `Radius`, `Color`,
+//! `Background`, `Length`) and back to `palette` colours, as extension traits.
 //!
-//! The migration brief listed four conversions; compilation found six.
-//! The additional fork-only conversions are `Background: From<Srgba>`
-//! (13 sites) and `Length: From<u16>` (5 sites).
-//!
-//! The fork added these to `iced_core` itself:
-//!
-//! | fork impl | fork source |
-//! | --- | --- |
-//! | `Pixels: From<u16>` | `iced/core/src/pixels.rs:29` |
-//! | `Padding: From<[u16; 4]>` | `iced/core/src/padding.rs:216` |
-//! | `Radius: From<[f32; 4]>` | `iced/core/src/border.rs:280` |
-//! | `Color: From<palette::Srgba<f32>>` (and `Srgba<u8>`, `Srgb<f32>`) | `iced/core/src/color.rs:278-299` |
-//! | `palette::Srgba<f32>: From<Color>` | `iced/core/src/color.rs:307` |
-//! | `Background: From<palette::Srgba<f32>>` (and `Srgba<u8>`) | `iced/core/src/background.rs:27,33` |
-//! | `Length: From<u16>` | `iced/core/src/length.rs:87` |
-//!
-//! Upstream `iced_core 0.14` has none of these impls. The orphan rule prevents
+//! `iced_core 0.14` has no `From` impls for these, and the orphan rule prevents
 //! adding them here because both the traits and types belong to other crates.
-//! The ported style layer uses `.into()` with the target type inferred from
-//! the assigned field, so replacements must work in the same expressions.
+//! The style layer uses `.into()` with the target type inferred from the
+//! assigned field, so replacements must work in the same expressions.
 //!
 //! Extension methods (`.to_color()`, `.to_radius()`, `.to_padding()` and
 //! `.to_pixels()`) preserve that order. Free functions such as `px(16)` or
 //! `padding([4; 4])` would reverse the reading order of method chains at about
 //! 200 sites in `theme/style/iced.rs` alone.
-//!
-//! The implementations are copied from the fork, preserving its arithmetic
-//! and the array element order required by `Radius` and `Padding`.
 
 use iced_core::border::Radius;
 use iced_core::{Color, Padding, Pixels};
 
-/// `Pixels: From<u16>`, fork `iced/core/src/pixels.rs:29`.
+/// `Pixels` from a `u16`.
 pub trait ToPixels {
     fn to_pixels(self) -> Pixels;
 }
@@ -48,9 +29,7 @@ impl ToPixels for u16 {
     }
 }
 
-/// `Padding: From<[u16; 4]>`, fork `iced/core/src/padding.rs:216`.
-///
-/// Element order is `[top, right, bottom, left]`, as the fork has it.
+/// `Padding` from `[top, right, bottom, left]`.
 pub trait ToPadding {
     fn to_padding(self) -> Padding;
 }
@@ -67,12 +46,11 @@ impl ToPadding for [u16; 4] {
     }
 }
 
-/// `Radius: From<[f32; 4]>`, fork `iced/core/src/border.rs:280`.
+/// `Radius` from `[top_left, top_right, bottom_right, bottom_left]`.
 ///
-/// Element order is `[top_left, top_right, bottom_right, bottom_left]`, as the
-/// fork's doc comment spells out. This is the order the whole `CornerRadii`
-/// table in [`crate::ui::theme::palette`] is written in, so getting it wrong
-/// would rotate every rounded corner in the app rather than fail to compile.
+/// This is the order the whole `CornerRadii` table in
+/// [`crate::ui::theme::palette`] is written in, so getting it wrong would
+/// rotate every rounded corner in the app rather than fail to compile.
 pub trait ToRadius {
     fn to_radius(self) -> Radius;
 }
@@ -89,8 +67,7 @@ impl ToRadius for [f32; 4] {
     }
 }
 
-/// `Color: From<palette::Srgba<f32>>` and friends, fork
-/// `iced/core/src/color.rs:278-299`.
+/// `Color` from a `palette` colour.
 pub trait ToColor {
     fn to_color(self) -> Color;
 }
@@ -116,10 +93,10 @@ impl ToColor for palette::Srgb<f32> {
     }
 }
 
-/// `palette::Srgba<f32>: From<Color>`, fork `iced/core/src/color.rs:307`.
+/// `palette::Srgba<f32>` from a `Color`.
 ///
-/// The reverse direction, which the ported style code uses to lift an iced
-/// `Color` back into the palette space [`crate::ui::theme::over`] composites in.
+/// The reverse direction, which the style code uses to lift an iced `Color`
+/// back into the palette space [`crate::ui::theme::over`] composites in.
 pub trait ToSrgba {
     fn to_srgba(self) -> palette::Srgba<f32>;
 }
@@ -131,11 +108,7 @@ impl ToSrgba for Color {
     }
 }
 
-/// `Background: From<palette::Srgba<f32>>` / `From<palette::Srgba<u8>>`, fork
-/// `iced/core/src/background.rs:27,33`.
-///
-/// Used at 13 call sites; found during compilation, beyond the four
-/// conversions listed in the migration brief.
+/// `Background` from anything that converts to a `Color`.
 pub trait ToBackground {
     fn to_background(self) -> iced_core::Background;
 }
@@ -150,11 +123,10 @@ where
     }
 }
 
-/// `Length: From<u16>`, fork `iced/core/src/length.rs:87`.
+/// `Length` from a `u16`.
 ///
-/// Used at 5 call sites, beyond the four conversions in the migration brief.
-/// Upstream has `From<f32>`, `From<u32>` and `From<Pixels>`, but a `u16`
-/// literal no longer coerces.
+/// `Length` has `From<f32>`, `From<u32>` and `From<Pixels>`, but a `u16`
+/// literal does not coerce.
 pub trait ToLength {
     fn to_length(self) -> iced_core::Length;
 }
@@ -166,11 +138,8 @@ impl ToLength for u16 {
     }
 }
 
-/// `Column::push_maybe` / `Row::push_maybe`, fork `iced/widget/src/column.rs:157`
-/// and `row.rs`.
-///
-/// Convenience helper used at 12 call sites, grouped with the other fork
-/// compatibility helpers. The body is copied from the fork.
+/// `Column::push_maybe` / `Row::push_maybe`: push a child only when it is
+/// `Some`.
 pub trait PushMaybe<'a, Message, Theme, Renderer> {
     #[must_use]
     fn push_maybe(
