@@ -1,60 +1,50 @@
 {
-  description = "Development shell for earth-files";
+  description = "Earth Files, a standalone Wayland file manager";
 
-  inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+  inputs = {
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    systems.url = "github:nix-systems/default-linux";
+  };
 
   outputs =
-    { nixpkgs, ... }:
+    {
+      self,
+      nixpkgs,
+      systems,
+      ...
+    }:
     let
-      systems = [
-        "x86_64-linux"
-        "aarch64-linux"
-      ];
-      forAllSystems = f: nixpkgs.lib.genAttrs systems (system: f nixpkgs.legacyPackages.${system});
+      eachSystem = nixpkgs.lib.genAttrs (import systems);
     in
     {
-      devShells = forAllSystems (pkgs: {
-        default = pkgs.mkShell {
-          nativeBuildInputs = with pkgs; [
-            cargo
-            rustc
-            clippy
-            rustfmt
-            rust-analyzer
-            just
-            pkg-config
-            rustPlatform.bindgenHook
-          ];
+      packages = eachSystem (system: {
+        earth-files = nixpkgs.legacyPackages.${system}.callPackage ./nix/package.nix { };
+        default = self.packages.${system}.earth-files;
+      });
 
-          buildInputs = with pkgs; [
-            glib # the `gio`/`glib` crates behind the gvfs mounter
-            libxkbcommon # keymaps, via exwlshellev's waycrate_xkbkeycode
-            wayland # the protocol layer: exwlshell and our own ui::dnd
-            vulkan-loader # wgpu's Vulkan backend
-          ];
+      apps = eachSystem (system: {
+        earth-files = {
+          type = "app";
+          program = nixpkgs.lib.getExe self.packages.${system}.earth-files;
+          meta.description = "Earth Files";
+        };
+        default = self.apps.${system}.earth-files;
+      });
 
-          # These libraries are loaded with dlopen() at runtime. As `libcosmicAppHook`
-          # did, embed an rpath through RUSTFLAGS so `./target/debug/earth-files` works
-          # from an ordinary shell as well as `nix develop`. Using only LD_LIBRARY_PATH
-          # causes `ConnectError(NoWaylandLib)` outside the development shell.
-          shellHook =
-            let
-              libs = pkgs.lib.makeLibraryPath (
-                with pkgs;
-                [
-                  vulkan-loader
-                  libxkbcommon
-                  wayland
-                ]
-              );
-            in
-            ''
-              export LD_LIBRARY_PATH="${libs}''${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
-              export RUSTFLAGS="-C link-arg=-Wl,-rpath,${libs} ''${RUSTFLAGS:-}"
-            '';
+      overlays.default = final: prev: {
+        earth-files = final.callPackage ./nix/package.nix { };
+      };
+
+      devShells = eachSystem (system: {
+        default = nixpkgs.legacyPackages.${system}.callPackage ./nix/shell.nix {
+          inherit (self.packages.${system}) earth-files;
         };
       });
 
-      formatter = forAllSystems (pkgs: pkgs.nixfmt-tree);
+      checks = eachSystem (system: {
+        package = self.packages.${system}.earth-files;
+      });
+
+      formatter = eachSystem (system: nixpkgs.legacyPackages.${system}.nixfmt-tree);
     };
 }

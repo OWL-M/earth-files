@@ -26,3 +26,33 @@ the RON files from `~/.config/cosmic-files/` into that directory.
 ## License
 
 This project is licensed under [GPLv3](LICENSE)
+
+## Nix
+
+The flake supports `x86_64-linux` and `aarch64-linux`:
+
+```sh
+nix develop              # Rust tools and native build dependencies
+cargo build              # Build inside the development shell
+nix build                # Build the release package in ./result
+nix run                  # Launch the packaged app
+nix run . -- ~/Downloads # Open a directory
+nix flake check          # Build the package and run its library tests
+nix fmt                  # Format the Nix files
+```
+
+The package installs the desktop entry, AppStream metadata and icons. Its wrapper
+supplies runtime libraries, icon and MIME data, and `xdg-utils`. The shell shares
+the package's build dependencies and adds Cargo, Clippy, rustfmt, rust-analyzer
+and Just. Binaries built in the shell retain paths to the Wayland and Vulkan
+libraries so they can also run after leaving it.
+
+To install through Nix, add the flake as an input:
+
+```nix
+inputs.earth-files.url = "github:owl-m/earth-files";
+inputs.earth-files.inputs.nixpkgs.follows = "nixpkgs";
+```
+
+The flake exports `overlays.default` for `pkgs.earth-files`, and
+`packages.<system>.earth-files` for direct use.

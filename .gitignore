@@ -6,3 +6,7 @@
 /test/
 /vendor.tar
 /vendor/
+
+/result
+/result-*
+.direnv
