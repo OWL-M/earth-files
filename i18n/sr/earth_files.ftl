@@ -115,6 +115,7 @@ open-multiple-folders = Отвори више фасцикла
 remember-password = Запамти лозинку
 show-details = Прикажи детаље
 grid-spacing = Размак мреже
+extract-as-folder = Распакуј у фасциклу
 extract-to = Распакуј у...
 add-network-drive = Додај мрежни уређај
 copying =

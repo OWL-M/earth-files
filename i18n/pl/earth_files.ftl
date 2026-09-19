@@ -52,6 +52,7 @@ create-archive = Utwórz archiwum
 ## Extract Dialog
 
 extract-password-required = Wymagane hasło
+extract-as-folder = Wypakuj do folderu
 extract-to = Wypakuj do…
 extract-to-title = Wypakuj do katalogu
 

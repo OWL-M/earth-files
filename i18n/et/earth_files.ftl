@@ -92,6 +92,7 @@ notification-in-progress = Tegevused failidega on pooleli.
 desktop-view-options = Töölauavaate valikud...
 create-archive = Loo arhiivifail
 extract-password-required = Salasõna on vajalik
+extract-as-folder = Paki lahti kausta
 extract-to = Paki lahti siia...
 extract-to-title = Paku lahti kausta
 empty-trash = Tühjenda prügikast

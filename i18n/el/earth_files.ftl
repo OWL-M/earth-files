@@ -167,6 +167,7 @@ open-multiple-folders = Άνοιγμα πολλαπλών φακέλων
 remember-password = Απομνημόνευση κωδικού πρόσβασης
 show-details = Εμφάνιση λεπτομερειών
 grid-spacing = Απόσταση πλέγματος
+extract-as-folder = Αποσυμπίεση σε φάκελο
 extract-to = Αποσυμπίεση σε...
 add-network-drive = Προσθήκη μονάδας δικτύου
 copying =

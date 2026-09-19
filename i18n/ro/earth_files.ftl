@@ -42,6 +42,7 @@ create-archive = Creează o arhivă
 ## Extract Dialog
 
 extract-password-required = Parolă necesară
+extract-as-folder = Extrage în dosar
 extract-to = Extrage în...
 extract-to-title = Extrage în dosar
 

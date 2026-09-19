@@ -58,6 +58,7 @@ pause = Á pásu
 resume = Halda áfram
 create-archive = Búa til safnskrá
 extract-password-required = Lykilorðs krafist
+extract-as-folder = Afþjappa í möppu
 extract-to = Afþjappa í...
 extract-to-title = Afþjappa í möppu
 empty-trash = Tæma rusl

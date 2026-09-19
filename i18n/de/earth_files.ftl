@@ -50,6 +50,7 @@ create-archive = Archiv erstellen
 ## Entpacken-Dialog
 
 extract-password-required = Passwort erforderlich
+extract-as-folder = In Ordner entpacken
 extract-to = Entpacken nach ...
 extract-to-title = In Ordner entpacken
 

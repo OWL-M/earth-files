@@ -32,6 +32,7 @@ pause = ਵਿਰਾਮ
 resume = ਮੁੜ-ਚਾਲੂ
 create-archive = ਅਕਾਇਵ ਬਣਾਓ
 extract-password-required = ਪਾਸਵਰਡ ਚਾਹੀਦਾ ਹੈ
+extract-as-folder = ਫੋਲਡਰ ਵਿੱਚ ਖਿਲਾਰੋ
 extract-to = ਖਿਲਾਰੋ...
 extract-to-title = ਫੋਲਡਰ ਵਿੱਚ ਖਿਲਾਰੋ
 empty-trash = ਰੱਦੀ ਨੂੰ ਖਾਲੀ ਕਰੋ

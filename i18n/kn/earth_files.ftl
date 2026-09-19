@@ -224,6 +224,7 @@ light = ಲೈಟ್
 add-to-sidebar = ಸೈಡ್‌ಬಾರ್‌ಗೆ ಸೇರಿಸಿ
 compress = ಸಂಕ್ಷಿಪ್ತಗೊಳಿಸಿ
 extract-here = ಹೊರತೆಗೆಯಿರಿ
+extract-as-folder = ಫೋಲ್ಡರ್‌ಗೆ ಹೊರತೆಗೆಯಿರಿ
 new-file = ಹೊಸ ಫೈಲ್...
 new-folder = ಹೊಸ ಫೋಲ್ಡರ್...
 open-in-terminal = ಟರ್ಮಿನಲ್‌ನಲ್ಲಿ ತೆರೆಯಿರಿ

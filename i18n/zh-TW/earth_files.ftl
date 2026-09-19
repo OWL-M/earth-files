@@ -302,6 +302,7 @@ empty-trash-title = 清空垃圾桶？
 pause = 暫停
 resume = 繼續
 extract-password-required = 需要密碼
+extract-as-folder = 解壓縮至資料夾
 extract-to = 解壓縮至...
 extract-to-title = 解壓縮至資料夾
 mount-error = 無法存取磁碟機

@@ -50,6 +50,7 @@ create-archive = 创建压缩包
 ## Extract Dialog
 
 extract-password-required = 需要密码
+extract-as-folder = 解压到文件夹
 extract-to = 提取到…
 extract-to-title = 提取到文件夹
 

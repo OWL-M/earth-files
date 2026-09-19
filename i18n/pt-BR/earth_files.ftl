@@ -51,6 +51,7 @@ create-archive = Compactar arquivos
 ## Extract Dialog
 
 extract-password-required = Senha necessária
+extract-as-folder = Extrair para pasta
 extract-to = Extrair para...
 extract-to-title = Extrair para pasta
 

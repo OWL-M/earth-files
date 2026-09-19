@@ -314,6 +314,7 @@ read-write = पढ़ें और लिखें
 none = कोई नहीं
 resume = फिर से शुरू करें
 grid-spacing = ग्रिड स्पेसिंग
+extract-as-folder = फ़ोल्डर में निकालें
 extract-to = इस रूप में निकालें..।
 delete = हटाएं
 read-only = केवल पढ़ने के लिए

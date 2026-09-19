@@ -50,6 +50,7 @@ create-archive = Archief aanmaken
 ## Extract Dialog
 
 extract-password-required = Wachtwoord vereist
+extract-as-folder = Uitpakken naar map
 extract-to = Uitpakken naar…
 extract-to-title = Uitpakken naar map
 

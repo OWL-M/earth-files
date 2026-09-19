@@ -42,6 +42,7 @@ create-archive = ایجاد بایگانی
 ## Extract Dialog
 
 extract-password-required = رمز عبور مورد نیاز است
+extract-as-folder = استخراج در پوشه
 extract-to = استخراج در...
 extract-to-title = استخراج در پوشه
 

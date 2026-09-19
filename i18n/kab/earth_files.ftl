@@ -24,6 +24,7 @@ details = Ifatusen
 pause = Serǧu
 resume = Kemmel
 create-archive = Snulfu-d aɣbaṛ
+extract-as-folder = Ssef deg ukaram
 extract-to = Ssef ɣer...
 extract-to-title = Ssef ɣer ukaram
 empty-trash = Silem iḍumman

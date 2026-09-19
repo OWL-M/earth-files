@@ -262,6 +262,7 @@ operations-running-finished =
 pause = 一時停止
 resume = 一時停止
 extract-password-required = パスワードが必要です
+extract-as-folder = フォルダーとして展開
 extract-to = 展開先…
 extract-to-title = フォルダーに展開
 mount-error = ドライブにアクセスできません

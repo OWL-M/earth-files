@@ -238,6 +238,7 @@ light = สว่าง
 add-to-sidebar = เพิ่มเข้าแถบด้านข้าง
 compress = บีบอัด
 extract-here = แตกไฟล์
+extract-as-folder = แตกไฟล์เป็นโฟลเดอร์
 new-file = สร้างไฟล์...
 new-folder = สร้างแฟ้ม...
 open-in-terminal = เปิดในเทอร์มินัล

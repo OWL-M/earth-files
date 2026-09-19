@@ -78,6 +78,48 @@ fn get_directory_name(file_name: &str) -> &str {
     file_name
 }
 
+/// Extract one archive on the blocking pool and flush what it wrote to disk.
+async fn extract_archive(
+    path: PathBuf,
+    dir: PathBuf,
+    password: &Option<String>,
+    controller: &Controller,
+) -> Result<(), OperationError> {
+    let password = password.clone();
+    let controller_clone = controller.clone();
+    let (written_files, target_dirs) = compio::runtime::spawn_blocking(move || {
+        crate::archive::extract(&path, &dir, &password, &controller_clone)
+    })
+    .await
+    .map_err(wrap_compio_spawn_error)??;
+    if !written_files.is_empty() || !target_dirs.is_empty() {
+        sync_to_disk(written_files, target_dirs).await;
+    }
+    Ok(())
+}
+
+/// Create a unique hidden directory inside `to` to stage an extraction in.
+fn staging_dir(
+    to: &Path,
+    dir_name: &str,
+    controller: &Controller,
+) -> Result<PathBuf, OperationError> {
+    for n in 0.. {
+        let name = if n == 0 {
+            format!(".{dir_name}.extracting")
+        } else {
+            format!(".{dir_name}.extracting.{n}")
+        };
+        let path = to.join(name);
+        match fs::create_dir(&path) {
+            Ok(()) => return Ok(path),
+            Err(err) if err.kind() == io::ErrorKind::AlreadyExists => {}
+            Err(err) => return Err(OperationError::from_err(err, controller)),
+        }
+    }
+    unreachable!()
+}
+
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum ReplaceResult {
     Replace(bool),
@@ -375,6 +417,9 @@ pub enum Operation {
         paths: Box<[PathBuf]>,
         to: PathBuf,
         password: Option<String>,
+        /// Extract each archive into a new folder named after it instead of
+        /// directly into `to`
+        as_folder: bool,
     },
     /// Move items
     Move {
@@ -505,11 +550,7 @@ impl Operation {
                 fl!("deleting", items = items.len(), progress = progress())
             }
             Self::EmptyTrash => fl!("emptying-trash", progress = progress()),
-            Self::Extract {
-                paths,
-                to,
-                password: _,
-            } => fl!(
+            Self::Extract { paths, to, .. } => fl!(
                 "extracting",
                 items = paths.len(),
                 from = paths_parent_name(paths),
@@ -574,11 +615,7 @@ impl Operation {
             ),
             Self::DeleteTrash { items } => fl!("deleted", items = items.len()),
             Self::EmptyTrash => fl!("emptied-trash"),
-            Self::Extract {
-                paths,
-                to,
-                password: _,
-            } => fl!(
+            Self::Extract { paths, to, .. } => fl!(
                 "extracted",
                 items = paths.len(),
                 from = paths_parent_name(paths),
@@ -940,57 +977,84 @@ impl Operation {
                 paths,
                 to,
                 password,
+                as_folder,
             } => {
                 let controller_clone = controller.clone();
+                let msg_tx = msg_tx.clone();
                 compio::runtime::spawn(async move {
-                    let extracted = compio::runtime::spawn_blocking(move || {
-                        let controller = controller_clone;
-                        let total_paths = paths.len();
-                        let mut op_sel = OperationSelection::default();
-                        let mut written_files = Vec::new();
-                        let mut target_dirs = std::collections::HashSet::new();
-                        for (i, path) in paths.iter().enumerate() {
-                            futures::executor::block_on(async {
-                                controller
-                                    .check()
-                                    .await
-                                    .map_err(|s| OperationError::from_state(s, &controller))
-                            })?;
+                    let controller = controller_clone;
+                    let total_paths = paths.len();
+                    let mut op_sel = OperationSelection::default();
+                    for (i, path) in paths.iter().enumerate() {
+                        controller
+                            .check()
+                            .await
+                            .map_err(|s| OperationError::from_state(s, &controller))?;
 
-                            controller.set_progress((i as f32) / total_paths as f32);
+                        controller.set_progress((i as f32) / total_paths as f32);
 
-                            if let Some(file_name) = path.file_name().and_then(|f| f.to_str()) {
-                                let dir_name = get_directory_name(file_name);
-                                let mut new_dir = to.join(dir_name);
+                        let Some(file_name) = path.file_name().and_then(|f| f.to_str()) else {
+                            continue;
+                        };
+                        let dir_name = get_directory_name(file_name).to_string();
+                        op_sel.ignored.push(path.clone());
 
-                                if new_dir.exists()
-                                    && let Some(new_dir_parent) = new_dir.parent()
-                                {
-                                    new_dir = copy_unique_path(&new_dir, new_dir_parent);
-                                }
-
-                                op_sel.ignored.push(path.clone());
-                                op_sel.selected.push(new_dir.clone());
-
-                                let (files, dirs) = crate::archive::extract(
-                                    path,
-                                    &new_dir,
+                        if as_folder {
+                            let mut new_dir = to.join(&dir_name);
+                            if new_dir.exists()
+                                && let Some(new_dir_parent) = new_dir.parent()
+                            {
+                                new_dir = copy_unique_path(&new_dir, new_dir_parent);
+                            }
+                            extract_archive(path.clone(), new_dir.clone(), &password, &controller)
+                                .await?;
+                            op_sel.selected.push(new_dir);
+                        } else {
+                            // Extract into a hidden staging directory beside the destination,
+                            // then move the entries into place. The move goes through the
+                            // same replace dialog as copy/move, so existing files are never
+                            // overwritten silently.
+                            let staging = staging_dir(&to, &dir_name, &controller)?;
+                            let result = async {
+                                extract_archive(
+                                    path.clone(),
+                                    staging.clone(),
                                     &password,
                                     &controller,
-                                )?;
-                                written_files.extend(files);
-                                target_dirs.extend(dirs);
+                                )
+                                .await?;
+                                let entries: Vec<PathBuf> = fs::read_dir(&staging)
+                                    .map_err(|e| OperationError::from_err(e, &controller))?
+                                    .map(|entry| entry.map(|e| e.path()))
+                                    .collect::<io::Result<_>>()
+                                    .map_err(|e| OperationError::from_err(e, &controller))?;
+                                let mut moved = copy_or_move(
+                                    entries.clone(),
+                                    to.clone(),
+                                    Method::Move {
+                                        cross_device_copy: false,
+                                    },
+                                    &msg_tx,
+                                    controller.clone(),
+                                )
+                                .await?;
+                                sync_to_disk(Vec::new(), [to.clone()].into_iter().collect()).await;
+                                // Entries moved by a plain rename are not in the selection
+                                for entry in entries {
+                                    if let Some(name) = entry.file_name() {
+                                        let dest = to.join(name);
+                                        if dest.exists() && !moved.selected.contains(&dest) {
+                                            moved.selected.push(dest);
+                                        }
+                                    }
+                                }
+                                Ok::<_, OperationError>(moved.selected)
                             }
+                            .await;
+                            // Skipped or cancelled entries stay in the staging directory
+                            let _ = fs::remove_dir_all(&staging);
+                            op_sel.selected.extend(result?);
                         }
-
-                        Ok::<_, OperationError>((op_sel, written_files, target_dirs))
-                    })
-                    .await
-                    .map_err(wrap_compio_spawn_error)??;
-
-                    let (op_sel, written_files, target_dirs) = extracted;
-                    if !written_files.is_empty() || !target_dirs.is_empty() {
-                        sync_to_disk(written_files, target_dirs).await;
                     }
 
                     Ok::<_, OperationError>(op_sel)
@@ -1294,6 +1358,275 @@ mod tests {
         };
 
         future::join(handle_messages, handle_copy).await.1
+    }
+
+    /// Run `[Operation::Extract]`, answering every replace dialog with `reply`.
+    async fn operation_extract(
+        paths: Vec<PathBuf>,
+        to: PathBuf,
+        as_folder: bool,
+        reply: ReplaceResult,
+    ) -> Result<OperationSelection, OperationError> {
+        let (tx, mut rx) = mpsc::channel(1);
+        let handle_extract = async move {
+            Operation::Extract {
+                paths: paths.into_boxed_slice(),
+                to,
+                password: None,
+                as_folder,
+            }
+            .perform(&sync::Mutex::new(tx).into(), Controller::default())
+            .await
+        };
+        let handle_messages = async move {
+            while let Some(msg) = rx.next().await {
+                match msg {
+                    Message::DialogPush(DialogPage::Replace { tx, .. }, _id_to_focus) => {
+                        tx.send(reply)
+                            .await
+                            .expect("Sending a response to a replace request should succeed");
+                    }
+                    _ => unreachable!("unexpected message from extract operation"),
+                }
+            }
+        };
+        future::join(handle_messages, handle_extract).await.1
+    }
+
+    /// Write a zip archive containing `a.txt` and `sub/b.txt`.
+    fn write_test_zip(path: &std::path::Path) -> io::Result<()> {
+        use std::io::Write;
+        let mut zip = zip::ZipWriter::new(File::create(path)?);
+        let options = zip::write::SimpleFileOptions::default();
+        zip.start_file("a.txt", options)?;
+        zip.write_all(b"archive a")?;
+        zip.add_directory("sub", options)?;
+        zip.start_file("sub/b.txt", options)?;
+        zip.write_all(b"archive b")?;
+        zip.finish()?;
+        Ok(())
+    }
+
+    /// Write a tar.gz archive containing `a.txt` and `sub/b.txt`.
+    fn write_test_tar_gz(path: &std::path::Path) -> io::Result<()> {
+        let encoder = flate2::write::GzEncoder::new(File::create(path)?, Default::default());
+        let mut tar = tar::Builder::new(encoder);
+        for (name, data) in [
+            ("a.txt", &b"archive a"[..]),
+            ("sub/b.txt", &b"archive b"[..]),
+        ] {
+            let mut header = tar::Header::new_gnu();
+            header.set_size(data.len() as u64);
+            header.set_mode(0o644);
+            tar.append_data(&mut header, name, data)?;
+        }
+        tar.into_inner()?.finish()?;
+        Ok(())
+    }
+
+    fn assert_no_staging_dir(dir: &std::path::Path) -> io::Result<()> {
+        for entry in fs::read_dir(dir)? {
+            let name = entry?.file_name();
+            let name = name.to_string_lossy();
+            assert!(
+                !name.contains(".extracting"),
+                "staging directory {name} should have been removed"
+            );
+        }
+        Ok(())
+    }
+
+    #[test(compio::test)]
+    async fn extract_zip_directly() -> io::Result<()> {
+        let fs = empty_fs()?;
+        let path = fs.path();
+        let archive = path.join("test.zip");
+        write_test_zip(&archive)?;
+
+        let op_sel = operation_extract(
+            vec![archive.clone()],
+            path.to_owned(),
+            false,
+            ReplaceResult::Cancel,
+        )
+        .await
+        .expect("Extract operation should have succeeded");
+
+        assert_eq!(fs::read(path.join("a.txt"))?, b"archive a");
+        assert_eq!(fs::read(path.join("sub/b.txt"))?, b"archive b");
+        assert!(
+            !path.join("test").exists(),
+            "No folder named after the archive"
+        );
+        assert_no_staging_dir(path)?;
+        assert_eq!(op_sel.ignored, vec![archive]);
+        let mut selected = op_sel.selected;
+        selected.sort();
+        assert_eq!(selected, vec![path.join("a.txt"), path.join("sub")]);
+        Ok(())
+    }
+
+    #[test(compio::test)]
+    async fn extract_tar_gz_directly() -> io::Result<()> {
+        let fs = empty_fs()?;
+        let path = fs.path();
+        let archive = path.join("test.tar.gz");
+        write_test_tar_gz(&archive)?;
+
+        operation_extract(
+            vec![archive.clone()],
+            path.to_owned(),
+            false,
+            ReplaceResult::Cancel,
+        )
+        .await
+        .expect("Extract operation should have succeeded");
+
+        assert_eq!(fs::read(path.join("a.txt"))?, b"archive a");
+        assert_eq!(fs::read(path.join("sub/b.txt"))?, b"archive b");
+        assert!(
+            !path.join("test").exists(),
+            "No folder named after the archive"
+        );
+        assert_no_staging_dir(path)?;
+        Ok(())
+    }
+
+    #[test(compio::test)]
+    async fn extract_zip_as_folder() -> io::Result<()> {
+        let fs = empty_fs()?;
+        let path = fs.path();
+        let archive = path.join("test.zip");
+        write_test_zip(&archive)?;
+
+        let op_sel = operation_extract(
+            vec![archive.clone()],
+            path.to_owned(),
+            true,
+            ReplaceResult::Cancel,
+        )
+        .await
+        .expect("Extract operation should have succeeded");
+
+        assert_eq!(fs::read(path.join("test/a.txt"))?, b"archive a");
+        assert_eq!(fs::read(path.join("test/sub/b.txt"))?, b"archive b");
+        assert!(!path.join("a.txt").exists());
+        assert_eq!(op_sel.selected, vec![path.join("test")]);
+
+        // A second extraction gets a unique folder name
+        operation_extract(vec![archive], path.to_owned(), true, ReplaceResult::Cancel)
+            .await
+            .expect("Extract operation should have succeeded");
+        assert!(
+            path.join(format!("test ({} 1)", fl!("copy_noun")))
+                .join("a.txt")
+                .exists()
+        );
+        Ok(())
+    }
+
+    #[test(compio::test)]
+    async fn extract_zip_directly_replace_conflict() -> io::Result<()> {
+        let fs = empty_fs()?;
+        let path = fs.path();
+        let archive = path.join("test.zip");
+        write_test_zip(&archive)?;
+        fs::write(path.join("a.txt"), b"existing a")?;
+        fs::create_dir(path.join("sub"))?;
+        fs::write(path.join("sub/b.txt"), b"existing b")?;
+        fs::write(path.join("sub/c.txt"), b"existing c")?;
+
+        operation_extract(
+            vec![archive],
+            path.to_owned(),
+            false,
+            ReplaceResult::Replace(false),
+        )
+        .await
+        .expect("Extract operation should have succeeded");
+
+        assert_eq!(fs::read(path.join("a.txt"))?, b"archive a");
+        assert_eq!(fs::read(path.join("sub/b.txt"))?, b"archive b");
+        assert_eq!(
+            fs::read(path.join("sub/c.txt"))?,
+            b"existing c",
+            "Unrelated files in a merged directory are kept"
+        );
+        assert_no_staging_dir(path)?;
+        Ok(())
+    }
+
+    #[test(compio::test)]
+    async fn extract_zip_directly_skip_conflict() -> io::Result<()> {
+        let fs = empty_fs()?;
+        let path = fs.path();
+        let archive = path.join("test.zip");
+        write_test_zip(&archive)?;
+        fs::write(path.join("a.txt"), b"existing a")?;
+
+        operation_extract(
+            vec![archive],
+            path.to_owned(),
+            false,
+            ReplaceResult::Skip(false),
+        )
+        .await
+        .expect("Extract operation should have succeeded");
+
+        assert_eq!(fs::read(path.join("a.txt"))?, b"existing a");
+        assert_eq!(fs::read(path.join("sub/b.txt"))?, b"archive b");
+        assert_no_staging_dir(path)?;
+        Ok(())
+    }
+
+    #[test(compio::test)]
+    async fn extract_zip_directly_skip_nested_conflict() -> io::Result<()> {
+        let fs = empty_fs()?;
+        let path = fs.path();
+        let archive = path.join("test.zip");
+        write_test_zip(&archive)?;
+        fs::create_dir(path.join("sub"))?;
+        fs::write(path.join("sub/b.txt"), b"existing b")?;
+
+        operation_extract(
+            vec![archive],
+            path.to_owned(),
+            false,
+            ReplaceResult::Skip(false),
+        )
+        .await
+        .expect("Extract operation should have succeeded");
+
+        assert_eq!(fs::read(path.join("a.txt"))?, b"archive a");
+        assert_eq!(fs::read(path.join("sub/b.txt"))?, b"existing b");
+        assert_no_staging_dir(path)?;
+        Ok(())
+    }
+
+    #[test(compio::test)]
+    async fn extract_zip_directly_keep_both() -> io::Result<()> {
+        let fs = empty_fs()?;
+        let path = fs.path();
+        let archive = path.join("test.zip");
+        write_test_zip(&archive)?;
+        fs::write(path.join("a.txt"), b"existing a")?;
+
+        operation_extract(
+            vec![archive],
+            path.to_owned(),
+            false,
+            ReplaceResult::KeepBoth,
+        )
+        .await
+        .expect("Extract operation should have succeeded");
+
+        assert_eq!(fs::read(path.join("a.txt"))?, b"existing a");
+        assert_eq!(
+            fs::read(path.join(format!("a ({} 1).txt", fl!("copy_noun"))))?,
+            b"archive a"
+        );
+        assert_no_staging_dir(path)?;
+        Ok(())
     }
 
     #[test(compio::test)]

@@ -52,6 +52,7 @@ create-archive = Archívum létrehozása
 ## Extract Dialog
 
 extract-password-required = Jelszó szükséges
+extract-as-folder = Kibontás mappába
 extract-to = Kibontás ide…
 extract-to-title = Kibontási cél kiválasztása
 

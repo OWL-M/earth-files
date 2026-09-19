@@ -54,6 +54,7 @@ copy-to-button-label = Copy
 
 ## Extract Dialog
 extract-password-required = Password required
+extract-as-folder = Extract As Folder
 extract-to = Extract To...
 extract-to-title = Extract to folder
 

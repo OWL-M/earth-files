@@ -319,6 +319,7 @@ support = Destek
 remove = Kaldır
 grid-spacing = Izgara aralığı
 extract-password-required = Parola gerekli
+extract-as-folder = Klasöre Çıkar
 extract-to = Buraya Çıkar…
 extract-to-title = Klasöre çıkar
 other-apps = Diğer uygulamalar

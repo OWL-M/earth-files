@@ -56,6 +56,7 @@ create-archive = Vytvoriť archív
 ## Extract Dialog
 
 extract-password-required = Vyžaduje sa heslo
+extract-as-folder = Extrahovať do priečinka
 extract-to = Extrahovať do...
 extract-to-title = Extrahovať do priečinka
 

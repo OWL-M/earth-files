@@ -230,6 +230,7 @@ pub fn context_menu<'a>(
                 selected_types.retain(|t| supported_archive_types.iter().copied().all(|m| *t != m));
                 if selected_types.is_empty() {
                     children.push(menu_item(fl!("extract-here"), Action::ExtractHere));
+                    children.push(menu_item(fl!("extract-as-folder"), Action::ExtractAsFolder));
                     children.push(menu_item(fl!("extract-to"), Action::ExtractTo));
                 }
                 children.push(menu_item(fl!("compress"), Action::Compress));

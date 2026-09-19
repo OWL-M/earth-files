@@ -329,6 +329,7 @@ operations-running-finished =
        *[other] toimintoa
     } käynnissä ({ $percent } %), { $finished } valmistunut…
 pause = Keskeytä
+extract-as-folder = Pura kansioon
 extract-to = Pura sijaintiin…
 permanently-delete-warning = { $target } tullaan poistamaan pysyvästi. Tätä toimintoa ei voi perua.
 execute-only = Vain suoritus

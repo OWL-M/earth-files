@@ -50,6 +50,7 @@ create-archive = Cruthaigh cartlann
 ## Extract Dialog
 
 extract-password-required = Pasfhocal riachtanach
+extract-as-folder = Asbhain go fillteán
 extract-to = Asbhain go...
 extract-to-title = Asbhain go fillteán
 

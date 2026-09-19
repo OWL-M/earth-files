@@ -38,6 +38,7 @@ pause = Jeda
 resume = Lanjutkan
 create-archive = Buat arsip
 extract-password-required = Kata sandi diperlukan
+extract-as-folder = Ekstrak ke folder
 extract-to = Ekstrak ke...
 extract-to-title = Ekstrak ke map
 empty-trash = Kosongkan sampah

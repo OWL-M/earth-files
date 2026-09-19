@@ -68,6 +68,7 @@ create-archive = Crear arquivo comprimido
 copy-to-title = Seleccionar o destino da copia
 copy-to-button-label = Copiar
 extract-password-required = Contrasinal necesario
+extract-as-folder = Extraer nun cartafol
 extract-to = Extraer en…
 extract-to-title = Extraer a cartafol
 empty-trash = Baleirar Lixo

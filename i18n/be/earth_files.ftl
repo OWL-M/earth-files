@@ -52,6 +52,7 @@ create-archive = Стварыць архіў
 ## Extract Dialog
 
 extract-password-required = Патрабуецца пароль
+extract-as-folder = Выняць у папку
 extract-to = Выняць у...
 extract-to-title = Выняць у папку
 

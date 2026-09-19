@@ -319,6 +319,7 @@ run = Kør
 repository = Pakkearkiv
 grid-spacing = Gitter-afstand
 extract-password-required = Adgangskode påkrævet
+extract-as-folder = Udpak til mappe
 extract-to = Udpak Til...
 extract-to-title = Udpak til mappe
 empty-trash-title = Tøm papirkurv?

@@ -355,6 +355,7 @@ sort-largest-to-smallest = De gran a petit
 run = Executa
 extract-to-title = Extreu a una carpeta
 empty-trash-title = Voleu buidar la paperera?
+extract-as-folder = Extreu a una carpeta
 extract-to = Extreu a...
 delete = Suprimeix
 comment = Gestor de fitxers

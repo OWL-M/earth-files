@@ -50,6 +50,7 @@ create-archive = Créer une archive
 ## Extract Dialog
 
 extract-password-required = Mot de passe requis
+extract-as-folder = Extraire dans un dossier
 extract-to = Extraire vers...
 extract-to-title = Extraire vers le dossier
 

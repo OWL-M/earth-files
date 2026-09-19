@@ -52,6 +52,7 @@ create-archive = Crea archivio
 ## Extract Dialog
 
 extract-password-required = Password richiesta
+extract-as-folder = Estrai in cartella
 extract-to = Estrai in...
 extract-to-title = Estrai nella cartella
 

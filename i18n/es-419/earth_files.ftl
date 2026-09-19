@@ -304,6 +304,7 @@ operations-running-finished =
 pause = Pausar
 resume = Reanudar
 extract-password-required = Contraseña requerida
+extract-as-folder = Extraer en carpeta
 extract-to = Extraer en...
 extract-to-title = Extraer a una carpeta
 mount-error = No se puede acceder a la unidad

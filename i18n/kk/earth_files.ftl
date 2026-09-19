@@ -38,6 +38,7 @@ pause = Аялдату
 resume = Жалғастыру
 create-archive = Архив жасау
 extract-password-required = Пароль керек
+extract-as-folder = Бумаға тарқату
 extract-to = Шығару...
 extract-to-title = Бумаға шығару
 empty-trash = Себетті тазарту

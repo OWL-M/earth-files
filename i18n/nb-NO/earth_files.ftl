@@ -58,6 +58,7 @@ trashed-on = Slettet
 resume = Fortsett
 create-archive = Opprett arkiv
 extract-password-required = Passord kreves
+extract-as-folder = Pakk ut til mappe
 extract-to = Pakk ut til...
 extract-to-title = Pakk ut i mappe
 new-tab = Ny fane

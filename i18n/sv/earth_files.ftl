@@ -336,6 +336,7 @@ repository = Källkod
 support = Support
 grid-spacing = Rutnätsmellanrum
 extract-password-required = Lösenord krävs
+extract-as-folder = Packa upp till mapp
 extract-to = Packa upp till...
 extract-to-title = Packa upp till mapp
 other-apps = Andra program

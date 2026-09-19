@@ -152,6 +152,7 @@ pause = ألبث
 resume = استئناف
 create-archive = أنشئ أرشيف
 extract-password-required = كلمة السر مطلوبة
+extract-as-folder = استخرِج إلى مجلد
 extract-to = استخرِج إلى...
 extract-to-title = استخرِج إلى مجلّد
 mount-error = تعذر الوصول إلى القرص

@@ -213,6 +213,7 @@ pause = Призупинити
 resume = Продовжити
 create-archive = Створити архів
 extract-password-required = Потрібен пароль
+extract-as-folder = Видобути до теки
 extract-to = Видобути до...
 extract-to-title = Видобути до теки
 mount-error = Доступ до диска відсутній

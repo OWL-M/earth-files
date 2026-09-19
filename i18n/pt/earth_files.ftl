@@ -223,6 +223,7 @@ pause = Pausa
 resume = Retomar
 create-archive = Criar arquivo
 extract-password-required = Palavra-passe necessária
+extract-as-folder = Extrair para pasta
 extract-to = Extrair para...
 extract-to-title = Extrair para pasta
 mount-error = Não foi possível aceder ao dispositivo

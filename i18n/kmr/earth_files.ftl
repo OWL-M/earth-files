@@ -92,6 +92,7 @@ open-multiple-folders = Gelek peldankan veke
 remember-password = Borînpeyvê bi bîr bîne
 username = Navê bikarhêner
 light = Ronî
+extract-as-folder = Derxîne bo peldankê
 extract-to = Derxîne bo...
 add-network-drive = Ajokarê torê tevlî bike
 copying =

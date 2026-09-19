@@ -138,6 +138,7 @@ resume = 재개
 remember-password = 암호 저장
 username = 사용자 이름
 show-details = 세부 사항 표시
+extract-as-folder = 폴더로 압축 해제
 extract-to = 다른 위치에 압축 해제...
 add-network-drive = 네트워크 드라이브 추가
 delete = 삭제

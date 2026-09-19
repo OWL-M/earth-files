@@ -39,6 +39,7 @@ pause = Pauzė
 resume = Tęsti
 create-archive = Sukurti archyvą
 extract-password-required = Reikalingas slaptažodis
+extract-as-folder = Išskleisti į aplanką
 extract-to = Išskleistį į...
 extract-to-title = Išskleisti į aplanką
 empty-trash-title = Ištuštinti šiukšlinę?

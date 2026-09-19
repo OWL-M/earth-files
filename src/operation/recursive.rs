@@ -401,7 +401,12 @@ impl Op {
                 compio::fs::remove_file(&self.from).await?;
             }
             OpKind::Rmdir => {
-                compio::fs::remove_dir(&self.from).await?;
+                match compio::fs::remove_dir(&self.from).await {
+                    Ok(()) => {}
+                    // A skipped entry legitimately leaves the source directory behind
+                    Err(err) if err.raw_os_error() == Some(libc::ENOTEMPTY) => {}
+                    Err(err) => return Err(err.into()),
+                }
             }
             OpKind::Symlink { ref target } => {
                 // Remove `to` if overwriting and it is an existing file

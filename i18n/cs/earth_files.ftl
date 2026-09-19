@@ -154,6 +154,7 @@ pause = Pozastavit
 resume = Pokračovat
 create-archive = Vytvořit archiv
 extract-password-required = Vyžadováno heslo
+extract-as-folder = Rozbalit do složky
 extract-to = Rozbalit do...
 extract-to-title = Rozbalit do složky
 mount-error = Nelze přistoupit k disku

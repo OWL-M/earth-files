@@ -268,6 +268,7 @@ grid-spacing = Отступ по сетке
 pause = Приостановить
 resume = Продолжить
 extract-password-required = Требуется пароль
+extract-as-folder = Распаковать в папку
 extract-to = Распаковать в…
 extract-to-title = Распаковать в папку
 mount-error = Не удалось получить доступ к диску

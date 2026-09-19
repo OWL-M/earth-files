@@ -72,6 +72,7 @@ create-new-folder = Create new folder
 create = Create
 other-apps = Other applications
 open-multiple-folders = Open multiple folders
+extract-as-folder = Extract As Folder
 extract-to = Extract To...
 create-new-file = Create new file
 open-in-new-window = Open in new window

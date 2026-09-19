@@ -122,6 +122,7 @@ pub enum Action {
     EmptyTrash,
     #[cfg(feature = "desktop")]
     ExecEntryAction(usize),
+    ExtractAsFolder,
     ExtractHere,
     ExtractTo,
     Gallery,
@@ -192,6 +193,7 @@ impl Action {
             Self::EditLocation => Message::TabMessage(entity_opt, tab::Message::EditLocationEnable),
             Self::Eject => Message::Eject,
             Self::EmptyTrash => Message::TabMessage(None, tab::Message::EmptyTrash),
+            Self::ExtractAsFolder => Message::ExtractAsFolder(entity_opt),
             Self::ExtractHere => Message::ExtractHere(entity_opt),
             Self::ExtractTo => Message::ExtractTo(entity_opt),
             #[cfg(feature = "desktop")]
@@ -327,6 +329,7 @@ pub enum Message {
     DialogPush(DialogPage, Option<widget::Id>),
     DialogUpdate(DialogPage),
     DialogUpdateComplete(DialogPage),
+    ExtractAsFolder(Option<Entity>),
     ExtractHere(Option<Entity>),
     ExtractTo(Option<Entity>),
     ExtractToResult(DialogResult),
@@ -986,6 +989,25 @@ impl App {
         } else {
             Task::none()
         }
+    }
+
+    /// Extract the selected archives next to themselves, either directly or
+    /// each into a new folder named after it.
+    fn extract_here(&mut self, entity_opt: Option<Entity>, as_folder: bool) -> Task<Message> {
+        let paths: Box<[_]> = self.selected_paths(entity_opt).collect();
+        if let Some(destination) = paths
+            .first()
+            .and_then(|first| first.parent())
+            .map(Path::to_path_buf)
+        {
+            return self.operation(Operation::Extract {
+                paths,
+                to: destination,
+                password: None,
+                as_folder,
+            });
+        }
+        Task::none()
     }
 
     fn extract_to(&mut self, paths: &[impl AsRef<Path>]) -> Task<Message> {
@@ -2792,10 +2814,16 @@ impl Application for App {
                         DialogPage::ExtractPassword { id, password } => {
                             let (operation, _, _err) = self.failed_operations.get(&id).unwrap();
                             let new_op = match &operation {
-                                Operation::Extract { to, paths, .. } => Operation::Extract {
+                                Operation::Extract {
+                                    to,
+                                    paths,
+                                    as_folder,
+                                    ..
+                                } => Operation::Extract {
                                     to: to.clone(),
                                     paths: paths.clone(),
                                     password: Some(password),
+                                    as_folder: *as_folder,
                                 },
                                 _ => unreachable!(),
                             };
@@ -2946,19 +2974,11 @@ impl Application for App {
                     self.update(Message::DialogComplete),
                 ]);
             }
+            Message::ExtractAsFolder(entity_opt) => {
+                return self.extract_here(entity_opt, true);
+            }
             Message::ExtractHere(entity_opt) => {
-                let paths: Box<[_]> = self.selected_paths(entity_opt).collect();
-                if let Some(destination) = paths
-                    .first()
-                    .and_then(|first| first.parent())
-                    .map(Path::to_path_buf)
-                {
-                    return self.operation(Operation::Extract {
-                        paths,
-                        to: destination,
-                        password: None,
-                    });
-                }
+                return self.extract_here(entity_opt, false);
             }
             Message::ExtractTo(entity_opt) => {
                 let selected_paths: Box<[_]> = self.selected_paths(entity_opt).collect();
@@ -2983,6 +3003,7 @@ impl Application for App {
                                 paths: archive_paths,
                                 to: selected_paths[0].clone(),
                                 password: None,
+                                as_folder: false,
                             });
                         }
                     }

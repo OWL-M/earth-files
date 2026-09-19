@@ -50,6 +50,7 @@ create-archive = Създаване на архив
 ## Extract Dialog
 
 extract-password-required = Необходима е парола
+extract-as-folder = Разархивиране в папка
 extract-to = Разархивиране в...
 extract-to-title = Разархивиране в папка
 
