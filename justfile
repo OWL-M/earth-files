@@ -1,5 +1,5 @@
-name := 'cosmic-files'
-export APPID := 'com.system76.CosmicFiles'
+name := 'earth-files'
+export APPID := 'com.owlm.EarthFiles'
 
 rootdir := ''
 prefix := '/usr'
@@ -62,23 +62,23 @@ dev *args:
 # Run with debug logs
 run *args:
     cargo build --release
-    env RUST_LOG=cosmic_files=debug RUST_BACKTRACE=full {{bin-src}} {{args}}
+    env RUST_LOG=earth_files=debug RUST_BACKTRACE=full {{bin-src}} {{args}}
 
 # Run tests
 test *args:
     cargo test {{args}}
 
 flamegraph *args:
-    cargo flamegraph --release --bin cosmic-files -- --no-daemon {{args}}
+    cargo flamegraph --release --bin earth-files -- --no-daemon {{args}}
     xdg-open flamegraph.svg
 
 heaptrack *args:
     #!/usr/bin/env bash
     set -ex
-    rm -fv heaptrack.cosmic-files.*
-    cargo heaptrack --profile release-with-debug --bin cosmic-files -- --no-daemon {{args}}
-    zstd -dc < heaptrack.cosmic-files.*.raw.zst | /usr/lib/heaptrack/libexec/heaptrack_interpret | zstd -c > heaptrack.cosmic-files.zst
-    heaptrack_gui heaptrack.cosmic-files.zst
+    rm -fv heaptrack.earth-files.*
+    cargo heaptrack --profile release-with-debug --bin earth-files -- --no-daemon {{args}}
+    zstd -dc < heaptrack.earth-files.*.raw.zst | /usr/lib/heaptrack/libexec/heaptrack_interpret | zstd -c > heaptrack.earth-files.zst
+    heaptrack_gui heaptrack.earth-files.zst
 
 # Installs files
 install:

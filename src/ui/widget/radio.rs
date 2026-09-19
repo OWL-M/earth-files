@@ -45,9 +45,9 @@ where
 /// itself compiles and is exercised by the crate.
 /// ```ignore
 /// # type Radio<'a, Message> =
-/// #     cosmic_files::ui::widget::Radio<'a, Message>;
+/// #     earth_files::ui::widget::Radio<'a, Message>;
 /// #
-/// # use cosmic_files::ui::widget::text;
+/// # use earth_files::ui::widget::text;
 /// # use iced::widget::column;
 /// #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 /// pub enum Choice {

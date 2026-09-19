@@ -815,7 +815,7 @@ impl App {
                             let _ = recently_used_xbel::update_recently_used(
                                 &path,
                                 Self::APP_ID.to_string(),
-                                "cosmic-files".to_string(),
+                                "earth-files".to_string(),
                                 None,
                             );
                         }
@@ -898,7 +898,7 @@ impl App {
                                 let _ = recently_used_xbel::update_recently_used(
                                     &path.into(),
                                     Self::APP_ID.to_string(),
-                                    "cosmic-files".to_string(),
+                                    "earth-files".to_string(),
                                     None,
                                 );
                             }
@@ -1702,8 +1702,8 @@ impl App {
 
     fn update_title(&mut self) -> Task<Message> {
         let window_title = match self.tab_model.text(self.tab_model.active()) {
-            Some(tab_title) => format!("{tab_title} — {}", fl!("cosmic-files")),
-            None => fl!("cosmic-files"),
+            Some(tab_title) => format!("{tab_title} — {}", fl!("earth-files")),
+            None => fl!("earth-files"),
         };
         if let Some(window_id) = self.core.main_window_id() {
             self.set_window_title(window_title, window_id)
@@ -2078,7 +2078,7 @@ impl Application for App {
     type Message = Message;
 
     /// The unique application ID to supply to the window manager.
-    const APP_ID: &'static str = "com.system76.CosmicFiles";
+    const APP_ID: &'static str = "com.owlm.EarthFiles";
 
     fn core(&self) -> &Core {
         &self.core
@@ -2114,19 +2114,19 @@ impl Application for App {
         });
 
         let about = About::default()
-            .name(fl!("cosmic-files"))
+            .name(fl!("earth-files"))
             .icon(icon::from_name(Self::APP_ID))
             .version(env!("CARGO_PKG_VERSION"))
-            .author("System76")
+            .author("owl-m (fork), System76 (upstream)")
             .comments(fl!("comment"))
             .license("GPL-3.0-only")
             .license_url("https://spdx.org/licenses/GPL-3.0-only")
             .developers([("Jeremy Soller", "jeremy@system76.com")])
             .links([
-                (fl!("repository"), "https://github.com/pop-os/cosmic-files"),
+                (fl!("repository"), "https://github.com/owl-m/earth-files"),
                 (
                     fl!("support"),
-                    "https://github.com/pop-os/cosmic-files/issues",
+                    "https://github.com/owl-m/earth-files/issues",
                 ),
             ]);
 
@@ -2869,7 +2869,7 @@ impl Application for App {
                                                 let _ = recently_used_xbel::update_recently_used(
                                                     &path,
                                                     Self::APP_ID.to_string(),
-                                                    "cosmic-files".to_string(),
+                                                    "earth-files".to_string(),
                                                     None,
                                                 );
                                             }
@@ -4183,12 +4183,12 @@ impl Application for App {
                         },
                         tab::Command::OpenTrash => {
                             //TODO: use handler for x-scheme-handler/trash and open trash:///
-                            let mut command = process::Command::new("cosmic-files");
+                            let mut command = process::Command::new("earth-files");
                             command.arg("--trash");
                             match spawn_detached(&mut command) {
                                 Ok(()) => {}
                                 Err(err) => {
-                                    log::warn!("failed to run cosmic-files --trash: {err}");
+                                    log::warn!("failed to run earth-files --trash: {err}");
                                 }
                             }
                         }
@@ -4600,7 +4600,7 @@ impl Application for App {
                     return open_task;
                 }
 
-                // Open the selected path in a new cosmic-files window.
+                // Open the selected path in a new earth-files window.
                 NavMenuAction::OpenInNewWindow(entity) => 'open_in_new_window: {
                     if let Some(location) = self.nav_model.data::<Location>(entity) {
                         match env::current_exe() {
@@ -5852,7 +5852,7 @@ impl Application for App {
                         // it is a distinct feature from file drag-and-drop, now removed.
                         // Phase 2 must re-solve tab reordering when segmented_button is
                         // vendored onto iced.
-                        .enable_tab_drag(String::from("x-cosmic-files/tab-drag"))
+                        .enable_tab_drag(String::from("x-earth-files/tab-drag"))
                         .on_reorder(Message::ReorderTab)
                         .tab_drag_threshold(25.)
                         // Files dropped on a tab go to that tab's directory.

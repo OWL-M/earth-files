@@ -1,0 +1,11 @@
+[Desktop Entry]
+Name=Earth Files
+Comment=File manager
+Exec=earth-files %U
+Terminal=false
+Type=Application
+StartupNotify=true
+Icon=com.owlm.EarthFiles
+Categories=Utility;FileManager;
+Keywords=Folder;Manager;
+MimeType=inode/directory;

@@ -3,7 +3,7 @@
 
 //! On-disk configuration, replacing `cosmic_config`.
 //!
-//! Values live in RON under `$XDG_CONFIG_HOME/cosmic-files/`. A missing or
+//! Values live in RON under `$XDG_CONFIG_HOME/earth-files/`. A missing or
 //! unreadable file yields `Default` rather than an error: a corrupt config must
 //! never stop the app from starting.
 
@@ -30,7 +30,7 @@ impl Store {
     pub fn named(name: &str) -> Self {
         let dir = dirs::config_dir()
             .unwrap_or_else(|| crate::home_dir().join(".config"))
-            .join("cosmic-files");
+            .join("earth-files");
         Self::at(dir.join(format!("{name}.ron")))
     }
 

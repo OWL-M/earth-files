@@ -49,7 +49,7 @@ pub trait AsMimeTypes {
 /// This keeps iced responsive and leaves the data device thread free to
 /// dispatch `send` when this app is also the clipboard source.
 pub fn read_data<T: AllowedMimeTypes>() -> iced_runtime::Task<Option<T>> {
-    read_with("cosmic-files-clipboard-read", crate::ui::dnd::read_selection)
+    read_with("earth-files-clipboard-read", crate::ui::dnd::read_selection)
 }
 
 /// Read what was just dropped on us as the most-preferred of `T`'s MIME types
@@ -60,7 +60,7 @@ pub fn read_data<T: AllowedMimeTypes>() -> iced_runtime::Task<Option<T>> {
 /// frequently both ends of the drag, and the data device thread has to stay
 /// free to serve the very transfer this read is waiting on.
 pub fn read_drop_data<T: AllowedMimeTypes>() -> iced_runtime::Task<Option<T>> {
-    read_with("cosmic-files-drop-read", crate::ui::dnd::read_drop)
+    read_with("earth-files-drop-read", crate::ui::dnd::read_drop)
 }
 
 /// The body of [`read_data`] and [`read_drop_data`]: drain one offer on a

@@ -93,14 +93,14 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with(
             tracing_subscriber::EnvFilter::builder()
                 .with_default_directive(
-                    "cosmic_files::ui::dnd=warn"
+                    "earth_files::ui::dnd=warn"
                         .parse()
                         .expect("a literal directive that parses"),
                 )
                 // The runner reports Wayland connection failures because
                 // `ui::dnd::init` is never called if the connection fails to open.
                 .with_default_directive(
-                    "cosmic_files::ui::shell::runner=warn"
+                    "earth_files::ui::shell::runner=warn"
                         .parse()
                         .expect("a literal directive that parses"),
                 )

@@ -322,7 +322,7 @@ fn try_init(conn: &Connection) -> Result<(), String> {
     }
 
     std::thread::Builder::new()
-        .name(String::from("cosmic-files-dnd"))
+        .name(String::from("earth-files-dnd"))
         .spawn(move || {
             loop {
                 if let Err(err) = queue.blocking_dispatch(&mut state) {
@@ -1151,7 +1151,7 @@ impl Dispatch<WlDataSource, SourceRole> for State {
 fn write_all(fd: OwnedFd, bytes: &[u8]) {
     let bytes = bytes.to_vec();
     let spawned = std::thread::Builder::new()
-        .name(String::from("cosmic-files-clipboard-send"))
+        .name(String::from("earth-files-clipboard-send"))
         .spawn(move || {
             use std::io::Write as _;
             let mut file = std::fs::File::from(fd);
@@ -1197,7 +1197,7 @@ mod tests {
     /// than panicking, the state the app is in when `init` failed.
     #[test]
     fn start_drag_without_a_connection_is_a_no_op() {
-        assert!(!start_drag("x-cosmic-files/tab-drag"));
+        assert!(!start_drag("x-earth-files/tab-drag"));
         assert_eq!(drag(), None);
         end_drag();
     }
@@ -1241,12 +1241,12 @@ mod tests {
     /// one, now that it shares `start_drag_data` with the file drag.
     #[test]
     fn the_placeholder_serves_only_its_own_mime() {
-        let placeholder = Placeholder(String::from("x-cosmic-files/tab-drag"));
+        let placeholder = Placeholder(String::from("x-earth-files/tab-drag"));
         assert_eq!(
             placeholder.available().as_ref(),
-            ["x-cosmic-files/tab-drag".to_string()]
+            ["x-earth-files/tab-drag".to_string()]
         );
-        assert!(placeholder.as_bytes("x-cosmic-files/tab-drag").is_some());
+        assert!(placeholder.as_bytes("x-earth-files/tab-drag").is_some());
         assert!(placeholder.as_bytes("text/uri-list").is_none());
         // No file list, so a drag carrying it must not be mistaken for one and
         // routed into the file view's drop handling.

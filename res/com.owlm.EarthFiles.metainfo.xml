@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>com.owlm.EarthFiles</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-only</project_license>
+  <developer_name>owl-m</developer_name>
+  <url type="homepage">https://github.com/owl-m/earth-files</url>
+  <url type="bugtracker">https://github.com/owl-m/earth-files/issues</url>
+  <name>Earth Files</name>
+  <summary>File manager</summary>
+  <description>
+    <p>File manager</p>
+    <p xml:lang="ar">مدير ملفات</p>
+    <p xml:lang="cs">Správce souborů</p>
+    <p xml:lang="pl">Menedżer plików</p>
+    <p xml:lang="hu">Fájlkezelő</p>
+    <p xml:lang="pt_BR">Gerenciador de arquivos</p>
+    <p xml:lang="pt">Gerenciador de arquivos</p>
+    <p xml:lang="sk">Správca súborov</p>
+    <p xml:lang="es">Gestor de archivos</p>
+    <p xml:lang="it">File manager</p>
+    <p xml:lang="sv">Filhanterare</p>
+  </description>
+  <keywords>
+    <keyword>Folder</keyword>
+    <keyword>Manager</keyword>
+  </keywords>
+  <launchable type="desktop-id">com.owlm.EarthFiles.desktop</launchable>
+  <icon type="stock">com.owlm.EarthFiles</icon>
+  <provides>
+    <mimetypes>
+      <mimetype>inode/directory</mimetype>
+    </mimetypes>
+    <binaries>
+      <binary>earth-files</binary>
+    </binaries>
+  </provides>
+</component>

@@ -1,8 +1,8 @@
-use cosmic_files::ui::app::Task;
-use cosmic_files::ui::iced::{Subscription, window};
-use cosmic_files::ui::shell::{self as app, Application, Core, Settings};
-use cosmic_files::ui::{Element, widget};
-use cosmic_files::dialog::{
+use earth_files::ui::app::Task;
+use earth_files::ui::iced::{Subscription, window};
+use earth_files::ui::shell::{self as app, Application, Core, Settings};
+use earth_files::ui::{Element, widget};
+use earth_files::dialog::{
     Dialog, DialogChoice, DialogChoiceOption, DialogFilter, DialogFilterPattern, DialogKind,
     DialogMessage, DialogResult, DialogSettings,
 };
@@ -50,7 +50,7 @@ impl Application for App {
     type Flags = ();
     type Message = Message;
 
-    const APP_ID: &'static str = "com.system76.CosmicFilesDialogExample";
+    const APP_ID: &'static str = "com.owlm.EarthFilesDialogExample";
 
     fn core(&self) -> &Core {
         &self.core

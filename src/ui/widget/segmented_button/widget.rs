@@ -58,11 +58,11 @@ thread_local! {
     static LAST_FOCUS_UPDATE: LazyCell<Cell<Instant>> = LazyCell::new(|| Cell::new(Instant::now()));
 }
 
-// Under `cosmic_files` so `RUST_LOG=cosmic_files=trace` reaches it. It was
+// Under `earth_files` so `RUST_LOG=earth_files=trace` reaches it. It was
 // `libcosmic::widget::tab_reorder`, inherited from the fork, which meant the
 // entire press -> candidate -> threshold -> start trace was invisible to the
 // filter anyone would reasonably try.
-const TAB_REORDER_LOG_TARGET: &str = "cosmic_files::widget::tab_reorder";
+const TAB_REORDER_LOG_TARGET: &str = "earth_files::widget::tab_reorder";
 
 /// A command that focuses a segmented item stored in a widget.
 pub fn focus<Message: 'static>(id: Id) -> Task<Message> {

@@ -3,7 +3,7 @@
 
 //! Desktop entry actions, replacing libcosmic's `desktop` module.
 //!
-//! Only the parts cosmic-files uses: an entry's name and its declared
+//! Only the parts earth-files uses: an entry's name and its declared
 //! actions. Parsing itself comes from `freedesktop-desktop-entry`.
 
 use std::path::PathBuf;

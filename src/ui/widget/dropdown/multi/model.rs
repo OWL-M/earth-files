@@ -33,7 +33,7 @@ pub fn list<S, Item>(description: Option<S>, options: Vec<(S, Item)>) -> List<S,
 ///     Option5,
 ///     Option6
 /// }
-/// use cosmic_files::ui::widget::dropdown;
+/// use earth_files::ui::widget::dropdown;
 ///
 /// let mut model = dropdown::multi::model();
 ///

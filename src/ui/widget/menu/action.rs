@@ -14,8 +14,8 @@
 /// # Example
 ///
 /// ```
-/// use cosmic_files::ui::widget::menu::action::MenuAction;
-/// use cosmic_files::ui::widget::segmented_button::Entity;
+/// use earth_files::ui::widget::menu::action::MenuAction;
+/// use earth_files::ui::widget::segmented_button::Entity;
 ///
 /// #[derive(Clone, Copy, Eq, PartialEq)]
 /// enum MyMessage {

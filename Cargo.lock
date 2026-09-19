@@ -1127,7 +1127,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "cosmic-files"
+name = "earth-files"
 version = "1.9.0"
 dependencies = [
  "anyhow",

@@ -8,7 +8,7 @@
 //! module is private, so a copy fails to compile with `error[E0603]`. The
 //! layout below reproduces `libcosmic/src/widget/about.rs` (rev `d9431dc`)
 //! element for element, built from this app's vendored widgets and localised
-//! through this app's own `fl!` (`i18n/en/cosmic_files.ftl`).
+//! through this app's own `fl!` (`i18n/en/earth_files.ftl`).
 //!
 //! Because libcosmic's strings are unreachable, the section headings come from
 //! this app's catalog and may differ in wording from libcosmic's.

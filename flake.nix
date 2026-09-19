@@ -1,5 +1,5 @@
 {
-  description = "Development shell for cosmic-files";
+  description = "Development shell for earth-files";
 
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 
@@ -34,7 +34,7 @@
           ];
 
           # These libraries are loaded with dlopen() at runtime. As `libcosmicAppHook`
-          # did, embed an rpath through RUSTFLAGS so `./target/debug/cosmic-files` works
+          # did, embed an rpath through RUSTFLAGS so `./target/debug/earth-files` works
           # from an ordinary shell as well as `nix develop`. Using only LD_LIBRARY_PATH
           # causes `ConnectError(NoWaylandLib)` outside the development shell.
           shellHook =

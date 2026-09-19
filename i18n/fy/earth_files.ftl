@@ -1,0 +1,11 @@
+support = Stipe
+repository = Argyf
+open-file = Iepenje in bestân
+cancel = Annulearje
+open-folder = Iepenje in map
+settings = Ynstellings
+match-desktop = Systeemstandert
+earth-files = Earth Files
+empty-folder = Lege map
+empty-folder-hidden = Lege map (mei ferburgen bestannen)
+no-results = Gjin resultaten fûn
