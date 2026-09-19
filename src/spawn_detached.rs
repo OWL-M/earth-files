@@ -7,7 +7,6 @@ pub fn spawn_detached(command: &mut process::Command) -> io::Result<()> {
         .stdout(process::Stdio::null())
         .stderr(process::Stdio::null());
 
-    #[cfg(unix)]
     unsafe {
         use std::os::unix::process::CommandExt as _;
 
@@ -27,16 +26,6 @@ pub fn spawn_detached(command: &mut process::Command) -> io::Result<()> {
             })
             .spawn()?
             .wait()
-            .map(|_| ())
-    }
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        const CREATE_NEW_PROCESS_GROUP: u32 = 0x00000200;
-        const CREATE_NO_WINDOW: u32 = 0x08000000;
-        command
-            .creation_flags(CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW)
-            .spawn()
             .map(|_| ())
     }
 }

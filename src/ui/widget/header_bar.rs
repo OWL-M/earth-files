@@ -1,0 +1,522 @@
+// Copyright 2022 System76 <info@system76.com>
+// SPDX-License-Identifier: MPL-2.0
+
+//! The window header bar.
+//!
+//! Vendored from pop-os/libcosmic d9431dc, src/widget/header_bar.rs
+//!
+//! Changes needed for the move off libcosmic:
+//!
+//!   * `crate::{Element, Theme, Renderer, theme, widget}` become this crate's
+//!     own, so the bar is built with `ui::Theme` directly and `ui::shell`'s
+//!     `view_main` no longer round-trips it through `ui::theme_bridge`.
+//!   * `crate::config::header_size` is a CosmicTk read (libcosmic
+//!     `src/config/mod.rs:66`), which this crate does not do. The
+//!     density comes from [`crate::ui::theme::density`] instead. Both default to
+//!     `Density::Standard`, so the default padding is unchanged, as with the
+//!     font families in `ui::font`.
+//!   * `Widget::diff` takes `&self` upstream, not `&mut self`.
+//!   * `Widget::drag_destinations` is dropped: a libcosmic-fork addition to
+//!     `iced_core`'s `Widget` trait with no upstream counterpart.
+//!   * The title used the fork's `Text::ellipsize`, a fork-only method on
+//!     iced's `Text`. This crate ellipsizes with its own standalone
+//!     [`crate::ui::widget::ellipsize::Ellipsize`] widget instead, given the
+//!     same size, line height and font as `text::heading` so the title renders
+//!     as before.
+//!   * `mouse_area`'s double-click setter is `on_double_click` here, which is
+//!     what this crate's vendored `mouse_area` calls the fork's
+//!     `on_double_press`.
+
+use crate::ui::theme::{Density, Spacing};
+use crate::ui::widget::ellipsize::{Ellipsize, Mode as EllipsizeMode};
+// libcosmic's `row::with_children`/`row::with_capacity` free functions are its
+// own; upstream has the same constructors as `Row::with_children` and
+// `Row::with_capacity`.
+use crate::ui::widget::Row;
+use crate::ui::{Element, theme, widget};
+use apply::Apply;
+use derive_setters::Setters;
+use iced_core::widget::tree;
+use iced_core::{Length, Size, Vector, Widget, layout, text};
+use std::borrow::Cow;
+use crate::ui::convert::{PushMaybe, ToPadding, ToPixels};
+
+#[must_use]
+pub fn header_bar<'a, Message>() -> HeaderBar<'a, Message> {
+    HeaderBar {
+        title: Cow::Borrowed(""),
+        on_close: None,
+        on_drag: None,
+        on_maximize: None,
+        on_minimize: None,
+        on_right_click: None,
+        start: Vec::new(),
+        center: Vec::new(),
+        end: Vec::new(),
+        density: None,
+        focused: false,
+        maximized: false,
+        sharp_corners: false,
+        is_ssd: false,
+        on_double_click: None,
+    }
+}
+
+#[derive(Setters)]
+pub struct HeaderBar<'a, Message> {
+    /// Defines the title of the window
+    #[setters(skip)]
+    title: Cow<'a, str>,
+
+    /// A message emitted when the close button is pressed.
+    #[setters(strip_option)]
+    on_close: Option<Message>,
+
+    /// A message emitted when dragged.
+    #[setters(strip_option)]
+    on_drag: Option<Message>,
+
+    /// A message emitted when the maximize button is pressed.
+    #[setters(strip_option)]
+    on_maximize: Option<Message>,
+
+    /// A message emitted when the minimize button is pressed.
+    #[setters(strip_option)]
+    on_minimize: Option<Message>,
+
+    /// A message emitted when the header is double clicked,
+    /// usually used to maximize the window.
+    #[setters(strip_option)]
+    on_double_click: Option<Message>,
+
+    /// A message emitted when the header is right clicked.
+    #[setters(strip_option)]
+    on_right_click: Option<Message>,
+
+    /// Elements packed at the start of the headerbar.
+    #[setters(skip)]
+    start: Vec<Element<'a, Message>>,
+
+    /// Elements packed in the center of the headerbar.
+    #[setters(skip)]
+    center: Vec<Element<'a, Message>>,
+
+    /// Elements packed at the end of the headerbar.
+    #[setters(skip)]
+    end: Vec<Element<'a, Message>>,
+
+    /// Controls the density of the headerbar.
+    #[setters(strip_option)]
+    density: Option<Density>,
+
+    /// Focused state of the window
+    focused: bool,
+
+    /// Maximized state of the window
+    maximized: bool,
+
+    /// Whether the corners of the window should be sharp
+    sharp_corners: bool,
+
+    /// HeaderBar used for server-side decorations
+    is_ssd: bool,
+}
+
+impl<'a, Message: Clone + 'static> HeaderBar<'a, Message> {
+    /// Defines the title of the window
+    #[must_use]
+    pub fn title(mut self, title: impl Into<Cow<'a, str>> + 'a) -> Self {
+        self.title = title.into();
+        self
+    }
+
+    /// Pushes an element to the start region.
+    #[must_use]
+    pub fn start(mut self, widget: impl Into<Element<'a, Message>> + 'a) -> Self {
+        self.start.push(widget.into());
+        self
+    }
+
+    /// Pushes an element to the center region.
+    #[must_use]
+    pub fn center(mut self, widget: impl Into<Element<'a, Message>> + 'a) -> Self {
+        self.center.push(widget.into());
+        self
+    }
+
+    /// Pushes an element to the end region.
+    #[must_use]
+    pub fn end(mut self, widget: impl Into<Element<'a, Message>> + 'a) -> Self {
+        self.end.push(widget.into());
+        self
+    }
+}
+
+pub struct HeaderBarWidget<'a, Message> {
+    start: Element<'a, Message>,
+    center: Option<Element<'a, Message>>,
+    end: Element<'a, Message>,
+    /// Whether the window is focused, for the icon colour override below.
+    focused: bool,
+}
+
+impl<'a, Message> HeaderBarWidget<'a, Message> {
+    pub fn new(
+        start: Element<'a, Message>,
+        center: Option<Element<'a, Message>>,
+        end: Element<'a, Message>,
+        focused: bool,
+    ) -> Self {
+        Self {
+            start,
+            center,
+            end,
+            focused,
+        }
+    }
+
+    fn elems(&self) -> impl Iterator<Item = &Element<'a, Message>> {
+        std::iter::once(&self.start)
+            .chain(std::iter::once(&self.end))
+            .chain(self.center.as_ref())
+    }
+
+    fn elems_mut(&mut self) -> impl Iterator<Item = &mut Element<'a, Message>> {
+        std::iter::once(&mut self.start)
+            .chain(std::iter::once(&mut self.end))
+            .chain(self.center.as_mut())
+    }
+}
+
+impl<'a, Message: Clone + 'static> Widget<Message, crate::ui::Theme, crate::ui::Renderer>
+    for HeaderBarWidget<'a, Message>
+{
+    // Upstream's `Widget::diff` is `&self`; the fork's is `&mut self`.
+    fn diff(&self, tree: &mut tree::Tree) {
+        if let Some(center) = &self.center {
+            tree.diff_children(&[&self.start, &self.end, center]);
+        } else {
+            tree.diff_children(&[&self.start, &self.end]);
+        }
+    }
+
+    fn children(&self) -> Vec<tree::Tree> {
+        self.elems().map(tree::Tree::new).collect()
+    }
+
+    fn size(&self) -> Size<Length> {
+        Size {
+            width: Length::Fill,
+            height: Length::Shrink,
+        }
+    }
+
+    fn layout(
+        &mut self,
+        tree: &mut tree::Tree,
+        renderer: &crate::ui::Renderer,
+        limits: &layout::Limits,
+    ) -> layout::Node {
+        let width = limits.max().width;
+        let height = limits.max().height;
+        let gap = 8.0;
+
+        let end_node =
+            self.end
+                .as_widget_mut()
+                .layout(&mut tree.children[1], renderer, &limits.loose());
+        let end_width = end_node.size().width;
+
+        let start_available = (width - end_width - gap).max(0.0);
+        let start_node = self.start.as_widget_mut().layout(
+            &mut tree.children[0],
+            renderer,
+            &layout::Limits::new(Size::ZERO, Size::new(start_available, height)),
+        );
+        let start_width = start_node.size().width;
+
+        let vcenter = |node: layout::Node, x: f32| -> layout::Node {
+            let dy = ((height - node.size().height) / 2.0).max(0.0);
+            node.translate(Vector::new(x, dy))
+        };
+
+        let mut child_nodes = Vec::with_capacity(3);
+        child_nodes.push(vcenter(start_node, 0.0));
+        child_nodes.push(vcenter(end_node, width - end_width));
+
+        if let Some(center) = &mut self.center {
+            let slot_start = start_width + gap;
+            let slot_end = (width - end_width - gap).max(slot_start);
+            let slot_width = slot_end - slot_start;
+            // this instead of `node.size().width` prevents center jitter as text ellipsizes
+            let natural_width = center
+                .as_widget_mut()
+                .layout(&mut tree.children[2], renderer, &limits.loose())
+                .size()
+                .width;
+
+            let node = center.as_widget_mut().layout(
+                &mut tree.children[2],
+                renderer,
+                &layout::Limits::new(Size::ZERO, Size::new(slot_width, height)),
+            );
+
+            let ideal_x = (width - natural_width) / 2.0;
+            let max_x = (width - end_width - gap - natural_width).max(slot_start);
+            let center_x = ideal_x.clamp(slot_start, max_x);
+
+            child_nodes.push(vcenter(node, center_x))
+        }
+
+        layout::Node::with_children(Size::new(width, height), child_nodes)
+    }
+
+    fn draw(
+        &self,
+        tree: &tree::Tree,
+        renderer: &mut crate::ui::Renderer,
+        theme: &crate::ui::Theme,
+        style: &iced_core::renderer::Style,
+        layout: iced_core::Layout<'_>,
+        cursor: iced_core::mouse::Cursor,
+        viewport: &iced_core::Rectangle,
+    ) {
+        // The enclosing `container` carries `Container::HeaderBar`, the one
+        // class whose icon colour differs from its text colour: the fork gave
+        // a focused header bar `icon_color: accent_text_color()` beside
+        // `text_color: background.on`, and the container wrote both into
+        // `renderer::Style`. Upstream's container writes only `text_color`, so
+        // the icon half is re-installed here, directly inside that container.
+        // See `crate::ui::theme::icon_color`.
+        let (icon_color, _text_color) =
+            crate::ui::theme::style::iced::header_bar_colors(theme, self.focused);
+
+        crate::ui::theme::with_icon_color(icon_color, style.text_color, || {
+            self.elems()
+                .zip(&tree.children)
+                .zip(layout.children())
+                .for_each(|((e, s), l)| {
+                    e.as_widget()
+                        .draw(s, renderer, theme, style, l, cursor, viewport);
+                });
+        });
+    }
+
+    fn update(
+        &mut self,
+        state: &mut tree::Tree,
+        event: &iced_core::Event,
+        layout: iced_core::Layout<'_>,
+        cursor: iced_core::mouse::Cursor,
+        renderer: &crate::ui::Renderer,
+        clipboard: &mut dyn iced_core::Clipboard,
+        shell: &mut iced_core::Shell<'_, Message>,
+        viewport: &iced_core::Rectangle,
+    ) {
+        self.elems_mut()
+            .zip(&mut state.children)
+            .zip(layout.children())
+            .for_each(|((e, s), l)| {
+                e.as_widget_mut()
+                    .update(s, event, l, cursor, renderer, clipboard, shell, viewport);
+            });
+    }
+
+    fn mouse_interaction(
+        &self,
+        state: &tree::Tree,
+        layout: iced_core::Layout<'_>,
+        cursor: iced_core::mouse::Cursor,
+        viewport: &iced_core::Rectangle,
+        renderer: &crate::ui::Renderer,
+    ) -> iced_core::mouse::Interaction {
+        self.elems()
+            .zip(&state.children)
+            .zip(layout.children())
+            .map(|((e, s), l)| {
+                e.as_widget()
+                    .mouse_interaction(s, l, cursor, viewport, renderer)
+            })
+            .max()
+            .unwrap_or(iced_core::mouse::Interaction::None)
+    }
+
+    fn operate(
+        &mut self,
+        state: &mut tree::Tree,
+        layout: iced_core::Layout<'_>,
+        renderer: &crate::ui::Renderer,
+        operation: &mut dyn iced_core::widget::Operation<()>,
+    ) {
+        self.elems_mut()
+            .zip(&mut state.children)
+            .zip(layout.children())
+            .for_each(|((e, s), l)| {
+                e.as_widget_mut().operate(s, l, renderer, operation);
+            });
+    }
+
+    fn overlay<'b>(
+        &'b mut self,
+        state: &'b mut tree::Tree,
+        layout: iced_core::Layout<'b>,
+        renderer: &crate::ui::Renderer,
+        viewport: &iced_core::Rectangle,
+        translation: Vector,
+    ) -> Option<iced_core::overlay::Element<'b, Message, crate::ui::Theme, crate::ui::Renderer>> {
+        self.elems_mut()
+            .zip(&mut state.children)
+            .zip(layout.children())
+            .find_map(|((e, s), l)| {
+                e.as_widget_mut()
+                    .overlay(s, l, renderer, viewport, translation)
+            })
+    }
+
+}
+
+impl<'a, Message: Clone + 'static> From<HeaderBarWidget<'a, Message>> for Element<'a, Message> {
+    fn from(w: HeaderBarWidget<'a, Message>) -> Self {
+        Element::new(w)
+    }
+}
+
+impl<'a, Message: Clone + 'static> HeaderBar<'a, Message> {
+    /// Converts the headerbar builder into an Iced element.
+    pub fn view(mut self) -> Element<'a, Message> {
+        let Spacing {
+            space_xxxs,
+            space_xxs,
+            ..
+        } = theme::spacing();
+        let is_ssd = self.is_ssd;
+
+        // Take ownership of the regions to be packed.
+        let start = std::mem::take(&mut self.start);
+        let center = std::mem::take(&mut self.center);
+        let mut end = std::mem::take(&mut self.end);
+
+        // Also packs the window controls at the very end.
+        end.push(self.window_controls(space_xxs));
+
+        let padding = if is_ssd {
+            [2, 8, 2, 8]
+        } else {
+            match (
+                self.density.unwrap_or_else(theme::header_size),
+                self.maximized, // window border handling
+            ) {
+                (Density::Compact, true) => [4, 8, 4, 8],
+                (Density::Compact, false) => [3, 7, 4, 7],
+                (_, true) => [8, 8, 8, 8],
+                (_, false) => [7, 7, 8, 7],
+            }
+        };
+
+        let start = Row::with_children(start)
+            .spacing(space_xxxs.to_pixels())
+            .align_y(iced::Alignment::Center)
+            .into();
+        let center = if !center.is_empty() {
+            Some(
+                Row::with_children(center)
+                    .spacing(space_xxxs.to_pixels())
+                    .align_y(iced::Alignment::Center)
+                    .into(),
+            )
+        } else if !self.title.is_empty() {
+            // The fork ellipsizes on `Text` itself; this crate has a
+            // standalone `Ellipsize` widget. Size, line height and font are
+            // `text::heading`'s, so the title is unchanged.
+            Some(
+                Ellipsize::new(self.title, EllipsizeMode::End(1))
+                    .size(14.0)
+                    .line_height(text::LineHeight::Absolute(iced::Pixels(21.0)))
+                    .font(crate::ui::font::bold())
+                    .into(),
+            )
+        } else {
+            None
+        };
+        let end = Row::with_children(end)
+            .spacing(space_xxs.to_pixels())
+            .align_y(iced::Alignment::Center)
+            .into();
+
+        let mut widget = HeaderBarWidget::new(start, center, end, self.focused)
+            .apply(widget::container)
+            .class(theme::Container::HeaderBar {
+                focused: self.focused,
+                sharp_corners: self.sharp_corners,
+                transparent: if is_ssd { false } else { true },
+            })
+            .height(Length::Fixed(32.0 + padding[0] as f32 + padding[2] as f32))
+            .padding(padding.to_padding())
+            // `iced`'s `MouseArea` has no `on_drag`; the fork's does, and so
+            // does this crate's vendored `mouse_area`.
+            .apply(crate::mouse_area::MouseArea::new);
+
+        // The fork's `MouseArea` setters took a bare `Message`; this crate's
+        // vendored `mouse_area` takes a closure of the event's geometry
+        // (`OnDrag = Fn(Option<Rectangle>) -> Message`, `OnMouseButton =
+        // Fn(Option<Point>) -> Message`). Discarding the argument makes the two
+        // equivalent; the header bar does not use the position.
+        if let Some(message) = self.on_drag {
+            widget = widget.on_drag(move |_| message.clone());
+        }
+        if let Some(message) = self.on_maximize {
+            widget = widget.on_release(move |_| message.clone());
+        }
+        if let Some(message) = self.on_double_click {
+            widget = widget.on_double_click(move |_| message.clone());
+        }
+        if let Some(message) = self.on_right_click {
+            widget = widget.on_right_press(move |_| message.clone());
+        }
+
+        widget.into()
+    }
+
+    /// Creates the widget for window controls.
+    fn window_controls(&mut self, spacing: u16) -> Element<'a, Message> {
+        macro_rules! icon {
+            ($name:expr, $size:expr, $on_press:expr) => {{
+                widget::icon::from_name($name)
+                    .apply(widget::button::icon)
+                    .padding(8)
+                    .class(theme::Button::HeaderBar)
+                    .selected(self.focused)
+                    .icon_size($size)
+                    .on_press($on_press)
+            }};
+        }
+
+        Row::with_capacity(3)
+            .push_maybe(
+                self.on_minimize
+                    .take()
+                    .map(|m| icon!("window-minimize-symbolic", 16, m)),
+            )
+            .push_maybe(self.on_maximize.take().map(|m| {
+                if self.maximized {
+                    icon!("window-restore-symbolic", 16, m)
+                } else {
+                    icon!("window-maximize-symbolic", 16, m)
+                }
+            }))
+            .push_maybe(
+                self.on_close
+                    .take()
+                    .map(|m| icon!("window-close-symbolic", 16, m)),
+            )
+            .spacing(spacing.to_pixels())
+            .align_y(iced::Alignment::Center)
+            .into()
+    }
+}
+
+impl<'a, Message: Clone + 'static> From<HeaderBar<'a, Message>> for Element<'a, Message> {
+    fn from(headerbar: HeaderBar<'a, Message>) -> Self {
+        headerbar.view()
+    }
+}

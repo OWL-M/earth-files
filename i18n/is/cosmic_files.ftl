@@ -302,3 +302,5 @@ restored =
         [one] atriði
        *[other] atriði
     } úr { trash }
+
+close = Loka

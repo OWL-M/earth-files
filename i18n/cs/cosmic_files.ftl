@@ -434,3 +434,5 @@ error = Chyba
 search-application = Hledat podle názvu aplikace
 sidebar-label = Popisek v postranním panelu
 change-sidebar-label = Změnit popisek
+
+close = Zavřít

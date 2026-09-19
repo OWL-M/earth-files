@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 #[cfg(feature = "desktop")]
-use cosmic::desktop::fde::GenericEntry;
+use freedesktop_desktop_entry::GenericEntry;
 use mime_guess::Mime;
 use rustc_hash::FxHashMap;
 use std::path::Path;

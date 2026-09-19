@@ -387,3 +387,5 @@ checksum = تدقيق المجموع { $kind }
 calculate = احسب
 error = خطأ
 rename-confirm = أعد التسمية
+
+close = أغلِق

@@ -3,17 +3,18 @@
 use std::time::Instant;
 
 use crate::tab::DOUBLE_CLICK_DURATION;
-use cosmic::iced::core::border::Border;
-use cosmic::iced::core::event::Event;
-use cosmic::iced::core::mouse::{self, click};
-use cosmic::iced::core::renderer::{self, Quad, Renderer as _};
-use cosmic::iced::core::widget::{Operation, Tree, tree};
-use cosmic::iced::core::{
-    Clipboard, Color, Layout, Length, Point, Rectangle, Shell, Size, Vector, Widget, layout,
+use crate::ui::iced_core::border::Border;
+use crate::ui::iced_core::event::Event;
+use crate::ui::iced_core::mouse::{self, click};
+use crate::ui::iced_core::renderer::{self, Quad, Renderer as _};
+use crate::ui::iced_core::widget::{Operation, Tree, tree};
+use crate::ui::iced_core::{
+    Clipboard, Layout, Length, Point, Rectangle, Shell, Size, Vector, Widget, layout,
     overlay, touch,
 };
-use cosmic::widget::Id;
-use cosmic::{Element, Renderer, Theme};
+use crate::ui::widget::Id;
+use crate::ui::{Element, Renderer, Theme};
+use crate::ui::convert::{ToColor, ToRadius};
 
 /// Emit messages on mouse events.
 #[allow(missing_debug_implementations)]
@@ -22,6 +23,7 @@ pub struct MouseArea<'a, Message> {
     content: Element<'a, Message>,
     on_auto_scroll: Option<Box<dyn OnAutoScroll<'a, Message>>>,
     on_drag: Option<Box<dyn OnDrag<'a, Message>>>,
+    on_dnd: Option<Box<dyn Fn(DndDrag) -> Message + 'a>>,
     on_double_click: Option<Box<dyn OnMouseButton<'a, Message>>>,
     on_press: Option<Box<dyn OnMouseButton<'a, Message>>>,
     on_drag_end: Option<Box<dyn OnMouseButton<'a, Message>>>,
@@ -55,6 +57,19 @@ impl<'a, Message> MouseArea<'a, Message> {
     #[must_use]
     pub fn on_drag(mut self, message: impl OnDrag<'a, Message>) -> Self {
         self.on_drag = Some(Box::new(message));
+        self
+    }
+
+    /// The message to emit when a Wayland file drag moves over or is dropped on this
+    /// area.
+    ///
+    /// During a Wayland drag, `wl_data_device` holds the implicit pointer grab and iced
+    /// receives no events until the drop. Each `update` polls [`crate::ui::dnd::drag`]
+    /// and requests the next redraw to keep polling, using the same clock as tab
+    /// dragging.
+    #[must_use]
+    pub fn on_dnd(mut self, message: impl Fn(DndDrag) -> Message + 'a) -> Self {
+        self.on_dnd = Some(Box::new(message));
         self
     }
 
@@ -110,7 +125,6 @@ impl<'a, Message> MouseArea<'a, Message> {
     /// Only on wayland, on_right_press will provide window position instead of widget relative
     #[must_use]
     pub fn wayland_on_right_press_window_position(mut self) -> Self {
-        #[cfg(feature = "wayland")]
         {
             self.on_right_press_window_position = true;
         }
@@ -226,6 +240,19 @@ impl<'a, Message, F> OnScroll<'a, Message> for F where
 {
 }
 
+/// Where a live Wayland file drag is, in one [`MouseArea`]'s own coordinates.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct DndDrag {
+    /// The drag's position relative to this area's top-left, or `None` when it is over
+    /// another pane, window or client.
+    pub position: Option<Point>,
+    /// The compositor delivered the drop, and `ui::dnd::read_drop` will answer.
+    pub dropped: bool,
+    /// The drag is over, dropped or not. Exactly one of these arrives per drag,
+    /// so it is where a listener undoes whatever the drag was showing.
+    pub ended: bool,
+}
+
 pub trait OnEnterExit<'a, Message>: Fn() -> Message + 'a {}
 impl<'a, Message, F> OnEnterExit<'a, Message> for F where F: Fn() -> Message + 'a {}
 
@@ -236,6 +263,10 @@ struct State {
     last_position: Option<Point>,
     last_virtual_position: Option<Point>,
     drag_initiated: Option<Point>,
+    /// The generation of the Wayland drag this area last reported, so a poll
+    /// that saw no change publishes nothing. `None` means no drag is live as
+    /// far as this area knows.
+    dnd_generation: Option<u64>,
     prev_click: Option<(mouse::Click, Instant)>,
     viewport: Option<Rectangle>,
 }
@@ -293,6 +324,7 @@ impl<'a, Message> MouseArea<'a, Message> {
             content: content.into(),
             on_auto_scroll: None,
             on_drag: None,
+            on_dnd: None,
             on_drag_end: None,
             on_double_click: None,
             on_press: None,
@@ -332,8 +364,8 @@ where
         vec![Tree::new(&self.content)]
     }
 
-    fn diff(&mut self, tree: &mut Tree) {
-        tree.diff_children(std::slice::from_mut(&mut self.content));
+    fn diff(&self, tree: &mut Tree) {
+        tree.diff_children(std::slice::from_ref(&self.content));
     }
 
     fn size(&self) -> Size<Length> {
@@ -449,13 +481,13 @@ where
                     Quad {
                         bounds,
                         border: Border {
-                            color: cosmic.accent_color().into(),
+                            color: cosmic.accent_color().to_color(),
                             width: 1.0,
-                            radius: cosmic.radius_xs().into(),
+                            radius: cosmic.radius_xs().to_radius(),
                         },
                         ..Default::default()
                     },
-                    Color::from(bg_color),
+                    bg_color.to_color(),
                 );
                 renderer.end_layer();
             }
@@ -479,28 +511,6 @@ where
         )
     }
 
-    fn drag_destinations(
-        &self,
-        state: &Tree,
-        layout: Layout<'_>,
-        renderer: &Renderer,
-        dnd_rectangles: &mut cosmic::iced::core::clipboard::DndDestinationRectangles,
-    ) {
-        self.content.as_widget().drag_destinations(
-            &state.children[0],
-            layout,
-            renderer,
-            dnd_rectangles,
-        );
-    }
-
-    fn id(&self) -> Option<Id> {
-        Some(self.id.clone())
-    }
-
-    fn set_id(&mut self, id: Id) {
-        self.id = id;
-    }
 }
 
 impl<'a, Message> From<MouseArea<'a, Message>> for Element<'a, Message>
@@ -525,8 +535,56 @@ fn update<Message: Clone>(
     state: &mut State,
     viewport: &Rectangle,
 ) {
-    let offset = layout.virtual_offset();
+    // `Layout::virtual_offset` is fork-only and dropped in Phase 3; substituting
+    // `Vector::ZERO` was proven pixel-identical, and this read fed only
+    // `on_right_press_window_position`, which nothing in this app enables.
+    let offset = iced_core::Vector::ZERO;
     let layout_bounds = layout.bounds();
+
+    // Poll Wayland file drags before handling hover and cursor events; see
+    // `MouseArea::on_dnd`. Iced has no cursor while the data device holds the pointer
+    // grab.
+    if let Some(on_dnd) = widget.on_dnd.as_ref() {
+        match crate::ui::dnd::drag() {
+            // Tab drags use the same `wl_data_device` but carry no file list, so this
+            // area ignores them.
+            Some(drag) if drag.files => {
+                if !drag.ended {
+                    shell.request_redraw();
+                }
+                if state.dnd_generation != Some(drag.generation) {
+                    state.dnd_generation = Some(drag.generation);
+                    let position = drag
+                        .position
+                        .map(|(x, y)| Point::new(x, y))
+                        .filter(|point| layout_bounds.contains(*point))
+                        .map(|point| point - Vector::new(layout_bounds.x, layout_bounds.y));
+                    shell.publish(on_dnd(DndDrag {
+                        position,
+                        dropped: drag.dropped,
+                        ended: drag.ended,
+                    }));
+                }
+            }
+            // Ignore tab drags. Treating one as the end of a file drag would make
+            // `Tab::end_file_drag` call `ui::dnd::end_drag` on the new tab drag,
+            // preventing tab reordering. The arm above handles ended file drags, which
+            // remain readable until the next drag starts.
+            Some(_) => state.dnd_generation = None,
+            // No drag is available: initialization failed or `ui::dnd` lost the drag.
+            // Report its end once to clear the hint, since no further end notification
+            // will arrive.
+            None => {
+                if state.dnd_generation.take().is_some() {
+                    shell.publish(on_dnd(DndDrag {
+                        position: None,
+                        dropped: false,
+                        ended: true,
+                    }));
+                }
+            }
+        }
+    }
 
     let viewport_changed = state.viewport != Some(*viewport);
 
@@ -653,6 +711,24 @@ fn update<Message: Clone>(
         if let Some(message) = widget.on_drag_end.as_ref() {
             shell.publish(message(cursor.position_in(layout_bounds)));
         }
+    } else if matches!(event, Event::Mouse(mouse::Event::CursorLeft)) {
+        // End the gesture when the compositor takes the pointer grab; no button release
+        // will arrive here.
+        //
+        // The header bar's `on_drag` requests an interactive move
+        // (`xdg_toplevel.move`). The compositor takes the grab and sends
+        // `wl_pointer.leave`. Without this arm, `drag_initiated` stays set and
+        // `drag_rect` falls back to `last_virtual_position`. Each subsequent event then
+        // republishes `on_drag` and requests another redraw. A single header drag
+        // caused about 55 xdg_toplevel.move requests per second and 50-85% CPU usage
+        // until the app was killed.
+        //
+        // Keep `on_drag_end` release-only. Losing the pointer does not complete the
+        // gesture, and rubber-band selection should retain its published state without
+        // committing on leave. A held button normally keeps an implicit grab on the
+        // surface, so this arm handles a stolen grab, not ordinary dragging.
+        state.drag_initiated = None;
+        state.prev_click = None;
     }
 
     let recent_click = state

@@ -396,3 +396,5 @@ calculate = Вычислить
 error = Ошибка
 sidebar-label = Подпись в боковой панели
 change-sidebar-label = Изменить подпись
+
+close = Закрыть

@@ -2,8 +2,8 @@ use crate::app::{ArchiveType, DialogPage, Message, REPLACE_BUTTON_ID};
 use crate::config::IconSizes;
 use crate::spawn_detached::spawn_detached;
 use crate::{archive, fl, tab};
-use cosmic::iced::futures::channel::mpsc::Sender;
-use cosmic::iced::futures::{self, SinkExt, StreamExt, stream};
+use crate::ui::iced::futures::channel::mpsc::Sender;
+use crate::ui::iced::futures::{self, SinkExt, StreamExt, stream};
 use std::borrow::Cow;
 use std::fmt::Formatter;
 use std::fs;
@@ -156,7 +156,7 @@ async fn copy_or_move(
                         }
                     }
                 })
-                .collect::<cosmic::iced::futures::stream::FuturesOrdered<_>>()
+                .collect::<crate::ui::iced::futures::stream::FuturesOrdered<_>>()
                 .fold(Vec::new(), |mut pairs, pair| async move {
                     if let Some(pair) = pair {
                         pairs.push(pair);
@@ -778,12 +778,9 @@ impl Operation {
                                                 zip_options.last_modified_time(last_modified);
                                         }
 
-                                        #[cfg(unix)]
-                                        {
-                                            use std::os::unix::fs::MetadataExt;
-                                            let mode = metadata.mode();
-                                            zip_options = zip_options.unix_permissions(mode);
-                                        }
+                                        use std::os::unix::fs::MetadataExt;
+                                        let mode = metadata.mode();
+                                        zip_options = zip_options.unix_permissions(mode);
 
                                         if path.is_file() {
                                             let total = metadata.len();
@@ -866,99 +863,77 @@ impl Operation {
                 Ok(OperationSelection::default())
             }
             Self::DeleteTrash { items } => {
-                #[cfg(any(
-                    target_os = "windows",
-                    all(
-                        unix,
-                        not(target_os = "macos"),
-                        not(target_os = "ios"),
-                        not(target_os = "android")
-                    )
-                ))]
-                {
-                    let controller_clone = controller.clone();
-                    compio::runtime::spawn_blocking(move || -> Result<(), OperationError> {
-                        let controller = controller_clone;
-                        let count = items.len();
-                        for (i, item) in items.into_iter().enumerate() {
-                            futures::executor::block_on(async {
-                                controller
-                                    .check()
-                                    .await
-                                    .map_err(|s| OperationError::from_state(s, &controller))
-                            })?;
+                let controller_clone = controller.clone();
+                compio::runtime::spawn_blocking(move || -> Result<(), OperationError> {
+                    let controller = controller_clone;
+                    let count = items.len();
+                    for (i, item) in items.into_iter().enumerate() {
+                        futures::executor::block_on(async {
+                            controller
+                                .check()
+                                .await
+                                .map_err(|s| OperationError::from_state(s, &controller))
+                        })?;
 
-                            controller.set_progress(i as f32 / count as f32);
+                        controller.set_progress(i as f32 / count as f32);
 
-                            trash::os_limited::purge_all([item])
-                                .map_err(|e| OperationError::from_err(e, &controller))?;
-                        }
-                        Ok(())
-                    })
-                    .await
-                    .map_err(wrap_compio_spawn_error)?
-                    .map_err(|e| OperationError::from_err(e, &controller))?;
-                }
+                        trash::os_limited::purge_all([item])
+                            .map_err(|e| OperationError::from_err(e, &controller))?;
+                    }
+                    Ok(())
+                })
+                .await
+                .map_err(wrap_compio_spawn_error)?
+                .map_err(|e| OperationError::from_err(e, &controller))?;
                 Ok(OperationSelection::default())
             }
             Self::EmptyTrash => {
-                #[cfg(any(
-                    target_os = "windows",
-                    all(
-                        unix,
-                        not(target_os = "macos"),
-                        not(target_os = "ios"),
-                        not(target_os = "android")
-                    )
-                ))]
-                {
-                    let controller_clone = controller.clone();
-                    compio::runtime::spawn_blocking(move || -> Result<(), OperationError> {
-                        let controller = controller_clone;
-                        let items = trash::os_limited::list()
-                            .map_err(|e| OperationError::from_err(e, &controller))?;
-                        let count = items.len();
-                        let mut errors: Vec<trash::Error> = Vec::new();
+                let controller_clone = controller.clone();
+                compio::runtime::spawn_blocking(move || -> Result<(), OperationError> {
+                    let controller = controller_clone;
+                    let items = trash::os_limited::list()
+                        .map_err(|e| OperationError::from_err(e, &controller))?;
+                    let count = items.len();
+                    let mut errors: Vec<trash::Error> = Vec::new();
 
-                        for (i, item) in items.into_iter().enumerate() {
-                            futures::executor::block_on(async {
-                                controller
-                                    .check()
-                                    .await
-                                    .map_err(|s| OperationError::from_state(s, &controller))
-                            })?;
+                    for (i, item) in items.into_iter().enumerate() {
+                        futures::executor::block_on(async {
+                            controller
+                                .check()
+                                .await
+                                .map_err(|s| OperationError::from_state(s, &controller))
+                        })?;
 
-                            if let Err(e) = trash::os_limited::purge_all([item]) {
-                                errors.push(e);
-                            }
-
-                            controller.set_progress(i as f32 / count as f32);
+                        if let Err(e) = trash::os_limited::purge_all([item]) {
+                            errors.push(e);
                         }
 
-                        // Report errors at the end
-                        if !errors.is_empty() {
-                            log::warn!("Failed to purge {} items:", errors.len());
-                            for e in &errors {
-                                log::warn!("  - {e}");
-                            }
+                        controller.set_progress(i as f32 / count as f32);
+                    }
 
-                            // Return an error to signal partial failure
-                            return Err(OperationError::from_err(
-                                format!(
-                                    "Failed to delete {} of {} items. Check log for details.",
-                                    errors.len(),
-                                    count
-                                ),
-                                &controller,
-                            ));
+                    // Report errors at the end
+                    if !errors.is_empty() {
+                        log::warn!("Failed to purge {} items:", errors.len());
+                        for e in &errors {
+                            log::warn!("  - {e}");
                         }
 
-                        Ok(())
-                    })
-                    .await
-                    .map_err(wrap_compio_spawn_error)?
-                    .map_err(|e| OperationError::from_err(e, &controller))?;
-                }
+                        // Return an error to signal partial failure
+                        return Err(OperationError::from_err(
+                            format!(
+                                "Failed to delete {} of {} items. Check log for details.",
+                                errors.len(),
+                                count
+                            ),
+                            &controller,
+                        ));
+                    }
+
+                    Ok(())
+                })
+                .await
+                .map_err(wrap_compio_spawn_error)?
+                .map_err(|e| OperationError::from_err(e, &controller))?;
                 Ok(OperationSelection::default())
             }
             Self::Extract {
@@ -1135,14 +1110,6 @@ impl Operation {
             }
             .await
             .map_err(wrap_compio_spawn_error)?,
-            #[cfg(target_os = "macos")]
-            Self::Restore { .. } => {
-                // TODO: add support for macos
-                return Err(OperationError::from_msg(
-                    "Restoring from trash is not supported on macos",
-                ));
-            }
-            #[cfg(not(target_os = "macos"))]
             Self::Restore { items } => {
                 let total = items.len();
                 let mut paths = Vec::with_capacity(total);
@@ -1191,20 +1158,16 @@ impl Operation {
                 let controller_clone = controller.clone();
                 compio::runtime::spawn_blocking(move || -> Result<(), OperationError> {
                     let controller = controller_clone;
-                    //TODO: what to do on non-Unix systems?
-                    #[cfg(unix)]
-                    {
-                        use std::os::unix::fs::PermissionsExt;
+                    use std::os::unix::fs::PermissionsExt;
 
-                        let mut perms = fs::metadata(&path)
-                            .map_err(|e| OperationError::from_err(e, &controller))?
-                            .permissions();
-                        let current_mode = perms.mode();
-                        let new_mode = current_mode | 0o111;
-                        perms.set_mode(new_mode);
-                        fs::set_permissions(&path, perms)
-                            .map_err(|e| OperationError::from_err(e, &controller))?;
-                    }
+                    let mut perms = fs::metadata(&path)
+                        .map_err(|e| OperationError::from_err(e, &controller))?
+                        .permissions();
+                    let current_mode = perms.mode();
+                    let new_mode = current_mode | 0o111;
+                    perms.set_mode(new_mode);
+                    fs::set_permissions(&path, perms)
+                        .map_err(|e| OperationError::from_err(e, &controller))?;
 
                     let mut command = std::process::Command::new(path);
                     spawn_detached(&mut command)
@@ -1228,14 +1191,10 @@ impl Operation {
                 compio::runtime::spawn_blocking(move || -> Result<(), OperationError> {
                     let controller = controller_clone;
                     let path = path_clone;
-                    //TODO: what to do on non-Unix systems?
-                    #[cfg(unix)]
-                    {
-                        use std::os::unix::fs::PermissionsExt;
-                        let perms = fs::Permissions::from_mode(mode);
-                        fs::set_permissions(&path, perms)
-                            .map_err(|e| OperationError::from_err(e, &controller))?;
-                    }
+                    use std::os::unix::fs::PermissionsExt;
+                    let perms = fs::Permissions::from_mode(mode);
+                    fs::set_permissions(&path, perms)
+                        .map_err(|e| OperationError::from_err(e, &controller))?;
 
                     Ok(())
                 })
@@ -1256,17 +1215,24 @@ impl Operation {
 }
 
 #[track_caller]
-fn wrap_compio_spawn_error(err: Box<dyn std::any::Any + Send>) -> OperationError {
+fn wrap_compio_spawn_error(err: compio::runtime::JoinError) -> OperationError {
     log::error!(
         "compio runtime spawn failed: {}",
         std::backtrace::Backtrace::capture()
     );
 
-    // Preserve error if it's already an OperationError
-    if let Ok(err) = err.downcast() {
-        *err
-    } else {
-        OperationError::from_msg("compio runtime spawn failed")
+    // compio 0.19 replaces `Box<dyn Any + Send>` with `JoinError`, distinguishing
+    // cancellation from panic. Both previously returned an opaque payload. The panic
+    // payload is still the same box, so an `OperationError` from a panicking task can
+    // be recovered as before.
+    match err {
+        compio::runtime::JoinError::Cancelled => {
+            OperationError::from_msg("compio runtime task was cancelled")
+        }
+        compio::runtime::JoinError::Panicked(payload) => match payload.downcast() {
+            Ok(err) => *err,
+            Err(_) => OperationError::from_msg("compio runtime spawn failed"),
+        },
     }
 }
 
@@ -1276,8 +1242,8 @@ mod tests {
     use std::io;
     use std::path::PathBuf;
 
-    use cosmic::iced::futures::channel::mpsc;
-    use cosmic::iced::futures::{StreamExt, future};
+    use crate::ui::iced::futures::channel::mpsc;
+    use crate::ui::iced::futures::{StreamExt, future};
     use log::debug;
     use test_log::test;
     use tokio::sync;

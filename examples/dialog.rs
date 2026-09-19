@@ -1,6 +1,7 @@
-use cosmic::app::{self, Core, Settings, Task};
-use cosmic::iced::{Subscription, window};
-use cosmic::{Application, Element, executor, widget};
+use cosmic_files::ui::app::Task;
+use cosmic_files::ui::iced::{Subscription, window};
+use cosmic_files::ui::shell::{self as app, Application, Core, Settings};
+use cosmic_files::ui::{Element, widget};
 use cosmic_files::dialog::{
     Dialog, DialogChoice, DialogChoiceOption, DialogFilter, DialogFilterPattern, DialogKind,
     DialogMessage, DialogResult, DialogSettings,
@@ -46,7 +47,6 @@ pub struct App {
 }
 
 impl Application for App {
-    type Executor = executor::Default;
     type Flags = ();
     type Message = Message;
 
@@ -161,7 +161,7 @@ impl Application for App {
     }
 
     fn view(&self) -> Element<'_, Message> {
-        let mut column = widget::column::with_capacity(8).spacing(8).padding(8);
+        let mut column = widget::Column::with_capacity(8).spacing(8).padding(8);
         {
             let mut button = widget::button::standard("Open File");
             if self.dialog_opt.is_none() {

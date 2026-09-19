@@ -1,16 +1,15 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
-use cosmic::{Element, theme};
-use cosmic::app::Core;
-use cosmic::iced::keyboard::Modifiers;
-use cosmic::widget::menu::action::MenuAction;
-use cosmic::widget::menu::key_bind::KeyBind;
-use cosmic::widget::menu::{self, ItemHeight, ItemWidth, MenuBar};
-use cosmic::widget::{self, responsive_menu_bar};
+use crate::ui::Element;
+use crate::ui::shell::Core;
+use crate::ui::iced::keyboard::Modifiers;
+use crate::ui::widget::menu::action::MenuAction;
+use crate::ui::widget::menu::key_bind::KeyBind;
+use crate::ui::widget::menu::{self, ItemHeight, ItemWidth, MenuBar};
+use crate::ui::widget::{self, responsive_menu_bar};
 use i18n_embed::LanguageLoader;
 use mime_guess::Mime;
 use std::collections::HashMap;
-use std::sync::LazyLock;
 
 use crate::app::{Action, Message};
 use crate::config::{Config, ContextActionPreset};
@@ -19,9 +18,15 @@ use crate::tab::{
     self, HeadingOptions, ItemMetadata, Location, LocationMenuAction, SearchLocation, Tab,
 };
 use crate::trash::{Trash, TrashExt};
+use crate::ui::theme::spacing;
 
-static MENU_ID: LazyLock<cosmic::widget::Id> =
-    LazyLock::new(|| cosmic::widget::Id::new("responsive-menu"));
+/// The name of the responsive menu bar's widget id.
+///
+/// Previously a `LazyLock<Id>`: the fork's `Id::new` assigned a fresh counter on each
+/// call, so recreating it per frame would miss the `Core::menu_bars` key. Upstream ids
+/// compare by their input string, so storing the name is sufficient.
+/// `responsive_menu_bar` also needs the name because upstream `Id` has no `Display`.
+const MENU_ID: &str = "responsive-menu";
 
 const fn menu_button_optional(
     label: String,
@@ -129,7 +134,7 @@ pub fn context_menu<'a>(
             let lang_id = crate::localize::LANGUAGE_LOADER.current_language();
             let language = lang_id.language.as_str();
             // Cache?
-            cosmic::desktop::load_desktop_file(&[language.into()], path.into())
+            crate::desktop_entry::load_desktop_file(&[language.into()], path.into())
         } else {
             None
         }
@@ -138,9 +143,8 @@ pub fn context_menu<'a>(
     let mut children: Vec<menu::Item<TabAction, String>> = Vec::new();
     match (&tab.mode, &tab.location) {
         (
-            tab::Mode::App | tab::Mode::Desktop,
-            Location::Desktop(..)
-            | Location::Path(..)
+            tab::Mode::App,
+            Location::Path(..)
             | Location::Search(SearchLocation::Path(..), ..)
             | Location::Search(SearchLocation::Recents, ..)
             | Location::Recents
@@ -287,41 +291,16 @@ pub fn context_menu<'a>(
                     children.push(menu_item_disabled(fl!("paste"), Action::Paste));
                 }
 
-                //TODO: only show if cosmic-settings is found?
-                if matches!(tab.mode, tab::Mode::Desktop) {
-                    children.push(menu::Item::Divider);
-                    children.push(menu_item(
-                        fl!("change-wallpaper"),
-                        Action::CosmicSettingsWallpaper,
-                    ));
-                    children.push(menu_item(
-                        fl!("desktop-appearance"),
-                        Action::CosmicSettingsDesktop,
-                    ));
-                    children.push(menu_item(
-                        fl!("display-settings"),
-                        Action::CosmicSettingsDisplays,
-                    ));
-                }
-
                 children.push(menu::Item::Divider);
                 // TODO: Nested menu
                 children.push(sort_item(fl!("sort-by-name"), HeadingOptions::Name));
                 children.push(sort_item(fl!("sort-by-modified"), HeadingOptions::Modified));
                 children.push(sort_item(fl!("sort-by-size"), HeadingOptions::Size));
-                if matches!(tab.location, Location::Desktop(..)) {
-                    children.push(menu::Item::Divider);
-                    children.push(menu_item(
-                        fl!("desktop-view-options"),
-                        Action::DesktopViewOptions,
-                    ));
-                }
             }
         }
         (
             tab::Mode::Dialog(dialog_kind),
-            Location::Desktop(..)
-            | Location::Path(..)
+            Location::Path(..)
             | Location::Search(SearchLocation::Path(..), ..)
             | Location::Search(SearchLocation::Recents, ..)
             | Location::Recents
@@ -544,7 +523,7 @@ pub fn dialog_menu(
     ])
     .item_height(ItemHeight::Dynamic(40))
     .item_width(ItemWidth::Uniform(360))
-    .spacing(theme::spacing().space_xxxs.into())
+    .spacing(spacing().space_xxxs.into())
     .into()
 }
 
@@ -599,11 +578,11 @@ pub fn menu_bar<'a>(
     responsive_menu_bar()
         .item_height(ItemHeight::Dynamic(40))
         .item_width(ItemWidth::Uniform(360))
-        .spacing(theme::spacing().space_xxxs.into())
+        .spacing(spacing().space_xxxs.into())
         .into_element(
             core,
             key_binds,
-            MENU_ID.clone(),
+            MENU_ID,
             Message::Surface,
             vec![
                 (

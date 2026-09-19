@@ -9,7 +9,7 @@ use compio::buf::{IntoInner, IoBuf};
 use compio::driver::ToSharedFd;
 use compio::driver::op::AsyncifyFd;
 use compio::io::{AsyncReadAt, AsyncWriteAt};
-use cosmic::iced::futures;
+use crate::ui::iced::futures;
 use futures::{FutureExt, StreamExt};
 use std::cell::Cell;
 use std::error::Error;
@@ -373,10 +373,6 @@ impl Op {
                 match compio::fs::hard_link(&self.from, &self.to).await {
                     Ok(()) => {}
                     Err(err) => {
-                        // https://docs.rs/windows-sys/latest/windows_sys/Win32/Foundation/constant.ERROR_NOT_SAME_DEVICE.html
-                        #[cfg(windows)]
-                        const EXDEV: i32 = 17;
-                        #[cfg(unix)]
                         const EXDEV: i32 = libc::EXDEV as _;
 
                         if err.raw_os_error() == Some(EXDEV) {
@@ -419,18 +415,7 @@ impl Op {
                         }
                     }
                 }
-                #[cfg(unix)]
-                {
-                    std::os::unix::fs::symlink(target, &self.to)?;
-                }
-                #[cfg(windows)]
-                {
-                    if target.is_dir() {
-                        std::os::windows::fs::symlink_dir(target, &self.to)?;
-                    } else {
-                        std::os::windows::fs::symlink_file(target, &self.to)?;
-                    }
-                }
+                std::os::unix::fs::symlink(target, &self.to)?;
             }
         }
         Ok(true)
@@ -453,7 +438,7 @@ impl Op {
             }
         }
 
-        let (from_file_open_result, metadata, to_file_open_result) = cosmic::iced::futures::join!(
+        let (from_file_open_result, metadata, to_file_open_result) = crate::ui::iced::futures::join!(
             async {
                 compio::fs::OpenOptions::new()
                     .read(true)

@@ -1,0 +1,323 @@
+// Copyright 2023 System76 <info@system76.com>
+// SPDX-License-Identifier: MPL-2.0
+//
+// Vendored from libcosmic `src/widget/responsive_container.rs` (rev `d9431dc`).
+// It is `pub(crate)` there, and `responsive_menu_bar` (vendored
+// alongside it) needs it.
+
+//! Responsive Container, which will notify of size changes.
+
+use crate::ui::iced::Size;
+use crate::ui::iced_core::layout::Limits;
+// Upstream imports `event::{self, Event}`; only `Event` is used under this
+// crate's feature set.
+use crate::ui::iced_core::event::Event;
+use crate::ui::iced_core::widget::{Id, Operation, Tree, tree};
+use crate::ui::iced_core::{
+    Clipboard, Element, Layout, Length, Rectangle, Shell, Vector, Widget, layout, mouse, overlay,
+    renderer,
+};
+
+pub fn responsive_container<'a, Message: 'static, Theme, E>(
+    content: E,
+    id: Id,
+    on_action: impl Fn(crate::ui::surface::Action<Message>) -> Message + 'static,
+) -> ResponsiveContainer<'a, Message, Theme, crate::ui::Renderer>
+where
+    E: Into<Element<'a, Message, Theme, crate::ui::Renderer>>,
+    Theme: crate::ui::iced::widget::container::Catalog,
+    <Theme as crate::ui::iced::widget::container::Catalog>::Class<'a>: From<crate::ui::theme::Container<'a>>,
+{
+    ResponsiveContainer::new(content, id, on_action)
+}
+
+/// An element decorating some content.
+///
+/// It is normally used for alignment purposes.
+#[allow(missing_debug_implementations)]
+pub struct ResponsiveContainer<'a, Message, Theme, Renderer>
+where
+    Renderer: crate::ui::iced_core::Renderer,
+{
+    content: Element<'a, Message, Theme, Renderer>,
+    id: Id,
+    size: Option<Size>,
+    on_action: Box<dyn Fn(crate::ui::surface::Action<Message>) -> Message>,
+}
+
+impl<'a, Message, Theme, Renderer> ResponsiveContainer<'a, Message, Theme, Renderer>
+where
+    Renderer: crate::ui::iced_core::Renderer,
+{
+    /// Creates an empty [`IdContainer`].
+    pub fn new<T>(
+        content: T,
+        id: Id,
+        on_action: impl Fn(crate::ui::surface::Action<Message>) -> Message + 'static,
+    ) -> Self
+    where
+        T: Into<Element<'a, Message, Theme, Renderer>>,
+    {
+        ResponsiveContainer {
+            content: content.into(),
+            id,
+            size: None,
+            on_action: Box::new(on_action),
+        }
+    }
+
+    pub fn size(mut self, size: Size) -> Self {
+        self.size = Some(size);
+        self
+    }
+}
+
+impl<Message, Theme, Renderer> Widget<Message, Theme, Renderer>
+    for ResponsiveContainer<'_, Message, Theme, Renderer>
+where
+    Renderer: crate::ui::iced_core::Renderer,
+{
+    fn tag(&self) -> tree::Tag {
+        tree::Tag::of::<State>()
+    }
+
+    fn state(&self) -> tree::State {
+        tree::State::new(State::new())
+    }
+
+    fn children(&self) -> Vec<Tree> {
+        vec![Tree::new(&self.content)]
+    }
+
+    fn diff(&self, tree: &mut Tree) {
+        tree.diff_children(std::slice::from_ref(&self.content));
+    }
+
+    fn size(&self) -> crate::ui::iced_core::Size<Length> {
+        self.content.as_widget().size()
+    }
+
+    fn layout(
+        &mut self,
+        tree: &mut Tree,
+        renderer: &Renderer,
+        limits: &layout::Limits,
+    ) -> layout::Node {
+        let state = tree.state.downcast_mut::<State>();
+        let mut unrestricted_size = self.size.unwrap_or_else(|| {
+            let node =
+                self.content
+                    .as_widget_mut()
+                    .layout(&mut tree.children[0], renderer, &Limits::NONE);
+            node.size()
+        });
+
+        let cur_unrestricted_size = {
+            let node =
+                self.content
+                    .as_widget_mut()
+                    .layout(&mut tree.children[0], renderer, &Limits::NONE);
+            node.size()
+        };
+
+        let max_size = limits.max();
+
+        let old_max = state.limits.max();
+
+        state.needs_update = (cur_unrestricted_size.width > max_size.width)
+            || (cur_unrestricted_size.width > old_max.width)
+            || (cur_unrestricted_size.height > max_size.height)
+            || (cur_unrestricted_size.height > old_max.height)
+            || ((unrestricted_size.width <= max_size.width)
+                && (unrestricted_size.height <= max_size.height)
+                && (unrestricted_size.width - cur_unrestricted_size.width > 1.
+                    || unrestricted_size.height - cur_unrestricted_size.height > 1.));
+
+        if unrestricted_size.width < cur_unrestricted_size.width {
+            state.needs_update = true;
+            unrestricted_size.width = cur_unrestricted_size.width;
+        } else if unrestricted_size.height < cur_unrestricted_size.height {
+            state.needs_update = true;
+            unrestricted_size.height = cur_unrestricted_size.height;
+        }
+        let node = self
+            .content
+            .as_widget_mut()
+            .layout(&mut tree.children[0], renderer, limits);
+        let size = node.size();
+
+        if state.needs_update {
+            state.limits = *limits;
+            state.size = unrestricted_size;
+        }
+
+        layout::Node::with_children(size, vec![node])
+    }
+
+    fn operate(
+        &mut self,
+        tree: &mut Tree,
+        layout: Layout<'_>,
+        renderer: &Renderer,
+        operation: &mut dyn Operation,
+    ) {
+        operation.container(Some(&self.id), layout.bounds());
+        operation.traverse(&mut |operation| {
+            self.content.as_widget_mut().operate(
+                &mut tree.children[0],
+                layout
+                    .children()
+                    .next()
+                    .unwrap(),
+                renderer,
+                operation,
+            );
+        });
+    }
+
+    fn update(
+        &mut self,
+        tree: &mut Tree,
+        event: &Event,
+        layout: Layout<'_>,
+        cursor_position: mouse::Cursor,
+        renderer: &Renderer,
+        clipboard: &mut dyn Clipboard,
+        shell: &mut Shell<'_, Message>,
+        viewport: &Rectangle,
+    ) {
+        let state = tree.state.downcast_mut::<State>();
+
+        if state.needs_update {
+            // `needs_update` stays set while the content cannot fit, don't publish messages in a
+            // busy loop
+            let announcement = (state.limits, state.size);
+
+            if state.announced != Some(announcement) {
+                state.announced = Some(announcement);
+                shell.publish((self.on_action)(
+                    crate::ui::surface::Action::ResponsiveMenuBar {
+                        menu_bar: self.id.clone(),
+                        limits: announcement.0,
+                        size: announcement.1,
+                    },
+                ));
+            }
+
+            state.needs_update = false;
+        }
+
+        self.content.as_widget_mut().update(
+            &mut tree.children[0],
+            event,
+            layout
+                .children()
+                .next()
+                .unwrap(),
+            cursor_position,
+            renderer,
+            clipboard,
+            shell,
+            viewport,
+        )
+    }
+
+    fn mouse_interaction(
+        &self,
+        tree: &Tree,
+        layout: Layout<'_>,
+        cursor_position: mouse::Cursor,
+        viewport: &Rectangle,
+        renderer: &Renderer,
+    ) -> mouse::Interaction {
+        let content_layout = layout.children().next().unwrap();
+        self.content.as_widget().mouse_interaction(
+            &tree.children[0],
+            content_layout,
+            cursor_position,
+            viewport,
+            renderer,
+        )
+    }
+
+    fn draw(
+        &self,
+        tree: &Tree,
+        renderer: &mut Renderer,
+        theme: &Theme,
+        renderer_style: &renderer::Style,
+        layout: Layout<'_>,
+        cursor_position: mouse::Cursor,
+        viewport: &Rectangle,
+    ) {
+        let content_layout = layout.children().next().unwrap();
+        self.content.as_widget().draw(
+            &tree.children[0],
+            renderer,
+            theme,
+            renderer_style,
+            content_layout,
+            cursor_position,
+            viewport,
+        );
+    }
+
+    fn overlay<'b>(
+        &'b mut self,
+        tree: &'b mut Tree,
+        layout: Layout<'b>,
+        renderer: &Renderer,
+        viewport: &Rectangle,
+        translation: Vector,
+    ) -> Option<overlay::Element<'b, Message, Theme, Renderer>> {
+        self.content.as_widget_mut().overlay(
+            &mut tree.children[0],
+            layout
+                .children()
+                .next()
+                .unwrap(),
+            renderer,
+            viewport,
+            translation,
+        )
+    }
+
+    // TODO(dnd): removed the `Widget::drag_destinations` router (upstream iced 0.14
+    // has no such method). Tab drag-to-reorder must be rebuilt on smithay-clipboard;
+    // without this pass-through the tab bar leaf is unreachable from the root walk.
+
+}
+
+impl<'a, Message, Theme, Renderer> From<ResponsiveContainer<'a, Message, Theme, Renderer>>
+    for Element<'a, Message, Theme, Renderer>
+where
+    Message: 'a,
+    Renderer: 'a + crate::ui::iced_core::Renderer,
+    Theme: 'a,
+{
+    fn from(
+        c: ResponsiveContainer<'a, Message, Theme, Renderer>,
+    ) -> Element<'a, Message, Theme, Renderer> {
+        Element::new(c)
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct State {
+    limits: Limits,
+    size: Size,
+    needs_update: bool,
+    /// The `(limits, size)` last announced, so an unsatisfiable layout does not announce forever
+    announced: Option<(Limits, Size)>,
+}
+
+impl State {
+    fn new() -> Self {
+        Self {
+            limits: Limits::NONE,
+            size: Size::new(0., 0.),
+            needs_update: false,
+            announced: None,
+        }
+    }
+}

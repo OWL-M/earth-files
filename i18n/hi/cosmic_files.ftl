@@ -379,3 +379,5 @@ mixed = मिश्रित
 pasted-image = चिपकाई गई छवि
 pasted-text = चिपकाया गया पाठ
 pasted-video = चिपकाया गया वीडियो
+
+close = बंद करें

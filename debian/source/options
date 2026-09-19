@@ -1,6 +1,0 @@
-tar-ignore=.github
-tar-ignore=target/.rustc_info.json
-tar-ignore=target/CACHEDIR.TAG
-tar-ignore=target/debug
-tar-ignore=target/release
-tar-ignore=vendor

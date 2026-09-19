@@ -302,3 +302,5 @@ sort-newest-first = Nyeste først
 sort-oldest-first = Eldste først
 sort-smallest-to-largest = Minste til største
 sort-largest-to-smallest = Største til minste
+
+close = Lukk

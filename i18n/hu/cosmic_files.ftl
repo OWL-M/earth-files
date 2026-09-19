@@ -452,3 +452,5 @@ error = Hiba
 sidebar-label = Oldalsávcímke
 search-application = Keresés alkalmazásnév alapján
 change-sidebar-label = Oldalsávcímke módosítása
+
+close = Bezárás

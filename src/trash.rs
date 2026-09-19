@@ -1,4 +1,4 @@
-use cosmic::widget;
+use crate::ui::widget;
 use regex::Regex;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -27,36 +27,13 @@ fn percent_decode(s: &str) -> Option<String> {
 }
 
 pub trait TrashExt {
-    fn is_empty() -> bool {
-        true
-    }
+    fn is_empty() -> bool;
 
-    fn entries() -> usize {
-        0
-    }
+    fn folders() -> Result<HashSet<PathBuf>, trash::Error>;
 
-    fn folders() -> Result<HashSet<PathBuf>, trash::Error> {
-        Err(trash::Error::Unknown {
-            description: "reading trash folders not supported on this platform".into(),
-        })
-    }
+    fn scan(sizes: IconSizes) -> Vec<Item>;
 
-    fn scan(_sizes: IconSizes) -> Vec<Item> {
-        log::warn!("viewing trash not supported on this platform");
-        Vec::new()
-    }
-
-    fn scan_search<F: Fn(SearchItem) -> bool + Sync>(_callback: F, _regex: &Regex) {}
-
-    fn icon(icon_size: u16) -> widget::icon::Handle {
-        widget::icon::from_name(if Self::is_empty() {
-            "user-trash"
-        } else {
-            "user-trash-full"
-        })
-        .size(icon_size)
-        .handle()
-    }
+    fn scan_search<F: Fn(SearchItem) -> bool + Sync>(callback: F, regex: &Regex);
 
     fn icon_symbolic(icon_size: u16) -> widget::icon::Handle {
         widget::icon::from_name(if Self::is_empty() {
@@ -132,30 +109,11 @@ pub fn is_trash_path(path: &Path) -> bool {
 
 pub struct Trash;
 
-// This config statement is from trash::os_limited
-#[cfg(any(
-    target_os = "windows",
-    all(
-        unix,
-        not(target_os = "macos"),
-        not(target_os = "ios"),
-        not(target_os = "android")
-    )
-))]
 impl TrashExt for Trash {
     fn is_empty() -> bool {
         trash::os_limited::is_empty().unwrap_or(true)
     }
 
-    fn entries() -> usize {
-        match trash::os_limited::list() {
-            Ok(entries) => entries.len(),
-            Err(_err) => 0,
-        }
-    }
-
-    // Not available on Windows only
-    #[cfg(not(target_os = "windows"))]
     fn folders() -> Result<HashSet<PathBuf>, trash::Error> {
         trash::os_limited::trash_folders()
     }
@@ -212,15 +170,3 @@ impl TrashExt for Trash {
         }
     }
 }
-
-// This config statement is from trash::os_limited, inverted
-#[cfg(not(any(
-    target_os = "windows",
-    all(
-        unix,
-        not(target_os = "macos"),
-        not(target_os = "ios"),
-        not(target_os = "android")
-    )
-)))]
-impl TrashExt for Trash {}

@@ -430,3 +430,5 @@ removed-from-recents =
        *[other] элементаў
     } з { recents }
 remove-from-recents = Выдаліць з нядаўніх
+
+close = Закрыць

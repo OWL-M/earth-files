@@ -334,3 +334,5 @@ error = Σφάλμα
 sidebar-label = Ετικέτα πλαϊνής στήλης
 search-application = Αναζήτηση με όνομα εφαρμογής
 change-sidebar-label = Αλλαγή ετικέτας πλαϊνής στήλης
+
+close = Κλείσιμο

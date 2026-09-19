@@ -208,3 +208,5 @@ sort-a-z = ਓ-ੜ
 sort-z-a = ੜ-ਓ
 sort-smallest-to-largest = ਛੋਟੇ ਤੋਂ ਵੱਡਾ
 sort-largest-to-smallest = ਵੱਡੇ ਤੋਂ ਛੋਟਾ
+
+close = ਬੰਦ ਕਰੋ

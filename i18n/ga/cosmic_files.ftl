@@ -446,3 +446,5 @@ rename-confirm = Athainmnigh
 checksum = { $kind } suim sheiceála
 calculate = Ríomh
 error = Earráid
+
+close = Dún

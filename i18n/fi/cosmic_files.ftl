@@ -421,3 +421,5 @@ error = Virhe
 search-application = Hae sovelluksen nimellä
 sidebar-label = Sivupalkin nimike
 change-sidebar-label = Muuta sivupalkin nimikettä
+
+close = Sulje

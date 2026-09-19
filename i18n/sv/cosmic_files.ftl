@@ -425,3 +425,5 @@ error = Fel
 sidebar-label = Sidofältsetikett
 search-application = Sök på programnamn
 change-sidebar-label = Ändra sidofältsetikett
+
+close = Stäng

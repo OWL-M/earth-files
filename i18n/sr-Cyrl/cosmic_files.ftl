@@ -73,3 +73,5 @@ mounted-drives = Приључена складишта података
 trash-folder-icon = Иконица корпе са отпаткама
 icon-size-and-spacing = Величина иконице и размак
 icon-size = Величина иконице
+
+close = Затвори

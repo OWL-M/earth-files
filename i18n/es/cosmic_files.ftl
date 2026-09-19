@@ -422,3 +422,5 @@ removed-from-recents =
 setting-permissions = Estableciendo permisos para "{ $name } " a { $mode }
 progress-failed = { $percent } %, con errores
 set-permissions = Establecer permisos de "{ $name }" como { $mode }
+
+close = Cerrar

@@ -375,3 +375,5 @@ sort-newest-first = Cele mai noi primele
 sort-oldest-first = Cele mai vechi primele
 sort-smallest-to-largest = De la mic la mare
 sort-largest-to-smallest = De la mare la mic
+
+close = Închide

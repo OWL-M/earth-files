@@ -334,3 +334,5 @@ checksum = Tevahiya { $kind } kontrol bike
 sidebar-label = Nîşanka benda kêlekê
 search-application = Li gorî navê sepanê bigere
 change-sidebar-label = Nîşanka benda kêlekê biguhêrîne
+
+close = Bigire

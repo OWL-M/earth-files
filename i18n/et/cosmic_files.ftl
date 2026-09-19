@@ -214,3 +214,5 @@ sort-newest-first = Esmalt uuemad
 sort-oldest-first = Esmalt vanemad
 sort-smallest-to-largest = Väiksemast suuremani
 sort-largest-to-smallest = Suuremast väiksemani
+
+close = Sulge

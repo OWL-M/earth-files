@@ -380,3 +380,5 @@ type-to-search-recursive = Buscar en la carpeta actual y todas las subcarpetas
 type-to-search-enter-path = Introducir la ruta al directorio o archivo
 delete-permanently = Eliminar de forma permanente
 eject = Expulsar
+
+close = Cerrar

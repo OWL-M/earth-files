@@ -455,3 +455,5 @@ checksum = Soma de verificação { $kind }
 calculate = Calcular
 error = Erro
 search-application = Pesquisar por nome de aplicativo
+
+close = Fechar

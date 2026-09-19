@@ -363,3 +363,5 @@ copy-to-button-label = Copia
 move-to-title = Escolliu el destí del trasllat
 move-to-button-label = Mou
 keywords = Carpeta;Fitxers;Arxius;Gestor;Explorador;
+
+close = Tancar

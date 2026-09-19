@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 use bstr::{BString, ByteSlice, ByteVec};
-use cosmic::widget;
+use crate::ui::widget;
 pub use mime_guess::Mime;
 #[cfg(feature = "desktop")]
 use notify_debouncer_full::notify;
@@ -219,9 +219,9 @@ impl MimeApp {
             .get_or_init(|| {
                 let name = &*self.icon_name;
                 if name.starts_with('/') {
-                    cosmic::widget::icon::from_path(PathBuf::from(name))
+                    crate::ui::widget::icon::from_path(PathBuf::from(name))
                 } else {
-                    cosmic::widget::icon::from_name(name).size(32).handle()
+                    crate::ui::widget::icon::from_name(name).size(32).handle()
                 }
             })
             .clone()
@@ -322,7 +322,7 @@ impl MimeAppCache {
     pub fn reload(&mut self) {
         use crate::localize::LANGUAGE_SORTER;
         use crate::mime_icon;
-        use cosmic::desktop::fde;
+        use freedesktop_desktop_entry as fde;
         use std::borrow::Cow;
 
         let start = Instant::now();

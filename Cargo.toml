@@ -6,44 +6,80 @@ edition = "2024"
 license = "GPL-3.0-only"
 rust-version = "1.93"
 
+# libcosmic registers `wayland_platform` through `build_helpers::cfg_aliases_setup()`
+# only for itself. Register the alias here so vendored code such as
+# `src/ui/widget/autosize.rs` can use `#[cfg(wayland_platform)]` without an unknown-cfg
+# warning. The cfg remains unset, so the guarded code is excluded and behavior is
+# unchanged.
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(wayland_platform)'] }
+
 [dependencies]
 anyhow = "1"
 jiff = "0.2"
 jiff-icu = "0.2"
 icu = { version = "2.2.0", features = ["compiled_data"] }
-cctk = { git = "https://github.com/pop-os/cosmic-protocols", package = "cosmic-client-toolkit", rev = "c0cff4d", optional = true }
 cosmic-mime-apps = { git = "https://github.com/pop-os/cosmic-mime-apps.git", optional = true }
-dirs = "6.0.0"
-gio = { version = "0.21", optional = true }
-glib = { version = "0.21", optional = true }
+derive_setters = "0.1.9"
+dirs = "7.0.0"
+freedesktop-desktop-entry = "0.8"
+# Icon-theme lookup for the vendored `ui::widget::icon`.
+#
+# The dependency previously used pop-os's `cosmic-freedesktop-icons` URL so cargo could
+# unify it with libcosmic's copy. Since libcosmic was removed in b1b6a82, this app is
+# the only consumer and no longer needs that URL.
+#
+# libcosmic re-exports `Apply`/`Also` from crates.io (`apply = "0.3.0"`, libcosmic
+# Cargo.toml:122). Depending on `apply` directly removes 7 `cosmic::` references.
+apply = "0.3.0"
+freedesktop-icons = { git = "https://github.com/id3v1669/freedesktop-icons" }
+gio = { version = "0.22", optional = true }
+glib = { version = "0.22", optional = true }
 glob = "0.3"
 ignore = "0.4"
 image = "0.25"
+image-extras = { version = "0.1.0", default-features = false, features = ["xpm", "xbm"] }
 libc = "0.2"
 log = "0.4"
 mime_guess = "2"
+mundy = { version = "0.2", default-features = false, features = ["color-scheme", "tokio"] }
 notify-debouncer-full = "0.7"
 notify-rust = { version = "4", optional = true }
 open = "5.3.4"
-paste = "1.0"
+# Colour type for `ui::theme`'s palette. Declared at the version libcosmic
+# already resolves to, so cargo unifies the two and `Srgba` stays one type
+# while both are in the tree.
+palette = "0.7.7"
 regex = "1"
+ron = "0.12"
+roxmltree = "0.21"
 rustc-hash = "2.1"
 serde = { version = "1", features = ["serde_derive"] }
-shlex = { version = "1.3" }
+shlex = { version = "2.0" }
+unicode-segmentation = "1.13"
+taffy = { version = "0.14.0", features = ["grid"] }
 tempfile = "3"
-tikv-jemallocator = { version = "0.6", optional = true }
+tikv-jemallocator = { version = "0.7", optional = true }
 tokio = { version = "1", features = ["process", "sync"] }
 trash = "5.2.6"
 url = "2.5"
+uzers = "0.12.2"
 walkdir = "2.5.0"
-wayland-client = { version = "0.31.14", optional = true }
+# Wayland protocol support for `ui::dnd`. Required because this app only supports
+# Wayland.
+wayland-client = "0.31.14"
 xdg = { version = "3.0", optional = true }
 xdg-mime = { git = "https://github.com/ebassi/xdg-mime-rs" }
+# Raw D-Bus for the one portal read `ui::icon_theme` makes:
+# `org.freedesktop.portal.Settings`, which `mundy` has no interest for.
+# Declared at the version already in the tree, so cargo unifies the two.
+zbus = { version = "5", default-features = false, features = ["tokio"] }
 # Compression
 bzip2 = { version = "0.6", optional = true }           #TODO: replace with pure Rust crate
 flate2 = "1.1"
+fork = "0.10"
 tar = "0.4.45"
-lzma-rust2 = { version = "0.16", optional = true }
+lzma-rust2 = { version = "0.21", optional = true }
 ordermap = { version = "1.2.0", features = ["serde"] }
 # Internationalization
 i18n-embed = { version = "0.16", features = [
@@ -55,38 +91,97 @@ rust-embed = "8"
 slotmap = "1.1.1"
 recently-used-xbel = "1.2.0"
 zip = "8"
-md-5 = "0.10.6"
-sha2 = "0.10"
+md-5 = "0.11"
+sha2 = "0.11"
 png = "0.18"
+procfs = "0.18"
 jxl-oxide = { version = "0.12.5", features = ["image"] }
 num_cpus = "1.17.0"
 filetime = "0.2"
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
-thiserror = "2.0.18"
+thiserror = "2.0.20"
 atomic_float = "1.1.0"
 num_enum = "0.7.6"
 bstr = "1.12.1"
 
 # Completion-based IO runtime to enable io_uring / IOCP file IO support.
 [dependencies.compio]
-version = "0.18"
+version = "0.19"
 default-features = false
 features = ["fs", "io", "macros", "polling", "runtime"]
 
-[dependencies.libcosmic]
-git = "https://github.com/pop-os/libcosmic.git"
+# Upstream iced from crates.io, introduced in Phase 3 step 1. The 657 `cosmic::iced` ->
+# `iced` rewrites landed earlier in `7f4a939` against libcosmic's checkout of the same
+# crate, so this step changes only the dependency block.
+#
+# Features: iced 0.14's `default` is
+#   wgpu, tiny-skia, crisp, web-colors, thread-pool, linux-theme-detection,
+#   x11, wayland
+# The plan calls for "default features minus x11". `wgpu` and `wayland` are
+# routed through this crate's own `wgpu`/`wayland` features (below) rather
+# than pinned on here, preserving the feature structure libcosmic used to
+# provide. The rest of default is kept verbatim.
+#
+# Added on top, matching what libcosmic enabled on its fork
+# (libcosmic Cargo.toml:194-201 plus its own `advanced-shaping`, `tokio` and
+# `iced_widget/canvas`):
+#   advanced:             13 `iced::advanced::` uses, plus every vendored widget
+#   advanced-shaping:     21 `Shaping::Advanced` sites
+#   image-without-codecs: `widget::image::Handle` in icon/large_image
+#   lazy:                 as libcosmic had it
+#   svg:                  `iced::widget::svg`
+#   canvas:               `iced::widget::canvas`
+#   tokio:                `iced::time::every` (src/dialog.rs:2047)
+# The plan records that `iced::time::every` is unusable under exwlshell's executor. Keep
+# the feature for step 1 to distinguish porting problems from disabled features.
+[dependencies.iced]
+version = "0.14"
 default-features = false
-#TODO: a11y feature crashes
 features = [
-    "about",
+    "tiny-skia",
+    # Give `softbuffer` a backend for tiny-skia, independently of winit. This app only
+    # supports Wayland, so it does not enable the corresponding `x11` feature.
+    "wayland",
+    "crisp",
+    # Leave `web-colors` disabled. It sets `GAMMA_CORRECTION = false`
+    # (`iced_graphics/src/color.rs`), which makes the wgpu compositor choose the first
+    # non-sRGB surface format (`iced_wgpu/src/window/compositor.rs`). On a 10-bit
+    # display, that is `Rgb10a2Unorm`: 8-bit colour values are packed into a 10-bit
+    # surface without gamma handling. Disabling the feature selects an sRGB format and
+    # lets the GPU convert the colours. libcosmic enabled this feature.
+    "thread-pool",
+    "linux-theme-detection",
+    "advanced",
     "advanced-shaping",
-    "autosize",
-    "multi-window",
+    "image-without-codecs",
+    "lazy",
+    "svg",
+    "canvas",
     "tokio",
-    "winit",
-    "surface-message",
 ]
+
+# Wayland shell (popups, menus) for iced 0.14, which has no `platform_specific`
+# module of its own. Carried through `[patch.crates-io]` below.
+# `iced::core` and `iced::runtime` are public re-exports in libcosmic's fork but
+# private upstream, so the ~460 `iced::core::` paths inherited from the fork are
+# spelled against these crates directly. Same crates iced itself depends on, at
+# the same version, so they resolve to the one shared instance.
+[dependencies.iced_core]
+version = "0.14"
+
+[dependencies.iced_runtime]
+version = "0.14"
+
+[dependencies.iced_exwlshell]
+version = "0.20.1"
+
+# libcosmic's iced fork re-exported `cosmic_text::Affinity` as
+# `iced_core::text::Affinity`; upstream `iced_core 0.14` does not. `cargo tree -i
+# cosmic-text` shows one `v0.15.0`, used by `iced_graphics`, `iced_tiny_skia` and
+# `cryoglyph`. Depend on the same version to share that instance.
+[dependencies.cosmic-text]
+version = "0.15"
 
 [[example]]
 name = "gio-list"
@@ -101,26 +196,25 @@ name = "gvfs"
 required-features = ["gvfs"]
 
 [features]
+# Not enabled anywhere (libcosmic's a11y feature crashes, see the TODO above);
+# declared only so vendored widgets that still carry libcosmic's
+# `#[cfg(feature = "a11y")]` blocks don't trip `unexpected_cfgs`.
+a11y = []
 default = [
     "bzip2",
-    "dbus-config",
     "desktop",
     "gvfs",
     "io-uring",
     "lzma-rust2",
     "notify",
-    "wayland",
     "wgpu",
 ]
-dbus-config = ["libcosmic/dbus-config"]
-desktop = ["libcosmic/desktop", "dep:cosmic-mime-apps", "dep:xdg"]
-desktop-applet = []
+desktop = ["dep:cosmic-mime-apps", "dep:xdg"]
 gvfs = ["dep:gio", "dep:glib"]
 io-uring = ["compio/io-uring"]
 jemalloc = ["dep:tikv-jemallocator"]
 notify = ["dep:notify-rust"]
-wayland = ["libcosmic/wayland", "dep:cctk", "dep:wayland-client"]
-wgpu = ["libcosmic/wgpu"]
+wgpu = ["iced/wgpu"]
 
 [profile.dev]
 opt-level = 1
@@ -128,13 +222,6 @@ opt-level = 1
 [profile.release-with-debug]
 inherits = "release"
 debug = true
-
-[target.'cfg(unix)'.dependencies]
-fork = "0.7"
-uzers = "0.12.2"
-
-[target.'cfg(target_os = "linux")'.dependencies]
-procfs = "0.18"
 
 [build-dependencies]
 xdgen = "0.1"
@@ -161,5 +248,23 @@ tokio = { version = "1", features = ["rt", "macros"] }
 # [patch.'https://github.com/pop-os/smithay-clipboard']
 # smithay-clipboard = { path = "../smithay-clipboard" }
 
-[workspace]
-members = ["cosmic-files-applet"]
+# The published `exwlshellev` handles only `Shell::LayerShell` and `Shell::PopUp` at
+# `src/lib.rs:3268`. It silently drops popups with an xdg_toplevel parent, which every
+# menu in this app uses. Our checkout fixes this on branch `parent`, commit `086f792`.
+#
+# Use `[patch.crates-io]` so `iced_exwlshell` also uses the patched `exwlshellev`. A
+# path dependency would replace only this app's dependency, leaving `iced_exwlshell` on
+# the unpatched crates.io version `0.20.1` and producing two copies in the graph.
+#
+# The branch has six fixes that are not yet upstream: xdg_toplevel popup parenting,
+# xdg_toplevel window actions and configure states, a diagnostic for silently dropped
+# window menus, removing the wait cursor for `Interaction::Idle`, preserving the
+# popup grab serial after its first read, and an exhaustive `mouse::Interaction`
+# mapping.
+[patch.crates-io]
+exwlshellev             = { git = "https://github.com/id3v1669/exwlshelleventloop", branch = "xxas" }
+iced_exwlshell          = { git = "https://github.com/id3v1669/exwlshelleventloop", branch = "xxas" }
+iced_exwlshell_macros   = { git = "https://github.com/id3v1669/exwlshelleventloop", branch = "xxas" }
+iced_wayland_subscriber = { git = "https://github.com/id3v1669/exwlshelleventloop", branch = "xxas" }
+iced_exdevtools         = { git = "https://github.com/id3v1669/exwlshelleventloop", branch = "xxas" }
+waycrate_xkbkeycode     = { git = "https://github.com/id3v1669/exwlshelleventloop", branch = "xxas" }

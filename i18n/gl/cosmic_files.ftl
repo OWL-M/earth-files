@@ -331,3 +331,5 @@ deleting =
         [one] elemento
        *[other] elementos
     } da  { trash } ({ $progress })...
+
+close = Pechar

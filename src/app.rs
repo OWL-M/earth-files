@@ -1,41 +1,28 @@
 // Copyright 2023 System76 <info@system76.com>
 // SPDX-License-Identifier: GPL-3.0-only
 
-use cosmic::app::{self, Core, Task, context_drawer};
-use cosmic::core::Auto;
-use cosmic::cosmic_config::{self, ConfigSet};
-use cosmic::iced::clipboard::dnd::DndAction;
-use cosmic::iced::core::SmolStr;
-use cosmic::iced::core::widget::operation::focusable::unfocus;
-use cosmic::iced::futures::{self, SinkExt};
-use cosmic::iced::keyboard::key::Physical;
-use cosmic::iced::keyboard::{Event as KeyEvent, Key, Modifiers};
-#[cfg(all(feature = "wayland", feature = "desktop-applet"))]
-use cosmic::iced::platform_specific::shell::wayland::commands::overlap_notify::overlap_notify;
-use cosmic::iced::runtime::{clipboard, task};
-use cosmic::iced::widget::button::focus;
-use cosmic::iced::widget::scrollable;
-use cosmic::iced::widget::scrollable::AbsoluteOffset;
-use cosmic::iced::window::{self, Event as WindowEvent, Id as WindowId};
-use cosmic::iced::{self, Alignment, Event, Length, Size, Subscription, event, mouse, stream};
-#[cfg(all(feature = "wayland", feature = "desktop-applet"))]
-use cosmic::iced::{
-    Limits, Point, Rectangle,
-    event::wayland::{Event as WaylandEvent, OutputEvent, OverlapNotifyEvent},
-    platform_specific::runtime::wayland::layer_surface::{
-        IcedMargin, IcedOutput, SctkLayerSurfaceSettings,
-    },
-    platform_specific::shell::wayland::commands::layer_surface::{
-        Anchor, KeyboardInteractivity, Layer, destroy_layer_surface,
-    },
-};
-use cosmic::widget::about::About;
-use cosmic::widget::dnd_destination::DragId;
-use cosmic::widget::menu::action::MenuAction;
-use cosmic::widget::menu::key_bind::KeyBind;
-use cosmic::widget::segmented_button::{self, Entity, ReorderEvent};
-use cosmic::widget::{self, icon, settings, space};
-use cosmic::{Application, ApplicationExt, Element, cosmic_theme, executor, surface, theme};
+use crate::ui::app::{self, Task};
+use crate::ui::shell::context_drawer;
+use crate::ui::shell::Core;
+use crate::ui::iced_core::SmolStr;
+use crate::ui::iced_core::widget::operation::focusable::unfocus;
+use crate::ui::iced::futures::{self, SinkExt};
+use crate::ui::iced::keyboard::key::Physical;
+use crate::ui::iced::keyboard::{Event as KeyEvent, Key, Modifiers};
+use crate::ui::clipboard;
+use crate::ui::iced_runtime::task;
+use crate::ui::widget::button::focus;
+use crate::ui::widget::scrollable;
+use crate::ui::widget::scrollable::AbsoluteOffset;
+use crate::ui::iced::window::{self, Event as WindowEvent, Id as WindowId};
+use crate::ui::iced::{self, Alignment, Event, Length, Size, Subscription, event, mouse, stream};
+use crate::ui::widget::about::About;
+use crate::ui::widget::menu::action::MenuAction;
+use crate::ui::widget::menu::key_bind::KeyBind;
+use crate::ui::widget::segmented_button::{self, Entity, ReorderEvent};
+use crate::ui::widget::{self, icon, settings};
+use crate::ui::shell::Application;
+use crate::ui::{Element, surface};
 use mime_guess::Mime;
 use notify_debouncer_full::notify::{self, RecommendedWatcher};
 use notify_debouncer_full::{DebouncedEvent, Debouncer, RecommendedCache, new_debouncer};
@@ -44,7 +31,6 @@ use slotmap::Key as SlotMapKey;
 use std::any::TypeId;
 use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
 use std::future::Future;
-use std::num::NonZeroU16;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::sync::{Arc, LazyLock, Mutex};
@@ -52,17 +38,12 @@ use std::time::{self, Duration, Instant};
 use std::{env, fmt, fs, io, process};
 use tokio::sync::mpsc;
 use trash::TrashItem;
-#[cfg(all(feature = "wayland", feature = "desktop-applet"))]
-use wayland_client::{Proxy, protocol::wl_output::WlOutput};
 
 use crate::clipboard::{
     ClipboardCache, ClipboardCopy, ClipboardKind, ClipboardPaste, ClipboardPasteImage,
     ClipboardPasteText, ClipboardPasteVideo,
 };
-use crate::config::{
-    AppTheme, Config, DesktopConfig, Favorite, IconSizes, State, TIME_CONFIG_ID, TabConfig,
-    TimeConfig, TypeToSearch,
-};
+use crate::config::{AppTheme, Config, Favorite, IconSizes, State, Store, TabConfig, TypeToSearch};
 use crate::dialog::{Dialog, DialogKind, DialogMessage, DialogResult, DialogSettings};
 use crate::key_bind::key_binds;
 use crate::localize::LANGUAGE_SORTER;
@@ -76,12 +57,14 @@ use crate::operation::{
 };
 use crate::spawn_detached::spawn_detached;
 use crate::tab::{
-    self, HOVER_DURATION, HeadingOptions, ItemMetadata, Location, SORT_OPTION_FALLBACK,
+    self, HeadingOptions, ItemMetadata, Location, SORT_OPTION_FALLBACK,
     SearchLocation, Tab,
 };
 use crate::trash::{Trash, TrashExt};
 use crate::zoom::{zoom_in_view, zoom_out_view, zoom_to_default};
-use crate::{FxOrderMap, context_action, fl, home_dir, menu, mime_icon};
+use crate::{context_action, fl, home_dir, menu, mime_icon};
+use crate::ui::theme::{Button, Container, Layer, Spacing, spacing};
+use crate::ui::convert::{ToLength, ToPadding, ToPixels};
 
 static PERMANENT_DELETE_BUTTON_ID: LazyLock<widget::Id> =
     LazyLock::new(|| widget::Id::new("permanent-delete-button"));
@@ -111,18 +94,11 @@ pub(crate) static REPLACE_BUTTON_ID: LazyLock<widget::Id> =
     LazyLock::new(|| widget::Id::new("replace-button"));
 
 #[derive(Clone, Debug)]
-pub enum Mode {
-    App,
-    Desktop,
-}
-
-#[derive(Clone, Debug)]
 pub struct Flags {
-    pub config_handler: Option<cosmic_config::Config>,
+    pub config_handler: Store,
     pub config: Config,
-    pub state_handler: Option<cosmic_config::Config>,
+    pub state_handler: Store,
     pub state: State,
-    pub mode: Mode,
     pub locations: Vec<Location>,
     pub uris: Vec<url::Url>,
 }
@@ -139,7 +115,6 @@ pub enum Action {
     CosmicSettingsDesktop,
     CosmicSettingsDisplays,
     CosmicSettingsWallpaper,
-    DesktopViewOptions,
     Delete,
     EditHistory,
     EditLocation,
@@ -213,7 +188,6 @@ impl Action {
             Self::CosmicSettingsDisplays => Message::CosmicSettings("displays"),
             Self::CosmicSettingsWallpaper => Message::CosmicSettings("wallpaper"),
             Self::Delete => Message::Delete(entity_opt),
-            Self::DesktopViewOptions => Message::DesktopViewOptions,
             Self::EditHistory => Message::ToggleContextPage(ContextPage::EditHistory),
             Self::EditLocation => Message::TabMessage(entity_opt, tab::Message::EditLocationEnable),
             Self::Eject => Message::Eject,
@@ -248,7 +222,7 @@ impl Action {
             }
             Self::Paste => Message::Paste(entity_opt),
             Self::PermanentlyDelete => Message::PermanentlyDelete(entity_opt),
-            Self::Preview => Message::Preview(entity_opt),
+            Self::Preview => Message::Preview,
             Self::Reload => Message::TabMessage(entity_opt, tab::Message::Reload),
             Self::RemoveFromRecents => Message::RemoveFromRecents(entity_opt),
             Self::Rename => Message::Rename(entity_opt),
@@ -323,10 +297,10 @@ pub enum NavMenuAction {
 }
 
 impl MenuAction for NavMenuAction {
-    type Message = cosmic::Action<Message>;
+    type Message = crate::ui::Action<Message>;
 
     fn message(&self) -> Self::Message {
-        cosmic::Action::App(Message::NavMenuAction(*self))
+        crate::ui::Action::App(Message::NavMenuAction(*self))
     }
 }
 
@@ -345,8 +319,6 @@ pub enum Message {
     CosmicSettings(&'static str),
     Cut(Option<Entity>),
     Delete(Option<Entity>),
-    DesktopConfig(DesktopConfig),
-    DesktopViewOptions,
     DesktopDialogs(bool),
     DialogCancel,
     DialogComplete,
@@ -358,8 +330,6 @@ pub enum Message {
     ExtractHere(Option<Entity>),
     ExtractTo(Option<Entity>),
     ExtractToResult(DialogResult),
-    #[cfg(all(feature = "wayland", feature = "desktop-applet"))]
-    Focused(window::Id),
     Key(window::Id, Modifiers, Key, Physical, Option<SmolStr>),
     LaunchUrl(String),
     MaybeExit,
@@ -371,6 +341,10 @@ pub enum Message {
     MoveToResult(DialogResult),
     NavBarClose(Entity),
     NavBarContext(Entity),
+    /// Files were dropped on a nav-bar bookmark.
+    NavBarDrop(Entity),
+    /// Files were dropped on a tab in the tab bar.
+    TabDrop(Entity),
     NavMenuAction(NavMenuAction),
     NetworkAuth(MounterKey, String, MounterAuth, mpsc::Sender<MounterAuth>),
     NetworkDriveInput(String),
@@ -395,8 +369,6 @@ pub enum Message {
     OpenWithDialog(Option<Entity>),
     OpenWithSelection(usize),
     OpenWithSearchClear,
-    #[cfg(all(feature = "wayland", feature = "desktop-applet"))]
-    Overlap(window::Id, OverlapNotifyEvent),
     Paste(Option<Entity>),
     PasteContents(PathBuf, ClipboardPaste),
     PasteImage(PathBuf),
@@ -420,7 +392,7 @@ pub enum Message {
     PendingPause(u64, bool),
     PendingPauseAll(bool),
     PermanentlyDelete(Option<Entity>),
-    Preview(Option<Entity>),
+    Preview,
     ReloadMimeAppCache,
     ReorderTab(ReorderEvent),
     RescanRecents,
@@ -454,7 +426,6 @@ pub enum Message {
         Option<Vec<PathBuf>>,
     ),
     TabView(Option<Entity>, tab::View),
-    TimeConfigChange(TimeConfig),
     ToggleContextPage(ContextPage),
     ToggleFoldersFirst,
     ToggleShowHidden,
@@ -468,17 +439,7 @@ pub enum Message {
     ZoomDefault(Option<Entity>),
     ZoomIn(Option<Entity>),
     ZoomOut(Option<Entity>),
-    DndHoverLocTimeout(Location),
-    DndHoverTabTimeout(Entity),
-    DndEnterNav(Entity),
-    DndExitNav,
-    DndEnterTab(Entity, Vec<String>),
-    DndExitTab,
-    DndDropTab(Entity, Option<ClipboardPaste>, DndAction),
-    DndDropNav(Entity, Option<ClipboardPaste>, DndAction),
     Recents,
-    #[cfg(all(feature = "wayland", feature = "desktop-applet"))]
-    OutputEvent(OutputEvent, WlOutput),
     Cosmic(app::Action),
     None,
     Surface(surface::Action<Message>),
@@ -628,7 +589,7 @@ impl DialogPages {
 
     pub fn push_back(&mut self, page: DialogPage) -> Task<Message> {
         let task = if self.pages.is_empty() {
-            Task::done(cosmic::Action::App(Message::DesktopDialogs(true)))
+            Task::done(crate::ui::Action::App(Message::DesktopDialogs(true)))
         } else {
             Task::none()
         };
@@ -638,7 +599,7 @@ impl DialogPages {
 
     pub fn push_front(&mut self, page: DialogPage) -> Task<Message> {
         let task = if self.pages.is_empty() {
-            Task::done(cosmic::Action::App(Message::DesktopDialogs(true)))
+            Task::done(crate::ui::Action::App(Message::DesktopDialogs(true)))
         } else {
             Task::none()
         };
@@ -650,7 +611,7 @@ impl DialogPages {
     pub fn pop_front(&mut self) -> Option<(DialogPage, Task<Message>)> {
         let page = self.pages.pop_front()?;
         let task = if self.pages.is_empty() {
-            Task::done(cosmic::Action::App(Message::DesktopDialogs(false)))
+            Task::done(crate::ui::Action::App(Message::DesktopDialogs(false)))
         } else {
             Task::none()
         };
@@ -670,8 +631,6 @@ pub struct MounterData(MounterKey, MounterItem);
 
 #[derive(Clone, Debug)]
 pub enum WindowKind {
-    Desktop(Entity),
-    DesktopViewOptions,
     Dialogs(widget::Id),
     FileDialog(Option<Box<[PathBuf]>>),
     Preview(Option<Entity>, PreviewKind),
@@ -720,18 +679,16 @@ pub struct App {
     nav_bar_context_id: segmented_button::Entity,
     nav_model: segmented_button::SingleSelectModel,
     tab_model: segmented_button::Model<segmented_button::SingleSelect>,
-    config_handler: Option<cosmic_config::Config>,
-    state_handler: Option<cosmic_config::Config>,
+    config_handler: Store,
+    state_handler: Store,
     config: Config,
     state: State,
-    mode: Mode,
     app_themes: Vec<String>,
     compio_tx: mpsc::Sender<Pin<Box<dyn Future<Output = ()> + Send>>>,
     context_page: ContextPage,
     dialog_pages: DialogPages,
     dialog_text_input: widget::Id,
     key_binds: HashMap<KeyBind, Action>,
-    margin: FxHashMap<window::Id, (f32, f32, f32, f32)>,
     mime_app_cache: MimeAppCache,
     modifiers: Modifiers,
     mounter_items: FxHashMap<MounterKey, MounterItems>,
@@ -740,34 +697,22 @@ pub struct App {
     network_drive_input: String,
     #[cfg(feature = "notify")]
     notification_opt: Option<Arc<Mutex<notify_rust::NotificationHandle>>>,
-    #[cfg(all(feature = "wayland", feature = "desktop-applet"))]
-    overlap: FxHashMap<String, (window::Id, Rectangle)>,
     pending_operation_id: u64,
     pending_operations: BTreeMap<u64, (Operation, Controller)>,
     progress_operations: BTreeSet<u64>,
     complete_operations: BTreeMap<u64, Operation>,
     failed_operations: BTreeMap<u64, (Operation, Controller, String)>,
-    scrollable_id: widget::Id,
+    scrollable_name: std::borrow::Cow<'static, str>,
     search_id: widget::Id,
     size: Option<Size>,
-    #[cfg(all(feature = "wayland", feature = "desktop-applet"))]
-    layer_sizes: FxHashMap<window::Id, Size>,
-    #[cfg(all(feature = "wayland", feature = "desktop-applet"))]
-    surface_ids: FxHashMap<WlOutput, WindowId>,
-    #[cfg(all(feature = "wayland", feature = "desktop-applet"))]
-    surface_names: FxHashMap<WindowId, String>,
     toasts: widget::toaster::Toasts<Message>,
     watcher_opt: Option<(
         Debouncer<RecommendedWatcher, RecommendedCache>,
         FxHashSet<PathBuf>,
     )>,
     windows: FxHashMap<window::Id, Window>,
-    nav_dnd_hover: Option<(Location, Instant)>,
-    tab_dnd_hover: Option<(Entity, Instant)>,
     type_select_prefix: String,
     type_select_last_key: Option<Instant>,
-    nav_drag_id: DragId,
-    tab_drag_id: DragId,
     auto_scroll_speed: Option<i16>,
     file_dialog_opt: Option<Dialog<Message>>,
     clipboard_cache: ClipboardCache,
@@ -887,8 +832,8 @@ impl App {
 
     #[cfg(feature = "desktop")]
     fn launch_desktop_entries(paths: &[impl AsRef<Path>]) {
-        use cosmic::desktop::fde::DesktopEntry;
-        let locales = cosmic::desktop::fde::get_languages_from_env();
+        use freedesktop_desktop_entry::DesktopEntry;
+        let locales = freedesktop_desktop_entry::get_languages_from_env();
 
         for path in paths.iter().map(AsRef::as_ref) {
             match DesktopEntry::from_path::<&str>(path, None) {
@@ -982,7 +927,7 @@ impl App {
     }
 
     #[cfg(feature = "desktop")]
-    fn exec_entry_action(entry: &cosmic::desktop::DesktopEntryData, action: usize) {
+    fn exec_entry_action(entry: &crate::desktop_entry::DesktopEntryData, action: usize) {
         if let Some(action) = entry.desktop_actions.get(action) {
             // Largely copied from COSMIC app library
             let mut exec = shlex::Shlex::new(&action.exec);
@@ -1071,121 +1016,22 @@ impl App {
         )
     }
 
-    #[cfg(all(feature = "wayland", feature = "desktop-applet"))]
-    fn handle_overlap(&mut self) {
-        let mut overlaps: FxHashMap<_, _> = self
-            .windows
-            .keys()
-            .map(|k| (*k, (0., 0., 0., 0.)))
-            .collect();
-        let mut sorted_overlaps: Box<[_]> = self.overlap.values().collect();
-        sorted_overlaps
-            .sort_by(|a, b| (b.1.width * b.1.height).total_cmp(&(a.1.width * b.1.height)));
-
-        for (w_id, overlap) in sorted_overlaps {
-            let Some((bl, br, tl, tr, mut size)) = self.layer_sizes.get(w_id).map(|s| {
-                (
-                    Rectangle::new(
-                        Point::new(0., s.height / 2.),
-                        Size::new(s.width / 2., s.height / 2.),
-                    ),
-                    Rectangle::new(
-                        Point::new(s.width / 2., s.height / 2.),
-                        Size::new(s.width / 2., s.height / 2.),
-                    ),
-                    Rectangle::new(Point::new(0., 0.), Size::new(s.width / 2., s.height / 2.)),
-                    Rectangle::new(
-                        Point::new(s.width / 2., 0.),
-                        Size::new(s.width / 2., s.height / 2.),
-                    ),
-                    *s,
-                )
-            }) else {
-                continue;
-            };
-            let tl = tl.intersects(overlap);
-            let tr = tr.intersects(overlap);
-            let bl = bl.intersects(overlap);
-            let br = br.intersects(overlap);
-            let Some((top, left, bottom, right)) = overlaps.get_mut(w_id) else {
-                continue;
-            };
-            if tl && tr {
-                *top += overlap.height;
-            }
-            if tl && bl {
-                *left += overlap.width;
-            }
-            if bl && br {
-                *bottom += overlap.height;
-            }
-            if tr && br {
-                *right += overlap.width;
-            }
-
-            let min_dim =
-                if overlap.width / size.width.max(1.) > overlap.height / size.height.max(1.) {
-                    (0., overlap.height)
-                } else {
-                    (overlap.width, 0.)
-                };
-            // just one quadrant with overlap
-            if tl && !(tr || bl) {
-                *top += min_dim.1;
-                *left += min_dim.0;
-
-                size.height -= min_dim.1;
-                size.width -= min_dim.0;
-            }
-            if tr && !(tl || br) {
-                *top += min_dim.1;
-                *right += min_dim.0;
-
-                size.height -= min_dim.1;
-                size.width -= min_dim.0;
-            }
-            if bl && !(br || tl) {
-                *bottom += min_dim.1;
-                *left += min_dim.0;
-
-                size.height -= min_dim.1;
-                size.width -= min_dim.0;
-            }
-            if br && !(bl || tr) {
-                *bottom += min_dim.1;
-                *right += min_dim.0;
-
-                size.height -= min_dim.1;
-                size.width -= min_dim.0;
-            }
-        }
-        self.margin = overlaps;
-    }
-
     fn open_tab_entity(
         &mut self,
         location: Location,
         activate: bool,
         selection_paths: Option<Vec<PathBuf>>,
-        scrollable_id: widget::Id,
+        scrollable_name: std::borrow::Cow<'static, str>,
         window_id: Option<window::Id>,
     ) -> (Entity, Task<Message>) {
-        let mut tab = Tab::new(
+        let tab = Tab::new(
             location.clone(),
             self.config.tab,
             self.config.thumb_cfg,
             Some(&self.state.sort_names),
-            scrollable_id,
+            scrollable_name,
             window_id,
         );
-        tab.mode = match self.mode {
-            Mode::App => tab::Mode::App,
-            Mode::Desktop => {
-                tab.config.view = tab::View::Grid;
-                tab::Mode::Desktop
-            }
-        };
-
         let entity = self
             .tab_model
             .insert()
@@ -1219,13 +1065,38 @@ impl App {
             location,
             activate,
             selection_paths,
-            self.scrollable_id.clone(),
+            self.scrollable_name.clone(),
             None,
         )
         .1
     }
 
     // This wrapper ensures that local folders use trash and remote folders permanently delete with a dialog
+    /// Move the dropped files into `to`, or copy them if Ctrl was held.
+    ///
+    /// All drop targets use this handler: the file list, breadcrumb, nav bar and tab
+    /// bar. Drops use the same `wl_data_device` transfer, MIME types and file operation
+    /// as paste. This handler chooses whether to move or copy, independently of the
+    /// drag source.
+    fn drop_files(to: PathBuf, copy: bool) -> Task<Message> {
+        clipboard::read_drop_data::<ClipboardPaste>().map(move |contents_opt| {
+            match contents_opt {
+                Some(mut contents) => {
+                    contents.kind = if copy {
+                        ClipboardKind::Copy
+                    } else {
+                        ClipboardKind::Cut
+                    };
+                    crate::ui::action::app(Message::PasteContents(to.clone(), contents))
+                }
+                None => {
+                    log::warn!("a file drop carried nothing readable");
+                    crate::ui::action::app(Message::None)
+                }
+            }
+        })
+    }
+
     fn delete(&mut self, paths: impl IntoIterator<Item = PathBuf>) -> Task<Message> {
         let mut dialog_paths = Vec::new();
         let mut trash_paths = Vec::new();
@@ -1274,7 +1145,7 @@ impl App {
             .insert(id, (operation.clone(), controller.clone()));
 
         // Use a task to send operations to the compio runtime thread.
-        cosmic::Task::stream(cosmic::iced::stream::channel(4, move |msg_tx| async move {
+        crate::ui::Task::stream(crate::ui::iced::stream::channel(4, move |msg_tx| async move {
             let (tx, rx) = tokio::sync::oneshot::channel();
 
             let msg_tx = Arc::new(tokio::sync::Mutex::new(msg_tx));
@@ -1296,7 +1167,7 @@ impl App {
                 let _ = msg_tx.lock().await.send(msg).await;
             }
         }))
-        .map(cosmic::Action::App)
+        .map(crate::ui::Action::App)
     }
 
     /// Will join operations together into a single task that will return a single
@@ -1314,10 +1185,10 @@ impl App {
                 |mut acc, message| {
                     if let Message::PendingResults(completed, errors) = &mut acc {
                         match message {
-                            cosmic::Action::App(Message::PendingComplete(id, selection)) => {
+                            crate::ui::Action::App(Message::PendingComplete(id, selection)) => {
                                 completed.push((id, selection));
                             }
-                            cosmic::Action::App(Message::PendingError(id, err)) => {
+                            crate::ui::Action::App(Message::PendingError(id, err)) => {
                                 errors.push((id, err));
                             }
                             _ => {}
@@ -1326,7 +1197,7 @@ impl App {
                     acc
                 },
             );
-            cosmic::Action::App(results)
+            crate::ui::Action::App(results)
         })
     }
 
@@ -1352,13 +1223,13 @@ impl App {
                                             Message::UndoTrash(tid, paths.clone())
                                         }),
                                 )
-                                .map(cosmic::Action::App),
+                                .map(crate::ui::Action::App),
                         );
                     } else {
                         commands.push(
                             self.toasts
                                 .push(widget::toaster::Toast::new(description))
-                                .map(cosmic::Action::App),
+                                .map(crate::ui::Action::App),
                         );
                     }
                 }
@@ -1452,15 +1323,7 @@ impl App {
     }
 
     fn remove_window(&mut self, id: &window::Id) {
-        if let Some(window) = self.windows.remove(id) {
-            match window.kind {
-                WindowKind::Desktop(entity) => {
-                    // Remove the tab from the tab model
-                    self.tab_model.remove(entity);
-                }
-                _ => {}
-            }
-        }
+        self.windows.remove(id);
     }
 
     fn rescan_operation_selection(&mut self, op_sel: OperationSelection) -> Task<Message> {
@@ -1530,7 +1393,7 @@ impl App {
                         }
                     }
 
-                    cosmic::action::app(Message::TabRescan(
+                    crate::ui::action::app(Message::TabRescan(
                         entity,
                         location,
                         parent_item_opt,
@@ -1540,7 +1403,7 @@ impl App {
                 }
                 Err(err) => {
                     log::warn!("failed to rescan: {err}");
-                    cosmic::action::none()
+                    crate::ui::action::none()
                 }
             }
         })
@@ -1683,42 +1546,19 @@ impl App {
     }
 
     fn update_config(&mut self) -> Task<Message> {
+        crate::ui::theme::set_density(self.config.density);
+        crate::ui::theme::set_header_size(self.config.header_size);
         self.update_nav_model();
         // Tabs are collected first to placate the borrowck
         let tabs: Box<[_]> = self.tab_model.iter().collect();
         // Update main conf and each tab with the new config
-        let commands = std::iter::once(cosmic::command::set_theme(self.config.app_theme.theme()))
+        let commands = std::iter::once(crate::ui::command::set_theme(self.config.app_theme.theme()))
             .chain(tabs.into_iter().map(|entity| {
                 self.update(Message::TabMessage(
                     Some(entity),
                     tab::Message::Config(self.config.tab),
                 ))
             }));
-        Task::batch(commands)
-    }
-
-    fn update_desktop(&mut self) -> Task<Message> {
-        let needs_reload: Box<[_]> = (self.tab_model.iter())
-            .filter_map(|entity| {
-                let tab = self.tab_model.data::<Tab>(entity)?;
-                if let Location::Desktop(path, output, _) = &tab.location {
-                    Some((
-                        entity,
-                        Location::Desktop(path.clone(), output.clone(), self.config.desktop),
-                    ))
-                } else {
-                    None
-                }
-            })
-            .collect();
-
-        let mut commands = Vec::with_capacity(needs_reload.len());
-        for (entity, location) in needs_reload {
-            if let Some(tab) = self.tab_model.data_mut::<Tab>(entity) {
-                tab.location = location.clone();
-            }
-            commands.push(self.update_tab(entity, location, None));
-        }
         Task::batch(commands)
     }
 
@@ -1852,7 +1692,7 @@ impl App {
                     })
                     .await
                     .unwrap();
-                    cosmic::action::app(Message::MaybeExit)
+                    crate::ui::action::app(Message::MaybeExit)
                 });
             }
         }
@@ -1919,12 +1759,12 @@ impl App {
     }
 
     fn network_drive(&self) -> Element<'_, Message> {
-        let cosmic_theme::Spacing {
+        let Spacing {
             space_xxs, space_m, ..
-        } = theme::spacing();
-        let mut table = widget::column::with_capacity(8);
+        } = spacing();
+        let mut table = widget::Column::with_capacity(8);
         for (i, line) in fl!("network-drive-schemes").lines().enumerate() {
-            let mut row = widget::row::with_capacity(2);
+            let mut row = widget::Row::with_capacity(2);
             for part in line.split(',') {
                 row = row.push(
                     widget::container(if i == 0 {
@@ -1941,93 +1781,16 @@ impl App {
                 table = table.push(widget::divider::horizontal::light());
             }
         }
-        widget::column::with_children([
+        widget::Column::with_children([
             widget::text::body(fl!("network-drive-description")).into(),
             table.into(),
         ])
-        .spacing(space_m)
+        .spacing(space_m.to_pixels())
         .into()
     }
 
-    fn desktop_view_options(&self) -> Element<'_, Message> {
-        let cosmic_theme::Spacing {
-            space_m, space_l, ..
-        } = theme::spacing();
-        let config = self.config.desktop;
-
-        let show_on_desktop = settings::section()
-            .title(fl!("show-on-desktop"))
-            .add(
-                settings::item::builder(fl!("desktop-folder-content")).toggler(
-                    config.show_content,
-                    move |show_content| {
-                        Message::DesktopConfig(DesktopConfig {
-                            show_content,
-                            ..config
-                        })
-                    },
-                ),
-            )
-            .add(settings::item::builder(fl!("mounted-drives")).toggler(
-                config.show_mounted_drives,
-                move |show_mounted_drives| {
-                    Message::DesktopConfig(DesktopConfig {
-                        show_mounted_drives,
-                        ..config
-                    })
-                },
-            ))
-            .add(settings::item::builder(fl!("trash-folder-icon")).toggler(
-                config.show_trash,
-                move |show_trash| {
-                    Message::DesktopConfig(DesktopConfig {
-                        show_trash,
-                        ..config
-                    })
-                },
-            ));
-
-        let icon_size = config.icon_size;
-        let grid_spacing = config.grid_spacing;
-        let icon_size_and_spacing = settings::section()
-            .title(fl!("icon-size-and-spacing"))
-            .add(
-                settings::item::builder(fl!("icon-size"))
-                    .description(format!("{icon_size}%"))
-                    .control(
-                        widget::slider(50..=500, icon_size.get(), move |new_value| {
-                            Message::DesktopConfig(DesktopConfig {
-                                icon_size: NonZeroU16::new(new_value).unwrap_or(icon_size),
-                                ..config
-                            })
-                        })
-                        .step(25u16),
-                    ),
-            )
-            .add(
-                settings::item::builder(fl!("grid-spacing"))
-                    .description(format!("{grid_spacing}%"))
-                    .control(
-                        widget::slider(50..=500, grid_spacing.get(), move |new_value| {
-                            Message::DesktopConfig(DesktopConfig {
-                                grid_spacing: NonZeroU16::new(new_value).unwrap_or(grid_spacing),
-                                ..config
-                            })
-                        })
-                        .step(25u16),
-                    ),
-            );
-
-        widget::column::with_capacity(2)
-            .padding([0, space_l, space_l, space_l])
-            .spacing(space_m)
-            .push(show_on_desktop)
-            .push(icon_size_and_spacing)
-            .into()
-    }
-
     fn edit_history(&self) -> Element<'_, Message> {
-        let cosmic_theme::Spacing { space_m, .. } = theme::spacing();
+        let Spacing { space_m, .. } = spacing();
 
         let mut children = Vec::new();
 
@@ -2038,8 +1801,8 @@ impl App {
             let mut section = widget::settings::section().title(fl!("pending"));
             for (id, (op, controller)) in self.pending_operations.iter().rev() {
                 let progress = controller.progress();
-                section = section.add(widget::column::with_children([
-                    widget::row::with_children([
+                section = section.add(widget::Column::with_children([
+                    widget::Row::with_children([
                         widget::determinate_linear(progress)
                             .width(Length::Fill)
                             .girth(progress_bar_height)
@@ -2088,7 +1851,7 @@ impl App {
             let mut section = widget::settings::section().title(fl!("failed"));
             for (op, controller, error) in self.failed_operations.values().rev() {
                 let progress = controller.progress();
-                section = section.add(widget::column::with_children([
+                section = section.add(widget::Column::with_children([
                     widget::text::body(op.pending_text(progress, controller.state())).into(),
                     widget::text::body(error).into(),
                 ]));
@@ -2108,8 +1871,8 @@ impl App {
             children.push(widget::text::body(fl!("no-history")).into());
         }
 
-        widget::column::with_children(children)
-            .spacing(space_m)
+        widget::Column::with_children(children)
+            .spacing(space_m.to_pixels())
             .into()
     }
 
@@ -2119,14 +1882,13 @@ impl App {
         kind: &'a PreviewKind,
         context_drawer: bool,
     ) -> Element<'a, tab::Message> {
-        let cosmic_theme::Spacing { space_l, .. } = theme::spacing();
+        let Spacing { space_l, .. } = spacing();
 
         let mut children = Vec::with_capacity(1);
         let entity = entity_opt.unwrap_or_else(|| self.tab_model.active());
-        let military_time = self.config.tab.military_time;
         match kind {
             PreviewKind::Custom(PreviewItem(item)) => {
-                children.push(item.preview_view(Some(&self.mime_app_cache), military_time));
+                children.push(item.preview_view(Some(&self.mime_app_cache)));
             }
             PreviewKind::Location(location) => {
                 if let Some(tab) = self.tab_model.data::<Tab>(entity)
@@ -2135,7 +1897,7 @@ impl App {
                     for item in items {
                         if item.location_opt.as_ref() == Some(location) {
                             children
-                                .push(item.preview_view(Some(&self.mime_app_cache), military_time));
+                                .push(item.preview_view(Some(&self.mime_app_cache)));
                             // Only show one property view to avoid issues like hangs when generating
                             // preview images on thousands of files
                             break;
@@ -2157,7 +1919,7 @@ impl App {
                             }
                             // Exactly one selected item
                             (Some(item), None) => {
-                                Some(item.preview_view(Some(&self.mime_app_cache), military_time))
+                                Some(item.preview_view(Some(&self.mime_app_cache)))
                             }
                             // No selected items
                             _ => None,
@@ -2171,17 +1933,17 @@ impl App {
                     if children.is_empty()
                         && let Some(item) = &tab.parent_item_opt
                     {
-                        children.push(item.preview_view(Some(&self.mime_app_cache), military_time));
+                        children.push(item.preview_view(Some(&self.mime_app_cache)));
                     }
                 }
             }
         }
-        widget::column::with_children(children)
-            .padding(if context_drawer {
+        widget::Column::with_children(children)
+            .padding((if context_drawer {
                 [0, 0, 0, 0]
             } else {
                 [0, space_l, space_l, space_l]
-            })
+            }).to_padding())
             .into()
     }
 
@@ -2296,34 +2058,19 @@ impl App {
             .collect();
 
         if favorites_changed {
-            if let Some(config_handler) = &self.config_handler {
-                match self.config.set_favorites(config_handler, favorites) {
-                    Ok(updated) => {
-                        if updated {
-                            return true;
-                        }
-                    }
-                    Err(err) => {
-                        log::warn!("failed to update favorites after moving directories: {err:?}",);
-                    }
-                }
-            } else {
-                self.config.favorites = favorites;
-                log::warn!(
-                    "failed to update favorites after moving directories: no config handler",
-                );
+            self.config.favorites = favorites;
+            if let Err(err) = self.config_handler.save(&self.config) {
+                log::warn!("failed to update favorites after moving directories: {err:?}",);
             }
+            return true;
         }
 
         false
     }
 }
 
-/// Implement [`Application`] to integrate with COSMIC.
+/// Implement [`Application`] to integrate with this app's shell.
 impl Application for App {
-    /// Default async executor to use with the app.
-    type Executor = executor::Default;
-
     /// Argument received
     type Flags = Flags;
 
@@ -2344,27 +2091,11 @@ impl Application for App {
     /// Creates the application, and optionally emits command on initialize.
     fn init(mut core: Core, flags: Self::Flags) -> (Self, Task<Self::Message>) {
         core.window.context_is_overlay = false;
-        match flags.mode {
-            Mode::App => {
-                core.window.show_context = flags.config.show_details;
-            }
-            Mode::Desktop => {
-                core.window.content_container = false;
-                core.window.show_window_menu = false;
-                core.window.show_headerbar = false;
-                core.window.sharp_corners = false;
-                core.window.show_maximize = false;
-                core.window.show_minimize = false;
-                core.window.use_template = true;
-            }
-        }
+        core.window.show_context = flags.config.show_details;
 
         let app_themes = vec![fl!("match-desktop"), fl!("dark"), fl!("light")];
 
-        let key_binds = key_binds(&match flags.mode {
-            Mode::App => tab::Mode::App,
-            Mode::Desktop => tab::Mode::Desktop,
-        });
+        let key_binds = key_binds(&tab::Mode::App);
 
         // Create a dedicated thread for the compio runtime to handle operations on.
         // Supports io_uring on Linux, IOPC on Windows, and polling everywhere else.
@@ -2399,9 +2130,6 @@ impl Application for App {
                 ),
             ]);
 
-        if matches!(flags.mode, Mode::Desktop) {
-            core.set_auto_blur(Auto::Window | Auto::Popup);
-        }
         let mut app = Self {
             core,
             about,
@@ -2412,14 +2140,12 @@ impl Application for App {
             state_handler: flags.state_handler,
             config: flags.config,
             state: flags.state,
-            mode: flags.mode,
             app_themes,
             compio_tx,
             context_page: ContextPage::Preview(None, PreviewKind::Selected),
             dialog_pages: DialogPages::new(),
             dialog_text_input: widget::Id::new("Dialog Text Input"),
             key_binds,
-            margin: FxHashMap::default(),
             mime_app_cache: MimeAppCache::new(),
             modifiers: Modifiers::empty(),
             mounter_items: FxHashMap::default(),
@@ -2428,34 +2154,22 @@ impl Application for App {
             network_drive_input: String::new(),
             #[cfg(feature = "notify")]
             notification_opt: None,
-            #[cfg(all(feature = "wayland", feature = "desktop-applet"))]
-            overlap: FxHashMap::default(),
             pending_operation_id: 0,
             pending_operations: BTreeMap::new(),
             progress_operations: BTreeSet::new(),
             complete_operations: BTreeMap::new(),
             failed_operations: BTreeMap::new(),
-            scrollable_id: widget::Id::new("File Scrollable"),
+            scrollable_name: std::borrow::Cow::Borrowed("File Scrollable"),
             search_id: widget::Id::new("File Search"),
             size: None,
-            #[cfg(all(feature = "wayland", feature = "desktop-applet"))]
-            surface_ids: FxHashMap::default(),
-            #[cfg(all(feature = "wayland", feature = "desktop-applet"))]
-            surface_names: FxHashMap::default(),
             toasts: widget::toaster::Toasts::new(Message::CloseToast),
             watcher_opt: None,
             windows: FxHashMap::default(),
-            nav_dnd_hover: None,
-            tab_dnd_hover: None,
             type_select_prefix: String::new(),
             type_select_last_key: None,
-            nav_drag_id: DragId::new(),
-            tab_drag_id: DragId::new(),
             auto_scroll_speed: None,
             file_dialog_opt: None,
             clipboard_cache: ClipboardCache::Empty,
-            #[cfg(all(feature = "wayland", feature = "desktop-applet"))]
-            layer_sizes: FxHashMap::default(),
         };
 
         let mut commands = vec![app.update_config(), app.update(Message::CheckClipboard)];
@@ -2480,7 +2194,7 @@ impl Application for App {
                     |l| matches!(l, Location::Network(uri, ..) if *uri == *location.as_str()),
                 )
             }) {
-                commands.push(cosmic::task::message(cosmic::Action::App(
+                commands.push(crate::ui::task::message(crate::ui::Action::App(
                     Message::NetworkDriveOpenEntityAfterMount { entity: e },
                 )));
             }
@@ -2497,35 +2211,53 @@ impl Application for App {
         (app, Task::batch(commands))
     }
 
-    fn nav_bar(&self) -> Option<Element<'_, cosmic::Action<Self::Message>>> {
+    fn nav_bar(&self) -> Option<Element<'_, crate::ui::Action<Self::Message>>> {
         if !self.core.nav_bar_active() {
             return None;
         }
 
         let nav_model = self.nav_model()?;
 
-        let mut nav = cosmic::widget::nav_bar(nav_model, |entity| {
-            cosmic::Action::Cosmic(cosmic::app::Action::NavBar(entity))
+        let mut nav = crate::ui::widget::nav_bar(nav_model, |entity| {
+            crate::ui::Action::Cosmic(crate::ui::app::Action::NavBar(entity))
         })
-        .drag_id(self.nav_drag_id)
-        .on_dnd_enter(|entity, _| cosmic::Action::App(Message::DndEnterNav(entity)))
-        .on_dnd_leave(|_| cosmic::Action::App(Message::DndExitNav))
-        .on_dnd_drop(|entity, data, action| {
-            cosmic::Action::App(Message::DndDropNav(entity, data, action))
-        })
-        .on_context(|entity| cosmic::Action::App(Message::NavBarContext(entity)))
-        .on_close(|entity| cosmic::Action::App(Message::NavBarClose(entity)))
+        .on_context(|entity| crate::ui::Action::App(Message::NavBarContext(entity)))
+        .on_close(|entity| crate::ui::Action::App(Message::NavBarClose(entity)))
         .on_middle_press(|entity| {
-            cosmic::Action::App(Message::NavMenuAction(NavMenuAction::OpenInNewTab(entity)))
+            crate::ui::Action::App(Message::NavMenuAction(NavMenuAction::OpenInNewTab(entity)))
         })
         .context_menu(self.nav_context_menu())
         .close_icon(icon::from_name("media-eject-symbolic").size(16).icon());
 
-        #[cfg(feature = "wayland")]
+        {
+            // A bookmark accepts drops only if it is a directory this app can paste
+            // into and differs from the visible tab's directory. Resolve it here
+            // because the callback outlives this borrow of the model.
+            let showing = self
+                .tab_model
+                .data::<Tab>(self.tab_model.active())
+                .map(|tab| tab.location.clone());
+            let droppable: Vec<Entity> = nav_model
+                .iter()
+                .filter(|entity| {
+                    nav_model.data::<Location>(*entity).is_some_and(|location| {
+                        location.supports_paste()
+                            && location.path_opt().is_some()
+                            && showing.as_ref() != Some(location)
+                    })
+                })
+                .collect();
+            nav = nav.on_file_drop(move |entity| {
+                droppable
+                    .contains(&entity)
+                    .then(|| crate::ui::Action::App(Message::NavBarDrop(entity)))
+            });
+        }
+
         {
             nav = nav
                 .window_id_maybe(self.core().main_window_id())
-                .on_surface_action(|action| cosmic::Action::Surface(action.flatten()))
+                .on_surface_action(|action| crate::ui::Action::Surface(action.flatten()))
         }
 
         let mut nav = nav.into_container();
@@ -2539,7 +2271,9 @@ impl Application for App {
         ))
     }
 
-    fn nav_context_menu(&self) -> Option<Vec<widget::menu::Tree<cosmic::Action<Self::Message>>>> {
+    fn nav_context_menu(
+        &self,
+    ) -> Option<Vec<widget::menu::Tree<crate::ui::Action<Self::Message>>>> {
         let items = self.nav_model.iter().map(|entity| {
             let favorite_index_opt = self.nav_model.data::<FavoriteIndex>(entity);
             let location_opt = self.nav_model.data::<Location>(entity);
@@ -2550,23 +2284,23 @@ impl Application for App {
                 .and_then(Location::path_opt)
                 .is_some_and(|x| x.is_file())
             {
-                items.push(cosmic::widget::menu::Item::Button(
+                items.push(widget::menu::Item::Button(
                     fl!("open"),
                     None,
                     NavMenuAction::Open(entity),
                 ));
-                items.push(cosmic::widget::menu::Item::Button(
+                items.push(widget::menu::Item::Button(
                     fl!("menu-open-with"),
                     None,
                     NavMenuAction::OpenWith(entity),
                 ));
             } else {
-                items.push(cosmic::widget::menu::Item::Button(
+                items.push(widget::menu::Item::Button(
                     fl!("open-in-new-tab"),
                     None,
                     NavMenuAction::OpenInNewTab(entity),
                 ));
-                items.push(cosmic::widget::menu::Item::Button(
+                items.push(widget::menu::Item::Button(
                     fl!("open-in-new-window"),
                     None,
                     NavMenuAction::OpenInNewWindow(entity),
@@ -2581,7 +2315,7 @@ impl Application for App {
                     .enumerate()
                     .filter(|(_, action)| action.matches_selection(1, selected_dir))
                     .map(|(i, action)| {
-                        cosmic::widget::menu::Item::Button(
+                        widget::menu::Item::Button(
                             action.name.clone(),
                             None,
                             NavMenuAction::RunContextAction(entity, i),
@@ -2590,26 +2324,26 @@ impl Application for App {
                     .collect();
 
                 if !action_items.is_empty() {
-                    items.push(cosmic::widget::menu::Item::Divider);
+                    items.push(widget::menu::Item::Divider);
                     items.extend(action_items);
                 }
             }
-            items.push(cosmic::widget::menu::Item::Divider);
+            items.push(widget::menu::Item::Divider);
             if matches!(location_opt, Some(Location::Path(..))) {
-                items.push(cosmic::widget::menu::Item::Button(
+                items.push(widget::menu::Item::Button(
                     fl!("show-details"),
                     None,
                     NavMenuAction::Preview(entity),
                 ));
             }
-            items.push(cosmic::widget::menu::Item::Divider);
+            items.push(widget::menu::Item::Divider);
             if favorite_index_opt.is_some() {
-                items.push(cosmic::widget::menu::Item::Button(
+                items.push(widget::menu::Item::Button(
                     fl!("change-sidebar-label"),
                     None,
                     NavMenuAction::ChangeSidebarLabel(entity),
                 ));
-                items.push(cosmic::widget::menu::Item::Button(
+                items.push(widget::menu::Item::Button(
                     fl!("remove-from-sidebar"),
                     None,
                     NavMenuAction::RemoveFromSidebar(entity),
@@ -2617,7 +2351,7 @@ impl Application for App {
             }
 
             if matches!(location_opt, Some(Location::Recents)) && tab::has_recents() {
-                items.push(cosmic::widget::menu::Item::Button(
+                items.push(widget::menu::Item::Button(
                     fl!("clear-recents-history"),
                     None,
                     NavMenuAction::ClearRecents,
@@ -2625,7 +2359,7 @@ impl Application for App {
             }
 
             if matches!(location_opt, Some(Location::Trash)) && !Trash::is_empty() {
-                items.push(cosmic::widget::menu::Item::Button(
+                items.push(widget::menu::Item::Button(
                     fl!("empty-trash"),
                     None,
                     NavMenuAction::EmptyTrash,
@@ -2634,17 +2368,14 @@ impl Application for App {
             items
         });
 
-        Some(cosmic::widget::menu::nav_context(
+        Some(widget::menu::nav_context(
             &HashMap::new(),
             items.collect(),
         ))
     }
 
     fn nav_model(&self) -> Option<&segmented_button::SingleSelectModel> {
-        match self.mode {
-            Mode::App => Some(&self.nav_model),
-            Mode::Desktop => None,
-        }
+        Some(&self.nav_model)
     }
 
     fn on_nav_select(&mut self, entity: Entity) -> Task<Self::Message> {
@@ -2678,11 +2409,11 @@ impl Application for App {
                     {
                         return mounter.network_drive(uri.clone()).map(move |mounted| {
                             if mounted {
-                                cosmic::Action::App(Message::NetworkDriveOpenEntityAfterMount {
+                                crate::ui::Action::App(Message::NetworkDriveOpenEntityAfterMount {
                                     entity,
                                 })
                             } else {
-                                cosmic::action::none()
+                                crate::ui::action::none()
                             }
                         });
                     }
@@ -2745,7 +2476,7 @@ impl Application for App {
         {
             return mounter
                 .mount(data.1.clone())
-                .map(|()| cosmic::action::none());
+                .map(|()| crate::ui::action::none());
         }
         Task::none()
     }
@@ -2762,7 +2493,7 @@ impl Application for App {
         if let ContextPage::Preview(..) = self.context_page {
             // Persist state of preview page
             if self.core.window.show_context != self.config.show_details {
-                return self.update(Message::Preview(None));
+                return self.update(Message::Preview);
             }
         }
         Task::none()
@@ -2790,7 +2521,7 @@ impl Application for App {
         // of closing everything on one press
         if self.core.window.show_context {
             self.set_show_context(false);
-            return cosmic::task::message(cosmic::action::app(Message::SetShowDetails(false)));
+            return crate::ui::task::message(crate::ui::action::app(Message::SetShowDetails(false)));
         }
         if let Some(tab) = self.tab_model.data_mut::<Tab>(entity) {
             if tab.edit_location.is_some() {
@@ -2821,26 +2552,9 @@ impl Application for App {
         // Helper for updating config values efficiently
         macro_rules! config_set {
             ($name: ident, $value: expr) => {
-                match &self.config_handler {
-                    Some(config_handler) => {
-                        match paste::paste! { self.config.[<set_ $name>](config_handler, $value) } {
-                            Ok(_) => {}
-                            Err(err) => {
-                                log::warn!(
-                                    "failed to save config {:?}: {}",
-                                    stringify!($name),
-                                    err
-                                );
-                            }
-                        }
-                    }
-                    None => {
-                        self.config.$name = $value;
-                        log::warn!(
-                            "failed to save config {:?}: no config handler",
-                            stringify!($name)
-                        );
-                    }
+                self.config.$name = $value;
+                if let Err(err) = self.config_handler.save(&self.config) {
+                    log::warn!("failed to save config {:?}: {}", stringify!($name), err);
                 }
             };
         }
@@ -2923,12 +2637,10 @@ impl Application for App {
             Message::Config(config) => {
                 if config != self.config {
                     log::info!("update config");
-                    // Show details and military time are preserved for existing instances
+                    // Show details is preserved for existing instances
                     let show_details = self.config.show_details;
-                    let military_time = self.config.tab.military_time;
                     self.config = config;
                     self.config.show_details = show_details;
-                    self.config.tab.military_time = military_time;
                     return self.update_config();
                 }
             }
@@ -2987,10 +2699,10 @@ impl Application for App {
                 let paths = self.selected_paths(entity_opt);
                 self.clipboard_cache = ClipboardCache::Files(ClipboardPaste {
                     paths: paths.map(|p| p.to_path_buf()).collect(),
-                    kind: ClipboardKind::Cut { is_dnd: false },
+                    kind: ClipboardKind::Cut,
                 });
                 let contents = ClipboardCopy::new(
-                    ClipboardKind::Cut { is_dnd: false },
+                    ClipboardKind::Cut,
                     self.selected_paths(entity_opt),
                 );
 
@@ -3040,71 +2752,10 @@ impl Application for App {
                     }
                 }
             }
-            Message::DesktopConfig(config) => {
-                if config != self.config.desktop {
-                    config_set!(desktop, config);
-                    return self.update_desktop();
-                }
-            }
-            Message::DesktopViewOptions => {
-                let mut settings = window::Settings {
-                    decorations: true,
-                    min_size: Some(Size::new(360.0, 180.0)),
-                    resizable: true,
-                    size: Size::new(480.0, 444.0),
-                    transparent: true,
-                    ..Default::default()
-                };
-
-                #[cfg(target_os = "linux")]
-                {
-                    // Use the dialog ID to make it float
-                    settings.platform_specific.application_id =
-                        "com.system76.CosmicFilesDialog".to_string();
-                }
-
-                let (id, command) = window::open(settings);
-                self.windows
-                    .insert(id, Window::new(WindowKind::DesktopViewOptions));
-                return command.map(|_id| cosmic::action::none());
-            }
-            Message::DesktopDialogs(show) => {
-                if matches!(self.mode, Mode::Desktop) {
-                    if show {
-                        //TODO: would it be better to make this a layer surface?
-                        let mut settings = window::Settings {
-                            decorations: false,
-                            level: window::Level::AlwaysOnTop,
-                            max_size: Some(Size::new(1280.0, 640.0)),
-                            min_size: Some(Size::new(320.0, 180.0)),
-                            position: window::Position::Centered,
-                            resizable: false,
-                            size: Size::new(640.0, 320.0),
-                            transparent: true,
-                            ..Default::default()
-                        };
-
-                        #[cfg(target_os = "linux")]
-                        {
-                            // Use the dialog ID to make it float
-                            settings.platform_specific.application_id =
-                                "com.system76.CosmicFilesDialog".to_string();
-                        }
-
-                        let (id, command) = window::open(settings);
-                        self.windows
-                            .insert(id, Window::new(WindowKind::Dialogs(widget::Id::unique())));
-                        return command.map(|_id| cosmic::Action::None);
-                    }
-
-                    let tasks = self
-                        .windows
-                        .iter()
-                        .filter(|(_, window)| matches!(window.kind, WindowKind::Dialogs(_)))
-                        .map(|(id, _)| window::close(*id));
-                    return Task::batch(tasks);
-                }
-            }
+            // Intentionally a no-op: this handler was desktop-mode-only and desktop mode
+            // is gone, but DialogPages still emits this message. The family is slated
+            // for removal with the Phase 2 shell rewrite.
+            Message::DesktopDialogs(_show) => {}
             Message::DialogCancel => {
                 if let Some((_page, task)) = self.dialog_pages.pop_front() {
                     return task;
@@ -3158,7 +2809,7 @@ impl Application for App {
                             error: _,
                         } => {
                             if let Some(mounter) = MOUNTERS.get(&mounter_key) {
-                                tasks.push(mounter.mount(item).map(|()| cosmic::action::none()));
+                                tasks.push(mounter.mount(item).map(|()| crate::ui::action::none()));
                             }
                         }
                         DialogPage::NetworkAuth {
@@ -3169,7 +2820,7 @@ impl Application for App {
                         } => {
                             tasks.push(Task::future(async move {
                                 auth_tx.send(auth).await.unwrap();
-                                cosmic::action::none()
+                                crate::ui::action::none()
                             }));
                         }
                         DialogPage::NetworkError {
@@ -3346,11 +2997,7 @@ impl Application for App {
                 }
             }
             Message::Key(window_id, modifiers, key, physical_key, text) => {
-                #[cfg(all(feature = "wayland", feature = "desktop-applet"))]
-                let in_surface_ids = self.surface_ids.values().any(|id| *id == window_id);
-                #[cfg(not(all(feature = "wayland", feature = "desktop-applet")))]
-                let in_surface_ids = false;
-                if self.core.main_window_id() == Some(window_id) || in_surface_ids {
+                if self.core.main_window_id() == Some(window_id) {
                     let entity = self.tab_model.active();
                     for (key_bind, action) in &self.key_binds {
                         if key_bind.matches(modifiers, &key, Some(&physical_key)) {
@@ -3359,8 +3006,7 @@ impl Application for App {
                     }
 
                     // Uncaptured keys with only shift modifiers go to the search or location box
-                    if matches!(self.mode, Mode::App)
-                        && !modifiers.logo()
+                    if !modifiers.logo()
                         && !modifiers.control()
                         && !modifiers.alt()
                         && matches!(key, Key::Character(_))
@@ -3434,11 +3080,7 @@ impl Application for App {
                 }
             },
             Message::ModifiersChanged(window_id, modifiers) => {
-                #[cfg(all(feature = "wayland", feature = "desktop-applet"))]
-                let in_surface_ids = self.surface_ids.values().any(|id| *id == window_id);
-                #[cfg(not(all(feature = "wayland", feature = "desktop-applet")))]
-                let in_surface_ids = false;
-                if self.core.main_window_id() == Some(window_id) || in_surface_ids {
+                if self.core.main_window_id() == Some(window_id) {
                     self.modifiers = modifiers;
                 }
                 if let Some(window) = self.windows.get_mut(&window_id) {
@@ -3506,9 +3148,6 @@ impl Application for App {
                 // Update nav bar
                 //TODO: this could change favorites IDs while they are in use
                 self.update_nav_model();
-
-                // Update desktop tabs
-                commands.push(self.update_desktop());
 
                 return Task::batch(commands);
             }
@@ -3597,7 +3236,7 @@ impl Application for App {
                         Some((*mounter_key, self.network_drive_input.clone()));
                     return mounter
                         .network_drive(self.network_drive_input.clone())
-                        .map(|_| cosmic::action::none());
+                        .map(|_| crate::ui::action::none());
                 }
                 log::warn!(
                     "no mounter found for connecting to {:?}",
@@ -3897,11 +3536,11 @@ impl Application for App {
                                 .chain(
                                     clipboard::read_data::<ClipboardPaste>().map(
                                         move |contents_opt| match contents_opt {
-                                            Some(contents) => cosmic::action::app(
+                                            Some(contents) => crate::ui::action::app(
                                                 Message::PasteContents(to.clone(), contents),
                                             ),
                                             None => {
-                                                cosmic::action::app(Message::PasteImage(to.clone()))
+                                                crate::ui::action::app(Message::PasteImage(to.clone()))
                                             }
                                         },
                                     ),
@@ -3927,11 +3566,11 @@ impl Application for App {
                             // (works when triggered from main window, e.g., Ctrl+V)
                             return clipboard::read_data::<ClipboardPaste>().map(
                                 move |contents_opt| match contents_opt {
-                                    Some(contents) => cosmic::action::app(Message::PasteContents(
+                                    Some(contents) => crate::ui::action::app(Message::PasteContents(
                                         to.clone(),
                                         contents,
                                     )),
-                                    None => cosmic::action::app(Message::PasteImage(to.clone())),
+                                    None => crate::ui::action::app(Message::PasteImage(to.clone())),
                                 },
                             );
                         }
@@ -3946,10 +3585,10 @@ impl Application for App {
                             paths: contents.paths,
                             to,
                         }),
-                        ClipboardKind::Cut { is_dnd } => self.operation(Operation::Move {
+                        ClipboardKind::Cut => self.operation(Operation::Move {
                             paths: contents.paths,
                             to,
-                            cross_device_copy: is_dnd,
+                            cross_device_copy: false,
                         }),
                     };
                 }
@@ -3958,10 +3597,10 @@ impl Application for App {
                 return clipboard::read_data::<ClipboardPasteImage>().map(move |contents_opt| {
                     match contents_opt {
                         Some(contents) => {
-                            cosmic::action::app(Message::PasteImageContents(to.clone(), contents))
+                            crate::ui::action::app(Message::PasteImageContents(to.clone(), contents))
                         }
                         // No image data in clipboard, try video data
-                        None => cosmic::action::app(Message::PasteVideo(to.clone())),
+                        None => crate::ui::action::app(Message::PasteVideo(to.clone())),
                     }
                 });
             }
@@ -3993,10 +3632,10 @@ impl Application for App {
                 return clipboard::read_data::<ClipboardPasteVideo>().map(move |contents_opt| {
                     match contents_opt {
                         Some(contents) => {
-                            cosmic::action::app(Message::PasteVideoContents(to.clone(), contents))
+                            crate::ui::action::app(Message::PasteVideoContents(to.clone(), contents))
                         }
                         // No video data in clipboard, try text data
-                        None => cosmic::action::app(Message::PasteText(to.clone())),
+                        None => crate::ui::action::app(Message::PasteText(to.clone())),
                     }
                 });
             }
@@ -4028,9 +3667,9 @@ impl Application for App {
                 return clipboard::read_data::<ClipboardPasteText>().map(move |contents_opt| {
                     match contents_opt {
                         Some(contents) => {
-                            cosmic::action::app(Message::PasteTextContents(to.clone(), contents))
+                            crate::ui::action::app(Message::PasteTextContents(to.clone(), contents))
                         }
-                        None => cosmic::action::none(),
+                        None => crate::ui::action::none(),
                     }
                 });
             }
@@ -4054,39 +3693,39 @@ impl Application for App {
                 // Check if clipboard has any paste-able content and cache it
                 return clipboard::read_data::<ClipboardPaste>().map(|contents_opt| {
                     match contents_opt {
-                        Some(contents) if contents.paths.is_empty() => cosmic::action::app(
+                        Some(contents) if contents.paths.is_empty() => crate::ui::action::app(
                             Message::RetryCheckClipboard(ClipboardCache::Files(contents)),
                         ),
-                        Some(contents) => cosmic::action::app(Message::ClipboardCached(
+                        Some(contents) => crate::ui::action::app(Message::ClipboardCached(
                             ClipboardCache::Files(contents),
                         )),
-                        _ => cosmic::action::app(Message::CheckClipboardImage),
+                        _ => crate::ui::action::app(Message::CheckClipboardImage),
                     }
                 });
             }
             Message::CheckClipboardImage => {
                 return clipboard::read_data::<ClipboardPasteImage>().map(|contents_opt| {
                     match contents_opt {
-                        Some(contents) => cosmic::action::app(Message::ClipboardCached(
+                        Some(contents) => crate::ui::action::app(Message::ClipboardCached(
                             ClipboardCache::Image(contents),
                         )),
-                        None => cosmic::action::app(Message::CheckClipboardVideo),
+                        None => crate::ui::action::app(Message::CheckClipboardVideo),
                     }
                 });
             }
             Message::CheckClipboardVideo => {
                 return clipboard::read_data::<ClipboardPasteVideo>().map(|contents_opt| {
                     match contents_opt {
-                        Some(contents) => cosmic::action::app(Message::ClipboardCached(
+                        Some(contents) => crate::ui::action::app(Message::ClipboardCached(
                             ClipboardCache::Video(contents),
                         )),
-                        None => cosmic::action::app(Message::CheckClipboardText),
+                        None => crate::ui::action::app(Message::CheckClipboardText),
                     }
                 });
             }
             Message::CheckClipboardText => {
                 return clipboard::read_data::<ClipboardPasteText>().map(|contents_opt| {
-                    cosmic::action::app(Message::ClipboardCached(match contents_opt {
+                    crate::ui::action::app(Message::ClipboardCached(match contents_opt {
                         Some(contents) => ClipboardCache::Text(contents),
                         None => ClipboardCache::Empty,
                     }))
@@ -4103,11 +3742,11 @@ impl Application for App {
                             clipboard::read_data::<ClipboardPaste>().map(|contents_opt| {
                                 match contents_opt {
                                     Some(contents) if !contents.paths.is_empty() => {
-                                        cosmic::action::app(Message::ClipboardCached(
+                                        crate::ui::action::app(Message::ClipboardCached(
                                             ClipboardCache::Files(contents),
                                         ))
                                     }
-                                    _ => cosmic::action::app(Message::CheckClipboardImage),
+                                    _ => crate::ui::action::app(Message::CheckClipboardImage),
                                 }
                             }),
                         ),
@@ -4171,55 +3810,11 @@ impl Application for App {
                     );
                 }
             }
-            Message::Preview(entity_opt) => {
-                match self.mode {
-                    Mode::App => {
-                        let show_details = !self.config.show_details;
-                        self.context_page = ContextPage::Preview(None, PreviewKind::Selected);
-                        self.core.window.show_context = show_details;
-                        return cosmic::task::message(Message::SetShowDetails(show_details));
-                    }
-                    Mode::Desktop => {
-                        let preview_kind = {
-                            let mut selected_paths = self.selected_paths(entity_opt);
-                            match (selected_paths.next(), selected_paths.next()) {
-                                (Some(_), Some(_)) => Some(PreviewKind::Selected),
-                                (Some(path), None) => {
-                                    Some(PreviewKind::Location(Location::Path(path)))
-                                }
-                                _ => None,
-                            }
-                        };
-
-                        if let Some(preview_kind) = preview_kind {
-                            let mut settings = window::Settings {
-                                decorations: true,
-                                min_size: Some(Size::new(360.0, 180.0)),
-                                resizable: true,
-                                size: Size::new(480.0, 600.0),
-                                transparent: true,
-                                ..Default::default()
-                            };
-
-                            #[cfg(target_os = "linux")]
-                            {
-                                // Use the dialog ID to make it float
-                                settings.platform_specific.application_id =
-                                    "com.system76.CosmicFilesDialog".to_string();
-                            }
-
-                            let (id, command) = window::open(settings);
-                            self.windows.insert(
-                                id,
-                                Window::new(WindowKind::Preview(entity_opt, preview_kind)),
-                            );
-                            return Task::batch([
-                                self.update_desktop(), // Force re-calculating of directory sizes
-                                command.map(|_id| cosmic::action::none()),
-                            ]);
-                        }
-                    }
-                }
+            Message::Preview => {
+                let show_details = !self.config.show_details;
+                self.context_page = ContextPage::Preview(None, PreviewKind::Selected);
+                self.core.window.show_context = show_details;
+                return crate::ui::task::message(Message::SetShowDetails(show_details));
             }
             Message::RemoveFromRecents(entity_opt) => {
                 let paths: Box<[_]> = self.selected_paths(entity_opt).collect();
@@ -4243,7 +3838,7 @@ impl Application for App {
                         .icon_set(entity, icon::icon(Trash::icon_symbolic(16)));
                 }
 
-                return Task::batch([self.rescan_trash(), self.update_desktop()]);
+                return self.rescan_trash();
             }
             Message::Rename(entity_opt) => {
                 let entity = entity_opt.unwrap_or_else(|| self.tab_model.active());
@@ -4296,7 +3891,7 @@ impl Application for App {
                         DialogPage::Replace { tx, .. } => {
                             return Task::future(async move {
                                 let _ = tx.send(replace_result).await;
-                                cosmic::action::none()
+                                crate::ui::action::none()
                             });
                         }
                         other => {
@@ -4426,7 +4021,7 @@ impl Application for App {
                 // Otherwise, activate closest item
                 if self.tab_model.len() == 1 {
                     tasks.push(Task::future(async move {
-                        cosmic::action::app(Message::WindowClose)
+                        crate::ui::action::app(Message::WindowClose)
                     }));
                 } else if entity == self.tab_model.active()
                     && let Some(position) = self.tab_model.position(entity)
@@ -4526,8 +4121,8 @@ impl Application for App {
                             commands.push(self.update(Message::Surface(action)));
                         }
                         tab::Command::Delete(paths) => commands.push(self.delete(paths)),
-                        tab::Command::DropFiles(to, from) => {
-                            commands.push(self.update(Message::PasteContents(to, from)));
+                        tab::Command::DropFiles(to, copy) => {
+                            commands.push(Self::drop_files(to, copy));
                         }
                         tab::Command::ClearRecents => {
                             match recently_used_xbel::clear_recently_used() {
@@ -4568,7 +4163,7 @@ impl Application for App {
                         }
                         tab::Command::Iced(iced_command) => {
                             commands.push(iced_command.0.map(move |x| {
-                                cosmic::action::app(Message::TabMessage(Some(entity), x))
+                                crate::ui::action::app(Message::TabMessage(Some(entity), x))
                             }));
                         }
                         tab::Command::OpenFile(paths) => commands.push(self.open_file(&paths)),
@@ -4662,9 +4257,9 @@ impl Application for App {
 
                             if !self.must_save_sort_names & changed {
                                 self.must_save_sort_names = true;
-                                return cosmic::Task::future(async move {
+                                return crate::ui::Task::future(async move {
                                     tokio::time::sleep(Duration::from_secs(1)).await;
-                                    cosmic::action::app(Message::SaveSortNames)
+                                    crate::ui::action::app(Message::SaveSortNames)
                                 });
                             }
                         }
@@ -4704,17 +4299,17 @@ impl Application for App {
                             tab.select_paths(selection_paths);
 
                             // Ensure selected path is scrolled to after redraw
-                            tasks.push(Task::done(cosmic::action::app(Message::TabMessage(
+                            tasks.push(Task::done(crate::ui::action::app(Message::TabMessage(
                                 Some(entity),
                                 tab::Message::ScrollToFocused,
                             ))));
                         }
 
                         tasks.push(clipboard::read_data::<ClipboardPaste>().map(|p| {
-                            cosmic::action::app(Message::CutPaths(match p {
+                            crate::ui::action::app(Message::CutPaths(match p {
                                 Some(s) => match s.kind {
                                     ClipboardKind::Copy => Vec::new(),
-                                    ClipboardKind::Cut { .. } => s.paths,
+                                    ClipboardKind::Cut => s.paths,
                                 },
                                 None => Vec::new(),
                             }))
@@ -4727,10 +4322,6 @@ impl Application for App {
             Message::TabView(entity_opt, view) => {
                 let entity = entity_opt.unwrap_or_else(|| self.tab_model.active());
                 if let Some(tab) = self.tab_model.data_mut::<Tab>(entity) {
-                    if matches!(tab.mode, tab::Mode::Desktop) {
-                        return Task::none();
-                    }
-
                     tab.config.view = view;
                 }
                 let mut config = self.config.tab;
@@ -4741,10 +4332,6 @@ impl Application for App {
                 if let Some(tab) = self.tab_model.active_data_mut::<Tab>() {
                     tab.refresh_cut(&paths);
                 }
-            }
-            Message::TimeConfigChange(time_config) => {
-                self.config.tab.military_time = time_config.military_time;
-                return self.update_config();
             }
             Message::ToggleContextPage(context_page) => {
                 //TODO: ensure context menus are closed
@@ -4758,7 +4345,7 @@ impl Application for App {
                 self.context_page = context_page;
                 // Preview status is preserved across restarts
                 if matches!(self.context_page, ContextPage::Preview(_, _)) {
-                    return cosmic::task::message(cosmic::action::app(Message::SetShowDetails(
+                    return crate::ui::task::message(crate::ui::action::app(Message::SetShowDetails(
                         self.core.window.show_context,
                     )));
                 }
@@ -4772,7 +4359,7 @@ impl Application for App {
                 let mut paths = Vec::with_capacity(recently_trashed.len());
                 let icon_sizes = self.config.tab.icon_sizes;
 
-                return cosmic::task::future(async move {
+                return crate::ui::task::future(async move {
                     match tokio::task::spawn_blocking(move || Location::Trash.scan(icon_sizes))
                         .await
                     {
@@ -4804,7 +4391,7 @@ impl Application for App {
                     self.core.set_main_window_id(None);
                     return Task::batch([
                         window::close(window_id),
-                        Task::future(async move { cosmic::action::app(Message::MaybeExit) }),
+                        Task::future(async move { crate::ui::action::app(Message::MaybeExit) }),
                     ]);
                 }
             }
@@ -4826,8 +4413,7 @@ impl Application for App {
                         self.tab_model.data::<Tab>(entity).map(|tab| &tab.location);
                     match active_tab_location {
                         Some(
-                            Location::Desktop(path, ..)
-                            | Location::Path(path)
+                            Location::Path(path)
                             | Location::Search(SearchLocation::Path(path), ..),
                         ) => {
                             command.arg(path);
@@ -4880,126 +4466,31 @@ impl Application for App {
                 }
                 return self.update(Message::TabConfig(config));
             }
-            Message::DndEnterNav(entity) => {
-                if let Some(location) = self.nav_model.data::<Location>(entity) {
-                    self.nav_dnd_hover = Some((location.clone(), Instant::now()));
-                    let location = location.clone();
-                    return Task::perform(tokio::time::sleep(HOVER_DURATION), move |()| {
-                        cosmic::Action::App(Message::DndHoverLocTimeout(location.clone()))
-                    });
-                }
-            }
-            Message::DndExitNav => {
-                self.nav_dnd_hover = None;
-            }
-            Message::DndDropNav(entity, data, action) => {
-                self.nav_dnd_hover = None;
-                if let Some((location, data)) = self.nav_model.data::<Location>(entity).zip(data) {
-                    let kind = match action {
-                        DndAction::Move => ClipboardKind::Cut { is_dnd: true },
-                        _ => ClipboardKind::Copy,
-                    };
-                    let ret = match location {
-                        Location::Path(p) => self.update(Message::PasteContents(
-                            p.clone(),
-                            ClipboardPaste {
-                                kind,
-                                paths: data.paths,
-                            },
-                        )),
-                        Location::Trash if matches!(action, DndAction::Move) => {
-                            self.delete(data.paths)
-                        }
-                        _ => {
-                            log::warn!("Copy to trash is not supported.");
-                            Task::none()
-                        }
-                    };
-                    return ret;
-                }
-            }
-            Message::DndHoverLocTimeout(location) => {
-                if self
-                    .nav_dnd_hover
-                    .as_ref()
-                    .is_some_and(|(loc, i)| *loc == location && i.elapsed() >= HOVER_DURATION)
-                {
-                    self.nav_dnd_hover = None;
-                    let entity = self.tab_model.active();
-                    let title_opt = match self.tab_model.data_mut::<Tab>(entity) {
-                        Some(tab) => {
-                            tab.change_location(&location, None);
-                            Some(tab.title())
-                        }
-                        None => None,
-                    };
-                    if let Some(title) = title_opt {
-                        self.tab_model.text_set(entity, title);
-                        return Task::batch([
-                            self.update_title(),
-                            self.update_watcher(),
-                            self.update_tab(entity, location, None),
-                        ]);
-                    }
-                }
-            }
-            Message::DndEnterTab(entity, mimes) => {
-                if mimes.iter().all(|m| m.as_str() != "x-cosmic-files/tab-dnd") {
-                    self.tab_dnd_hover = Some((entity, Instant::now()));
-                    return Task::perform(tokio::time::sleep(HOVER_DURATION), move |()| {
-                        cosmic::Action::App(Message::DndHoverTabTimeout(entity))
-                    });
-                }
-            }
-            Message::DndExitTab => {
-                self.nav_dnd_hover = None;
-            }
-            Message::DndDropTab(entity, data, action) => {
-                self.nav_dnd_hover = None;
-                if let Some((tab, data)) = self.tab_model.data::<Tab>(entity).zip(data) {
-                    let kind = match action {
-                        DndAction::Move => ClipboardKind::Cut { is_dnd: true },
-                        _ => ClipboardKind::Copy,
-                    };
-                    let ret = match &tab.location {
-                        Location::Trash if matches!(action, DndAction::Move) => {
-                            self.delete(data.paths)
-                        }
-                        _ => {
-                            if let Some(path) = tab.location.path_opt() {
-                                self.update(Message::PasteContents(
-                                    path.clone(),
-                                    ClipboardPaste {
-                                        kind,
-                                        paths: data.paths,
-                                    },
-                                ))
-                            } else {
-                                log::warn!("{:?} to {:?} is not supported.", action, tab.location);
-                                Task::none()
-                            }
-                        }
-                    };
-                    return ret;
-                }
-            }
-            Message::DndHoverTabTimeout(entity) => {
-                if self
-                    .tab_dnd_hover
-                    .as_ref()
-                    .is_some_and(|(e, i)| *e == entity && i.elapsed() >= HOVER_DURATION)
-                {
-                    self.tab_dnd_hover = None;
-                    return self.update(Message::TabActivate(entity));
-                }
-            }
             Message::NavBarClose(entity) => {
                 if let Some(data) = self.nav_model.data::<MounterData>(entity)
                     && let Some(mounter) = MOUNTERS.get(&data.0)
                 {
                     return mounter
                         .unmount(data.1.clone())
-                        .map(|()| cosmic::action::none());
+                        .map(|()| crate::ui::action::none());
+                }
+            }
+            Message::NavBarDrop(entity) => {
+                if let Some(to) = self
+                    .nav_model
+                    .data::<Location>(entity)
+                    .and_then(|location| location.path_opt().cloned())
+                {
+                    return Self::drop_files(to, self.modifiers.control());
+                }
+            }
+            Message::TabDrop(entity) => {
+                if let Some(to) = self
+                    .tab_model
+                    .data::<Tab>(entity)
+                    .and_then(|tab| tab.location.path_opt().cloned())
+                {
+                    return Self::drop_files(to, self.modifiers.control());
                 }
             }
             Message::NavBarContext(entity) => {
@@ -5207,131 +4698,14 @@ impl Application for App {
                     return self.open_tab(Location::Recents, false, None);
                 }
             }
-            #[cfg(all(feature = "wayland", feature = "desktop-applet"))]
-            Message::OutputEvent(output_event, output) => {
-                match output_event {
-                    OutputEvent::Created(output_info_opt) => {
-                        let output_id = output.id();
-                        log::info!("output {output_id}: created");
-
-                        let surface_id = WindowId::unique();
-                        if let Some(old_surface_id) =
-                            self.surface_ids.insert(output.clone(), surface_id)
-                        {
-                            //TODO: remove old surface?
-                            log::warn!(
-                                "output {output_id}: already had surface ID {old_surface_id:?}"
-                            );
-                        }
-
-                        let display = match output_info_opt {
-                            Some(output_info) => match output_info.name {
-                                Some(output_name) => {
-                                    self.surface_names.insert(surface_id, output_name.clone());
-                                    output_name
-                                }
-                                None => {
-                                    log::warn!("output {output_id}: no output name");
-                                    String::new()
-                                }
-                            },
-                            None => {
-                                log::warn!("output {output_id}: no output info");
-                                String::new()
-                            }
-                        };
-
-                        let (entity, command) = self.open_tab_entity(
-                            Location::Desktop(crate::desktop_dir(), display, self.config.desktop),
-                            false,
-                            None,
-                            widget::Id::unique(),
-                            Some(surface_id),
-                        );
-                        self.windows
-                            .insert(surface_id, Window::new(WindowKind::Desktop(entity)));
-                        return Task::batch([
-                            command,
-                            cosmic::task::message(cosmic::Action::Surface(
-                                cosmic::surface::action::app_layer_shell(
-                                    |_| Default::default(),
-                                    move |_: &mut App| SctkLayerSurfaceSettings {
-                                        id: surface_id,
-                                        layer: Layer::Bottom,
-                                        keyboard_interactivity: KeyboardInteractivity::OnDemand,
-                                        input_zone: None,
-                                        anchor: Anchor::TOP
-                                            | Anchor::BOTTOM
-                                            | Anchor::LEFT
-                                            | Anchor::RIGHT,
-                                        output: IcedOutput::Output(output.clone()),
-                                        namespace: "cosmic-files-applet".into(),
-                                        size: Some((None, None)),
-                                        margin: IcedMargin {
-                                            top: 0,
-                                            bottom: 0,
-                                            left: 0,
-                                            right: 0,
-                                        },
-                                        exclusive_zone: 0,
-                                        size_limits: Limits::NONE.min_width(1.0).min_height(1.0),
-                                    },
-                                    None,
-                                ),
-                            )),
-                            #[cfg(all(feature = "wayland", feature = "desktop-applet"))]
-                            overlap_notify(surface_id, true),
-                        ]);
-                    }
-                    OutputEvent::Removed => {
-                        log::info!("output {}: removed", output.id());
-                        match self.surface_ids.remove(&output) {
-                            Some(surface_id) => {
-                                self.remove_window(&surface_id);
-                                self.surface_names.remove(&surface_id);
-                                return destroy_layer_surface(surface_id);
-                            }
-                            None => {
-                                log::warn!("output {}: no surface found", output.id());
-                            }
-                        }
-                    }
-                    OutputEvent::InfoUpdate(_output_info) => {
-                        log::info!("output {}: info update", output.id());
-                    }
-                }
-            }
             Message::Cosmic(cosmic) => {
                 // Forward cosmic messages
-                return Task::perform(async move { cosmic }, cosmic::action::cosmic);
+                return Task::perform(async move { cosmic }, crate::ui::action::cosmic);
             }
             Message::None => {}
-            #[cfg(all(feature = "wayland", feature = "desktop-applet"))]
-            Message::Overlap(w_id, overlap_notify_event) => match overlap_notify_event {
-                OverlapNotifyEvent::OverlapLayerAdd {
-                    identifier,
-                    namespace,
-                    logical_rect,
-                    exclusive,
-                    ..
-                } => {
-                    if exclusive > 0 || namespace == "Dock" || namespace == "Panel" {
-                        self.overlap.insert(identifier, (w_id, logical_rect));
-                        self.handle_overlap();
-                    }
-                }
-                OverlapNotifyEvent::OverlapLayerRemove { identifier } => {
-                    self.overlap.remove(&identifier);
-                    self.handle_overlap();
-                }
-                _ => {}
-            },
             Message::Size(window_id, size) => {
                 if self.core.main_window_id() == Some(window_id) {
                     self.size = Some(size);
-                } else {
-                    #[cfg(all(feature = "wayland", feature = "desktop-applet"))]
-                    self.layer_sizes.insert(window_id, size);
                 }
             }
             Message::Eject => {
@@ -5348,40 +4722,19 @@ impl Application for App {
                                 {
                                     return mounter
                                         .unmount(item.clone())
-                                        .map(|()| cosmic::action::none());
+                                        .map(|()| crate::ui::action::none());
                                 }
                             }
                         }
                     }
                 }
             }
-            #[cfg(all(feature = "wayland", feature = "desktop-applet"))]
-            Message::Focused(id) => {
-                if let Some(w) = self.windows.get(&id) {
-                    match &w.kind {
-                        WindowKind::Desktop(entity) => self.tab_model.activate(*entity),
-                        _ => {}
-                    };
-                }
-                // Check clipboard when window gains focus
-                // HACK: Wait a moment for the data to be available.
-                return cosmic::task::future(async {
-                    _ = tokio::time::sleep(Duration::from_millis(300)).await;
-                    cosmic::action::app(Message::CheckClipboard)
-                });
-            }
             Message::Surface(action) => {
-                return cosmic::task::message(cosmic::Action::Surface(action));
+                return crate::ui::task::message(crate::ui::Action::Surface(action));
             }
             Message::SaveSortNames => {
                 self.must_save_sort_names = false;
-                if let Some(state_handler) = self.state_handler.as_ref()
-                    && let Err(err) = state_handler
-                        .set::<&FxOrderMap<String, (HeadingOptions, bool)>>(
-                            "sort_names",
-                            &self.state.sort_names,
-                        )
-                {
+                if let Err(err) = self.state_handler.save(&self.state) {
                     log::warn!("Failed to save sort names: {err:?}");
                 }
             }
@@ -5409,9 +4762,8 @@ impl Application for App {
         }
 
         Some(match &self.context_page {
-            ContextPage::About => context_drawer::about(
-                &self.about,
-                |url| Message::LaunchUrl(url.to_string()),
+            ContextPage::About => context_drawer::context_drawer(
+                widget::about::about(&self.about, |url| Message::LaunchUrl(url.to_string())),
                 Message::ToggleContextPage(ContextPage::About),
             ),
             ContextPage::EditHistory => context_drawer::context_drawer(
@@ -5436,7 +4788,7 @@ impl Application for App {
                 )
                 .title(fl!("add-network-drive"))
                 .header(text_input)
-                .footer(widget::row::with_children([
+                .footer(widget::Row::with_children([
                     widget::space::horizontal().into(),
                     button.into(),
                 ]))
@@ -5488,9 +4840,9 @@ impl Application for App {
         }
         let dialog_page = self.dialog_pages.front()?;
 
-        let cosmic_theme::Spacing {
+        let Spacing {
             space_xxs, space_s, ..
-        } = theme::spacing();
+        } = spacing();
 
         let dialog = match dialog_page {
             DialogPage::Compress {
@@ -5540,9 +4892,9 @@ impl Application for App {
                         widget::button::standard(fl!("cancel")).on_press(Message::DialogCancel),
                     )
                     .control(
-                        widget::column::with_children([
+                        widget::Column::with_children([
                             widget::text::body(fl!("file-name")).into(),
-                            widget::row::with_children([
+                            widget::Row::with_children([
                                 widget::text_input("", name.as_str())
                                     .id(self.dialog_text_input.clone())
                                     .on_input(move |name| {
@@ -5574,15 +4926,15 @@ impl Application for App {
                                 }),
                             ])
                             .align_y(Alignment::Center)
-                            .spacing(space_xxs)
+                            .spacing(space_xxs.to_pixels())
                             .into(),
                         ])
-                        .spacing(space_xxs),
+                        .spacing(space_xxs.to_pixels()),
                     );
 
                 if *archive_type == ArchiveType::Zip {
                     let password_unwrapped = password.clone().unwrap_or_default();
-                    dialog = dialog.control(widget::column::with_children([
+                    dialog = dialog.control(widget::Column::with_children([
                         widget::text::body(fl!("password")).into(),
                         widget::text_input("", password_unwrapped)
                             .password()
@@ -5688,7 +5040,7 @@ impl Application for App {
                 auth_tx,
             } => {
                 //TODO: use URI!
-                let mut controls = widget::column::with_capacity(4);
+                let mut controls = widget::Column::with_capacity(4);
                 let mut id_assigned = false;
 
                 if let Some(username) = &auth.username_opt {
@@ -5784,7 +5136,7 @@ impl Application for App {
                 let mut widget = widget::dialog()
                     .title(title)
                     .body(body)
-                    .control(controls.spacing(space_s))
+                    .control(controls.spacing(space_s.to_pixels()))
                     .primary_action(
                         widget::button::suggested(fl!("connect")).on_press(Message::DialogComplete),
                     )
@@ -5870,7 +5222,7 @@ impl Application for App {
                         widget::button::standard(fl!("cancel")).on_press(Message::DialogCancel),
                     )
                     .control(
-                        widget::column::with_children([
+                        widget::Column::with_children([
                             widget::text::body(if *dir {
                                 fl!("folder-name")
                             } else {
@@ -5889,7 +5241,7 @@ impl Application for App {
                                 .on_submit_maybe(complete_maybe.map(|maybe| move |_| maybe.clone()))
                                 .into(),
                         ])
-                        .spacing(space_xxs),
+                        .spacing(space_xxs.to_pixels()),
                     )
             }
             DialogPage::RunContextAction { action, paths } => {
@@ -5950,9 +5302,12 @@ impl Application for App {
                         last_kind = kind;
                     }
                     column = column.add(
-                        widget::mouse_area(
+                        // `iced`'s `MouseArea` has no `on_double_press`; the
+                        // fork's does, and so does this crate's vendored
+                        // `mouse_area`, where it is called `on_double_click`.
+                        crate::mouse_area::MouseArea::new(
                             widget::button::custom(
-                                widget::row::with_children([
+                                widget::Row::with_children([
                                     icon(app.icon()).size(32).into(),
                                     if app.is_default(mime) && !displayed_default {
                                         displayed_default = true;
@@ -5973,16 +5328,16 @@ impl Application for App {
                                             .into()
                                     },
                                 ])
-                                .spacing(space_s)
+                                .spacing(space_s.to_pixels())
                                 .height(Length::Fixed(item_height))
                                 .align_y(Alignment::Center),
                             )
                             .width(Length::Fill)
-                            .class(theme::Button::MenuItem)
+                            .class(Button::MenuItem)
                             .force_enabled(true),
                         )
-                        .on_press(Message::OpenWithSelection(i))
-                        .on_double_press(Message::DialogComplete),
+                        .on_press(move |_| Message::OpenWithSelection(i))
+                        .on_double_click(|_| Message::DialogComplete),
                     );
                 }
 
@@ -6106,7 +5461,7 @@ impl Application for App {
                         widget::button::standard(fl!("cancel")).on_press(Message::DialogCancel),
                     )
                     .control(
-                        widget::column::with_children([
+                        widget::Column::with_children([
                             widget::text::body(fl!("sidebar-label")).into(),
                             widget::text_input("", label.as_str())
                                 .id(self.dialog_text_input.clone())
@@ -6119,7 +5474,7 @@ impl Application for App {
                                 .on_submit_maybe(complete_maybe.map(|maybe| move |_| maybe.clone()))
                                 .into(),
                         ])
-                        .spacing(space_xxs),
+                        .spacing(space_xxs.to_pixels()),
                     )
             }
             DialogPage::RenameItem {
@@ -6174,7 +5529,7 @@ impl Application for App {
                         widget::button::standard(fl!("cancel")).on_press(Message::DialogCancel),
                     )
                     .control(
-                        widget::column::with_children([
+                        widget::Column::with_children([
                             widget::text::body(if *dir {
                                 fl!("folder-name")
                             } else {
@@ -6195,7 +5550,7 @@ impl Application for App {
                                 .on_submit_maybe(complete_maybe.map(|maybe| move |_| maybe.clone()))
                                 .into(),
                         ])
-                        .spacing(space_xxs),
+                        .spacing(space_xxs.to_pixels()),
                     )
             }
             DialogPage::Replace {
@@ -6206,16 +5561,15 @@ impl Application for App {
                 conflict_count,
                 tx,
             } => {
-                let military_time = self.config.tab.military_time;
                 let dialog = widget::dialog()
                     .title(fl!("replace-title", filename = to.name.as_str()))
                     .body(fl!("replace-warning-operation"))
                     .control(
-                        to.replace_view(fl!("original-file"), military_time)
+                        to.replace_view(fl!("original-file"))
                             .map(|x| Message::TabMessage(None, x)),
                     )
                     .control(
-                        from.replace_view(fl!("replace-with"), military_time)
+                        from.replace_view(fl!("replace-with"))
                             .map(|x| Message::TabMessage(None, x)),
                     )
                     .primary_action(
@@ -6271,13 +5625,13 @@ impl Application for App {
                     .title(fl!("set-executable-and-launch"))
                     .primary_action(
                         widget::button::text(fl!("set-and-launch"))
-                            .class(theme::Button::Suggested)
+                            .class(Button::Suggested)
                             .on_press(Message::DialogComplete)
                             .id(SET_EXECUTABLE_AND_LAUNCH_CONFIRM_BUTTON_ID.clone()),
                     )
                     .secondary_action(
                         widget::button::text(fl!("cancel"))
-                            .class(theme::Button::Standard)
+                            .class(Button::Standard)
                             .on_press(Message::DialogCancel),
                     )
                     .control(widget::text::text(fl!(
@@ -6309,9 +5663,9 @@ impl Application for App {
             return None;
         }
 
-        let cosmic_theme::Spacing {
+        let Spacing {
             space_xs, space_s, ..
-        } = theme::spacing();
+        } = spacing();
 
         let mut title = String::new();
         let mut total_progress = 0.0;
@@ -6363,8 +5717,8 @@ impl Application for App {
             .width(Length::Fill)
             .girth(progress_bar_height);
 
-        let container = widget::layer_container(widget::column::with_children([
-            widget::row::with_children([
+        let container = widget::layer_container(widget::Column::with_children([
+            widget::Row::with_children([
                 progress_bar.into(),
                 if all_paused {
                     widget::tooltip(
@@ -6397,8 +5751,8 @@ impl Application for App {
             .align_y(Alignment::Center)
             .into(),
             widget::text::body(title).into(),
-            widget::space::vertical().height(space_s).into(),
-            widget::row::with_children([
+            widget::space::vertical().height(space_s.to_length()).into(),
+            widget::Row::with_children([
                 widget::button::link(fl!("details"))
                     .on_press(Message::ToggleContextPage(ContextPage::EditHistory))
                     .padding(0)
@@ -6413,7 +5767,7 @@ impl Application for App {
             .into(),
         ]))
         .padding([8, space_xs])
-        .layer(cosmic_theme::Layer::Primary);
+        .layer(Layer::Primary.into());
 
         Some(container.into())
     }
@@ -6466,11 +5820,11 @@ impl Application for App {
 
     /// Creates a view after each update.
     fn view(&self) -> Element<'_, Self::Message> {
-        let cosmic_theme::Spacing {
+        let Spacing {
             space_xxs, space_s, ..
-        } = theme::spacing();
+        } = spacing();
 
-        let mut tab_column = widget::column::with_capacity(4);
+        let mut tab_column = widget::Column::with_capacity(4);
 
         if self.core.is_condensed()
             && let Some(term) = self.search_get()
@@ -6493,17 +5847,36 @@ impl Application for App {
                     widget::tab_bar::horizontal(&self.tab_model)
                         .button_height(32)
                         .button_spacing(space_xxs)
-                        .enable_tab_drag(String::from("x-cosmic-files/tab-dnd"))
+                        // Drag-to-reorder tabs. This rides on libcosmic's drag-and-drop
+                        // machinery (segmented_button starts a drag with this mime), but
+                        // it is a distinct feature from file drag-and-drop, now removed.
+                        // Phase 2 must re-solve tab reordering when segmented_button is
+                        // vendored onto iced.
+                        .enable_tab_drag(String::from("x-cosmic-files/tab-drag"))
                         .on_reorder(Message::ReorderTab)
                         .tab_drag_threshold(25.)
-                        .on_activate(Message::TabActivate)
-                        .on_close(|entity| Message::TabClose(Some(entity)))
-                        .on_dnd_enter(Message::DndEnterTab)
-                        .on_dnd_leave(|_| Message::DndExitTab)
-                        .on_dnd_drop(|entity, data, action| {
-                            Message::DndDropTab(entity, data, action)
+                        // Files dropped on a tab go to that tab's directory.
+                        // `Drag::files` distinguishes file drags from tab drags, so
+                        // this callback and `on_reorder` cannot both fire.
+                        .on_file_drop({
+                            let active = self.tab_model.active();
+                            let droppable: Vec<Entity> = self
+                                .tab_model
+                                .iter()
+                                .filter(|entity| {
+                                    *entity != active
+                                        && self.tab_model.data::<Tab>(*entity).is_some_and(|tab| {
+                                            tab.location.supports_paste()
+                                                && tab.location.path_opt().is_some()
+                                        })
+                                })
+                                .collect();
+                            move |entity| {
+                                droppable.contains(&entity).then(|| Message::TabDrop(entity))
+                            }
                         })
-                        .drag_id(self.tab_drag_id),
+                        .on_activate(Message::TabActivate)
+                        .on_close(|entity| Message::TabClose(Some(entity))),
                 )
                 .width(Length::Fill)
                 .padding([0, space_s]),
@@ -6526,60 +5899,21 @@ impl Application for App {
         }
 
         // The toaster is added on top of an empty element to ensure that it does not override context menus
-        tab_column = tab_column.push(widget::toaster(&self.toasts, widget::space::horizontal()));
+        tab_column = tab_column.push(widget::toaster(
+            &self.toasts,
+            widget::space::horizontal(),
+        ));
 
         let content: Element<_> = tab_column.into();
 
         // Uncomment to debug layout:
-        //content.explain(cosmic::iced::Color::WHITE)
+        //content.explain(crate::ui::iced::Color::WHITE)
         content
     }
 
     fn view_window(&self, id: WindowId) -> Element<'_, Self::Message> {
         let content = match self.windows.get(&id) {
             Some(window) => match &window.kind {
-                WindowKind::Desktop(entity) => {
-                    let mut tab_column = widget::column::with_capacity(3);
-
-                    let tab_view = match self.tab_model.data::<Tab>(*entity) {
-                        Some(tab) => tab
-                            .view(
-                                &self.key_binds,
-                                &window.modifiers,
-                                self.clipboard_has_content(),
-                                &self.config.context_actions,
-                            )
-                            .map(move |message| Message::TabMessage(Some(*entity), message)),
-                        None => widget::space::vertical().into(),
-                    };
-
-                    tab_column = tab_column.push(tab_view);
-
-                    // The toaster is added on top of an empty element to ensure that it does not override context menus
-                    tab_column =
-                        tab_column.push(widget::toaster(&self.toasts, widget::space::horizontal()));
-                    return if let Some(margin) = self.margin.get(&id) {
-                        if margin.0 >= 0. || margin.2 >= 0. {
-                            tab_column = widget::column::with_children([
-                                space::vertical().height(margin.0).into(),
-                                tab_column.into(),
-                                space::vertical().height(margin.2).into(),
-                            ]);
-                        }
-                        if margin.1 >= 0. || margin.3 >= 0. {
-                            Element::from(widget::row::with_children([
-                                space::horizontal().width(margin.1).into(),
-                                tab_column.into(),
-                                space::horizontal().width(margin.3).into(),
-                            ]))
-                        } else {
-                            tab_column.into()
-                        }
-                    } else {
-                        tab_column.into()
-                    };
-                }
-                WindowKind::DesktopViewOptions => self.desktop_view_options(),
                 WindowKind::Dialogs(id) => match self.dialog() {
                     Some(element) => return widget::autosize::autosize(element, id.clone()).into(),
                     None => widget::space::horizontal().into(),
@@ -6593,12 +5927,14 @@ impl Application for App {
                 },
             },
             None => {
-                //TODO: distinct views per monitor in desktop mode
                 return self.view_main().map(|message| match message {
-                    cosmic::Action::App(app) => app,
-                    cosmic::Action::Cosmic(cosmic) => Message::Cosmic(cosmic),
-                    cosmic::Action::Surface(action) => Message::Surface(action),
-                    cosmic::Action::None => Message::None,
+                    crate::ui::Action::App(app) => app,
+                    crate::ui::Action::Cosmic(cosmic) => Message::Cosmic(cosmic),
+                    crate::ui::Action::Surface(action) => Message::Surface(action),
+                    // Intercepted by `TryInto` before the daemon ever calls
+                    // `update`, exactly as in `ui::shell::runner::update`;
+                    // this arm exists only because the match must be total.
+                    crate::ui::Action::Exwl(_) | crate::ui::Action::None => Message::None,
                 });
             }
         };
@@ -6609,27 +5945,13 @@ impl Application for App {
         ))
         .width(Length::Fill)
         .height(Length::Fill)
-        .class(theme::Container::WindowBackground)
+        .class(Container::WindowBackground)
         .into()
-    }
-
-    fn system_theme_update(
-        &mut self,
-        _keys: &[&'static str],
-        _new_theme: &cosmic::cosmic_theme::Theme,
-    ) -> Task<Self::Message> {
-        self.update(Message::SystemThemeModeChange)
     }
 
     fn subscription(&self) -> Subscription<Self::Message> {
         struct WatcherSubscription;
         struct TrashWatcherSubscription;
-        struct TimeSubscription;
-        #[cfg(all(
-            not(feature = "desktop-applet"),
-            not(target_os = "ios"),
-            not(target_os = "android")
-        ))]
         struct RecentsWatcherSubscription;
 
         let mut subscriptions = vec![
@@ -6654,55 +5976,15 @@ impl Application for App {
                 Event::Keyboard(KeyEvent::ModifiersChanged(modifiers)) => {
                     Some(Message::ModifiersChanged(window_id, modifiers))
                 }
-                #[cfg(all(feature = "wayland", feature = "desktop-applet"))]
-                Event::Window(WindowEvent::Focused) => Some(Message::Focused(window_id)),
-                #[cfg(not(all(feature = "wayland", feature = "desktop-applet")))]
                 Event::Window(WindowEvent::Focused) => Some(Message::CheckClipboard),
                 Event::Window(WindowEvent::CloseRequested) => Some(Message::WindowClose),
                 Event::Window(WindowEvent::Opened { position: _, size }) => {
                     Some(Message::Size(window_id, size))
                 }
                 Event::Window(WindowEvent::Resized(s)) => Some(Message::Size(window_id, s)),
-                #[cfg(all(feature = "wayland", feature = "desktop-applet"))]
-                Event::PlatformSpecific(event::PlatformSpecific::Wayland(wayland_event)) => {
-                    match wayland_event {
-                        WaylandEvent::Output(output_event, output) => {
-                            Some(Message::OutputEvent(output_event, output))
-                        }
-                        #[cfg(feature = "desktop")]
-                        WaylandEvent::OverlapNotify(event, ..) => {
-                            Some(Message::Overlap(window_id, event))
-                        }
-                        _ => None,
-                    }
-                }
                 _ => None,
             }),
-            Config::subscription().map(|update| {
-                if !update.errors.is_empty() {
-                    log::info!(
-                        "errors loading config {:?}: {:?}",
-                        update.keys,
-                        update.errors
-                    );
-                }
-                Message::Config(update.config)
-            }),
-            cosmic_config::config_subscription::<_, TimeConfig>(
-                TypeId::of::<TimeSubscription>(),
-                TIME_CONFIG_ID.into(),
-                1,
-            )
-            .map(|update| {
-                if !update.errors.is_empty() {
-                    log::info!(
-                        "errors loading time config {:?}: {:?}",
-                        update.keys,
-                        update.errors
-                    );
-                }
-                Message::TimeConfigChange(update.config)
-            }),
+            self.config_handler.subscription::<Config>().map(Message::Config),
             Subscription::run_with(TypeId::of::<WatcherSubscription>(), |_| {
                 stream::channel(
                     100,
@@ -6863,11 +6145,6 @@ impl Application for App {
                     },
                 )
             }),
-            #[cfg(all(
-                not(feature = "desktop-applet"),
-                not(target_os = "ios"),
-                not(target_os = "android")
-            ))]
             Subscription::run_with(TypeId::of::<RecentsWatcherSubscription>(), |_| {
                 stream::channel(
                     1,
@@ -6971,7 +6248,7 @@ impl Application for App {
                     .any(|(_, controller)| !controller.is_paused())
                 {
                     subscriptions.push(
-                        cosmic::iced::time::every(Duration::from_millis(100))
+                        crate::ui::iced::time::every(Duration::from_millis(100))
                             .map(|_| Message::None),
                     );
                 }
@@ -7020,24 +6297,10 @@ impl Application for App {
         }
 
         let mut selected_previews = Vec::new();
-        match self.mode {
-            Mode::App => {
-                if self.core.window.show_context
-                    && let ContextPage::Preview(entity_opt, PreviewKind::Selected) =
-                        self.context_page
-                {
-                    selected_previews
-                        .push(Some(entity_opt.unwrap_or_else(|| self.tab_model.active())));
-                }
-            }
-            Mode::Desktop => {
-                for window_kind in self.windows.values().map(|window| &window.kind) {
-                    if let WindowKind::Preview(entity_opt, _) = window_kind {
-                        selected_previews
-                            .push(Some(entity_opt.unwrap_or_else(|| self.tab_model.active())));
-                    }
-                }
-            }
+        if self.core.window.show_context
+            && let ContextPage::Preview(entity_opt, PreviewKind::Selected) = self.context_page
+        {
+            selected_previews.push(Some(entity_opt.unwrap_or_else(|| self.tab_model.active())));
         }
 
         subscriptions.extend(self.tab_model.iter().filter_map(|entity| {
@@ -7245,7 +6508,9 @@ pub(crate) mod test_utils {
             TabConfig::default(),
             ThumbCfg::default(),
             None,
-            widget::Id::unique(),
+            // The fork's `Display for Id` printed "Undefined" for a unique
+            // id, so that is the name this preview tab was already getting.
+            std::borrow::Cow::Borrowed("Undefined"),
             None,
         );
         tab.parent_item_opt = parent_item_opt;
@@ -7269,16 +6534,7 @@ pub(crate) mod test_utils {
 
         // NOTE: I don't want to change `tab::hidden_attribute` to `pub(crate)` for
         // tests without asking
-        #[cfg(not(target_os = "windows"))]
         let is_hidden = name.starts_with('.');
-
-        #[cfg(target_os = "windows")]
-        let is_hidden = {
-            use std::os::windows::fs::MetadataExt;
-            const FILE_ATTRIBUTE_HIDDEN: u32 = 2;
-            let metadata = path.metadata().expect("fetching file metadata");
-            metadata.file_attributes() & FILE_ATTRIBUTE_HIDDEN == FILE_ATTRIBUTE_HIDDEN
-        };
 
         name == item.name
             && is_dir == item.metadata.is_dir()

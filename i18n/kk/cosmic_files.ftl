@@ -331,3 +331,5 @@ rename-confirm = Атын өзгерту
 checksum = { $kind } бақылау сомасы
 calculate = Есептеу
 error = Қате
+
+close = Жабу

@@ -8,3 +8,5 @@ skip = Hopp over
 name = Namn
 save = Lagra
 delete = Slett
+
+close = Lukk

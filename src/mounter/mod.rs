@@ -1,5 +1,5 @@
-use cosmic::iced::Subscription;
-use cosmic::{Task, widget};
+use crate::ui::iced::Subscription;
+use crate::ui::{Task, widget};
 use std::collections::BTreeMap;
 use std::fmt;
 use std::path::PathBuf;
@@ -83,6 +83,15 @@ impl MounterItem {
         }
     }
 
+    /// Path of this item's icon; see `gvfs::Item::icon_path`.
+    pub fn icon_path(&self, symbolic: bool) -> Option<PathBuf> {
+        match self {
+            #[cfg(feature = "gvfs")]
+            Self::Gvfs(item) => item.icon_path(symbolic),
+            Self::None => unreachable!(),
+        }
+    }
+
     pub fn path(&self) -> Option<PathBuf> {
         match self {
             #[cfg(feature = "gvfs")]
@@ -111,7 +120,6 @@ pub enum MounterMessage {
 }
 
 pub trait Mounter: Send + Sync {
-    fn items(&self, sizes: IconSizes) -> Option<MounterItems>;
     //TODO: send result
     fn mount(&self, item: MounterItem) -> Task<()>;
     fn network_drive(&self, uri: String) -> Task<bool>;

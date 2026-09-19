@@ -28,7 +28,7 @@ impl OpReader {
 
 impl io::Read for OpReader {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        cosmic::iced::futures::executor::block_on(async {
+        crate::ui::iced::futures::executor::block_on(async {
             self.controller
                 .check()
                 .await

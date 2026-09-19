@@ -1,6 +1,6 @@
-use cosmic::iced::futures::SinkExt;
-use cosmic::iced::{Subscription, stream};
-use cosmic::{Task, widget};
+use crate::ui::iced::futures::SinkExt;
+use crate::ui::iced::{Subscription, stream};
+use crate::ui::{Task, widget};
 use gio::glib;
 use gio::prelude::*;
 use std::any::TypeId;
@@ -314,7 +314,6 @@ fn mount_op(
 }
 
 enum Cmd {
-    Items(IconSizes, mpsc::Sender<MounterItems>),
     Rescan,
     Mount(
         MounterItem,
@@ -378,13 +377,21 @@ impl Item {
         self.uri.clone()
     }
 
-    pub fn icon(&self, symbolic: bool) -> Option<widget::icon::Handle> {
+    /// Path of this item's icon.
+    ///
+    /// Split out of `icon()` so `src/dialog.rs`, which is still built on
+    /// libcosmic's `Application` and so needs libcosmic's `icon::Handle`, can
+    /// build its handle from the same path.
+    pub fn icon_path(&self, symbolic: bool) -> Option<PathBuf> {
         if symbolic {
-            self.icon_symbolic_opt.as_ref()
+            self.icon_symbolic_opt.clone()
         } else {
-            self.icon_opt.as_ref()
+            self.icon_opt.clone()
         }
-        .map(|icon| widget::icon::from_path(icon.clone()))
+    }
+
+    pub fn icon(&self, symbolic: bool) -> Option<widget::icon::Handle> {
+        self.icon_path(symbolic).map(widget::icon::from_path)
     }
 
     pub fn path(&self) -> Option<PathBuf> {
@@ -466,9 +473,6 @@ impl Gvfs {
 
                 while let Some(command) = command_rx.recv().await {
                     match command {
-                        Cmd::Items(sizes, items_tx) => {
-                            items_tx.send(items(&monitor, sizes)).await.unwrap();
-                        }
                         Cmd::Rescan => {
                             let Some(event_tx) = event_tx.upgrade() else {
                                 return;
@@ -666,12 +670,6 @@ impl Gvfs {
 }
 
 impl Mounter for Gvfs {
-    fn items(&self, sizes: IconSizes) -> Option<MounterItems> {
-        let (items_tx, mut items_rx) = mpsc::channel(1);
-        self.command_tx.send(Cmd::Items(sizes, items_tx)).unwrap();
-        items_rx.blocking_recv()
-    }
-
     fn mount(&self, item: MounterItem) -> Task<()> {
         let command_tx = self.command_tx.clone();
         Task::perform(
@@ -760,7 +758,7 @@ impl Mounter for Gvfs {
                 let event_rx = event_rx.clone();
                 stream::channel(
                     1,
-                    move |mut output: cosmic::iced::futures::channel::mpsc::Sender<
+                    move |mut output: crate::ui::iced::futures::channel::mpsc::Sender<
                         MounterMessage,
                     >| async move {
                         command_tx.send(Cmd::Rescan).unwrap();

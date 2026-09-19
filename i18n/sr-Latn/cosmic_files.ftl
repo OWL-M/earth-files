@@ -57,3 +57,5 @@ cancel = Poništi
 zoom-in = Uvećaj
 default-size = Podrazumevana veličina
 zoom-out = Umanji
+
+close = Zatvori

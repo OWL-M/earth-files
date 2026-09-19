@@ -1,6 +1,6 @@
 use crate::mime_icon::mime_for_path;
 use crate::operation::{Controller, OpReader, OperationError, OperationErrorType};
-use cosmic::iced::futures;
+use crate::ui::iced::futures;
 use jiff::Zoned;
 use jiff::civil::DateTime;
 use jiff::tz::TimeZone;
@@ -129,15 +129,12 @@ fn zip_extract<R: io::Read + io::Seek, P: AsRef<Path>>(
             target_dirs.insert(path.to_path_buf());
         }
 
-        #[cfg(unix)]
-        {
-            // Dirs must be writable until all normal files are extracted
-            use std::os::unix::fs::PermissionsExt;
-            fs::set_permissions(
-                path,
-                fs::Permissions::from_mode(0o700 | fs::metadata(path)?.permissions().mode()),
-            )?;
-        }
+        // Dirs must be writable until all normal files are extracted
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(
+            path,
+            fs::Permissions::from_mode(0o700 | fs::metadata(path)?.permissions().mode()),
+        )?;
         Ok(())
     }
 
@@ -145,7 +142,6 @@ fn zip_extract<R: io::Read + io::Seek, P: AsRef<Path>>(
     let total_files = archive.len();
     let mut written_files = Vec::with_capacity(total_files);
     let mut target_dirs = HashSet::new();
-    #[cfg(unix)]
     let mut files_by_unix_mode = Vec::with_capacity(total_files);
     let mut files_by_last_modified = Vec::with_capacity(total_files);
 
@@ -177,7 +173,6 @@ fn zip_extract<R: io::Read + io::Seek, P: AsRef<Path>>(
         if file.is_dir() {
             make_writable_dir_all(&outpath, &mut target_dirs)?;
 
-            #[cfg(unix)]
             if let Some(mode) = file.unix_mode() {
                 files_by_unix_mode.push((outpath, mode));
             }
@@ -188,44 +183,12 @@ fn zip_extract<R: io::Read + io::Seek, P: AsRef<Path>>(
             make_writable_dir_all(parent, &mut target_dirs)?;
         }
 
-        if file.is_symlink() && (cfg!(unix) || cfg!(windows)) {
+        if file.is_symlink() {
             let mut target = Vec::with_capacity(file.size() as usize);
             file.read_to_end(&mut target)?;
-            // File no longer needed, drop to allow reading target on windows
-            drop(file);
-
-            #[cfg(unix)]
-            {
-                use std::os::unix::ffi::OsStringExt;
-                let target = OsString::from_vec(target);
-                std::os::unix::fs::symlink(&target, outpath.as_path())?;
-            }
-            #[cfg(windows)]
-            {
-                let Ok(target) = String::from_utf8(target) else {
-                    return Err(ZipError::InvalidArchive(
-                        "Invalid UTF-8 as symlink target".into(),
-                    ));
-                };
-                let target_is_dir_from_archive = match password {
-                    None => archive.by_name(&target),
-                    Some(pwd) => archive.by_name_decrypt(&target, pwd.as_bytes()),
-                }
-                .map_or(false, |x| x.is_dir());
-                let target_path = directory.as_ref().join(OsString::from(target.to_string()));
-                let target_is_dir = if target_is_dir_from_archive {
-                    true
-                } else if let Ok(meta) = std::fs::metadata(&target_path) {
-                    meta.is_dir()
-                } else {
-                    false
-                };
-                if target_is_dir {
-                    std::os::windows::fs::symlink_dir(target_path, outpath.as_path())?;
-                } else {
-                    std::os::windows::fs::symlink_file(target_path, outpath.as_path())?;
-                }
-            }
+            use std::os::unix::ffi::OsStringExt;
+            let target = OsString::from_vec(target);
+            std::os::unix::fs::symlink(&target, outpath.as_path())?;
 
             written_files.push(outpath);
             continue;
@@ -257,25 +220,21 @@ fn zip_extract<R: io::Read + io::Seek, P: AsRef<Path>>(
         }
 
         // Check for real permissions, which we'll set in a second pass
-        #[cfg(unix)]
         if let Some(mode) = file.unix_mode() {
             files_by_unix_mode.push((outpath.clone(), mode));
         }
 
         written_files.push(outpath);
     }
-    #[cfg(unix)]
-    {
-        use std::cmp::Reverse;
-        use std::os::unix::fs::PermissionsExt;
+    use std::cmp::Reverse;
+    use std::os::unix::fs::PermissionsExt;
 
-        if files_by_unix_mode.len() > 1 {
-            // Ensure we update children's permissions before making a parent unwritable
-            files_by_unix_mode.sort_by_key(|(path, _)| Reverse(path.components().count()));
-        }
-        for (path, mode) in files_by_unix_mode {
-            fs::set_permissions(&path, fs::Permissions::from_mode(mode))?;
-        }
+    if files_by_unix_mode.len() > 1 {
+        // Ensure we update children's permissions before making a parent unwritable
+        files_by_unix_mode.sort_by_key(|(path, _)| Reverse(path.components().count()));
+    }
+    for (path, mode) in files_by_unix_mode {
+        fs::set_permissions(&path, fs::Permissions::from_mode(mode))?;
     }
 
     for (path, last_modified) in files_by_last_modified {

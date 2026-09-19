@@ -395,3 +395,5 @@ error = Помилка
 sidebar-label = Назва бічної панелі
 search-application = Пошук за назвою застосунку
 change-sidebar-label = Змінити назву бічної панелі
+
+close = Закрити

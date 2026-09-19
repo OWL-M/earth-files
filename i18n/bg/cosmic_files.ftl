@@ -420,3 +420,5 @@ sort-newest-first = Най-новите първи
 sort-oldest-first = Най-старите първи
 sort-smallest-to-largest = Най-малките до най-големите
 sort-largest-to-smallest = Най-големите до най-малките
+
+close = Затваряне

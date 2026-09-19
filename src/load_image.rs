@@ -1,4 +1,5 @@
-use cosmic::iced::{core as iced_core, widget as iced_widget};
+use crate::ui::iced::widget as iced_widget;
+use crate::ui::iced_core;
 use iced_core::event::Event;
 use iced_core::widget::{Operation, Tree};
 use iced_core::{
@@ -7,11 +8,11 @@ use iced_core::{
 };
 
 pub fn loaded_image<'a, Message: 'static, Theme>(
-    handle: <cosmic::Renderer as iced_core::image::Renderer>::Handle,
-) -> LoadedImage<'a, Message, Theme, cosmic::Renderer>
+    handle: <crate::ui::Renderer as iced_core::image::Renderer>::Handle,
+) -> LoadedImage<'a, Message, Theme, crate::ui::Renderer>
 where
     Theme: iced_widget::container::Catalog,
-    <Theme as iced_widget::container::Catalog>::Class<'a>: From<cosmic::theme::Container<'a>>,
+    <Theme as iced_widget::container::Catalog>::Class<'a>: From<crate::ui::theme::Container<'a>>,
 {
     LoadedImage::new(handle)
 }
@@ -27,7 +28,7 @@ where
     Renderer: iced_core::Renderer + iced_core::image::Renderer,
 {
     handle: <Renderer as iced_core::image::Renderer>::Handle,
-    content: cosmic::iced::Element<'a, Message, Theme, Renderer>,
+    content: crate::ui::iced::Element<'a, Message, Theme, Renderer>,
 }
 
 impl<'a, Message, Theme, Renderer> LoadedImage<'a, Message, Theme, Renderer>
@@ -39,7 +40,7 @@ where
     pub(crate) fn new(handle: <Renderer as iced_core::image::Renderer>::Handle) -> Self {
         LoadedImage {
             handle: handle.clone(),
-            content: cosmic::widget::Image::new(handle).into(),
+            content: crate::ui::widget::Image::new(handle).into(),
         }
     }
 }
@@ -53,8 +54,8 @@ where
         vec![Tree::new(&self.content)]
     }
 
-    fn diff(&mut self, tree: &mut Tree) {
-        tree.diff_children(std::slice::from_mut(&mut self.content));
+    fn diff(&self, tree: &mut Tree) {
+        tree.diff_children(std::slice::from_ref(&self.content));
     }
 
     fn size(&self) -> iced_core::Size<Length> {
@@ -89,8 +90,7 @@ where
                 layout
                     .children()
                     .next()
-                    .unwrap()
-                    .with_virtual_offset(layout.virtual_offset()),
+                    .unwrap(),
                 renderer,
                 operation,
             );
@@ -114,8 +114,7 @@ where
             layout
                 .children()
                 .next()
-                .unwrap()
-                .with_virtual_offset(layout.virtual_offset()),
+                .unwrap(),
             cursor_position,
             renderer,
             clipboard,
@@ -135,7 +134,7 @@ where
         let content_layout = layout.children().next().unwrap();
         self.content.as_widget().mouse_interaction(
             &tree.children[0],
-            content_layout.with_virtual_offset(layout.virtual_offset()),
+            content_layout,
             cursor_position,
             viewport,
             renderer,
@@ -161,7 +160,7 @@ where
             renderer,
             theme,
             renderer_style,
-            content_layout.with_virtual_offset(layout.virtual_offset()),
+            content_layout,
             cursor_position,
             viewport,
         );
@@ -180,28 +179,11 @@ where
             layout
                 .children()
                 .next()
-                .unwrap()
-                .with_virtual_offset(layout.virtual_offset()),
+                .unwrap(),
             renderer,
             viewport,
             translation,
         )
-    }
-
-    fn drag_destinations(
-        &self,
-        state: &Tree,
-        layout: Layout<'_>,
-        renderer: &Renderer,
-        dnd_rectangles: &mut iced_core::clipboard::DndDestinationRectangles,
-    ) {
-        let content_layout = layout.children().next().unwrap();
-        self.content.as_widget().drag_destinations(
-            &state.children[0],
-            content_layout.with_virtual_offset(layout.virtual_offset()),
-            renderer,
-            dnd_rectangles,
-        );
     }
 }
 

@@ -1,4 +1,4 @@
-use cosmic::widget;
+use crate::ui::widget;
 use image::ImageReader;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -186,9 +186,8 @@ fn calculate_image_memory(width: u32, height: u32) -> Option<u64> {
     pixels.checked_mul(RGBA_BYTES_PER_PIXEL)
 }
 
-/// Check if there's sufficient system RAM to decode an image (Linux only).
+/// Check if there's sufficient system RAM to decode an image.
 /// Returns: (has_memory, error_message)
-#[cfg(target_os = "linux")]
 fn check_ram_available(width: u32, height: u32) -> (bool, Option<String>) {
     use procfs::Current;
 
@@ -232,12 +231,6 @@ fn check_ram_available(width: u32, height: u32) -> (bool, Option<String>) {
             (true, None)
         }
     }
-}
-
-#[cfg(not(target_os = "linux"))]
-fn check_ram_available(_width: u32, _height: u32) -> (bool, Option<String>) {
-    // RAM checking not implemented for this platform
-    (true, None)
 }
 
 pub fn check_memory_available(width: u32, height: u32) -> (bool, Option<String>) {

@@ -324,3 +324,5 @@ run = Paleisti
 rename-confirm = Pervadinti
 calculate = Skaičiuoti
 error = Klaida
+
+close = Uždaryti

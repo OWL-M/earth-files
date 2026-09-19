@@ -1,6 +1,6 @@
-use cosmic::iced::core::keyboard::key::Named;
-use cosmic::iced::keyboard::Key;
-use cosmic::widget::menu::key_bind::{KeyBind, Modifier};
+use crate::ui::iced_core::keyboard::key::Named;
+use crate::ui::iced::keyboard::Key;
+use crate::ui::widget::menu::key_bind::{KeyBind, Modifier};
 use std::collections::HashMap;
 
 use crate::app::Action;
@@ -66,10 +66,6 @@ pub fn key_binds(mode: &tab::Mode) -> HashMap<KeyBind, Action> {
         bind!([Ctrl, Shift], Key::Named(Named::Tab), TabPrev);
         bind!([Ctrl], Key::Character("q".into()), WindowClose);
         bind!([Ctrl], Key::Character("n".into()), WindowNew);
-    }
-
-    // App and desktop only keys
-    if matches!(mode, tab::Mode::App | tab::Mode::Desktop) {
         bind!([Ctrl], Key::Character("c".into()), Copy);
         bind!([Ctrl, Shift], Key::Character("c".into()), CopyPath);
         bind!([Ctrl], Key::Character("x".into()), Cut);

@@ -320,3 +320,5 @@ move-to = Smutti ɣer…
 show-recents = Akaram n melmi kan deg ufeggag adisan
 clear-recents-history = Sfeḍ azray n melmi kan
 copy-path = Nɣel abrid
+
+close = Mdel

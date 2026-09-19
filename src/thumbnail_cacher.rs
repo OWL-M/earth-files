@@ -4,7 +4,6 @@ use rustc_hash::FxHashMap;
 use std::error::Error;
 use std::fs::{self, File};
 use std::io::{self, BufReader, BufWriter};
-#[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
@@ -92,7 +91,6 @@ impl ThumbnailCacher {
     }
 
     pub fn update_with_temp_file(&self, temp_file: NamedTempFile) -> Result<&Path, Box<dyn Error>> {
-        #[cfg(unix)]
         fs::set_permissions(temp_file.path(), fs::Permissions::from_mode(0o600))?;
         self.update_thumbnail_text_metadata(temp_file.path())?;
         fs::rename(temp_file.path(), &self.thumbnail_path)?;
@@ -127,7 +125,6 @@ impl ThumbnailCacher {
     pub fn create_fail_marker(&self) -> Result<(), Box<dyn Error>> {
         if let Some(dir) = self.thumbnail_fail_marker_path.parent() {
             fs::create_dir_all(dir)?;
-            #[cfg(unix)]
             fs::set_permissions(dir, fs::Permissions::from_mode(0o700))?;
         }
 
@@ -306,9 +303,11 @@ fn thumbnail_uri(path: &Path) -> io::Result<String> {
 }
 
 fn thumbnail_cache_filename(file_uri: &str) -> String {
-    let hash = Md5::digest(file_uri);
-    format!("{hash:x}.png")
+    // Gnome Files computes the same freedesktop thumbnail cache key. A different
+    // filename would silently prevent cache sharing.
+    format!("{}.png", crate::hex::lower(Md5::digest(file_uri)))
 }
+
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 #[repr(u32)]
@@ -367,3 +366,20 @@ static THUMBNAIL_CACHE_BASE_DIR: LazyLock<Option<PathBuf>> = LazyLock::new(|| {
 
     None
 });
+
+#[cfg(test)]
+mod md5_name_tests {
+    use super::thumbnail_cache_filename;
+
+    /// The freedesktop thumbnail filename is the lowercase hex MD5 of the file URI.
+    /// Other file managers compute the same name, so changing it would silently prevent
+    /// cache sharing. Reference value from `printf 'file:///home/user/test.png' |
+    /// md5sum`.
+    #[test]
+    fn cache_filename_is_lowercase_hex_md5_of_the_uri() {
+        assert_eq!(
+            thumbnail_cache_filename("file:///home/user/test.png"),
+            "03223f4f10458a8b5d14327f3ae23136.png"
+        );
+    }
+}

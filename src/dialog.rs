@@ -1,23 +1,24 @@
 // Copyright 2023 System76 <info@system76.com>
 // SPDX-License-Identifier: GPL-3.0-only
 
-use cosmic::app::cosmic::Cosmic;
-use cosmic::app::{Core, Task, context_drawer};
-use cosmic::iced::core::SmolStr;
-use cosmic::iced::core::widget::operation;
-use cosmic::iced::futures::{self, SinkExt};
-use cosmic::iced::keyboard::key::{Named, Physical};
-use cosmic::iced::keyboard::{Event as KeyEvent, Key, Modifiers};
-use cosmic::iced::platform_specific::shell::{self as iced_winit, SurfaceIdWrapper};
-use cosmic::iced::widget::scrollable;
-use cosmic::iced::widget::scrollable::AbsoluteOffset;
-use cosmic::iced::{
+use crate::ui::app::Task;
+use crate::ui::shell::context_drawer;
+use crate::ui::iced_core::SmolStr;
+use crate::ui::iced_core::widget::operation;
+use crate::ui::iced::futures::{self, SinkExt};
+use crate::ui::iced::keyboard::key::{Named, Physical};
+use crate::ui::iced::keyboard::{Event as KeyEvent, Key, Modifiers};
+use crate::ui::widget::scrollable;
+use crate::ui::widget::scrollable::AbsoluteOffset;
+use crate::ui::iced::{
     self, Alignment, Event, Length, Size, Subscription, event, mouse, stream, window,
 };
-use cosmic::widget::menu::key_bind::Modifier;
-use cosmic::widget::menu::{Action as MenuAction, KeyBind};
-use cosmic::widget::{self, Operation, segmented_button};
-use cosmic::{Application, ApplicationExt, Element, cosmic_config, cosmic_theme, executor, theme};
+use crate::ui::widget::menu::key_bind::Modifier;
+use crate::ui::widget::menu::{Action as MenuAction, KeyBind};
+use crate::ui::iced_core::widget::Operation;
+use crate::ui::widget::{self, segmented_button};
+use crate::ui::shell::{Application, Core, Shell};
+use crate::ui::Element;
 use mime_guess::{Mime, mime};
 use notify_debouncer_full::notify::{self, RecommendedWatcher};
 use notify_debouncer_full::{DebouncedEvent, Debouncer, RecommendedCache, new_debouncer};
@@ -32,16 +33,18 @@ use std::{env, fmt, fs};
 use crate::app::{
     Action, ContextPage, Message as AppMessage, PreviewItem, PreviewKind, REPLACE_BUTTON_ID,
 };
-use crate::config::{Config, DialogConfig, TIME_CONFIG_ID, ThumbCfg, TimeConfig, TypeToSearch};
+use crate::config::{Config, DialogConfig, Store, ThumbCfg, TypeToSearch};
 use crate::key_bind::key_binds;
 use crate::localize::LANGUAGE_SORTER;
 use crate::mounter::{MOUNTERS, MounterItem, MounterItems, MounterKey, MounterMessage};
 use crate::tab::{self, ItemMetadata, Location, SearchLocation, Tab};
 use crate::zoom::{zoom_in_view, zoom_out_view, zoom_to_default};
 use crate::{fl, home_dir, menu, mime_icon};
+use crate::ui::theme::{Container, Layer, Spacing, spacing};
+use crate::ui::convert::{ToLength, ToPixels};
 
 #[derive(Clone, Debug)]
-pub struct DialogMessage(cosmic::Action<Message>);
+pub struct DialogMessage(crate::ui::Action<Message>);
 
 #[derive(Clone, Debug)]
 pub enum DialogResult {
@@ -189,12 +192,12 @@ impl<T: AsRef<str>> From<T> for DialogLabel {
 
 impl<'a, M: Clone + 'static> From<&'a DialogLabel> for Element<'a, M> {
     fn from(label: &'a DialogLabel) -> Self {
-        let mut iced_spans: Vec<cosmic::iced::core::text::Span<'_, ()>> =
+        let mut iced_spans: Vec<crate::ui::iced_core::text::Span<'_, ()>> =
             Vec::with_capacity(label.spans.len());
         for span in &label.spans {
-            iced_spans.push(cosmic::iced::widget::span(&span.text).underline(span.underline));
+            iced_spans.push(crate::ui::iced::widget::span(&span.text).underline(span.underline));
         }
-        cosmic::iced::widget::rich_text(iced_spans).into()
+        crate::ui::iced::widget::rich_text(iced_spans).into()
     }
 }
 
@@ -236,7 +239,7 @@ impl Default for DialogSettings {
 }
 
 pub struct Dialog<M> {
-    cosmic: Cosmic<App>,
+    shell: Shell<App>,
     mapper: fn(DialogMessage) -> M,
     on_result: Box<dyn Fn(DialogResult) -> M>,
 }
@@ -251,6 +254,10 @@ impl<M: Send + 'static> Dialog<M> {
         crate::localize::localize();
 
         let (config_handler, config) = Config::load();
+        // See the same call in `lib.rs`: the dialog can be built by a host that
+        // never went through `crate::main`.
+        crate::ui::font::set_families(&config);
+        crate::ui::icon_theme::set_from_config(&config);
 
         let mut settings = window::Settings {
             decorations: false,
@@ -262,12 +269,26 @@ impl<M: Send + 'static> Dialog<M> {
             ..Default::default()
         };
 
-        #[cfg(target_os = "linux")]
-        {
-            settings.platform_specific.application_id = dialog_settings.app_id;
-        }
+        settings.platform_specific.application_id = dialog_settings.app_id;
 
-        let (window_id, window_command) = window::open(settings);
+        // Create the surface through exwlshell's action, as `ui::shell::runner` does
+        // for the main window. `iced_exwlshell`'s `Action::Window` dispatcher has no
+        // `Open` arm and ends in `_ => {}`, so it silently discards `window::open`
+        // requests. That prevented the "Move to…", "Copy to…" and "Extract to…" dialogs
+        // from appearing.
+        let window_id = crate::ui::iced::window::Id::unique();
+        let window_command = iced::Task::done(crate::ui::action::exwl::base_window(
+            window_id,
+            iced_exwlshell::actions::IcedXdgWindowSettings {
+                size: Some(iced_exwlshell::reexport::PixelSize::px(
+                    settings.size.width.max(1.0) as u32,
+                    settings.size.height.max(1.0) as u32,
+                )),
+                // `settings.decorations = false` above asks for no server-side
+                // decorations, i.e. this window draws its own header bar.
+                client_side_decorations: true,
+            },
+        ));
 
         let mut core = Core::default();
         core.set_main_window_id(Some(window_id));
@@ -287,46 +308,50 @@ impl<M: Send + 'static> Dialog<M> {
             config,
         };
 
-        let (cosmic, cosmic_command) = Cosmic::<App>::init((core, flags));
+        // The nested shell renders into the outer application's daemon, so
+        // its own `theme()`/`style()` are never called; the theme it is handed
+        // here is only what its config watchers update. The active toolkit
+        // theme is what `Cosmic` read out of libcosmic's global `THEME`.
+        let (shell, shell_command) = Shell::<App>::init(core, flags, crate::ui::theme::active());
         (
             Self {
-                cosmic,
+                shell,
                 mapper,
                 on_result: Box::new(on_result),
             },
             Task::batch([
-                window_command.map(|_id| cosmic::action::none()),
-                cosmic_command
+                window_command,
+                shell_command
                     .map(DialogMessage)
-                    .map(move |message| cosmic::action::app(mapper(message))),
+                    .map(move |message| crate::ui::action::app(mapper(message))),
             ]),
         )
     }
 
     pub fn set_title(&mut self, title: impl Into<String>) -> Task<M> {
         let mapper = self.mapper;
-        self.cosmic.app.title = title.into();
-        self.cosmic
+        self.shell.app.title = title.into();
+        self.shell
             .app
             .update_title()
             .map(DialogMessage)
-            .map(move |message| cosmic::action::app(mapper(message)))
+            .map(move |message| crate::ui::action::app(mapper(message)))
     }
 
     pub fn set_accept_label(&mut self, accept_label: impl AsRef<str>) {
-        self.cosmic.app.accept_label = DialogLabel::from(accept_label);
+        self.shell.app.accept_label = DialogLabel::from(accept_label);
     }
 
     pub fn choices(&self) -> &[DialogChoice] {
-        &self.cosmic.app.choices
+        &self.shell.app.choices
     }
 
     pub fn set_choices(&mut self, choices: impl Into<Vec<DialogChoice>>) {
-        self.cosmic.app.choices = choices.into();
+        self.shell.app.choices = choices.into();
     }
 
     pub fn filters(&self) -> (&[DialogFilter], Option<usize>) {
-        (&self.cosmic.app.filters, self.cosmic.app.filter_selected)
+        (&self.shell.app.filters, self.shell.app.filter_selected)
     }
 
     pub fn set_filters(
@@ -335,17 +360,17 @@ impl<M: Send + 'static> Dialog<M> {
         filter_selected: Option<usize>,
     ) -> Task<M> {
         let mapper = self.mapper;
-        self.cosmic.app.filters = filters.into();
-        self.cosmic.app.filter_selected = filter_selected;
-        self.cosmic
+        self.shell.app.filters = filters.into();
+        self.shell.app.filter_selected = filter_selected;
+        self.shell
             .app
             .rescan_tab(None)
             .map(DialogMessage)
-            .map(move |message| cosmic::action::app(mapper(message)))
+            .map(move |message| crate::ui::action::app(mapper(message)))
     }
 
     pub fn subscription(&self) -> Subscription<M> {
-        self.cosmic
+        self.shell
             .subscription()
             .map(DialogMessage)
             .with(self.mapper)
@@ -355,44 +380,25 @@ impl<M: Send + 'static> Dialog<M> {
     pub fn update(&mut self, message: DialogMessage) -> Task<M> {
         let mapper = self.mapper;
         let command = self
-            .cosmic
+            .shell
             .update(message.0)
             .map(DialogMessage)
-            .map(move |message| cosmic::action::app(mapper(message)));
-        if let Some(result) = self.cosmic.app.result_opt.take() {
-            #[cfg(feature = "wayland")]
-            if !self.cosmic.surface_views.is_empty() {
+            .map(move |message| crate::ui::action::app(mapper(message)));
+        if let Some(result) = self.shell.app.result_opt.take() {
+            // Every surface our shell tracks is a Wayland popup, so unlike
+            // libcosmic's `surface_views` there is no surface kind to switch
+            // on here.
+            let mut tasks: Vec<Task<M>> = self
+                .shell
+                .popup_view_ids()
+                .map(|id| Task::done(crate::ui::action::exwl::remove_window::<M>(id)))
+                .collect();
+            if !tasks.is_empty() {
                 log::debug!("waiting for surfaces to close...");
-                let mut tasks = Vec::new();
-                for id in self.cosmic.surface_views.iter() {
-                    match id.1.1 {
-                        SurfaceIdWrapper::Window(id) => {
-                            tasks.push(window::close::<M>(id).discard());
-                        }
-                        SurfaceIdWrapper::LayerSurface(id) => {
-                            tasks.push(iced_winit::wayland::commands::layer_surface::destroy_layer_surface::<M>(id).discard());
-                        }
-                        SurfaceIdWrapper::Popup(id) => {
-                            tasks.push(
-                                iced_winit::wayland::commands::popup::destroy_popup::<M>(id)
-                                    .discard(),
-                            );
-                        }
-                        SurfaceIdWrapper::Subsurface(id) => {
-                            tasks.push(
-                                iced_winit::wayland::commands::subsurface::destroy_subsurface::<M>(
-                                    id,
-                                )
-                                .discard(),
-                            );
-                        }
-                        _ => {}
-                    }
-                }
                 let on_result_message = (self.on_result)(result);
 
                 tasks.push(Task::future(async move {
-                    cosmic::action::app(on_result_message)
+                    crate::ui::action::app(on_result_message)
                 }));
                 tasks.push(command);
                 return Task::batch(tasks);
@@ -401,7 +407,7 @@ impl<M: Send + 'static> Dialog<M> {
 
             Task::batch([
                 command,
-                Task::future(async move { cosmic::action::app(on_result_message) }),
+                Task::future(async move { crate::ui::action::app(on_result_message) }),
             ])
         } else {
             command
@@ -409,19 +415,18 @@ impl<M: Send + 'static> Dialog<M> {
     }
 
     pub fn view(&self, window_id: window::Id) -> Element<'_, M> {
-        self.cosmic
+        self.shell
             .view(window_id)
             .map(DialogMessage)
             .map(self.mapper)
     }
 
     pub const fn window_id(&self) -> window::Id {
-        self.cosmic.app.flags.window_id
+        self.shell.app.flags.window_id
     }
 
-    #[cfg(feature = "wayland")]
     pub fn contains_surface(&self, id: &window::Id) -> bool {
-        self.cosmic.surface_views.contains_key(id)
+        self.shell.has_popup_view(id)
     }
 }
 
@@ -436,8 +441,7 @@ struct Flags {
     kind: DialogKind,
     path_opt: Option<PathBuf>,
     window_id: window::Id,
-    #[allow(dead_code)]
-    config_handler: Option<cosmic_config::Config>,
+    config_handler: Store,
     config: Config,
 }
 
@@ -468,7 +472,7 @@ enum Message {
     SearchActivate,
     SearchClear,
     SearchInput(String),
-    Surface(cosmic::surface::Action<Message>),
+    Surface(crate::ui::surface::Action<Message>),
     #[allow(clippy::enum_variant_names)]
     TabMessage(tab::Message),
     TabRescan(
@@ -478,7 +482,6 @@ enum Message {
         Option<Vec<PathBuf>>,
     ),
     TabView(tab::View),
-    TimeConfigChange(TimeConfig),
     ToggleFoldersFirst,
     ToggleShowHidden,
     ZoomDefault,
@@ -490,7 +493,7 @@ impl From<AppMessage> for Message {
     fn from(app_message: AppMessage) -> Self {
         match app_message {
             AppMessage::None => Self::None,
-            AppMessage::Preview(_entity_opt) => Self::Preview,
+            AppMessage::Preview => Self::Preview,
             AppMessage::SearchActivate => Self::SearchActivate,
             AppMessage::ScrollTab(scroll_speed) => Self::ScrollTab(scroll_speed),
             AppMessage::TabMessage(_entity_opt, tab_message) => Self::TabMessage(tab_message),
@@ -565,17 +568,17 @@ struct App {
 
 impl App {
     fn button_view(&self) -> Element<'_, Message> {
-        let cosmic_theme::Spacing {
+        let Spacing {
             space_xxxs,
             space_xxs,
             space_xs,
             space_s,
             space_l,
             ..
-        } = theme::spacing();
+        } = spacing();
         let is_condensed = self.core().is_condensed();
 
-        let mut col = widget::column::with_capacity(2).spacing(space_xxs);
+        let mut col = widget::Column::with_capacity(2).spacing(space_xxs.to_pixels());
         if let DialogKind::SaveFile { filename } = &self.flags.kind {
             col = col.push(
                 widget::text_input("", filename)
@@ -586,13 +589,13 @@ impl App {
             );
         }
 
-        let mut row = widget::row::with_capacity(
+        let mut row = widget::Row::with_capacity(
             usize::from(!self.filters.is_empty())
                 + self.choices.len() * 2
                 + if is_condensed { 0 } else { 3 },
         )
         .align_y(Alignment::Center)
-        .spacing(space_xxs);
+        .spacing(space_xxs.to_pixels());
         if !self.filters.is_empty() {
             row = row.push(widget::dropdown(
                 &self.filters,
@@ -627,9 +630,9 @@ impl App {
 
         if is_condensed {
             col = col.push(row);
-            row = widget::row::with_capacity(3)
+            row = widget::Row::with_capacity(3)
                 .align_y(Alignment::Center)
-                .spacing(space_xxs);
+                .spacing(space_xxs.to_pixels());
         }
         row = row.push(widget::space::horizontal());
         row = row.push(widget::button::standard(fl!("cancel")).on_press(Message::Cancel));
@@ -646,11 +649,11 @@ impl App {
         row = row.push(
             //TODO: easier way to create buttons with rich text
             widget::button::custom(
-                widget::row::with_children([Element::from(&self.accept_label)])
+                widget::Row::with_children([Element::from(&self.accept_label)])
                     .padding([0, space_s])
                     .width(Length::Shrink)
-                    .height(space_l)
-                    .spacing(space_xxxs)
+                    .height(space_l.to_length())
+                    .spacing(space_xxxs.to_pixels())
                     .align_y(Alignment::Center)
             )
             .padding(0)
@@ -672,23 +675,22 @@ impl App {
         col = col.push(row);
 
         widget::layer_container(col)
-            .layer(cosmic_theme::Layer::Primary)
+            .layer(Layer::Primary.into())
             .padding([8, space_xs])
             .into()
     }
 
     fn preview<'a>(&'a self, kind: &'a PreviewKind) -> Element<'a, tab::Message> {
-        let military_time = self.tab.config.military_time;
         let mut children = Vec::with_capacity(1);
         match kind {
             PreviewKind::Custom(PreviewItem(item)) => {
-                children.push(item.preview_view(None, military_time));
+                children.push(item.preview_view(None));
             }
             PreviewKind::Location(location) => {
                 if let Some(items) = self.tab.items_opt() {
                     for item in items {
                         if item.location_opt.as_ref() == Some(location) {
-                            children.push(item.preview_view(None, military_time));
+                            children.push(item.preview_view(None));
                             // Only show one property view to avoid issues like hangs when generating
                             // preview images on thousands of files
                             break;
@@ -705,7 +707,7 @@ impl App {
                             // At least two selected items
                             (Some(_), Some(_)) => Some(self.tab.multi_preview_view(None)),
                             // Exactly one selected item
-                            (Some(item), None) => Some(item.preview_view(None, military_time)),
+                            (Some(item), None) => Some(item.preview_view(None)),
                             // No selected items
                             _ => None,
                         }
@@ -718,12 +720,12 @@ impl App {
                     if children.is_empty()
                         && let Some(item) = &self.tab.parent_item_opt
                     {
-                        children.push(item.preview_view(None, military_time));
+                        children.push(item.preview_view(None));
                     }
                 }
             }
         }
-        widget::column::with_children(children).into()
+        widget::Column::with_children(children).into()
     }
 
     fn rescan_tab(&self, selection_paths: Option<Vec<PathBuf>>) -> Task<Message> {
@@ -748,7 +750,7 @@ impl App {
                             }
                         }
                     }
-                    cosmic::action::app(Message::TabRescan(
+                    crate::ui::action::app(Message::TabRescan(
                         location,
                         parent_item_opt,
                         items,
@@ -757,7 +759,7 @@ impl App {
                 }
                 Err(err) => {
                     log::warn!("failed to rescan: {err}");
-                    cosmic::action::none()
+                    crate::ui::action::none()
                 }
             }
         })
@@ -821,6 +823,8 @@ impl App {
     }
 
     fn update_config(&mut self) -> Task<Message> {
+        crate::ui::theme::set_density(self.flags.config.density);
+        crate::ui::theme::set_header_size(self.flags.config.header_size);
         self.core.window.show_context = self.flags.config.dialog.show_details;
         let config = self.flags.config.dialog_tab();
         self.tab.config.view = config.view;
@@ -834,16 +838,9 @@ impl App {
         if dialog == self.flags.config.dialog {
             Task::none()
         } else {
-            if let Some(config_handler) = &self.flags.config_handler {
-                match self.flags.config.set_dialog(config_handler, dialog) {
-                    Ok(_) => {}
-                    Err(err) => {
-                        log::warn!("failed to save config \"dialog\": {err}");
-                    }
-                }
-            } else {
-                self.flags.config.dialog = dialog;
-                log::warn!("failed to save config \"dialog\": no config handler",);
+            self.flags.config.dialog = dialog;
+            if let Err(err) = self.flags.config_handler.save(&self.flags.config) {
+                log::warn!("failed to save config \"dialog\": {err}");
             }
             self.update_config()
         }
@@ -870,7 +867,9 @@ impl App {
         if self.flags.config.show_recents {
             nav_model = nav_model.insert(|b| {
                 b.text(fl!("recents"))
-                    .icon(widget::icon::from_name("document-open-recent-symbolic"))
+                    .icon(widget::icon::from_name(
+                        "document-open-recent-symbolic",
+                    ))
                     .data(Location::Recents)
             });
         }
@@ -884,7 +883,12 @@ impl App {
                     b.text(name.clone())
                         .icon(
                             widget::icon::icon(if path.is_dir() {
-                                tab::folder_icon_symbolic(&path, 16)
+                                widget::icon::from_name(format!(
+                                    "{}-symbolic",
+                                    tab::folder_icon_name(&path)
+                                ))
+                                .size(16)
+                                .handle()
                             } else {
                                 widget::icon::from_name("text-x-generic-symbolic")
                                     .size(16)
@@ -911,8 +915,11 @@ impl App {
                 if let Some(path) = item.path() {
                     b = b.data(Location::Path(path));
                 }
-                if let Some(icon) = item.icon(true) {
-                    b = b.icon(widget::icon::icon(icon).size(16));
+                if let Some(icon_path) = item.icon_path(true) {
+                    b = b.icon(
+                        widget::icon::icon(widget::icon::from_path(icon_path))
+                            .size(16),
+                    );
                 }
                 if item.is_mounted() {
                     b = b.closable();
@@ -978,11 +985,8 @@ impl App {
     }
 }
 
-/// Implement [`Application`] to integrate with COSMIC.
+/// Implement this app's [`Application`] to integrate with the shell.
 impl Application for App {
-    /// Default async executor to use with the app.
-    type Executor = executor::Default;
-
     /// Argument received
     type Flags = Flags;
 
@@ -1023,7 +1027,10 @@ impl Application for App {
             flags.config.dialog_tab(),
             ThumbCfg::default(),
             None,
-            widget::Id::unique(),
+            // `Tab::new` takes the scrollable's name because upstream `widget::Id` has
+            // no `Display` for `tab.rs` to use. The fork printed "Undefined" for a
+            // unique id, which was this tab's previous name.
+            std::borrow::Cow::Borrowed("Undefined"),
             None,
         );
         tab.mode = tab::Mode::Dialog(flags.kind.clone());
@@ -1097,18 +1104,18 @@ impl Application for App {
     }
 
     fn dialog(&self) -> Option<Element<'_, Message>> {
-        let cosmic_theme::Spacing { space_xxs, .. } = theme::spacing();
+        let Spacing { space_xxs, .. } = spacing();
 
         //TODO: should gallery view just be a dialog?
         if self.tab.gallery {
             return Some(
-                widget::column::with_children([
+                widget::Column::with_children([
                     self.tab.gallery_view().map(Message::TabMessage),
                     // Draw button row as part of the overlay
                     widget::container(self.button_view())
                         .width(Length::Fill)
                         .padding(space_xxs)
-                        .class(theme::Container::WindowBackground)
+                        .class(Container::WindowBackground)
                         .into(),
                 ])
                 .into(),
@@ -1160,7 +1167,7 @@ impl Application for App {
                         widget::button::standard(fl!("cancel")).on_press(Message::DialogCancel),
                     )
                     .control(
-                        widget::column::with_children([
+                        widget::Column::with_children([
                             widget::text::body(fl!("folder-name")).into(),
                             widget::text_input("", name.as_str())
                                 .id(self.dialog_text_input.clone())
@@ -1173,7 +1180,7 @@ impl Application for App {
                                 .on_submit_maybe(complete_maybe.map(|maybe| move |_| maybe.clone()))
                                 .into(),
                         ])
-                        .spacing(space_xxs),
+                        .spacing(space_xxs.to_pixels()),
                     )
             }
             DialogPage::Replace { filename } => widget::dialog()
@@ -1248,22 +1255,18 @@ impl Application for App {
         elements
     }
 
-    fn nav_bar(&self) -> Option<Element<'_, cosmic::Action<Self::Message>>> {
+    fn nav_bar(&self) -> Option<Element<'_, crate::ui::Action<Self::Message>>> {
         if !self.core().nav_bar_active() {
             return None;
         }
 
         let nav_model = self.nav_model()?;
 
-        let mut nav = cosmic::widget::nav_bar(nav_model, |entity| {
-            cosmic::action::cosmic(cosmic::app::Action::NavBar(entity))
+        let mut nav = widget::nav_bar(nav_model, |entity| {
+            crate::ui::Action::Cosmic(crate::ui::app::Action::NavBar(entity))
         })
-        //TODO .on_close(|entity| cosmic::cosmic::action::app(Message::NavBarClose(entity)))
-        .close_icon(
-            widget::icon::from_name("media-eject-symbolic")
-                .size(16)
-                .icon(),
-        )
+        //TODO .on_close(|entity| crate::ui::action::app(Message::NavBarClose(entity)))
+        .close_icon(widget::icon::from_name("media-eject-symbolic").size(16).icon())
         .into_container();
 
         if !self.core().is_condensed() {
@@ -1296,7 +1299,7 @@ impl Application for App {
         {
             return mounter
                 .mount(data.1.clone())
-                .map(|()| cosmic::action::none());
+                .map(|()| crate::ui::action::none());
         }
         Task::none()
     }
@@ -1366,10 +1369,7 @@ impl Application for App {
             Message::Config(config) => {
                 if config != self.flags.config {
                     log::info!("update config");
-                    // Don't overwrite military time
-                    let military_time = self.flags.config.tab.military_time;
                     self.flags.config = config;
-                    self.flags.config.tab.military_time = military_time;
                     return self.update_config();
                 }
             }
@@ -1755,7 +1755,7 @@ impl Application for App {
                         }
                         tab::Command::Iced(iced_command) => {
                             commands.push(iced_command.0.map(|tab_message| {
-                                cosmic::action::app(Message::TabMessage(tab_message))
+                                crate::ui::action::app(Message::TabMessage(tab_message))
                             }));
                         }
                         tab::Command::OpenFile(_item_path) => {
@@ -1876,10 +1876,6 @@ impl Application for App {
                     config.view = view;
                 });
             }
-            Message::TimeConfigChange(time_config) => {
-                self.flags.config.tab.military_time = time_config.military_time;
-                return self.update_config();
-            }
             Message::ToggleFoldersFirst => {
                 return self.with_dialog_config(|config| {
                     config.folders_first = !config.folders_first;
@@ -1906,7 +1902,7 @@ impl Application for App {
                 });
             }
             Message::Surface(action) => {
-                return cosmic::task::message(cosmic::Action::Surface(action));
+                return crate::ui::task::message(crate::ui::Action::Surface(action));
             }
         }
 
@@ -1915,9 +1911,9 @@ impl Application for App {
 
     /// Creates a view after each update.
     fn view(&self) -> Element<'_, Message> {
-        let cosmic_theme::Spacing { space_xxs, .. } = theme::spacing();
+        let Spacing { space_xxs, .. } = spacing();
 
-        let mut col = widget::column::with_capacity(2);
+        let mut col = widget::Column::with_capacity(2);
 
         if self.core.is_condensed()
             && let Some(term) = self.search_get()
@@ -1945,7 +1941,6 @@ impl Application for App {
 
     fn subscription(&self) -> Subscription<Message> {
         struct WatcherSubscription;
-        struct TimeSubscription;
         let mut subscriptions = vec![
             event::listen_with(|event, status, window_id| match event {
                 Event::Mouse(mouse::Event::ButtonPressed(button)) => match status {
@@ -1975,31 +1970,10 @@ impl Application for App {
                 }
                 _ => None,
             }),
-            Config::subscription().map(|update| {
-                if !update.errors.is_empty() {
-                    log::info!(
-                        "errors loading config {:?}: {:?}",
-                        update.keys,
-                        update.errors
-                    );
-                }
-                Message::Config(update.config)
-            }),
-            cosmic_config::config_subscription::<_, TimeConfig>(
-                TypeId::of::<TimeSubscription>(),
-                TIME_CONFIG_ID.into(),
-                1,
-            )
-            .map(|update| {
-                if !update.errors.is_empty() {
-                    log::info!(
-                        "errors loading time config {:?}: {:?}",
-                        update.keys,
-                        update.errors
-                    );
-                }
-                Message::TimeConfigChange(update.config)
-            }),
+            self.flags
+                .config_handler
+                .subscription::<Config>()
+                .map(Message::Config),
             Subscription::run_with(TypeId::of::<WatcherSubscription>(), |_| {
                 stream::channel(100, {
                     |mut output: futures::channel::mpsc::Sender<_>| async move {

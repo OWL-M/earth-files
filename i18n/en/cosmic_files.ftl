@@ -173,6 +173,9 @@ keep = Keep
 # Context Pages
 
 ## About
+developers = Developers
+license = License
+links = Links
 repository = Repository
 support = Support
 
@@ -396,3 +399,5 @@ sort-newest-first = Newest first
 sort-oldest-first = Oldest first
 sort-smallest-to-largest = Smallest to largest
 sort-largest-to-smallest = Largest to smallest
+
+close = Close

@@ -423,3 +423,5 @@ removed-from-recents =
        *[other] elementi
     } da { recents }
 run = Esegui
+
+close = Chiudi

@@ -1,8 +1,8 @@
 // Copyright 2023 System76 <info@system76.com>
 // SPDX-License-Identifier: GPL-3.0-only
 
-use cosmic::app::Settings;
-use cosmic::iced::Limits;
+use crate::ui::shell::Settings;
+use crate::ui::iced_core::layout::Limits;
 use std::path::PathBuf;
 use std::{env, fs, process};
 use tracing_subscriber::layer::SubscriberExt;
@@ -13,11 +13,13 @@ use crate::config::{Config, State};
 use crate::tab::Location;
 
 pub mod app;
+mod hex;
 mod archive;
 pub mod channel;
 pub mod clipboard;
 pub mod config;
 mod context_action;
+pub mod desktop_entry;
 pub mod dialog;
 mod key_bind;
 pub(crate) mod large_image;
@@ -34,6 +36,7 @@ pub mod tab;
 mod thumbnail_cacher;
 mod thumbnailer;
 pub(crate) mod trash;
+pub mod ui;
 mod zoom;
 
 pub(crate) type FxOrderMap<K, V> = ordermap::OrderMap<K, V, rustc_hash::FxBuildHasher>;
@@ -68,63 +71,6 @@ pub fn home_dir() -> PathBuf {
     }
 }
 
-pub fn is_wayland() -> bool {
-    matches!(
-        cosmic::app::cosmic::windowing_system(),
-        Some(cosmic::app::cosmic::WindowingSystem::Wayland)
-    )
-}
-
-/// Runs application in desktop mode
-#[rustfmt::skip]
-pub fn desktop() -> Result<(), Box<dyn std::error::Error>> {
-    let log_format = tracing_subscriber::fmt::format()
-        .pretty()
-        .without_time()
-        .with_line_number(true)
-        .with_file(true)
-        .with_target(false)
-        .with_thread_names(true);
-
-    let log_layer = tracing_subscriber::fmt::Layer::default()
-        .with_writer(std::io::stderr)
-        .event_format(log_format);
-
-    tracing_subscriber::registry()
-        .with(tracing_subscriber::EnvFilter::from_env("RUST_LOG"))
-        .with(log_layer)
-        .init();
-
-    localize::localize();
-
-    let (config_handler, config) = Config::load();
-    let (state_handler, state) = State::load();
-
-    let mut settings = Settings::default();
-    settings = settings.theme(config.app_theme.theme());
-    settings = settings.size_limits(Limits::NONE.min_width(360.0).min_height(180.0));
-    settings = settings.exit_on_close(false);
-    settings = settings.transparent(true);
-    #[cfg(all(feature = "wayland", feature = "desktop-applet"))]
-    {
-        settings = settings.no_main_window(true);
-    }
-
-    let locations = vec![tab::Location::Desktop(desktop_dir(), String::new(), config.desktop)];
-    let flags = Flags {
-        config_handler,
-        config,
-        state_handler,
-        state,
-        mode: app::Mode::Desktop,
-        locations,
-        uris: Vec::new()
-    };
-    cosmic::app::run::<App>(settings, flags)?;
-
-    Ok(())
-}
-
 /// Runs application with these settings
 #[rustfmt::skip]
 pub fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -140,13 +86,38 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
         .event_format(log_format);
 
     tracing_subscriber::registry()
-        .with(tracing_subscriber::EnvFilter::from_default_env())
+        // `EnvFilter::from_default_env()` defaults to `error`, hiding warnings unless
+        // `RUST_LOG` is set. Default to warnings so `ui::dnd` can explain failed tab
+        // drags, copies and pastes. These warnings are rare and absent in a working
+        // session. An explicit `RUST_LOG` still overrides the default.
+        .with(
+            tracing_subscriber::EnvFilter::builder()
+                .with_default_directive(
+                    "cosmic_files::ui::dnd=warn"
+                        .parse()
+                        .expect("a literal directive that parses"),
+                )
+                // The runner reports Wayland connection failures because
+                // `ui::dnd::init` is never called if the connection fails to open.
+                .with_default_directive(
+                    "cosmic_files::ui::shell::runner=warn"
+                        .parse()
+                        .expect("a literal directive that parses"),
+                )
+                .from_env_lossy(),
+        )
         .with(log_layer)
         .init();
 
     localize::localize();
 
     let (config_handler, config) = Config::load();
+    // Before any widget or window is built: `ui::font` is read argument-free
+    // from every call site, so the configured families have to be in place
+    // before the first one runs.
+    crate::ui::font::set_families(&config);
+    // Same reason: `ui::icon_theme` is read argument-free from the draw path.
+    crate::ui::icon_theme::set_from_config(&config);
     let (state_handler, state) = State::load();
 
     let mut daemonize = true;
@@ -192,7 +163,6 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     if daemonize {
-        #[cfg(all(unix, not(any(target_os = "macos", target_os = "redox"))))]
         match fork::daemon(true, true) {
             Ok(fork::Fork::Child) => (),
             Ok(fork::Fork::Parent(_child_pid)) => process::exit(0),
@@ -218,11 +188,10 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
         config,
         state_handler,
         state,
-        mode: app::Mode::App,
         locations,
         uris
     };
-    cosmic::app::run::<App>(settings, flags)?;
+    crate::ui::shell::run::<App>(settings, flags)?;
 
     Ok(())
 }

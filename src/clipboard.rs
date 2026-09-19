@@ -1,7 +1,7 @@
 // Copyright 2024 System76 <info@system76.com>
 // SPDX-License-Identifier: GPL-3.0-only
 
-use cosmic::iced::clipboard::mime::{AllowedMimeTypes, AsMimeTypes};
+use crate::ui::clipboard::{AllowedMimeTypes, AsMimeTypes};
 use std::borrow::Cow;
 use std::error::Error;
 use std::path::{Path, PathBuf};
@@ -11,7 +11,7 @@ use url::Url;
 #[derive(Clone, Copy, Debug)]
 pub enum ClipboardKind {
     Copy,
-    Cut { is_dnd: bool },
+    Cut,
 }
 
 #[derive(Clone, Debug)]
@@ -35,7 +35,7 @@ impl ClipboardCopy {
         let mut text_uri_list = String::new();
         let mut x_special_gnome_copied_files = match kind {
             ClipboardKind::Copy => "copy",
-            ClipboardKind::Cut { .. } => "cut",
+            ClipboardKind::Cut => "cut",
         }
         .to_string();
         //TODO: do we have to use \r\n?
@@ -147,7 +147,7 @@ impl TryFrom<(Vec<u8>, String)> for ClipboardPaste {
                     if i == 0 {
                         kind = match line {
                             "copy" => ClipboardKind::Copy,
-                            "cut" => ClipboardKind::Cut { is_dnd: false },
+                            "cut" => ClipboardKind::Cut,
                             _ => Err(format!("unsupported clipboard operation {line:?}"))?,
                         };
                     } else {
