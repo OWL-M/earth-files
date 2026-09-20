@@ -69,7 +69,6 @@ async fn handle_replace(
 }
 
 fn get_directory_name(file_name: &str) -> &str {
-    // TODO: Chain with COMPOUND_EXTENSIONS once more formats are supported
     for ext in crate::archive::SUPPORTED_EXTENSIONS {
         if let Some(stripped) = file_name.strip_suffix(ext) {
             return stripped;
@@ -166,7 +165,6 @@ async fn copy_or_move(
                     let to = to.join(name);
                     Some((from, to))
                 } else {
-                    //TODO: how to handle from missing file name?
                     None
                 }
             });

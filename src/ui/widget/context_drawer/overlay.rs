@@ -118,7 +118,6 @@ where
         cursor: mouse::Cursor,
         renderer: &iced::Renderer,
     ) -> mouse::Interaction {
-        // TODO how to handle viewport here?
         let viewport = &layout.bounds();
         let interaction = self
             .content

@@ -72,7 +72,6 @@ impl<'a, Message: Clone + 'static> From<Button<'a, Message>> for Element<'a, Mes
     fn from(mut builder: Button<'a, Message>) -> Element<'a, Message> {
         let mut button: super::Button<'a, Message> = crate::ui::widget::Row::with_capacity(2)
             .push({
-                // TODO: Avoid allocation
                 crate::ui::widget::text(builder.label.to_string())
                     .size(builder.font_size.to_pixels())
                     .line_height(LineHeight::Absolute(builder.line_height.to_pixels()))

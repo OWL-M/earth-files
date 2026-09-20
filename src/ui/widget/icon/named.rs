@@ -116,7 +116,6 @@ impl Named {
     #[cfg(any(not(unix), target_os = "macos"))]
     #[must_use]
     pub fn path(self) -> Option<PathBuf> {
-        //TODO: implement icon lookup for Windows
         None
     }
 

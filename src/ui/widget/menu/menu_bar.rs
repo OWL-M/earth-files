@@ -602,7 +602,6 @@ where
             | Touch(touch::Event::FingerPressed { .. })
                 if view_cursor.is_over(layout.bounds()) =>
             {
-                // TODO should we track that it has been pressed?
                 shell.capture_event();
             }
             Mouse(ButtonReleased(Left)) | Touch(FingerLifted { .. } | FingerLost { .. }) => {

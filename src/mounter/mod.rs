@@ -120,7 +120,6 @@ pub enum MounterMessage {
 }
 
 pub trait Mounter: Send + Sync {
-    //TODO: send result
     fn mount(&self, item: MounterItem) -> Task<()>;
     fn network_drive(&self, uri: String) -> Task<bool>;
     fn network_scan(&self, uri: &str, sizes: IconSizes) -> Option<Result<Vec<tab::Item>, String>>;
