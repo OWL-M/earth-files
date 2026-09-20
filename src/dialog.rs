@@ -565,6 +565,31 @@ struct App {
 }
 
 impl App {
+    /// Whether pressing Open does something: it returns the selection, enters
+    /// the single selected folder, or returns the current folder in a folder
+    /// chooser. Mirrors the checks in the `Message::Open` handler.
+    fn can_open(&self) -> bool {
+        let want_dir = self.flags.kind.is_dir();
+        let selected_dirs: Vec<bool> = self
+            .tab
+            .items_opt()
+            .into_iter()
+            .flatten()
+            .filter(|item| item.selected)
+            .filter_map(|item| item.path_opt())
+            .map(|path| path.is_dir())
+            .collect();
+        if selected_dirs.is_empty() {
+            return want_dir && matches!(self.tab.location, Location::Path(_));
+        }
+        let mismatched = selected_dirs
+            .iter()
+            .filter(|is_dir| **is_dir != want_dir)
+            .count();
+        // A lone folder in a file chooser is entered instead of returned
+        mismatched == 0 || (!want_dir && selected_dirs.len() == 1 && selected_dirs[0])
+    }
+
     fn button_view(&self) -> Element<'_, Message> {
         let Spacing {
             space_xxxs,
@@ -635,15 +660,6 @@ impl App {
         row = row.push(widget::space::horizontal());
         row = row.push(widget::button::standard(fl!("cancel")).on_press(Message::Cancel));
 
-        let mut has_selected = false;
-        if let Some(items) = self.tab.items_opt() {
-            for item in items {
-                if item.selected {
-                    has_selected = true;
-                    break;
-                }
-            }
-        }
         row = row.push(
             widget::button::custom(
                 widget::Row::with_children([Element::from(&self.accept_label)])
@@ -660,7 +676,7 @@ impl App {
                 } else {
                     None
                 }
-            } else if has_selected || self.flags.kind.is_dir() {
+            } else if self.can_open() {
                 Some(Message::Open)
             } else {
                 None
@@ -1569,29 +1585,21 @@ impl Application for App {
                                     | notify::event::ModifyKind::Data(_),
                                 ) = event.kind
                                 {
-                                    // If metadata or data changed, find the matching item and reload it
+                                    // If metadata or data changed, rebuild the matching item
+                                    let sizes = self.tab.config.icon_sizes;
                                     if let Some(items) = &mut self.tab.items_opt {
                                         for item in items.iter_mut() {
-                                            if item.path_opt() == Some(event_path) {
-                                                //TODO: reload more, like mime types?
-                                                match fs::metadata(event_path) {
-                                                    Ok(new_metadata) => {
-                                                        if let ItemMetadata::Path {
-                                                            metadata, ..
-                                                        } = &mut item.metadata
-                                                        {
-                                                            *metadata = new_metadata;
-                                                        }
-                                                    }
-                                                    Err(err) => {
-                                                        log::warn!(
-                                                            "failed to reload metadata for {}: {}",
-                                                            path.display(),
-                                                            err
-                                                        );
-                                                    }
-                                                }
-                                                //TODO item.thumbnail_opt =
+                                            if item.path_opt() == Some(event_path)
+                                                && matches!(
+                                                    item.metadata,
+                                                    ItemMetadata::Path { .. }
+                                                )
+                                                && let Err(err) = item.refresh(sizes)
+                                            {
+                                                log::warn!(
+                                                    "failed to reload {}: {err}",
+                                                    event_path.display()
+                                                );
                                             }
                                         }
                                     }
@@ -1638,8 +1646,7 @@ impl Application for App {
                     }
                 }
 
-                // Ensure selection is allowed
-                //TODO: improve tab logic so this doesn't block the open button so often
+                // Ensure selection is allowed; `can_open` keeps the button disabled otherwise
                 for path in &paths {
                     let path_is_dir = path.is_dir();
                     if path_is_dir != self.flags.kind.is_dir() {

@@ -2178,6 +2178,25 @@ pub struct Item {
 }
 
 impl Item {
+    /// Rebuild this item from disk after its contents changed, so the mime,
+    /// icons and thumbnail follow the new data. Selection and layout state
+    /// the view relies on is kept.
+    pub fn refresh(&mut self, sizes: IconSizes) -> Result<(), String> {
+        let path = self.path_opt().ok_or("item has no path")?.clone();
+        let fresh = item_from_path(path, sizes)?;
+        *self = Item {
+            button_id: self.button_id.clone(),
+            pos_opt: Cell::new(self.pos_opt.get()),
+            rect_opt: Cell::new(self.rect_opt.get()),
+            selected: self.selected,
+            highlighted: self.highlighted,
+            cut: self.cut,
+            overlaps_drag_rect: self.overlaps_drag_rect,
+            ..fresh
+        };
+        Ok(())
+    }
+
     fn display_name(name: &str) -> String {
         // In order to wrap at periods and underscores, add a zero width space after each one
         name.replace('.', ".\u{200B}").replace('_', "_\u{200B}")

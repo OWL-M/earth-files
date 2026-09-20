@@ -212,9 +212,9 @@ test-log = "0.2"
 tokio = { version = "1", features = ["rt", "macros"] }
 
 [patch.crates-io]
-exwlshellev             = { git = "https://github.com/id3v1669/exwlshelleventloop", branch = "xxas" }
-iced_exwlshell          = { git = "https://github.com/id3v1669/exwlshelleventloop", branch = "xxas" }
-iced_exwlshell_macros   = { git = "https://github.com/id3v1669/exwlshelleventloop", branch = "xxas" }
-iced_wayland_subscriber = { git = "https://github.com/id3v1669/exwlshelleventloop", branch = "xxas" }
-iced_exdevtools         = { git = "https://github.com/id3v1669/exwlshelleventloop", branch = "xxas" }
-waycrate_xkbkeycode     = { git = "https://github.com/id3v1669/exwlshelleventloop", branch = "xxas" }
+exwlshellev             = { git = "https://github.com/waycrate/exwlshelleventloop", branch = "master" }
+iced_exwlshell          = { git = "https://github.com/waycrate/exwlshelleventloop", branch = "master" }
+iced_exwlshell_macros   = { git = "https://github.com/waycrate/exwlshelleventloop", branch = "master" }
+iced_wayland_subscriber = { git = "https://github.com/waycrate/exwlshelleventloop", branch = "master" }
+iced_exdevtools         = { git = "https://github.com/waycrate/exwlshelleventloop", branch = "master" }
+waycrate_xkbkeycode     = { git = "https://github.com/waycrate/exwlshelleventloop", branch = "master" }

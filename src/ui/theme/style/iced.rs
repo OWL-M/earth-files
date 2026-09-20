@@ -170,7 +170,7 @@ impl Button {
 }
 
 /*
- * TODO: Checkbox
+ * Checkbox
  */
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Checkbox {
@@ -299,7 +299,6 @@ impl iced_checkbox::Catalog for Theme {
             }
             iced_checkbox::Status::Hovered { is_checked } => {
                 let cur_container = self.current_container().small_widget;
-                // TODO: this should probably be done with a custom widget instead, or the theme needs more small widget variables.
                 let hovered_bg = over(cosmic.palette.neutral_0.with_alpha(0.1), cur_container);
                 match class {
                     Checkbox::Primary => iced_checkbox::Style {
@@ -385,7 +384,7 @@ impl iced_checkbox::Catalog for Theme {
 }
 
 /*
- * TODO: Container
+ * Container
  */
 #[derive(Default)]
 pub enum Container<'a> {
@@ -755,7 +754,6 @@ impl pick_list::Catalog for Theme {
                     Color::TRANSPARENT
                 },
             },
-            // icon_size: 0.7, // TODO: how to replace
             handle_color: cosmic.on_bg_color().to_color(),
         };
 
@@ -771,7 +769,7 @@ impl pick_list::Catalog for Theme {
 }
 
 /*
- * TODO: Radio
+ * Radio
  */
 impl radio::Catalog for Theme {
     type Class<'a> = ();
@@ -787,7 +785,6 @@ impl radio::Catalog for Theme {
                 background: if is_selected {
                     theme.accent.base.to_color().into()
                 } else {
-                    // TODO: this seems to be defined weirdly in FIGMA
                     cur_container.small_widget.to_color().into()
                 },
                 dot_color: theme.accent.on.to_color(),
@@ -805,7 +802,6 @@ impl radio::Catalog for Theme {
                 } else {
                     self.current_container().small_widget
                 };
-                // TODO: this should probably be done with a custom widget instead, or the theme needs more small widget variables.
                 let hovered_bg = over(theme.palette.neutral_0.with_alpha(0.1), bg).to_color();
                 radio::Style {
                     background: hovered_bg.into(),
@@ -889,7 +885,7 @@ impl toggler::Catalog for Theme {
 }
 
 /*
- * TODO: Progress Bar
+ * Progress Bar
  */
 #[derive(Default)]
 pub enum ProgressBar {
@@ -966,7 +962,7 @@ impl progress_bar::Catalog for Theme {
 }
 
 /*
- * TODO: Rule
+ * Rule
  */
 #[derive(Default)]
 pub enum Rule {
@@ -1023,7 +1019,7 @@ pub enum Scrollable {
 }
 
 /*
- * TODO: Scrollable
+ * Scrollable
  */
 impl scrollable::Catalog for Theme {
     type Class<'a> = Scrollable;
@@ -1205,7 +1201,7 @@ impl svg::Catalog for Theme {
 }
 
 /*
- * TODO: Text
+ * Text
  */
 #[derive(Clone, Copy, Default)]
 pub enum Text {
@@ -1282,7 +1278,7 @@ pub enum TextInput {
 }
 
 /*
- * TODO: Text Input
+ * Text Input
  */
 impl text_input::Catalog for Theme {
     type Class<'a> = TextInput;

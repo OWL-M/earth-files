@@ -3335,32 +3335,21 @@ impl Application for App {
                                         | notify::event::ModifyKind::Data(_),
                                     ) = event.kind
                                     {
-                                        // If metadata or data changed, find the matching item and reload it
-                                        //TODO: this could be further optimized by looking at what exactly changed
+                                        // If metadata or data changed, rebuild the matching item
+                                        let sizes = tab.config.icon_sizes;
                                         if let Some(items) = &mut tab.items_opt {
                                             for item in items.iter_mut() {
-                                                if item.path_opt() == Some(event_path) {
-                                                    //TODO: reload more, like mime types?
-                                                    match fs::metadata(event_path) {
-                                                        Ok(new_metadata) => {
-                                                            if let ItemMetadata::Path {
-                                                                metadata,
-                                                                ..
-                                                            } = &mut item.metadata
-                                                            {
-                                                                *metadata = new_metadata;
-                                                            }
-                                                        }
-
-                                                        Err(err) => {
-                                                            log::warn!(
-                                                                "failed to reload metadata for {}: {}",
-                                                                path.display(),
-                                                                err
-                                                            );
-                                                        }
-                                                    }
-                                                    //TODO item.thumbnail_opt =
+                                                if item.path_opt() == Some(event_path)
+                                                    && matches!(
+                                                        item.metadata,
+                                                        ItemMetadata::Path { .. }
+                                                    )
+                                                    && let Err(err) = item.refresh(sizes)
+                                                {
+                                                    log::warn!(
+                                                        "failed to reload {}: {err}",
+                                                        event_path.display()
+                                                    );
                                                 }
                                             }
                                         }
