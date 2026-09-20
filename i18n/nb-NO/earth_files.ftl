@@ -20,6 +20,7 @@ notification-in-progress = Filoperasjoner pågår.
 delete = Slett
 trash = Papirkurv
 recents = Nylige
+search-title = Søk "{$term}": {$name}
 connect = Koble til
 undo = Angre
 match-desktop = Følg skrivebordet

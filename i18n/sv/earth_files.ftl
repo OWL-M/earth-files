@@ -10,6 +10,7 @@ networks = Nätverk
 notification-in-progress = Filåtgärder pågår
 trash = Papperskorg
 recents = Senaste
+search-title = Sök "{$term}": {$name}
 undo = Ångra
 today = Idag
 # Skrivbordsvyalternativ

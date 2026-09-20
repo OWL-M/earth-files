@@ -8,6 +8,7 @@ networks = Мрежи
 notification-in-progress = Файлови операции са в процес на изпълнение.
 trash = Кошче
 recents = Скоро ползвани
+search-title = Търсене "{$term}": {$name}
 undo = Отменяне
 today = Днес
 # Desktop view options

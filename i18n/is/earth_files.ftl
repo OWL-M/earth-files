@@ -29,6 +29,7 @@ networks = Net
 notification-in-progress = Skráaaðgerðir er í gangi.
 trash = Rusl
 recents = Nýlegt
+search-title = Leit "{$term}": {$name}
 undo = Afturkalla
 today = Í dag
 desktop-view-options = Valkostir skjáborðsyfirlits...

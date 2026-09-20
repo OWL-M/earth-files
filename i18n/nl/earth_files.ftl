@@ -8,6 +8,7 @@ networks = Netwerken
 notification-in-progress = Bestandsbewerkingen worden uitgevoerd
 trash = Prullenbak
 recents = Recente bestanden
+search-title = Zoeken "{$term}": {$name}
 undo = Ongedaan maken
 today = Vandaag
 # Desktop view options

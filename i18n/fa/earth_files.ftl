@@ -8,6 +8,7 @@ networks = شبکه‌ها
 notification-in-progress = عملیات فایل در حال انجام است.
 trash = زباله‌دان
 recents = موارد اخیر
+search-title = جستجوی "{$term}": {$name}
 undo = بازگردانی
 today = امروز
 # Desktop view options

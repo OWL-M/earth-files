@@ -170,6 +170,7 @@ moving =
     } из „{ $from }“ у „{ $to }“ ({ $progress })...
 replace-with = Замени са
 recents = Недавно
+search-title = Претрага "{$term}": {$name}
 change-wallpaper = Промени позадину...
 network-drive-description =
     Адресе сервера укључују префикс протокола и адресу.

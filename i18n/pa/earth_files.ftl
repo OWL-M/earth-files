@@ -7,6 +7,7 @@ networks = ਨੈੱਟਵਰਕ
 notification-in-progress = ਫ਼ਾਇਲ ਕਾਰਵਾਈਆਂ ਜਾਰੀ ਹਨ
 trash = ਰੱਦੀ
 recents = ਸੱਜਰੇ
+search-title = ਖੋਜ "{$term}": {$name}
 undo = ਵਾਪਸ
 today = ਅੱਜ
 desktop-view-options = ਡੈਸਕਟਾਪ ਝਲਕ ਲਈ ਚੋਣਾਂ...

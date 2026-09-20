@@ -8,6 +8,7 @@ trash = Корзина
 networks = Сеть
 notification-in-progress = Выполняются файловые операции
 recents = Недавние документы
+search-title = Поиск "{$term}": {$name}
 undo = Отменить
 today = Сегодня
 # List view

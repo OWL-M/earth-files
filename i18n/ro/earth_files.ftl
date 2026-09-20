@@ -8,6 +8,7 @@ networks = Rețele
 notification-in-progress = Operațiuni de fișiere în desfășurare.
 trash = Coș de gunoi
 recents = Recente
+search-title = Căutare "{$term}": {$name}
 undo = Anulează
 today = Astăzi
 # Desktop view options

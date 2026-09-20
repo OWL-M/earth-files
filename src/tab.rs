@@ -1499,8 +1499,7 @@ impl Location {
                     SearchLocation::Recents => fl!("recents"),
                 };
 
-                //TODO: translate
-                format!("Search \"{term}\": {name}")
+                fl!("search-title", term = term.as_str(), name = name)
             }
             Self::Trash => {
                 fl!("trash")
@@ -1995,7 +1994,6 @@ impl ItemThumbnail {
         tried_supported_file = tried_supported_file || !thumbnailer(&mime).is_empty();
 
         // Try internal thumbnailers that don't get cached.
-        //TODO: adjust limits for internal thumbnailers as desired
         if mime.type_() == mime::IMAGE
             && mime.subtype() == mime::SVG
             && check_size("svg", 8 * 1000 * 1000)
@@ -2004,7 +2002,6 @@ impl ItemThumbnail {
             // Try built-in svg thumbnailer
             match fs::read(path) {
                 Ok(data) => {
-                    //TODO: validate SVG data
                     return Self::Svg(widget::svg::Handle::from_memory(data));
                 }
                 Err(err) => {
@@ -2071,7 +2068,6 @@ impl ItemThumbnail {
         for thumbnailer in thumbnailer(mime) {
             let is_evince = thumbnailer.exec.starts_with("evince-thumbnailer ");
             let prefix = if is_evince {
-                //TODO: apparmor config for evince-thumbnailer does not allow /tmp/earth-files*
                 "gnome-desktop-"
             } else {
                 "earth-files-"
@@ -2230,12 +2226,8 @@ impl Item {
     pub fn file_metadata(&self) -> Option<Metadata> {
         match &self.metadata {
             ItemMetadata::Path { metadata, .. } => Some(metadata.clone()),
-            #[cfg(feature = "gvfs")]
-            ItemMetadata::GvfsPath { .. } => self.path_opt().and_then(|p| fs::metadata(p).ok()),
-            _ => {
-                //TODO: other metadata types
-                None
-            }
+            // Trashed and GVFS items have a readable path of their own
+            _ => self.path_opt().and_then(|p| fs::metadata(p).ok()),
         }
     }
 

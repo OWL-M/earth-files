@@ -6,6 +6,7 @@ empty-folder-hidden = Složka je prázdná (obsahuje skryté položky)
 filesystem = Souborový systém
 home = Domů
 recents = Nedávné
+search-title = Hledání "{$term}": {$name}
 trash = Koš
 # List view
 name = Název

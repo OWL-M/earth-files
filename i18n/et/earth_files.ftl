@@ -39,6 +39,7 @@ username = Kasutajanimi
 view = Vaata
 trash = Prügikast
 recents = Viimati kasutatud
+search-title = Otsing "{$term}": {$name}
 today = Täna
 menu-settings = Seadistused...
 modified = Muudetud

@@ -2,6 +2,7 @@ empty-folder = Άδειος φάκελος
 no-results = Δεν βρέθηκαν αποτελέσματα
 trash = Απορρίμματα
 recents = Πρόσφατα
+search-title = Αναζήτηση "{$term}": {$name}
 earth-files = Earth Files
 empty-folder-hidden = Άδειος φάκελος (περιέχει κρυφά στοιχεία)
 filesystem = Σύστημα αρχείων

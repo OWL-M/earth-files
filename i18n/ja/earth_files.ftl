@@ -8,6 +8,7 @@ networks = ネットワーク
 notification-in-progress = ファイル処理が進行中です。
 trash = ゴミ箱
 recents = 最近
+search-title = 検索 "{$term}": {$name}
 undo = 元に戻す
 # List view
 name = 名前

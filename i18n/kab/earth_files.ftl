@@ -8,6 +8,7 @@ networks = Iẓeḍwa
 notification-in-progress = Timhalin ɣef ifuyla la tteddunt
 trash = Iḍumman
 recents = Melmi kan
+search-title = Anadi "{$term}": {$name}
 undo = Ssemmet
 today = Ass-a
 desktop-view-options = Iɣewwaṛen n tmeẓri n tnarit…

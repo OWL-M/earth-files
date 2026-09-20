@@ -10,6 +10,7 @@ networks = Siete
 notification-in-progress = Prebiehajú operácie so súbormi.
 trash = Kôš
 recents = Nedávne
+search-title = Hľadať "{$term}": {$name}
 undo = Späť
 today = Dnes
 # Desktop view options

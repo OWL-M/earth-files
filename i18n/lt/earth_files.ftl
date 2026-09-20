@@ -9,6 +9,7 @@ networks = Tinklai
 notification-in-progress = Vyksta failų operacijos
 trash = Šiukšlinė
 recents = Neseniai naudoti
+search-title = Paieška "{$term}": {$name}
 undo = Anuliuoti
 today = Šiandien
 desktop-view-options = Darbalaukio peržiūros parinktys...

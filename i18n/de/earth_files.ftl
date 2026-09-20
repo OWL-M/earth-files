@@ -8,6 +8,7 @@ networks = Netzwerke
 notification-in-progress = Dateivorgänge werden ausgeführt
 trash = Papierkorb
 recents = Zuletzt verwendet
+search-title = Suche "{$term}": {$name}
 undo = Rückgängig
 today = Heute
 # Optionen für die Desktop-Ansicht

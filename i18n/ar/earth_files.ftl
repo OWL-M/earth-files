@@ -7,6 +7,7 @@ filesystem = نظام الملفات
 home = منزل
 trash = المهملات
 recents = الأحدث
+search-title = بحث "{$term}": {$name}
 # List view
 name = الاسم
 modified = مُعدل

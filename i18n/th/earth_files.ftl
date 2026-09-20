@@ -8,6 +8,7 @@ networks = เครือข่าย
 notification-in-progress = กำลังดำเนินการไฟล์
 trash = ถังขยะ
 recents = ล่าสุด
+search-title = ค้นหา "{$term}": {$name}
 undo = เลิกทำ
 today = วันนี้
 # Desktop view options

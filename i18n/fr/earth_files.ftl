@@ -8,6 +8,7 @@ networks = Réseaux
 notification-in-progress = Des opérations sur des fichiers sont en cours
 trash = Corbeille
 recents = Récents
+search-title = Recherche "{$term}" : {$name}
 undo = Annuler
 today = Aujourd'hui
 # Desktop view options

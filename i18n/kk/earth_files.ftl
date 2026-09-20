@@ -8,6 +8,7 @@ networks = Желілер
 notification-in-progress = Файлдармен әрекеттер орындалуда
 trash = Қоқыс шелегі
 recents = Соңғылар
+search-title = Іздеу "{$term}": {$name}
 undo = Болдырмау
 today = Бүгін
 desktop-view-options = Жұмыс үстелінің көрініс опциялары...

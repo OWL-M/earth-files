@@ -8,6 +8,7 @@ networks = Jaringan
 notification-in-progress = Operasi berkas sedang berlangsung
 trash = Sampah
 recents = Terbaru
+search-title = Cari "{$term}": {$name}
 undo = Batalkan
 today = Hari ini
 desktop-view-options = Opsi tampilan desktop...

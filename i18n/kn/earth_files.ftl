@@ -8,6 +8,7 @@ networks = ನೆಟ್ವರ್ಕ್‌ಗಳು
 notification-in-progress = ಫೈಲ್ ಕಾರ್ಯಾಚರಣೆಗಳು ಪ್ರಗತಿಯಲ್ಲಿದೆ.
 trash = ಕಸ
 recents = ಇತ್ತೀಚಿನ
+search-title = ಹುಡುಕಾಟ "{$term}": {$name}
 undo = ಹಿಂತಿರುಗಿಸು
 today = ಇಂದು
 # Desktop view options

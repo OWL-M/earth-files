@@ -8,6 +8,7 @@ networks = Verkot
 notification-in-progress = Tiedostotoimintoja käynnissä
 trash = Roskakori
 recents = Viimeaikaiset
+search-title = Haku "{$term}": {$name}
 undo = Kumoa
 today = Tänään
 

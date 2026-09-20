@@ -218,6 +218,7 @@ keywords = Rêveber;Peldank;
 filesystem = Pergala pelê
 networks = Tor
 recents = Dawî
+search-title = Lêgerîn "{$term}": {$name}
 open = Veke
 cancel = Têk bibe
 trash = Jêbirdank

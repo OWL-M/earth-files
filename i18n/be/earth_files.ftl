@@ -8,6 +8,7 @@ networks = Сеткі
 notification-in-progress = Ідзе аперацыя з файламі.
 trash = Сметніца
 recents = Нядаўняе
+search-title = Пошук "{$term}": {$name}
 undo = Адрабіць
 today = Сёння
 # Desktop view options

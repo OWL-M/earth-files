@@ -10,6 +10,7 @@ networks = Hálózatok
 notification-in-progress = A fájlműveletek folyamatban vannak
 trash = Kuka
 recents = Legutóbbiak
+search-title = Keresés "{$term}": {$name}
 undo = Visszavonás
 today = Ma
 # Desktop view options

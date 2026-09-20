@@ -210,6 +210,7 @@ remove = Remover
 cancelled = Canceladas
 networks = Redes
 recents = Recentes
+search-title = Pesquisar "{$term}": {$name}
 today = Hoje
 desktop-view-options = Opções de visualização da área de trabalho...
 show-on-desktop = Mostrar na área de trabalho

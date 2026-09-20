@@ -168,6 +168,7 @@ apply-to-all = 모두 적용
 skip = 건너뛰기
 replace-with = 대체할 파일
 recents = 최근
+search-title = 검색 "{$term}": {$name}
 network-drive-description =
     서버 주소는 프로토콜 접두어와 주소를 포함해야 합니다.
     예시: ssh://192.168.0.1, ftp://[2001:db8::1]

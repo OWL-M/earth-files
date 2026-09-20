@@ -5,6 +5,7 @@ filesystem = Файлова система
 home = Домівка
 trash = Смітник
 recents = Нещодавні
+search-title = Пошук "{$term}": {$name}
 undo = Скасувати
 # List view
 name = Назва

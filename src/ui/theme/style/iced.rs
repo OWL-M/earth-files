@@ -1076,7 +1076,8 @@ impl scrollable::Catalog for Theme {
                         },
                     },
                     gap: None,
-                    // TODO: what is auto scroll?
+                    // Middle-click autoscroll overlay; the app has its own edge
+                    // autoscroll and never enables this one
                     auto_scroll: AutoScroll {
                         background: Color::TRANSPARENT.into(),
                         border: Border::default(),
@@ -1095,16 +1096,41 @@ impl scrollable::Catalog for Theme {
 
                 a
             }
-            // TODO handle vertical / horizontal
             scrollable::Status::Hovered { .. } | scrollable::Status::Dragged { .. } => {
                 let cosmic = self.cosmic();
-                let neutral_5 = cosmic.palette.neutral_5.with_alpha(0.7);
-                let neutral_6 = cosmic.palette.neutral_6.with_alpha(0.7);
-
-                // if is_mouse_over_scrollbar {
-                //     let hover_overlay = cosmic.palette.neutral_0.with_alpha(0.2);
-                //     neutral_5 = over(hover_overlay, neutral_5);
-                // }
+                // Only the rail under the pointer, or being dragged, brightens
+                let (horizontal_active, vertical_active) = match status {
+                    scrollable::Status::Hovered {
+                        is_horizontal_scrollbar_hovered,
+                        is_vertical_scrollbar_hovered,
+                        ..
+                    } => (
+                        is_horizontal_scrollbar_hovered,
+                        is_vertical_scrollbar_hovered,
+                    ),
+                    scrollable::Status::Dragged {
+                        is_horizontal_scrollbar_dragged,
+                        is_vertical_scrollbar_dragged,
+                        ..
+                    } => (
+                        is_horizontal_scrollbar_dragged,
+                        is_vertical_scrollbar_dragged,
+                    ),
+                    scrollable::Status::Active { .. } => (false, false),
+                };
+                let base = if cosmic.is_dark {
+                    cosmic.palette.neutral_6.with_alpha(0.7)
+                } else {
+                    cosmic.palette.neutral_5.with_alpha(0.7)
+                };
+                let active = over(cosmic.palette.neutral_0.with_alpha(0.2), base);
+                let scroller = |is_active: bool| scrollable::Scroller {
+                    background: if is_active { active } else { base }.to_background(),
+                    border: Border {
+                        radius: cosmic.corner_radii.radius_s.to_radius(),
+                        ..Default::default()
+                    },
+                };
                 let mut a: scrollable::Style = scrollable::Style {
                     container: iced_container::Style::default(),
                     vertical_rail: scrollable::Rail {
@@ -1113,17 +1139,7 @@ impl scrollable::Catalog for Theme {
                             ..Default::default()
                         },
                         background: None,
-                        scroller: scrollable::Scroller {
-                            background: if cosmic.is_dark {
-                                neutral_6.to_background()
-                            } else {
-                                neutral_5.to_background()
-                            },
-                            border: Border {
-                                radius: cosmic.corner_radii.radius_s.to_radius(),
-                                ..Default::default()
-                            },
-                        },
+                        scroller: scroller(vertical_active),
                     },
                     horizontal_rail: scrollable::Rail {
                         border: Border {
@@ -1131,20 +1147,11 @@ impl scrollable::Catalog for Theme {
                             ..Default::default()
                         },
                         background: None,
-                        scroller: scrollable::Scroller {
-                            background: if cosmic.is_dark {
-                                neutral_6.to_background()
-                            } else {
-                                neutral_5.to_background()
-                            },
-                            border: Border {
-                                radius: cosmic.corner_radii.radius_s.to_radius(),
-                                ..Default::default()
-                            },
-                        },
+                        scroller: scroller(horizontal_active),
                     },
                     gap: None,
-                    // TODO: what is auto scroll?
+                    // Middle-click autoscroll overlay; the app has its own edge
+                    // autoscroll and never enables this one
                     auto_scroll: AutoScroll {
                         background: Color::TRANSPARENT.into(),
                         border: Border::default(),
@@ -1209,7 +1216,7 @@ pub enum Text {
     #[default]
     Default,
     Color(Color),
-    // TODO: Can't use dyn Fn since this must be copy
+    // A plain fn pointer rather than `dyn Fn`, since this must be `Copy`
     Custom(fn(&Theme) -> crate::ui::widget::text::Style),
 }
 
@@ -1437,7 +1444,6 @@ impl iced::widget::text_editor::Catalog for Theme {
         let value = cosmic.palette.neutral_9.to_color();
         let placeholder = cosmic.palette.neutral_9.with_alpha(0.7).to_color();
         let icon: Color = cosmic.background(self.transparent).on.to_color();
-        // TODO do we need to add icon color back?
 
         match status {
             iced::widget::text_editor::Status::Active

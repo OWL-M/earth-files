@@ -8,6 +8,7 @@ networks = Xarxes
 notification-in-progress = Operacions de fitxers en curs
 trash = Paperera
 recents = Recents
+search-title = Cerca "{$term}": {$name}
 undo = Desfés
 today = Avui
 # Desktop view options

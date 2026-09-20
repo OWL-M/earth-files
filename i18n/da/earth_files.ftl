@@ -8,6 +8,7 @@ networks = Netværk
 notification-in-progress = Fil-operationer er igang
 trash = Papirkurv
 recents = Seneste
+search-title = Søg "{$term}": {$name}
 undo = Fortryd
 today = I dag
 # Desktop view options

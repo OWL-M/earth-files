@@ -10,6 +10,7 @@ networks = Networks
 notification-in-progress = File operations are in progress
 trash = Trash
 recents = Recents
+search-title = Search "{$term}": {$name}
 undo = Undo
 today = Today
 

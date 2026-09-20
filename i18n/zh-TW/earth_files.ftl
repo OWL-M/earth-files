@@ -8,6 +8,7 @@ networks = 網路
 notification-in-progress = 檔案操作正在進行中
 trash = 垃圾桶
 recents = 最近使用
+search-title = 搜尋 "{$term}": {$name}
 undo = 復原
 today = 今天
 # List view

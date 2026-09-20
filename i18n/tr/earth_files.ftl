@@ -8,6 +8,7 @@ networks = Ağlar
 notification-in-progress = Dosya işlemi devam etmekte
 trash = Çöp
 recents = Son kullanılanlar
+search-title = Ara "{$term}": {$name}
 undo = Geri al
 today = Bugün
 # Desktop view options

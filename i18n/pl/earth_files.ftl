@@ -10,6 +10,7 @@ networks = Sieci
 notification-in-progress = Operacje na plikach w toku
 trash = Kosz
 recents = Poprzednie
+search-title = Szukaj "{$term}": {$name}
 undo = Cofnij
 today = Dzisiaj
 # Desktop view options

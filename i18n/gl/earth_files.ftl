@@ -38,6 +38,7 @@ networks = Redes
 notification-in-progress = Operacións de ficheiros en progreso
 trash = Lixo
 recents = Recentes
+search-title = Busca "{$term}": {$name}
 today = Hoxe
 desktop-view-options = Axustes da vista do escritorio…
 show-on-desktop = Amosar no Escritorio

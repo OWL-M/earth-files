@@ -8,6 +8,7 @@ networks = Líonraí
 notification-in-progress = Tá oibríochtaí comhaid ar siúl
 trash = Bruscar
 recents = Le Déanaí
+search-title = Cuardach "{$term}": {$name}
 undo = Cuir ar ceal
 today = Inniu
 # Desktop view options

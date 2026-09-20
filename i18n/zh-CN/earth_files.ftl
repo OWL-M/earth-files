@@ -8,6 +8,7 @@ networks = 网络
 notification-in-progress = 文件操作正在进行中
 trash = 回收站
 recents = 最近访问
+search-title = 搜索 "{$term}": {$name}
 undo = 撤销
 today = 今天
 # Desktop view options
