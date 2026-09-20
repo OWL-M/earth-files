@@ -343,6 +343,23 @@ context-action = Konteksto veiksmas
 context-action-confirm-title = Paleisti „{ $name }“?
 run = Paleisti
 rename-confirm = Pervadinti
+
+## Batch Rename Dialog
+batch-rename-title = Pervadinti {$count} elementų
+batch-rename-template = Šablonas
+batch-rename-find-replace = Rasti ir pakeisti
+batch-rename-new-name = Naujas pavadinimas
+batch-rename-tag-name = [Pradinis pavadinimas]
+batch-rename-tag-number = [1, 2, 3]
+batch-rename-add-name = Pridėti pradinį pavadinimą
+batch-rename-add-number = Pridėti numerį
+find = Rasti
+batch-rename-conflicts = {$count ->
+    [one] Vienas naujas pavadinimas sutampa su esamu elementu arba kitu nauju pavadinimu
+    [few] {$count} nauji pavadinimai sutampa su esamais elementais arba tarpusavyje
+    [many] {$count} naujo pavadinimo sutampa su esamais elementais arba tarpusavyje
+    *[other] {$count} naujų pavadinimų sutampa su esamais elementais arba tarpusavyje
+  }
 calculate = Skaičiuoti
 error = Klaida
 

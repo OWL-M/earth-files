@@ -104,6 +104,21 @@ permanently-delete-question = Eyða varanlega
 permanently-delete-warning = Viltu örugglega eyða { $target } varanlega? Það er ekki hægt að afturkalla.
 rename-file = Endurnefna skrá
 rename-folder = Endurnefna möppu
+
+## Batch Rename Dialog
+batch-rename-title = Endurnefna {$count} atriði
+batch-rename-template = Sniðmát
+batch-rename-find-replace = Finna og skipta út
+batch-rename-new-name = Nýtt heiti
+batch-rename-tag-name = [Upprunalegt heiti]
+batch-rename-tag-number = [1, 2, 3]
+batch-rename-add-name = Bæta við upprunalegu heiti
+batch-rename-add-number = Bæta við númeri
+find = Finna
+batch-rename-conflicts = {$count ->
+    [one] Eitt nýtt heiti stangast á við fyrirliggjandi atriði eða annað nýtt heiti
+    *[other] {$count} ný heiti stangast á við fyrirliggjandi atriði eða hvert annað
+  }
 replace = Skipta út
 replace-title = „{ $filename }“ er nú þegar til á þessum stað.
 replace-warning = Viltu skipta henni út fyrir þá sem þú ert að vista? Ef henni er skipt út verður skrifað yfir innihald hennar.

@@ -394,6 +394,21 @@ context-action-confirm-warning =
     } पर चलेगा।
 run = चलाएँ
 rename-confirm = नाम बदलें
+
+## Batch Rename Dialog
+batch-rename-title = {$count} आइटम का नाम बदलें
+batch-rename-template = टेम्पलेट
+batch-rename-find-replace = खोजें और बदलें
+batch-rename-new-name = नया नाम
+batch-rename-tag-name = [मूल नाम]
+batch-rename-tag-number = [1, 2, 3]
+batch-rename-add-name = मूल नाम जोड़ें
+batch-rename-add-number = संख्या जोड़ें
+find = खोजें
+batch-rename-conflicts = {$count ->
+    [one] एक नया नाम किसी मौजूदा आइटम या किसी अन्य नए नाम से टकराता है
+    *[other] {$count} नए नाम मौजूदा आइटम या एक-दूसरे से टकराते हैं
+  }
 mixed = मिश्रित
 pasted-image = चिपकाई गई छवि
 pasted-text = चिपकाया गया पाठ

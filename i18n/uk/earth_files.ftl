@@ -409,6 +409,22 @@ context-action-confirm-warning =
     }.
 context-action = Контекстна дія
 rename-confirm = Перейменувати
+
+## Batch Rename Dialog
+batch-rename-title = Перейменувати {$count} елементів
+batch-rename-template = Шаблон
+batch-rename-find-replace = Знайти та замінити
+batch-rename-new-name = Нова назва
+batch-rename-tag-name = [Початкова назва]
+batch-rename-tag-number = [1, 2, 3]
+batch-rename-add-name = Додати початкову назву
+batch-rename-add-number = Додати номер
+find = Знайти
+batch-rename-conflicts = {$count ->
+    [one] Одна нова назва конфліктує з наявним елементом або іншою новою назвою
+    [few] {$count} нові назви конфліктують з наявними елементами або між собою
+    *[many] {$count} нових назв конфліктують з наявними елементами або між собою
+  }
 mixed = Змішано
 checksum = контрольна сума { $kind }
 calculate = Вирахувати

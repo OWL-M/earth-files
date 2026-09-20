@@ -110,6 +110,21 @@ permanently-delete-question = Slett permanent
 permanently-delete-warning = Er du sukker på om du vil permanent slette { $target }? Dette kan ikke angres.
 rename-file = Endre filnavn
 rename-folder = Endre mappenavn
+
+## Batch Rename Dialog
+batch-rename-title = Gi nytt navn til {$count} elementer
+batch-rename-template = Mal
+batch-rename-find-replace = Finn og erstatt
+batch-rename-new-name = Nytt navn
+batch-rename-tag-name = [Opprinnelig navn]
+batch-rename-tag-number = [1, 2, 3]
+batch-rename-add-name = Legg til opprinnelig navn
+batch-rename-add-number = Legg til nummer
+find = Finn
+batch-rename-conflicts = {$count ->
+    [one] Ett nytt navn er i konflikt med et eksisterende element eller et annet nytt navn
+    *[other] {$count} nye navn er i konflikt med eksisterende elementer eller hverandre
+  }
 replace-title = «{ $filename }» finnes allerede på denne plasseringen
 replace-warning = Vil du bytte den ut med filen du lagrer? Dette vil overskrive innholdet.
 replace-warning-operation = Vil du erstatte den? Dette vil overskrive innholdet.

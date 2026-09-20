@@ -63,9 +63,9 @@ use crate::tab::{
 };
 use crate::trash::{Trash, TrashExt};
 use crate::zoom::{zoom_in_view, zoom_out_view, zoom_to_default};
-use crate::{context_action, fl, home_dir, menu, mime_icon};
+use crate::{batch_rename, context_action, fl, home_dir, menu, mime_icon};
 use crate::ui::theme::{Button, Container, Layer, Spacing, spacing};
-use crate::ui::convert::{ToLength, ToPadding, ToPixels};
+use crate::ui::convert::{ToColor, ToLength, ToPadding, ToPixels};
 
 static PERMANENT_DELETE_BUTTON_ID: LazyLock<widget::Id> =
     LazyLock::new(|| widget::Id::new("permanent-delete-button"));
@@ -438,6 +438,7 @@ pub enum Message {
     ToggleFoldersFirst,
     ToggleShowHidden,
     ToggleShowTypeColumn,
+    ToggleAuthPasswordVisible,
     Undo,
     UndoTrash(widget::ToastId, Arc<[PathBuf]>),
     UndoTrashStart(Option<widget::ToastId>, Vec<TrashItem>),
@@ -553,6 +554,12 @@ pub enum DialogPage {
         parent: PathBuf,
         name: String,
         dir: bool,
+    },
+    BatchRename {
+        parent: PathBuf,
+        /// Names of the items in `parent`, in display order
+        names: Vec<String>,
+        settings: batch_rename::Settings,
     },
     Replace {
         from: Box<tab::Item>,
@@ -700,6 +707,8 @@ pub struct App {
     context_page: ContextPage,
     dialog_pages: DialogPages,
     dialog_text_input: widget::Id,
+    /// Whether the network auth dialog shows the password in clear text
+    auth_password_visible: bool,
     key_binds: HashMap<KeyBind, Action>,
     mime_app_cache: MimeAppCache,
     modifiers: Modifiers,
@@ -738,6 +747,78 @@ impl App {
     /// Returns true if the clipboard cache contains pasteable content
     fn clipboard_has_content(&self) -> bool {
         !matches!(self.clipboard_cache, ClipboardCache::Empty)
+    }
+
+    /// The new-item and rename dialogs: one name field with the shared checks.
+    ///
+    /// `from_opt` is the item being renamed, which may keep its own name;
+    /// `select_delimiter` sets what a double click in the field selects up to.
+    #[allow(clippy::too_many_arguments)]
+    fn name_dialog<'a>(
+        &'a self,
+        title: String,
+        confirm: String,
+        dir: bool,
+        parent: &'a Path,
+        name: &'a str,
+        from_opt: Option<&'a Path>,
+        select_delimiter: Option<char>,
+        on_input: impl Fn(String) -> Message + 'a,
+    ) -> widget::Dialog<'a, Message> {
+        let Spacing { space_xxs, .. } = spacing();
+        let mut dialog = widget::dialog().title(title);
+
+        let complete_maybe = if name.is_empty() {
+            None
+        } else if name == "." || name == ".." {
+            dialog =
+                dialog.tertiary_action(widget::text::body(fl!("name-invalid", filename = name)));
+            None
+        } else if name.contains('/') {
+            dialog = dialog.tertiary_action(widget::text::body(fl!("name-no-slashes")));
+            None
+        } else {
+            let path = parent.join(name);
+            if from_opt != Some(path.as_path()) && path.exists() {
+                dialog = dialog.tertiary_action(widget::text::body(if path.is_dir() {
+                    fl!("folder-already-exists")
+                } else {
+                    fl!("file-already-exists")
+                }));
+                None
+            } else {
+                if name.starts_with('.') {
+                    dialog = dialog.tertiary_action(widget::text::body(fl!("name-hidden")));
+                }
+                Some(Message::DialogComplete)
+            }
+        };
+
+        let mut input = widget::text_input("", name)
+            .id(self.dialog_text_input.clone())
+            .on_input(on_input)
+            .on_submit_maybe(complete_maybe.clone().map(|maybe| move |_| maybe.clone()));
+        if let Some(delimiter) = select_delimiter {
+            input = input.double_click_select_delimiter(delimiter);
+        }
+
+        dialog
+            .primary_action(widget::button::suggested(confirm).on_press_maybe(complete_maybe))
+            .secondary_action(
+                widget::button::standard(fl!("cancel")).on_press(Message::DialogCancel),
+            )
+            .control(
+                widget::Column::with_children([
+                    widget::text::body(if dir {
+                        fl!("folder-name")
+                    } else {
+                        fl!("file-name")
+                    })
+                    .into(),
+                    input.into(),
+                ])
+                .spacing(space_xxs.to_pixels()),
+            )
     }
 
     fn push_dialog(&mut self, page: DialogPage, focus_id: Option<widget::Id>) -> Task<Message> {
@@ -2205,6 +2286,7 @@ impl Application for App {
             context_page: ContextPage::Preview(None, PreviewKind::Selected),
             dialog_pages: DialogPages::new(),
             dialog_text_input: widget::Id::new("Dialog Text Input"),
+            auth_password_visible: false,
             key_binds,
             mime_app_cache: MimeAppCache::new(),
             modifiers: Modifiers::empty(),
@@ -2989,6 +3071,24 @@ impl Application for App {
                             let to = parent.join(name);
                             tasks.push(self.operation(Operation::Rename { from, to }));
                         }
+                        DialogPage::BatchRename {
+                            parent,
+                            names,
+                            settings,
+                        } => {
+                            let tags = batch_rename::Tags::localized();
+                            let preview = batch_rename::preview(&parent, &names, &settings, &tags);
+                            if preview.ready() {
+                                for row in preview.rows {
+                                    if row.old != row.new {
+                                        tasks.push(self.operation(Operation::Rename {
+                                            from: parent.join(&row.old),
+                                            to: parent.join(&row.new),
+                                        }));
+                                    }
+                                }
+                            }
+                        }
                         DialogPage::Replace { .. } => {
                             log::warn!("replace dialog should be completed with replace result");
                         }
@@ -3281,6 +3381,7 @@ impl Application for App {
                 self.file_dialog_opt = None;
             }
             Message::NetworkAuth(mounter_key, uri, auth, auth_tx) => {
+                self.auth_password_visible = false;
                 return self.push_dialog(
                     DialogPage::NetworkAuth {
                         mounter_key,
@@ -3365,12 +3466,6 @@ impl Application for App {
                     {
                         let mut contains_change = false;
                         for event in &events {
-                            // Opening or reading a file changes nothing in the listing.
-                            // Reacting to it would rescan, and a rescan reads every file's
-                            // header for its type, which raises these events again.
-                            if matches!(event.kind, notify::EventKind::Access(_)) {
-                                continue;
-                            }
                             for event_path in &event.paths {
                                 if event_path.starts_with(path) {
                                     if let notify::EventKind::Modify(
@@ -3913,8 +4008,28 @@ impl Application for App {
                             }
                         })
                         .collect();
+                    // Several items in one folder are renamed together
+                    let batch = match tab.location.path_opt() {
+                        Some(parent)
+                            if selected.len() > 1
+                                && selected.iter().all(|path| path.parent() == Some(parent)) =>
+                        {
+                            Some((parent.clone(), tab.selected_names()))
+                        }
+                        _ => None,
+                    };
+                    if let Some((parent, names)) = batch {
+                        let tags = batch_rename::Tags::localized();
+                        return self.push_dialog(
+                            DialogPage::BatchRename {
+                                parent,
+                                names,
+                                settings: batch_rename::Settings::new(&tags),
+                            },
+                            Some(self.dialog_text_input.clone()),
+                        );
+                    }
                     if !selected.is_empty() {
-                        //TODO: batch rename
                         let mut last_name = String::new();
                         let tasks: Vec<_> = selected
                             .into_iter()
@@ -4114,6 +4229,9 @@ impl Application for App {
                 let mut config = self.config.tab;
                 config.show_hidden = !config.show_hidden;
                 return self.update(Message::TabConfig(config));
+            }
+            Message::ToggleAuthPasswordVisible => {
+                self.auth_password_visible = !self.auth_password_visible;
             }
             Message::ToggleShowTypeColumn => {
                 let mut config = self.config.tab;
@@ -4388,7 +4506,6 @@ impl Application for App {
                 }
             }
             Message::ToggleContextPage(context_page) => {
-                //TODO: ensure context menus are closed
                 if self.context_page == context_page
                     || matches!(self.context_page, ContextPage::Preview(_, _))
                 {
@@ -4916,7 +5033,11 @@ impl Application for App {
         let dialog_page = self.dialog_pages.front()?;
 
         let Spacing {
-            space_xxs, space_s, ..
+            space_xxxs,
+            space_xxs,
+            space_s,
+            space_m,
+            ..
         } = spacing();
 
         let dialog = match dialog_page {
@@ -5117,12 +5238,10 @@ impl Application for App {
                 auth,
                 auth_tx,
             } => {
-                //TODO: use URI!
                 let mut controls = widget::Column::with_capacity(4);
                 let mut id_assigned = false;
 
                 if let Some(username) = &auth.username_opt {
-                    //TODO: what should submit do?
                     let mut input = widget::text_input(fl!("username"), username)
                         .on_input(move |value| {
                             Message::DialogUpdate(DialogPage::NetworkAuth {
@@ -5144,7 +5263,6 @@ impl Application for App {
                 }
 
                 if let Some(domain) = &auth.domain_opt {
-                    //TODO: what should submit do?
                     let mut input = widget::text_input(fl!("domain"), domain)
                         .on_input(move |value| {
                             Message::DialogUpdate(DialogPage::NetworkAuth {
@@ -5166,21 +5284,24 @@ impl Application for App {
                 }
 
                 if let Some(password) = &auth.password_opt {
-                    //TODO: what should submit do?
-                    //TODO: button for showing password
-                    let mut input = widget::secure_input(fl!("password"), password, None, true)
-                        .on_input(move |value| {
-                            Message::DialogUpdate(DialogPage::NetworkAuth {
-                                mounter_key: *mounter_key,
-                                uri: uri.clone(),
-                                auth: MounterAuth {
-                                    password_opt: Some(value),
-                                    ..auth.clone()
-                                },
-                                auth_tx: auth_tx.clone(),
-                            })
+                    let mut input = widget::secure_input(
+                        fl!("password"),
+                        password,
+                        Some(Message::ToggleAuthPasswordVisible),
+                        !self.auth_password_visible,
+                    )
+                    .on_input(move |value| {
+                        Message::DialogUpdate(DialogPage::NetworkAuth {
+                            mounter_key: *mounter_key,
+                            uri: uri.clone(),
+                            auth: MounterAuth {
+                                password_opt: Some(value),
+                                ..auth.clone()
+                            },
+                            auth_tx: auth_tx.clone(),
                         })
-                        .on_submit(|_| Message::DialogComplete);
+                    })
+                    .on_submit(|_| Message::DialogComplete);
                     if !id_assigned {
                         input = input.id(self.dialog_text_input.clone());
                     }
@@ -5188,8 +5309,6 @@ impl Application for App {
                 }
 
                 if let Some(remember) = &auth.remember_opt {
-                    //TODO: what should submit do?
-                    //TODO: button for showing password
                     controls = controls.push(
                         widget::checkbox(*remember)
                             .label(fl!("remember-password"))
@@ -5209,7 +5328,10 @@ impl Application for App {
 
                 let mut parts = auth.message.splitn(2, '\n');
                 let title = parts.next().unwrap_or_default();
-                let body = parts.next().unwrap_or_default();
+                let body = match parts.next() {
+                    Some(body) if !body.is_empty() => format!("{uri}\n{body}"),
+                    _ => uri.clone(),
+                };
 
                 let mut widget = widget::dialog()
                     .title(title)
@@ -5254,74 +5376,26 @@ impl Application for App {
                 .secondary_action(
                     widget::button::standard(fl!("cancel")).on_press(Message::DialogCancel),
                 ),
-            DialogPage::NewItem { parent, name, dir } => {
-                let mut dialog = widget::dialog().title(if *dir {
+            DialogPage::NewItem { parent, name, dir } => self.name_dialog(
+                if *dir {
                     fl!("create-new-folder")
                 } else {
                     fl!("create-new-file")
-                });
-
-                let complete_maybe = if name.is_empty() {
-                    None
-                } else if name == "." || name == ".." {
-                    dialog = dialog.tertiary_action(widget::text::body(fl!(
-                        "name-invalid",
-                        filename = name.as_str()
-                    )));
-                    None
-                } else if name.contains('/') {
-                    dialog = dialog.tertiary_action(widget::text::body(fl!("name-no-slashes")));
-                    None
-                } else {
-                    let path = parent.join(name);
-                    if path.exists() {
-                        if path.is_dir() {
-                            dialog = dialog
-                                .tertiary_action(widget::text::body(fl!("folder-already-exists")));
-                        } else {
-                            dialog = dialog
-                                .tertiary_action(widget::text::body(fl!("file-already-exists")));
-                        }
-                        None
-                    } else {
-                        if name.starts_with('.') {
-                            dialog = dialog.tertiary_action(widget::text::body(fl!("name-hidden")));
-                        }
-                        Some(Message::DialogComplete)
-                    }
-                };
-
-                dialog
-                    .primary_action(
-                        widget::button::suggested(fl!("save"))
-                            .on_press_maybe(complete_maybe.clone()),
-                    )
-                    .secondary_action(
-                        widget::button::standard(fl!("cancel")).on_press(Message::DialogCancel),
-                    )
-                    .control(
-                        widget::Column::with_children([
-                            widget::text::body(if *dir {
-                                fl!("folder-name")
-                            } else {
-                                fl!("file-name")
-                            })
-                            .into(),
-                            widget::text_input("", name.as_str())
-                                .id(self.dialog_text_input.clone())
-                                .on_input(move |name| {
-                                    Message::DialogUpdate(DialogPage::NewItem {
-                                        parent: parent.clone(),
-                                        name,
-                                        dir: *dir,
-                                    })
-                                })
-                                .on_submit_maybe(complete_maybe.map(|maybe| move |_| maybe.clone()))
-                                .into(),
-                        ])
-                        .spacing(space_xxs.to_pixels()),
-                    )
-            }
+                },
+                fl!("save"),
+                *dir,
+                parent,
+                name,
+                None,
+                None,
+                move |name| {
+                    Message::DialogUpdate(DialogPage::NewItem {
+                        parent: parent.clone(),
+                        name,
+                        dir: *dir,
+                    })
+                },
+            ),
             DialogPage::RunContextAction { action, paths } => {
                 let name = self
                     .config
@@ -5559,76 +5633,171 @@ impl Application for App {
                 parent,
                 name,
                 dir,
-            } => {
-                //TODO: combine logic with NewItem
-                let mut dialog = widget::dialog().title(if *dir {
+            } => self.name_dialog(
+                if *dir {
                     fl!("rename-folder")
                 } else {
                     fl!("rename-file")
-                });
+                },
+                fl!("rename-confirm"),
+                *dir,
+                parent,
+                name,
+                Some(from),
+                Some('.'),
+                move |name| {
+                    Message::DialogUpdate(DialogPage::RenameItem {
+                        from: from.clone(),
+                        parent: parent.clone(),
+                        name,
+                        dir: *dir,
+                    })
+                },
+            ),
+            DialogPage::BatchRename {
+                parent,
+                names,
+                settings,
+            } => {
+                use batch_rename::{Mode, Settings};
 
-                let complete_maybe = if name.is_empty() {
-                    None
-                } else if name == "." || name == ".." {
-                    dialog = dialog.tertiary_action(widget::text::body(fl!(
-                        "name-invalid",
-                        filename = name.as_str()
-                    )));
-                    None
-                } else if name.contains('/') {
-                    dialog = dialog.tertiary_action(widget::text::body(fl!("name-no-slashes")));
-                    None
-                } else {
-                    let path = parent.join(name);
-                    if *from != path && path.exists() {
-                        if path.is_dir() {
-                            dialog = dialog
-                                .tertiary_action(widget::text::body(fl!("folder-already-exists")));
-                        } else {
-                            dialog = dialog
-                                .tertiary_action(widget::text::body(fl!("file-already-exists")));
-                        }
-                        None
-                    } else {
-                        if name.starts_with('.') {
-                            dialog = dialog.tertiary_action(widget::text::body(fl!("name-hidden")));
-                        }
-                        Some(Message::DialogComplete)
-                    }
+                let tags = batch_rename::Tags::localized();
+                let preview = batch_rename::preview(parent, names, settings, &tags);
+                let update = |settings: Settings| {
+                    Message::DialogUpdate(DialogPage::BatchRename {
+                        parent: parent.clone(),
+                        names: names.clone(),
+                        settings,
+                    })
                 };
 
-                dialog
+                let modes = widget::Row::with_children([
+                    widget::radio(
+                        fl!("batch-rename-template"),
+                        Mode::Template,
+                        Some(settings.mode),
+                        |mode| {
+                            update(Settings {
+                                mode,
+                                ..settings.clone()
+                            })
+                        },
+                    )
+                    .into(),
+                    widget::radio(
+                        fl!("batch-rename-find-replace"),
+                        Mode::Replace,
+                        Some(settings.mode),
+                        |mode| {
+                            update(Settings {
+                                mode,
+                                ..settings.clone()
+                            })
+                        },
+                    )
+                    .into(),
+                ])
+                .spacing(space_m.to_pixels());
+
+                let fields: Element<'_, Message> = match settings.mode {
+                    Mode::Template => {
+                        let add_tag = |tag: &str| {
+                            update(Settings {
+                                template: format!("{}{tag}", settings.template),
+                                ..settings.clone()
+                            })
+                        };
+                        widget::Column::with_children([
+                            widget::text_input("", settings.template.as_str())
+                                .label(fl!("batch-rename-new-name"))
+                                .id(self.dialog_text_input.clone())
+                                .on_input(move |template| {
+                                    update(Settings {
+                                        template,
+                                        ..settings.clone()
+                                    })
+                                })
+                                .into(),
+                            widget::Row::with_children([
+                                widget::button::standard(fl!("batch-rename-add-name"))
+                                    .on_press(add_tag(&tags.name))
+                                    .into(),
+                                widget::button::standard(fl!("batch-rename-add-number"))
+                                    .on_press(add_tag(&tags.number))
+                                    .into(),
+                            ])
+                            .spacing(space_xxs.to_pixels())
+                            .into(),
+                        ])
+                        .spacing(space_xxs.to_pixels())
+                        .into()
+                    }
+                    Mode::Replace => widget::Column::with_children([
+                        widget::text_input("", settings.find.as_str())
+                            .label(fl!("find"))
+                            .id(self.dialog_text_input.clone())
+                            .on_input(move |find| {
+                                update(Settings {
+                                    find,
+                                    ..settings.clone()
+                                })
+                            })
+                            .into(),
+                        widget::text_input("", settings.replace.as_str())
+                            .label(fl!("replace-with"))
+                            .on_input(move |replace| {
+                                update(Settings {
+                                    replace,
+                                    ..settings.clone()
+                                })
+                            })
+                            .into(),
+                    ])
+                    .spacing(space_xxs.to_pixels())
+                    .into(),
+                };
+
+                let conflict_color = crate::ui::theme::active()
+                    .cosmic()
+                    .destructive_color()
+                    .to_color();
+                let mut rows = widget::Column::with_capacity(preview.rows.len())
+                    .spacing(space_xxxs.to_pixels());
+                for row in &preview.rows {
+                    let mut new = widget::text::body(row.new.clone());
+                    if row.conflict {
+                        new = new.class(crate::ui::theme::Text::Color(conflict_color));
+                    }
+                    rows = rows.push(
+                        widget::Row::with_children([
+                            widget::text::body(row.old.clone())
+                                .width(Length::FillPortion(1))
+                                .into(),
+                            new.width(Length::FillPortion(1)).into(),
+                        ])
+                        .spacing(space_s.to_pixels()),
+                    );
+                }
+
+                let mut dialog = widget::dialog()
+                    .title(fl!("batch-rename-title", count = names.len()))
+                    .control(modes)
+                    .control(fields)
+                    .control(widget::scrollable(rows).height(Length::Fixed(240.0)))
                     .primary_action(
                         widget::button::suggested(fl!("rename-confirm"))
-                            .on_press_maybe(complete_maybe.clone()),
+                            .on_press_maybe(preview.ready().then_some(Message::DialogComplete)),
                     )
                     .secondary_action(
                         widget::button::standard(fl!("cancel")).on_press(Message::DialogCancel),
-                    )
-                    .control(
-                        widget::Column::with_children([
-                            widget::text::body(if *dir {
-                                fl!("folder-name")
-                            } else {
-                                fl!("file-name")
-                            })
-                            .into(),
-                            widget::text_input("", name.as_str())
-                                .id(self.dialog_text_input.clone())
-                                .double_click_select_delimiter('.')
-                                .on_input(move |name| {
-                                    Message::DialogUpdate(DialogPage::RenameItem {
-                                        from: from.clone(),
-                                        parent: parent.clone(),
-                                        name,
-                                        dir: *dir,
-                                    })
-                                })
-                                .on_submit_maybe(complete_maybe.map(|maybe| move |_| maybe.clone()))
-                                .into(),
-                        ])
-                        .spacing(space_xxs.to_pixels()),
-                    )
+                    );
+                if preview.conflicts > 0 {
+                    dialog = dialog.tertiary_action(widget::text::body(fl!(
+                        "batch-rename-conflicts",
+                        count = preview.conflicts
+                    )));
+                }
+                dialog
             }
             DialogPage::Replace {
                 from,
@@ -5866,7 +6035,6 @@ impl Application for App {
         if let Some(term) = self.search_get() {
             if self.core.is_condensed() {
                 elements.push(
-                    //TODO: selected state is not appearing different
                     widget::button::icon(icon::from_name("system-search-symbolic"))
                         .on_press(Message::SearchClear)
                         .padding(8)
@@ -5968,8 +6136,6 @@ impl Application for App {
                 )
                 .map(move |message| Message::TabMessage(Some(entity), message));
             tab_column = tab_column.push(tab_view);
-        } else {
-            //TODO
         }
 
         // The toaster is added on top of an empty element to ensure that it does not override context menus
@@ -6029,7 +6195,8 @@ impl Application for App {
         struct RecentsWatcherSubscription;
 
         let mut subscriptions = vec![
-            //TODO: filter more events by window id
+            // Focus, close and resize events carry no window id here.
+            // Filter them by window id if a multi-window bug shows up.
             event::listen_with(|event, status, window_id| match event {
                 Event::Mouse(mouse::Event::ButtonPressed(button)) => match status {
                     event::Status::Ignored => Some(Message::Mouse(window_id, button)),
@@ -6312,7 +6479,25 @@ impl Application for App {
         }));
 
         if !self.pending_operations.is_empty() {
-            //TODO: inhibit suspend/shutdown?
+            // Hold a logind lock for as long as operations are pending: the
+            // subscription ends when the last one finishes, which drops the fd
+            #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+            struct InhibitSubscription;
+            subscriptions.push(Subscription::run_with(
+                TypeId::of::<InhibitSubscription>(),
+                |_| {
+                    stream::channel(
+                        1,
+                        |_output: futures::channel::mpsc::Sender<Message>| async move {
+                            let _lock = crate::inhibit::block_sleep_and_shutdown(&fl!(
+                                "notification-in-progress"
+                            ))
+                            .await;
+                            futures::future::pending::<()>().await;
+                        },
+                    )
+                },
+            ));
 
             if self.core.main_window_id().is_some() {
                 // Force refresh the UI every 100ms while an operation is active.

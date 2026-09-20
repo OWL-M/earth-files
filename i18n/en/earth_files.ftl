@@ -130,6 +130,21 @@ rename-file = Rename file
 rename-folder = Rename folder
 rename-confirm = Rename
 
+## Batch Rename Dialog
+batch-rename-title = Rename {$count} items
+batch-rename-template = Template
+batch-rename-find-replace = Find and replace
+batch-rename-new-name = New name
+batch-rename-tag-name = [Original name]
+batch-rename-tag-number = [1, 2, 3]
+batch-rename-add-name = Add original name
+batch-rename-add-number = Add number
+find = Find
+batch-rename-conflicts = {$count ->
+    [one] One new name conflicts with an existing item or another new name
+    *[other] {$count} new names conflict with existing items or each other
+  }
+
 ## Change Sidebar Label Dialog
 sidebar-label = Sidebar label
 

@@ -464,6 +464,18 @@ context-action-confirm-warning =
     } 上运行。
 context-action = 环境行动
 rename-confirm = 重命名
+
+## Batch Rename Dialog
+batch-rename-title = 重命名 {$count} 个项目
+batch-rename-template = 模板
+batch-rename-find-replace = 查找和替换
+batch-rename-new-name = 新名称
+batch-rename-tag-name = [原始名称]
+batch-rename-tag-number = [1, 2, 3]
+batch-rename-add-name = 添加原始名称
+batch-rename-add-number = 添加编号
+find = 查找
+batch-rename-conflicts = {$count} 个新名称与现有项目或彼此冲突
 calculate = 计算
 error = 错误
 checksum = { $kind } 校验和

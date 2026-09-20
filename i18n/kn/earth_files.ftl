@@ -88,6 +88,21 @@ browse-store = { $store } ಅಲ್ಲಿ ಹುಡುಕಿ
 rename-file = ಫೈಲ್ ಹೆಸರು ಬದಲಿಸಿ
 rename-folder = ಫೋಲ್ಡರ್ ಹೆಸರು ಬದಲಿಸಿ
 
+## Batch Rename Dialog
+batch-rename-title = {$count} ಐಟಂಗಳನ್ನು ಮರುಹೆಸರಿಸಿ
+batch-rename-template = ಟೆಂಪ್ಲೇಟ್
+batch-rename-find-replace = ಹುಡುಕಿ ಮತ್ತು ಬದಲಾಯಿಸಿ
+batch-rename-new-name = ಹೊಸ ಹೆಸರು
+batch-rename-tag-name = [ಮೂಲ ಹೆಸರು]
+batch-rename-tag-number = [1, 2, 3]
+batch-rename-add-name = ಮೂಲ ಹೆಸರನ್ನು ಸೇರಿಸಿ
+batch-rename-add-number = ಸಂಖ್ಯೆಯನ್ನು ಸೇರಿಸಿ
+find = ಹುಡುಕಿ
+batch-rename-conflicts = {$count ->
+    [one] ಒಂದು ಹೊಸ ಹೆಸರು ಅಸ್ತಿತ್ವದಲ್ಲಿರುವ ಐಟಂ ಅಥವಾ ಇನ್ನೊಂದು ಹೊಸ ಹೆಸರಿನೊಂದಿಗೆ ಘರ್ಷಣೆಯಾಗುತ್ತದೆ
+    *[other] {$count} ಹೊಸ ಹೆಸರುಗಳು ಅಸ್ತಿತ್ವದಲ್ಲಿರುವ ಐಟಂಗಳೊಂದಿಗೆ ಅಥವಾ ಪರಸ್ಪರ ಘರ್ಷಣೆಯಾಗುತ್ತವೆ
+  }
+
 ## Replace Dialog
 
 replace = ಬದಲಾಯಿಸಿ

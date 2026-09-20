@@ -346,6 +346,18 @@ context-action-confirm-warning =
        *[other] item
     }.
 rename-confirm = Ganti nama
+
+## Batch Rename Dialog
+batch-rename-title = Ganti nama {$count} item
+batch-rename-template = Templat
+batch-rename-find-replace = Cari dan ganti
+batch-rename-new-name = Nama baru
+batch-rename-tag-name = [Nama asli]
+batch-rename-tag-number = [1, 2, 3]
+batch-rename-add-name = Tambahkan nama asli
+batch-rename-add-number = Tambahkan nomor
+find = Cari
+batch-rename-conflicts = {$count} nama baru bentrok dengan item yang ada atau satu sama lain
 checksum = { $kind } checksum
 calculate = Hitung
 error = Galat

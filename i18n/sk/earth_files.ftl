@@ -126,6 +126,22 @@ permanently-delete-warning = Naozaj chcete trvalo odstrániť { $target }? Toto 
 rename-file = Premenovať súbor
 rename-folder = Premenovať priečinok
 
+## Batch Rename Dialog
+batch-rename-title = Premenovať {$count} položiek
+batch-rename-template = Šablóna
+batch-rename-find-replace = Nájsť a nahradiť
+batch-rename-new-name = Nový názov
+batch-rename-tag-name = [Pôvodný názov]
+batch-rename-tag-number = [1, 2, 3]
+batch-rename-add-name = Pridať pôvodný názov
+batch-rename-add-number = Pridať číslo
+find = Nájsť
+batch-rename-conflicts = {$count ->
+    [one] Jeden nový názov je v konflikte s existujúcou položkou alebo iným novým názvom
+    [few] {$count} nové názvy sú v konflikte s existujúcimi položkami alebo medzi sebou
+    *[other] {$count} nových názvov je v konflikte s existujúcimi položkami alebo medzi sebou
+  }
+
 ## Replace Dialog
 
 replace = Nahradiť

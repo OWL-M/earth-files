@@ -465,6 +465,21 @@ context-action-confirm-warning =
     }.
 run = Rith
 rename-confirm = Athainmnigh
+
+## Batch Rename Dialog
+batch-rename-title = Athainmnigh {$count} mír
+batch-rename-template = Teimpléad
+batch-rename-find-replace = Aimsigh agus ionadaigh
+batch-rename-new-name = Ainm nua
+batch-rename-tag-name = [Bunainm]
+batch-rename-tag-number = [1, 2, 3]
+batch-rename-add-name = Cuir an bunainm leis
+batch-rename-add-number = Cuir uimhir leis
+find = Aimsigh
+batch-rename-conflicts = {$count ->
+    [one] Tá ainm nua amháin ag teacht salach ar mhír atá ann cheana nó ar ainm nua eile
+    *[other] Tá {$count} ainm nua ag teacht salach ar mhíreanna atá ann cheana nó ar a chéile
+  }
 checksum = { $kind } suim sheiceála
 calculate = Ríomh
 error = Earráid

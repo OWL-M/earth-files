@@ -411,6 +411,18 @@ context-action-confirm-warning =
     } 上執行。
 run = 執行
 rename-confirm = 重新命名
+
+## Batch Rename Dialog
+batch-rename-title = 重新命名 {$count} 個項目
+batch-rename-template = 範本
+batch-rename-find-replace = 尋找並取代
+batch-rename-new-name = 新名稱
+batch-rename-tag-name = [原始名稱]
+batch-rename-tag-number = [1, 2, 3]
+batch-rename-add-name = 加入原始名稱
+batch-rename-add-number = 加入編號
+find = 尋找
+batch-rename-conflicts = {$count} 個新名稱與現有項目或彼此衝突
 checksum = { $kind } 核對和
 calculate = 計算
 error = 錯誤

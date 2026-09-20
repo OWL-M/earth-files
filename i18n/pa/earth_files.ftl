@@ -85,6 +85,21 @@ permanently-delete-question = ਪੱਕੇ ਤੌਰ ਉੱਤੇ ਹਟਾਉ�
 delete = ਹਟਾਓ
 rename-file = ਫ਼ਾਇਲ ਦਾ ਨਾਂ ਬਦਲੋ
 rename-folder = ਫੋਲਡਰ ਦਾ ਨਾਂ ਬਦਲੋ
+
+## Batch Rename Dialog
+batch-rename-title = {$count} ਆਈਟਮਾਂ ਦਾ ਨਾਂ ਬਦਲੋ
+batch-rename-template = ਟੈਂਪਲੇਟ
+batch-rename-find-replace = ਲੱਭੋ ਅਤੇ ਬਦਲੋ
+batch-rename-new-name = ਨਵਾਂ ਨਾਂ
+batch-rename-tag-name = [ਅਸਲ ਨਾਂ]
+batch-rename-tag-number = [1, 2, 3]
+batch-rename-add-name = ਅਸਲ ਨਾਂ ਜੋੜੋ
+batch-rename-add-number = ਨੰਬਰ ਜੋੜੋ
+find = ਲੱਭੋ
+batch-rename-conflicts = {$count ->
+    [one] ਇੱਕ ਨਵਾਂ ਨਾਂ ਮੌਜੂਦਾ ਆਈਟਮ ਜਾਂ ਹੋਰ ਨਵੇਂ ਨਾਂ ਨਾਲ ਟਕਰਾਉਂਦਾ ਹੈ
+    *[other] {$count} ਨਵੇਂ ਨਾਂ ਮੌਜੂਦਾ ਆਈਟਮਾਂ ਜਾਂ ਇੱਕ-ਦੂਜੇ ਨਾਲ ਟਕਰਾਉਂਦੇ ਹਨ
+  }
 replace = ਬਦਲੋ
 original-file = ਅਸਲ ਫ਼ਾਇਲ
 replace-with = ਇਸ ਨਾਲ ਬਦਲੋ

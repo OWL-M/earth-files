@@ -103,6 +103,21 @@ browse-store = { $store }'sını gezin
 rename-file = Dosyayı yeniden adlandır
 rename-folder = Klasörü yeniden adlandır
 
+## Batch Rename Dialog
+batch-rename-title = {$count} öğeyi yeniden adlandır
+batch-rename-template = Şablon
+batch-rename-find-replace = Bul ve değiştir
+batch-rename-new-name = Yeni ad
+batch-rename-tag-name = [Özgün ad]
+batch-rename-tag-number = [1, 2, 3]
+batch-rename-add-name = Özgün adı ekle
+batch-rename-add-number = Numara ekle
+find = Bul
+batch-rename-conflicts = {$count ->
+    [one] Bir yeni ad, var olan bir öğeyle veya başka bir yeni adla çakışıyor
+    *[other] {$count} yeni ad, var olan öğelerle veya birbiriyle çakışıyor
+  }
+
 ## Replace Dialog
 
 replace = Değiştir

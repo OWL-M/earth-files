@@ -457,6 +457,21 @@ context-action-confirm-warning =
     }.
 run = Ausführen
 rename-confirm = Umbenennen
+
+## Batch Rename Dialog
+batch-rename-title = {$count} Objekte umbenennen
+batch-rename-template = Vorlage
+batch-rename-find-replace = Suchen und ersetzen
+batch-rename-new-name = Neuer Name
+batch-rename-tag-name = [Ursprünglicher Name]
+batch-rename-tag-number = [1, 2, 3]
+batch-rename-add-name = Ursprünglichen Namen hinzufügen
+batch-rename-add-number = Nummer hinzufügen
+find = Suchen
+batch-rename-conflicts = {$count ->
+    [one] Ein neuer Name steht im Konflikt mit einem vorhandenen Objekt oder einem anderen neuen Namen
+    *[other] {$count} neue Namen stehen im Konflikt mit vorhandenen Objekten oder untereinander
+  }
 checksum = { $kind } Prüfsumme
 calculate = Berechnen
 error = Fehler

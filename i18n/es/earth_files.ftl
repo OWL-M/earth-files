@@ -122,6 +122,21 @@ permanently-delete-warning = ¿Quiere eliminar permanentemente { $target }? Esta
 rename-file = Renombrar archivo
 rename-folder = Renombrar carpeta
 
+## Batch Rename Dialog
+batch-rename-title = Renombrar {$count} elementos
+batch-rename-template = Plantilla
+batch-rename-find-replace = Buscar y reemplazar
+batch-rename-new-name = Nuevo nombre
+batch-rename-tag-name = [Nombre original]
+batch-rename-tag-number = [1, 2, 3]
+batch-rename-add-name = Añadir nombre original
+batch-rename-add-number = Añadir número
+find = Buscar
+batch-rename-conflicts = {$count ->
+    [one] Un nombre nuevo entra en conflicto con un elemento existente o con otro nombre nuevo
+    *[other] {$count} nombres nuevos entran en conflicto con elementos existentes o entre sí
+  }
+
 ## Replace Dialog
 
 replace = Reemplazar

@@ -103,6 +103,22 @@ browse-store = Răsfoiește în { $store }
 rename-file = Redenumește fișier
 rename-folder = Redenumește dosar
 
+## Batch Rename Dialog
+batch-rename-title = Redenumește {$count} elemente
+batch-rename-template = Șablon
+batch-rename-find-replace = Caută și înlocuiește
+batch-rename-new-name = Nume nou
+batch-rename-tag-name = [Numele original]
+batch-rename-tag-number = [1, 2, 3]
+batch-rename-add-name = Adaugă numele original
+batch-rename-add-number = Adaugă un număr
+find = Caută
+batch-rename-conflicts = {$count ->
+    [one] Un nume nou intră în conflict cu un element existent sau cu alt nume nou
+    [few] {$count} nume noi intră în conflict cu elemente existente sau între ele
+    *[other] {$count} de nume noi intră în conflict cu elemente existente sau între ele
+  }
+
 ## Replace Dialog
 
 replace = Înlocuiește

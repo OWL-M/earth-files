@@ -448,6 +448,22 @@ context-action-confirm-warning =
     }.
 run = Spustit
 rename-confirm = Přejmenovat
+
+## Batch Rename Dialog
+batch-rename-title = Přejmenovat {$count} položek
+batch-rename-template = Šablona
+batch-rename-find-replace = Najít a nahradit
+batch-rename-new-name = Nový název
+batch-rename-tag-name = [Původní název]
+batch-rename-tag-number = [1, 2, 3]
+batch-rename-add-name = Přidat původní název
+batch-rename-add-number = Přidat číslo
+find = Najít
+batch-rename-conflicts = {$count ->
+    [one] Jeden nový název je v konfliktu s existující položkou nebo jiným novým názvem
+    [few] {$count} nové názvy jsou v konfliktu s existujícími položkami nebo mezi sebou
+    *[other] {$count} nových názvů je v konfliktu s existujícími položkami nebo mezi sebou
+  }
 checksum = Kontrolní součet { $kind }
 calculate = Vypočítat
 error = Chyba

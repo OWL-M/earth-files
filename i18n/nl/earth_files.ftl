@@ -120,6 +120,21 @@ permanently-delete-warning = { $target } wordt permanent verwijderd. Dit kan nie
 rename-file = Bestand hernoemen
 rename-folder = Map hernoemen
 
+## Batch Rename Dialog
+batch-rename-title = {$count} items hernoemen
+batch-rename-template = Sjabloon
+batch-rename-find-replace = Zoeken en vervangen
+batch-rename-new-name = Nieuwe naam
+batch-rename-tag-name = [Oorspronkelijke naam]
+batch-rename-tag-number = [1, 2, 3]
+batch-rename-add-name = Oorspronkelijke naam toevoegen
+batch-rename-add-number = Nummer toevoegen
+find = Zoeken
+batch-rename-conflicts = {$count ->
+    [one] Eén nieuwe naam conflicteert met een bestaand item of een andere nieuwe naam
+    *[other] {$count} nieuwe namen conflicteren met bestaande items of met elkaar
+  }
+
 ## Replace Dialog
 
 replace = Vervangen

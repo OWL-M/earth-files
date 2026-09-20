@@ -347,6 +347,21 @@ context-action-confirm-warning =
        *[other] στοιχεία
     }.
 rename-confirm = Μετονομασία
+
+## Batch Rename Dialog
+batch-rename-title = Μετονομασία {$count} αντικειμένων
+batch-rename-template = Πρότυπο
+batch-rename-find-replace = Εύρεση και αντικατάσταση
+batch-rename-new-name = Νέο όνομα
+batch-rename-tag-name = [Αρχικό όνομα]
+batch-rename-tag-number = [1, 2, 3]
+batch-rename-add-name = Προσθήκη αρχικού ονόματος
+batch-rename-add-number = Προσθήκη αριθμού
+find = Εύρεση
+batch-rename-conflicts = {$count ->
+    [one] Ένα νέο όνομα συγκρούεται με υπάρχον αντικείμενο ή άλλο νέο όνομα
+    *[other] {$count} νέα ονόματα συγκρούονται με υπάρχοντα αντικείμενα ή μεταξύ τους
+  }
 checksum = Άθροισμα ελέγχου { $kind }
 calculate = Υπολογισμός
 error = Σφάλμα

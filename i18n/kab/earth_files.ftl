@@ -115,6 +115,21 @@ extract-password-required = Awal uffir yettwasra
 permanently-delete-question = Kkes s wudem imezgi?
 permanently-delete-warning = { $target } ad yettwakkes s wudem imezgi. Tigawt-agi ur tezmir ara ad tettwasefsex.
 rename-file = Snifel isem n ufaylu
+
+## Batch Rename Dialog
+batch-rename-title = Beddel isem n {$count} n yiferdisen
+batch-rename-template = Taneɣruft
+batch-rename-find-replace = Nadi tbeddleḍ
+batch-rename-new-name = Isem amaynut
+batch-rename-tag-name = [Isem aneẓli]
+batch-rename-tag-number = [1, 2, 3]
+batch-rename-add-name = Rnu isem aneẓli
+batch-rename-add-number = Rnu uṭṭun
+find = Nadi
+batch-rename-conflicts = {$count ->
+    [one] Yiwen n yisem amaynut yemgarad d uferdis yellan neɣ d yisem amaynut nniḍen
+    *[other] {$count} n yismawen imaynuten mgaraden d yiferdisen yellan neɣ gar-asen
+  }
 replace-title = "{ $filename }" yella yakan deg wadig-a
 replace-warning = Tebɣiḍ ad t-tsemselsiḍ s win ara teskelseḍ? Asemselsi-ines ad yaru sennig ugbur-is.
 replace-warning-operation = Tebɣiḍ ad t-tsemselsiḍ? Asemselsi-ines ad yaru sennig ugbur-is.

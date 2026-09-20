@@ -115,6 +115,22 @@ permanently-delete-warning = Вы ўпэўненыя, што хочаце наз
 # Rename Dialog
 rename-file = Перайменаваць файл
 rename-folder = Перайменаваць папку
+
+## Batch Rename Dialog
+batch-rename-title = Перайменаваць {$count} элементаў
+batch-rename-template = Шаблон
+batch-rename-find-replace = Знайсці і замяніць
+batch-rename-new-name = Новая назва
+batch-rename-tag-name = [Зыходная назва]
+batch-rename-tag-number = [1, 2, 3]
+batch-rename-add-name = Дадаць зыходную назву
+batch-rename-add-number = Дадаць нумар
+find = Знайсці
+batch-rename-conflicts = {$count ->
+    [one] Адна новая назва канфліктуе з існуючым элементам або іншай новай назвай
+    [few] {$count} новыя назвы канфліктуюць з існуючымі элементамі або паміж сабой
+    *[many] {$count} новых назваў канфліктуюць з існуючымі элементамі або паміж сабой
+  }
 # Replace Dialog
 replace = Замяніць
 replace-title = { $filename } ужо існуе ў гэтым месцы.

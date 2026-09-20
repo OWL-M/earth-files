@@ -422,16 +422,21 @@ impl<Message: 'static + Clone> Widget<Message, crate::ui::Theme, iced::Renderer>
             state.open
         });
         let mut was_open = false;
-        if matches!(event,
-            Event::Keyboard(keyboard::Event::KeyPressed {
-                key: keyboard::Key::Named(keyboard::key::Named::Escape),
-                ..
-            })
-            | Event::Mouse(mouse::Event::ButtonPressed(
-                mouse::Button::Right | mouse::Button::Left,
-            ))
-            | Event::Touch(touch::Event::FingerPressed { .. })
-                if open )
+        // Any key that is not a bare modifier closes the menu: the menu has no
+        // keyboard navigation, and a shortcut pressed while it is open acts on
+        // the window behind it, so the menu must not stay up over the result
+        let key_closes = matches!(
+            event,
+            Event::Keyboard(keyboard::Event::KeyPressed { key, .. }) if !is_modifier_key(key)
+        );
+        if open
+            && (key_closes
+                || matches!(
+                    event,
+                    Event::Mouse(mouse::Event::ButtonPressed(
+                        mouse::Button::Right | mouse::Button::Left,
+                    )) | Event::Touch(touch::Event::FingerPressed { .. })
+                ))
         {
             state.menu_bar_state.inner.with_data_mut(|state| {
                 was_open = true;
@@ -595,6 +600,29 @@ impl<'a, Message: Clone + 'static> From<ContextMenu<'a, Message>> for crate::ui:
     fn from(widget: ContextMenu<'a, Message>) -> Self {
         Self::new(widget)
     }
+}
+
+fn is_modifier_key(key: &keyboard::Key) -> bool {
+    use keyboard::key::Named;
+    matches!(
+        key,
+        keyboard::Key::Named(
+            Named::Alt
+                | Named::AltGraph
+                | Named::CapsLock
+                | Named::Control
+                | Named::Fn
+                | Named::FnLock
+                | Named::Hyper
+                | Named::Meta
+                | Named::NumLock
+                | Named::ScrollLock
+                | Named::Shift
+                | Named::Super
+                | Named::Symbol
+                | Named::SymbolLock
+        )
+    )
 }
 
 fn right_button_released(event: &Event) -> bool {

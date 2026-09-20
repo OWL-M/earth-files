@@ -80,9 +80,9 @@ pub fn appearance(
         Button::Icon | Button::IconVertical | Button::HeaderBar | Button::NavToggle => {
             if matches!(style, Button::IconVertical) {
                 corner_radii = &cosmic.corner_radii.radius_m;
-                if selected {
-                    appearance.overlay = Some(Background::Color(cosmic.icon_button.selected_state_color().to_color()));
-                }
+            }
+            if selected && matches!(style, Button::Icon | Button::IconVertical) {
+                appearance.overlay = Some(Background::Color(cosmic.icon_button.selected_state_color().to_color()));
             }
             if matches!(style, Button::NavToggle) {
                 corner_radii = &cosmic.corner_radii.radius_s;

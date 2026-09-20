@@ -417,6 +417,21 @@ remove-from-recents = Fjern fra seneste
 reload-folder = Genindlæs mappe
 copy-path = Kopiér sti
 rename-confirm = Omdøb
+
+## Batch Rename Dialog
+batch-rename-title = Omdøb {$count} elementer
+batch-rename-template = Skabelon
+batch-rename-find-replace = Find og erstat
+batch-rename-new-name = Nyt navn
+batch-rename-tag-name = [Oprindeligt navn]
+batch-rename-tag-number = [1, 2, 3]
+batch-rename-add-name = Tilføj oprindeligt navn
+batch-rename-add-number = Tilføj nummer
+find = Find
+batch-rename-conflicts = {$count ->
+    [one] Ét nyt navn er i konflikt med et eksisterende element eller et andet nyt navn
+    *[other] {$count} nye navne er i konflikt med eksisterende elementer eller hinanden
+  }
 calculate = Udregn
 error = Fejl
 checksum = { $kind }-kontrolsum

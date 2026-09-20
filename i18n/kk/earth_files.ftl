@@ -347,6 +347,21 @@ context-action-confirm-warning =
     }.
 run = Орындау
 rename-confirm = Атын өзгерту
+
+## Batch Rename Dialog
+batch-rename-title = {$count} элементтің атын өзгерту
+batch-rename-template = Үлгі
+batch-rename-find-replace = Табу және ауыстыру
+batch-rename-new-name = Жаңа атау
+batch-rename-tag-name = [Бастапқы атау]
+batch-rename-tag-number = [1, 2, 3]
+batch-rename-add-name = Бастапқы атауды қосу
+batch-rename-add-number = Нөмір қосу
+find = Табу
+batch-rename-conflicts = {$count ->
+    [one] Бір жаңа атау бар элементпен немесе басқа жаңа атаумен қайшы келеді
+    *[other] {$count} жаңа атау бар элементтермен немесе бір-бірімен қайшы келеді
+  }
 checksum = { $kind } бақылау сомасы
 calculate = Есептеу
 error = Қате

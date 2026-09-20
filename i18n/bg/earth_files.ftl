@@ -120,6 +120,21 @@ permanently-delete-warning = Сигурни ли сте, че искате да 
 rename-file = Преименуване на файла
 rename-folder = Преименуване на папката
 
+## Batch Rename Dialog
+batch-rename-title = Преименуване на {$count} елемента
+batch-rename-template = Шаблон
+batch-rename-find-replace = Търсене и замяна
+batch-rename-new-name = Ново име
+batch-rename-tag-name = [Оригинално име]
+batch-rename-tag-number = [1, 2, 3]
+batch-rename-add-name = Добавяне на оригиналното име
+batch-rename-add-number = Добавяне на номер
+find = Търсене
+batch-rename-conflicts = {$count ->
+    [one] Едно ново име е в конфликт със съществуващ елемент или друго ново име
+    *[other] {$count} нови имена са в конфликт със съществуващи елементи или помежду си
+  }
+
 ## Replace Dialog
 
 replace = Заменяне

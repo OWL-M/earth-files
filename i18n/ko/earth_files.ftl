@@ -299,6 +299,18 @@ move-to-title = 이동 위치 선택
 copy-to-title = 복사 경로 선택
 run = 실행
 rename-confirm = 이름 변경
+
+## Batch Rename Dialog
+batch-rename-title = 항목 {$count}개 이름 바꾸기
+batch-rename-template = 템플릿
+batch-rename-find-replace = 찾기 및 바꾸기
+batch-rename-new-name = 새 이름
+batch-rename-tag-name = [원래 이름]
+batch-rename-tag-number = [1, 2, 3]
+batch-rename-add-name = 원래 이름 추가
+batch-rename-add-number = 번호 추가
+find = 찾기
+batch-rename-conflicts = 새 이름 {$count}개가 기존 항목 또는 서로 충돌합니다
 mixed = 혼합됨
 pasted-image = 붙여넣은 이미지
 pasted-text = 붙여넣은 텍스트

@@ -438,6 +438,21 @@ context-action-confirm-warning =
     }.
 run = Kör
 rename-confirm = Byt namn
+
+## Batch Rename Dialog
+batch-rename-title = Byt namn på {$count} objekt
+batch-rename-template = Mall
+batch-rename-find-replace = Sök och ersätt
+batch-rename-new-name = Nytt namn
+batch-rename-tag-name = [Ursprungligt namn]
+batch-rename-tag-number = [1, 2, 3]
+batch-rename-add-name = Lägg till ursprungligt namn
+batch-rename-add-number = Lägg till nummer
+find = Sök
+batch-rename-conflicts = {$count ->
+    [one] Ett nytt namn står i konflikt med ett befintligt objekt eller ett annat nytt namn
+    *[other] {$count} nya namn står i konflikt med befintliga objekt eller varandra
+  }
 checksum = { $kind }-kontrollsumma
 calculate = Beräkna
 error = Fel

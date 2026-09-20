@@ -95,6 +95,18 @@ browse-store = เรียกดูใน { $store }
 rename-file = เปลี่ยนชื่อไฟล์
 rename-folder = เปลี่ยนชื่อแฟ้ม
 
+## Batch Rename Dialog
+batch-rename-title = เปลี่ยนชื่อ {$count} รายการ
+batch-rename-template = แม่แบบ
+batch-rename-find-replace = ค้นหาและแทนที่
+batch-rename-new-name = ชื่อใหม่
+batch-rename-tag-name = [ชื่อเดิม]
+batch-rename-tag-number = [1, 2, 3]
+batch-rename-add-name = เพิ่มชื่อเดิม
+batch-rename-add-number = เพิ่มหมายเลข
+find = ค้นหา
+batch-rename-conflicts = ชื่อใหม่ {$count} ชื่อขัดแย้งกับรายการที่มีอยู่หรือขัดแย้งกันเอง
+
 ## Replace Dialog
 
 replace = แทนที่

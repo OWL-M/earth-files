@@ -111,6 +111,21 @@ empty-trash-warning = Kas oled kindel, et soovid jäädavalt kustutada prügikas
 related-apps = Seotud rakendused
 rename-file = Muuda faili nime
 rename-folder = Muuda kausta nime
+
+## Batch Rename Dialog
+batch-rename-title = Nimeta {$count} üksust ümber
+batch-rename-template = Mall
+batch-rename-find-replace = Otsi ja asenda
+batch-rename-new-name = Uus nimi
+batch-rename-tag-name = [Algne nimi]
+batch-rename-tag-number = [1, 2, 3]
+batch-rename-add-name = Lisa algne nimi
+batch-rename-add-number = Lisa number
+find = Otsi
+batch-rename-conflicts = {$count ->
+    [one] Üks uus nimi on vastuolus olemasoleva üksuse või teise uue nimega
+    *[other] {$count} uut nime on vastuolus olemasolevate üksuste või üksteisega
+  }
 replace-title = „{ $filename }“ fail juba on selles asukohas olemas.
 open-with-title = Kuidas sa sooviksid avada „{ $name }“ faili?
 browse-store = Vaata siia: { $store }

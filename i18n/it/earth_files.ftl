@@ -122,6 +122,21 @@ permanently-delete-warning = Sei sicuro di voler eliminare definitivamente { $ta
 rename-file = Rinomina file
 rename-folder = Rinomina cartella
 
+## Batch Rename Dialog
+batch-rename-title = Rinomina {$count} elementi
+batch-rename-template = Modello
+batch-rename-find-replace = Trova e sostituisci
+batch-rename-new-name = Nuovo nome
+batch-rename-tag-name = [Nome originale]
+batch-rename-tag-number = [1, 2, 3]
+batch-rename-add-name = Aggiungi nome originale
+batch-rename-add-number = Aggiungi numero
+find = Trova
+batch-rename-conflicts = {$count ->
+    [one] Un nuovo nome è in conflitto con un elemento esistente o con un altro nuovo nome
+    *[other] {$count} nuovi nomi sono in conflitto con elementi esistenti o tra loro
+  }
+
 ## Replace Dialog
 
 replace = Sostituisci

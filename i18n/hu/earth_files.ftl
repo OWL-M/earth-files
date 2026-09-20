@@ -465,6 +465,21 @@ context-action-confirm-warning =
     } fog lefutni.
 run = Futtatás
 rename-confirm = Átnevezés
+
+## Batch Rename Dialog
+batch-rename-title = {$count} elem átnevezése
+batch-rename-template = Sablon
+batch-rename-find-replace = Keresés és csere
+batch-rename-new-name = Új név
+batch-rename-tag-name = [Eredeti név]
+batch-rename-tag-number = [1, 2, 3]
+batch-rename-add-name = Eredeti név hozzáadása
+batch-rename-add-number = Szám hozzáadása
+find = Keresés
+batch-rename-conflicts = {$count ->
+    [one] Egy új név ütközik egy meglévő elemmel vagy egy másik új névvel
+    *[other] {$count} új név ütközik meglévő elemekkel vagy egymással
+  }
 checksum = { $kind }-ellenőrzőösszeg
 calculate = Számítás
 error = Hiba

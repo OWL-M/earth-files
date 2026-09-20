@@ -257,6 +257,21 @@ run = Bixebitîne
 selected-items = { $items } hêmanên hilbijartî
 delete = Jê bibe
 rename-confirm = Navê biguherîne
+
+## Batch Rename Dialog
+batch-rename-title = Navê {$count} hêmanan biguherîne
+batch-rename-template = Şablon
+batch-rename-find-replace = Bibîne û biguherîne
+batch-rename-new-name = Navê nû
+batch-rename-tag-name = [Navê eslî]
+batch-rename-tag-number = [1, 2, 3]
+batch-rename-add-name = Navê eslî lê zêde bike
+batch-rename-add-number = Hejmarê lê zêde bike
+find = Bibîne
+batch-rename-conflicts = {$count ->
+    [one] Navekî nû bi hêmaneke heyî an navekî nû yê din re li hev nake
+    *[other] {$count} navên nû bi hêmanên heyî an bi hev re li hev nakin
+  }
 pasted-image = Wêneya pêvekirî
 pasted-text = Nivîsa pêvekirî
 pasted-video = Vîdiyoya pêvekirî

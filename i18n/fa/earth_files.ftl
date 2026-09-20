@@ -112,6 +112,21 @@ permanently-delete-warning = آیا از حذف دائمی { $target } مطمئ�
 rename-file = تغییر نام فایل
 rename-folder = تغییر نام پوشه
 
+## Batch Rename Dialog
+batch-rename-title = تغییر نام {$count} مورد
+batch-rename-template = الگو
+batch-rename-find-replace = یافتن و جایگزینی
+batch-rename-new-name = نام جدید
+batch-rename-tag-name = [نام اصلی]
+batch-rename-tag-number = [1, 2, 3]
+batch-rename-add-name = افزودن نام اصلی
+batch-rename-add-number = افزودن شماره
+find = یافتن
+batch-rename-conflicts = {$count ->
+    [one] یک نام جدید با یک مورد موجود یا نام جدید دیگری تداخل دارد
+    *[other] {$count} نام جدید با موارد موجود یا با یکدیگر تداخل دارند
+  }
+
 ## Replace Dialog
 
 replace = جایگزین کردن

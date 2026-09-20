@@ -62,6 +62,18 @@ save-file = ファイルを保存
 # Rename Dialog
 rename-file = ファイル名を変更
 rename-folder = フォルダ名を変更
+
+## Batch Rename Dialog
+batch-rename-title = {$count} 個のアイテムの名前を変更
+batch-rename-template = テンプレート
+batch-rename-find-replace = 検索と置換
+batch-rename-new-name = 新しい名前
+batch-rename-tag-name = [元の名前]
+batch-rename-tag-number = [1, 2, 3]
+batch-rename-add-name = 元の名前を追加
+batch-rename-add-number = 番号を追加
+find = 検索
+batch-rename-conflicts = {$count} 個の新しい名前が既存のアイテムまたは互いに競合しています
 # Replace Dialog
 replace = 置き換える
 replace-title = { $filename }はすでにこの場所に存在します。

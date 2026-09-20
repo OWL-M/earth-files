@@ -1578,11 +1578,6 @@ impl Application for App {
                 if let Some(path) = self.tab.location.path_opt() {
                     let mut contains_change = false;
                     for event in &events {
-                        // Opening or reading a file changes nothing in the listing; see
-                        // the same check in `app.rs`
-                        if matches!(event.kind, notify::EventKind::Access(_)) {
-                            continue;
-                        }
                         for event_path in &event.paths {
                             if event_path.starts_with(path) {
                                 if let notify::EventKind::Modify(

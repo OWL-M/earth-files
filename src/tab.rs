@@ -275,7 +275,6 @@ pub fn folder_icon_symbolic(path: &PathBuf, icon_size: u16) -> widget::icon::Han
         .handle()
 }
 
-//TODO: replace with Path::has_trailing_sep when stable
 fn has_trailing_sep(path: &Path) -> bool {
     path.as_os_str()
         .as_encoded_bytes()
@@ -5050,6 +5049,19 @@ impl Tab {
                 self.config.folders_first,
             ),
         }
+    }
+
+    /// Names of the selected items, in the order they are displayed
+    pub fn selected_names(&self) -> Vec<String> {
+        self.column_sort()
+            .map(|items| {
+                items
+                    .into_iter()
+                    .filter(|(_, item)| item.selected)
+                    .map(|(_, item)| item.name.clone())
+                    .collect()
+            })
+            .unwrap_or_default()
     }
 
     fn column_sort(&self) -> Option<Vec<(usize, &Item)>> {

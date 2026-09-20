@@ -14,7 +14,9 @@ use crate::tab::Location;
 
 pub mod app;
 mod hex;
+mod inhibit;
 mod archive;
+mod batch_rename;
 pub mod channel;
 pub mod clipboard;
 pub mod config;

@@ -349,4 +349,20 @@ move-to = Помери у...
 copy-path = Умножи путању
 rename-confirm = Преименуј
 
+## Batch Rename Dialog
+batch-rename-title = Преименуј {$count} ставки
+batch-rename-template = Шаблон
+batch-rename-find-replace = Пронађи и замени
+batch-rename-new-name = Ново име
+batch-rename-tag-name = [Изворно име]
+batch-rename-tag-number = [1, 2, 3]
+batch-rename-add-name = Додај изворно име
+batch-rename-add-number = Додај број
+find = Пронађи
+batch-rename-conflicts = {$count ->
+    [one] Једно ново име се сукобљава са постојећом ставком или другим новим именом
+    [few] {$count} нова имена се сукобљавају са постојећим ставкама или међусобно
+    *[other] {$count} нових имена се сукобљава са постојећим ставкама или међусобно
+  }
+
 close = Затвори

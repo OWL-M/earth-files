@@ -124,6 +124,21 @@ permanently-delete-warning = { $target } será eliminado permanentemente. Esta a
 rename-file = Renomear ficheiro
 rename-folder = Renomear cartafol
 rename-confirm = Renomear
+
+## Batch Rename Dialog
+batch-rename-title = Renomear {$count} elementos
+batch-rename-template = Modelo
+batch-rename-find-replace = Buscar e substituír
+batch-rename-new-name = Novo nome
+batch-rename-tag-name = [Nome orixinal]
+batch-rename-tag-number = [1, 2, 3]
+batch-rename-add-name = Engadir nome orixinal
+batch-rename-add-number = Engadir número
+find = Buscar
+batch-rename-conflicts = {$count ->
+    [one] Un nome novo entra en conflito cun elemento existente ou con outro nome novo
+    *[other] {$count} nomes novos entran en conflito con elementos existentes ou entre si
+  }
 replace-title = "{ $filename }" xa existe nesta ubicación
 replace-warning = Queres substituílo polo que estás a gardar? Ao substituílo sobrescribirase o seu contido.
 replace-warning-operation = Queres substituílo? Ao substituílo sobrescribirase o seu contido.

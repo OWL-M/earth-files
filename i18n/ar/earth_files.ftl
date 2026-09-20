@@ -411,4 +411,20 @@ calculate = احسب
 error = خطأ
 rename-confirm = أعد التسمية
 
+## Batch Rename Dialog
+batch-rename-title = إعادة تسمية {$count} عناصر
+batch-rename-template = قالب
+batch-rename-find-replace = بحث واستبدال
+batch-rename-new-name = الاسم الجديد
+batch-rename-tag-name = [الاسم الأصلي]
+batch-rename-tag-number = [1, 2, 3]
+batch-rename-add-name = إضافة الاسم الأصلي
+batch-rename-add-number = إضافة رقم
+find = بحث
+batch-rename-conflicts = {$count ->
+    [one] اسم جديد واحد يتعارض مع عنصر موجود أو اسم جديد آخر
+    [two] اسمان جديدان يتعارضان مع عناصر موجودة أو مع بعضهما
+    *[other] {$count} أسماء جديدة تتعارض مع عناصر موجودة أو مع بعضها
+  }
+
 close = أغلِق

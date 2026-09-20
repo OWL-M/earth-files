@@ -434,6 +434,21 @@ context-action-confirm-warning =
     }.
 run = Suorita
 rename-confirm = Nimeä uudelleen
+
+## Batch Rename Dialog
+batch-rename-title = Nimeä {$count} kohdetta uudelleen
+batch-rename-template = Malli
+batch-rename-find-replace = Etsi ja korvaa
+batch-rename-new-name = Uusi nimi
+batch-rename-tag-name = [Alkuperäinen nimi]
+batch-rename-tag-number = [1, 2, 3]
+batch-rename-add-name = Lisää alkuperäinen nimi
+batch-rename-add-number = Lisää numero
+find = Etsi
+batch-rename-conflicts = {$count ->
+    [one] Yksi uusi nimi on ristiriidassa olemassa olevan kohteen tai toisen uuden nimen kanssa
+    *[other] {$count} uutta nimeä on ristiriidassa olemassa olevien kohteiden tai toistensa kanssa
+  }
 checksum = { $kind }-tarkistussumma
 calculate = Laske
 error = Virhe

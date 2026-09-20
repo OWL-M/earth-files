@@ -412,6 +412,22 @@ context-action-confirm-warning =
     }.
 run = Запустить
 rename-confirm = Переименовать
+
+## Batch Rename Dialog
+batch-rename-title = Переименовать {$count} элементов
+batch-rename-template = Шаблон
+batch-rename-find-replace = Найти и заменить
+batch-rename-new-name = Новое имя
+batch-rename-tag-name = [Исходное имя]
+batch-rename-tag-number = [1, 2, 3]
+batch-rename-add-name = Добавить исходное имя
+batch-rename-add-number = Добавить номер
+find = Найти
+batch-rename-conflicts = {$count ->
+    [one] Одно новое имя конфликтует с существующим элементом или другим новым именем
+    [few] {$count} новых имени конфликтуют с существующими элементами или между собой
+    *[many] {$count} новых имён конфликтуют с существующими элементами или между собой
+  }
 checksum = Хеш-сумма { $kind }
 calculate = Вычислить
 error = Ошибка

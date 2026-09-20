@@ -108,6 +108,21 @@ browse-store = Navega { $store }
 rename-file = Canvia el nom del fitxer
 rename-folder = Canvia el nom de la carpeta
 
+## Batch Rename Dialog
+batch-rename-title = Canvia el nom de {$count} elements
+batch-rename-template = Plantilla
+batch-rename-find-replace = Cerca i reemplaça
+batch-rename-new-name = Nom nou
+batch-rename-tag-name = [Nom original]
+batch-rename-tag-number = [1, 2, 3]
+batch-rename-add-name = Afegeix el nom original
+batch-rename-add-number = Afegeix un número
+find = Cerca
+batch-rename-conflicts = {$count ->
+    [one] Un nom nou entra en conflicte amb un element existent o amb un altre nom nou
+    *[other] {$count} noms nous entren en conflicte amb elements existents o entre ells
+  }
+
 ## Replace Dialog
 
 replace = Reemplaça
