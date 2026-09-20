@@ -968,7 +968,6 @@ where
                     state.is_read_only = true;
                     shell.publish((on_edit)(false));
                 } else if let Some(f) = state.is_focused.as_mut().filter(|f| f.needs_update) {
-                    // TODO do we want to just move this to on_focus or on_unfocus for all inputs?
                     f.needs_update = false;
                     state.is_read_only = true;
                     shell.publish((on_edit)(f.focused));
@@ -1364,7 +1363,6 @@ pub fn layout<Message>(
 
     let helper_pos = if leading_icon.is_some() || trailing_icon.is_some() {
         let children = &mut tree.children;
-        // TODO configurable icon spacing, maybe via appearance
         let limits_copy = limits;
 
         let limits = limits.shrink(padding);
@@ -1508,7 +1506,6 @@ pub fn layout<Message>(
     layout::Node::with_children(limits.resolve(width, size.height, size), nodes)
 }
 
-// TODO: Merge into widget method since iced has done the same.
 /// Processes an [`Event`] and updates the [`State`] of a [`TextInput`]
 /// accordingly.
 #[allow(clippy::too_many_arguments)]
@@ -1889,9 +1886,9 @@ pub fn update<'a, Message: Clone + 'static>(
                 shell.capture_event();
                 return;
             }
-            // TODO(dnd): dragging a selection out of the input as a real drag is
-            // not implemented. `PrepareDnd` is kept so a click on a selection
-            // still behaves as before up to the drag threshold.
+            // Dragging a selection out of the input is not implemented;
+            // `PrepareDnd` only keeps a click on a selection behaving as before
+            // up to the drag threshold.
         }
         Event::Keyboard(keyboard::Event::KeyPressed {
             key,
@@ -2289,8 +2286,7 @@ pub fn update<'a, Message: Clone + 'static>(
                 shell.request_redraw();
             }
         }
-        // TODO(dnd): accepting a `text/*` drop (move the caret to the drop point
-        // and paste the payload) is not implemented.
+        // Accepting a `text/*` drop is not implemented.
         _ => {}
     }
 }
@@ -2416,7 +2412,7 @@ pub fn draw<'a, Message>(
         .unwrap_or_else(|| crate::ui::theme::icon_color(renderer_style));
     let mut text_color = appearance.text_color.unwrap_or(renderer_style.text_color);
 
-    // TODO: iced will not render alpha itself on text or icon colors.
+    // Blend by hand: the renderer does not apply alpha to text or icon colors
     if is_disabled {
         let background = theme.current_container().component.base.to_color();
         icon_color = icon_color.blend_alpha(background, 0.5);
@@ -2537,8 +2533,7 @@ pub fn draw<'a, Message>(
     let actual_width = text_width.max(text_bounds.width);
 
     let radius_0 = crate::ui::theme::active().cosmic().corner_radii.radius_0.to_radius();
-    // TODO(dnd): drop offers are not tracked yet; the caret should also be
-    // drawn while a drop offer hovers this input.
+    // Drop offers are not tracked, so no caret is drawn for a hovering drop.
     let handling_dnd_offer = false;
     let (cursors, offset, is_selecting) = if let Some(focus) =
         state.is_focused.filter(|f| f.focused).or_else(|| {
@@ -2764,7 +2759,7 @@ pub fn draw<'a, Message>(
     if let (Some(helper_text_layout), Some(helper_text)) = (helper_text_layout, helper_text) {
         renderer.fill_text(
             Text {
-                content: helper_text.to_string(), // TODO remove to_string?
+                content: helper_text.to_string(),
                 size: iced::Pixels(helper_text_size),
                 font,
                 bounds: helper_text_layout.bounds().size(),

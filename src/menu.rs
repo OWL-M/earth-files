@@ -558,6 +558,7 @@ pub fn menu_bar<'a>(
     modifiers: &Modifiers,
     key_binds: &HashMap<KeyBind, Action>,
     clipboard_paste_available: bool,
+    can_undo: bool,
 ) -> Element<'a, Message> {
     let sort_options = tab_opt.map(Tab::sort_options);
     let sort_item = |label, sort, dir| {
@@ -652,6 +653,8 @@ pub fn menu_bar<'a>(
                 (
                     (fl!("edit")),
                     vec![
+                        menu_button_optional(fl!("undo"), Action::Undo, can_undo),
+                        menu::Item::Divider,
                         menu_button_optional(fl!("cut"), Action::Cut, selected > 0),
                         menu_button_optional(fl!("copy"), Action::Copy, selected > 0),
                         menu_button_optional(fl!("move-to"), Action::MoveTo, selected > 0),

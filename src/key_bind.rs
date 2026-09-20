@@ -79,6 +79,7 @@ pub fn key_binds(
         bind!([Shift], Key::Named(Named::Delete), PermanentlyDelete);
         bind!([Shift], Key::Named(Named::Enter), OpenInNewWindow);
         bind!([Ctrl], Key::Character("v".into()), Paste);
+        bind!([Ctrl], Key::Character("z".into()), Undo);
         bind!([], Key::Named(Named::F2), Rename);
     }
 

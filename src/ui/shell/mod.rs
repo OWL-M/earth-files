@@ -218,7 +218,6 @@ where
             if self.nav_model().is_none() || core.show_content() {
                 let main_content = self.view();
 
-                //TODO: reduce duplication
                 let context_width = core.context_width(has_nav);
                 if core.window.context_is_overlay && show_context {
                     if let Some(context) = self.context_drawer() {
@@ -252,7 +251,6 @@ where
                         );
                     }
                 } else {
-                    //TODO: hide content when out of space
                     widgets.push(
                         container(main_content.map(crate::ui::Action::App))
                             .padding(main_content_padding.to_padding())
@@ -288,7 +286,7 @@ where
                             .into(),
                         );
                     } else {
-                        //TODO: this element is added to workaround state issues
+                        // Keeps the widget tree shape stable when there is no drawer
                         widgets.push(space::horizontal().width(Length::Shrink).into());
                     }
                 }

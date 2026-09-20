@@ -1,7 +1,7 @@
 use crate::app::{ArchiveType, DialogPage, Message, REPLACE_BUTTON_ID};
 use crate::config::IconSizes;
 use crate::spawn_detached::spawn_detached;
-use crate::{archive, fl, tab};
+use crate::{FxOrderMap, archive, fl, tab};
 use crate::ui::iced::futures::channel::mpsc::Sender;
 use crate::ui::iced::futures::{self, SinkExt, StreamExt, stream};
 use std::borrow::Cow;
@@ -170,45 +170,55 @@ async fn copy_or_move(
             });
 
         // Attempt quick and simple renames
-        //TODO: allow rename to be used for directories in recursive context?
 
-        let from_to_pairs: Vec<(PathBuf, PathBuf)> = if matches!(method, Method::Move { .. }) {
-            from_to_pairs_iter
-                .map(|(from, to)| async move {
-                    //TODO: show replace dialog here?
-                    if to.exists() {
-                        return Some((from, to));
-                    }
+        // Pairs still to copy or move recursively, and pairs a plain rename
+        // already handled
+        let (from_to_pairs, renamed): (Vec<(PathBuf, PathBuf)>, Vec<(PathBuf, PathBuf)>) =
+            if matches!(method, Method::Move { .. }) {
+                from_to_pairs_iter
+                    .map(|(from, to)| async move {
+                        if to.exists() {
+                            return Ok((from, to));
+                        }
 
-                    match compio::fs::rename(&from, &to).await {
-                        Ok(()) => {
-                            log::info!("renamed {} to {}", from.display(), to.display());
-                            None
+                        match compio::fs::rename(&from, &to).await {
+                            Ok(()) => {
+                                log::info!("renamed {} to {}", from.display(), to.display());
+                                Err((from, to))
+                            }
+                            Err(err) => {
+                                log::info!(
+                                    "failed to rename {} to {}, fallback to recursive move: {}",
+                                    from.display(),
+                                    to.display(),
+                                    err
+                                );
+                                Ok((from, to))
+                            }
                         }
-                        Err(err) => {
-                            log::info!(
-                                "failed to rename {} to {}, fallback to recursive move: {}",
-                                from.display(),
-                                to.display(),
-                                err
-                            );
-                            Some((from, to))
-                        }
-                    }
-                })
-                .collect::<crate::ui::iced::futures::stream::FuturesOrdered<_>>()
-                .fold(Vec::new(), |mut pairs, pair| async move {
-                    if let Some(pair) = pair {
-                        pairs.push(pair);
-                    }
-                    pairs
-                })
-                .await
-        } else {
-            from_to_pairs_iter.collect()
-        };
+                    })
+                    .collect::<crate::ui::iced::futures::stream::FuturesOrdered<_>>()
+                    .fold(
+                        (Vec::new(), Vec::new()),
+                        |(mut pairs, mut renamed), pair| async move {
+                            match pair {
+                                Ok(pair) => pairs.push(pair),
+                                Err(pair) => renamed.push(pair),
+                            }
+                            (pairs, renamed)
+                        },
+                    )
+                    .await
+            } else {
+                (from_to_pairs_iter.collect(), Vec::new())
+            };
 
         let mut context = Context::new(controller.clone());
+        // Renamed entries count as moved for the selection and for undo
+        for (from, to) in renamed {
+            context.op_sel.ignored.push(from);
+            context.op_sel.selected.push(to);
+        }
 
         {
             let controller = controller.clone();
@@ -276,6 +286,100 @@ pub async fn sync_to_disk(
     .buffer_unordered(16)
     .collect::<()>()
     .await;
+}
+
+/// The newest trash entry for each of `paths`, deleted no earlier than
+/// `since` (Unix seconds).
+fn trashed_entries(paths: &[PathBuf], since: i64) -> Vec<trash::TrashItem> {
+    let entries = match trash::os_limited::list() {
+        Ok(entries) => entries,
+        Err(err) => {
+            log::warn!("failed to list trash after deleting: {err}");
+            return Vec::new();
+        }
+    };
+    paths
+        .iter()
+        .filter_map(|path| {
+            entries
+                .iter()
+                .filter(|entry| entry.time_deleted >= since && entry.original_path() == *path)
+                .max_by_key(|entry| entry.time_deleted)
+                .cloned()
+        })
+        .collect()
+}
+
+impl Operation {
+    /// The operations that undo this one after it completed with `result`,
+    /// or none when it cannot be undone. Several are returned when the
+    /// originals came from different folders.
+    pub fn undo(&self, result: &OperationSelection) -> Vec<Operation> {
+        match self {
+            Self::Rename { from, to } => vec![Self::Rename {
+                from: to.clone(),
+                to: from.clone(),
+            }],
+            Self::Move { paths, .. } => {
+                // Each moved item goes back to the folder it came from
+                let mut by_parent: FxOrderMap<PathBuf, Vec<PathBuf>> = FxOrderMap::default();
+                for moved in &result.selected {
+                    let parent = moved.file_name().and_then(|name| {
+                        paths
+                            .iter()
+                            .find(|from| from.file_name() == Some(name))
+                            .and_then(|from| from.parent())
+                    });
+                    if let Some(parent) = parent {
+                        by_parent
+                            .entry(parent.to_path_buf())
+                            .or_default()
+                            .push(moved.clone());
+                    }
+                }
+                by_parent
+                    .into_iter()
+                    .map(|(to, paths)| Self::Move {
+                        paths,
+                        to,
+                        cross_device_copy: false,
+                    })
+                    .collect()
+            }
+            Self::Copy { .. } if !result.selected.is_empty() => vec![Self::PermanentlyDelete {
+                paths: result.selected.clone().into_boxed_slice(),
+            }],
+            Self::NewFile { path } | Self::NewFolder { path } => vec![Self::PermanentlyDelete {
+                paths: Box::from([path.clone()]),
+            }],
+            Self::Delete { .. } if !result.trash_items.is_empty() => vec![Self::Restore {
+                items: result.trash_items.clone(),
+            }],
+            Self::Restore { items } => vec![Self::Delete {
+                paths: items.iter().map(trash::TrashItem::original_path).collect(),
+            }],
+            Self::Extract { .. } if !result.selected.is_empty() => vec![Self::Delete {
+                paths: result.selected.clone(),
+            }],
+            Self::Compress { to, .. } => vec![Self::Delete {
+                paths: vec![to.clone()],
+            }],
+            _ => Vec::new(),
+        }
+    }
+
+    /// Whether everything this operation acts on is still where it expects
+    /// it, so an undo made from it can run.
+    pub fn is_applicable(&self) -> bool {
+        match self {
+            Self::Rename { from, .. } => from.exists(),
+            Self::Move { paths, to, .. } => to.is_dir() && paths.iter().all(|p| p.exists()),
+            Self::PermanentlyDelete { paths } => paths.iter().all(|p| p.exists()),
+            Self::Delete { paths } => paths.iter().all(|p| p.exists()),
+            Self::Restore { items } => !items.is_empty(),
+            _ => true,
+        }
+    }
 }
 
 pub fn copy_unique_path(from: &Path, to: &Path) -> PathBuf {
@@ -369,7 +473,6 @@ fn paths_parent_name(paths: &[PathBuf]) -> Cow<'_, str> {
     };
 
     for path in paths {
-        //TODO: is it possible to have different parents, and what should be returned?
         if path.parent() != Some(parent) {
             return fl!("unknown-folder").into();
         }
@@ -384,6 +487,8 @@ pub struct OperationSelection {
     pub ignored: Vec<PathBuf>,
     // Paths to select
     pub selected: Vec<PathBuf>,
+    /// The trash entries a [`Operation::Delete`] created, for restoring them
+    pub trash_items: Vec<trash::TrashItem>,
 }
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
@@ -678,7 +783,6 @@ impl Operation {
             Self::Compress { .. } => Some(self.completed_text()),
             Self::Delete { .. } => Some(self.completed_text()),
             Self::Extract { .. } => Some(self.completed_text()),
-            //TODO: more toasts
             _ => None,
         }
     }
@@ -691,7 +795,6 @@ impl Operation {
     ) -> Result<OperationSelection, OperationError> {
         let controller_clone = controller.clone();
 
-        //TODO: IF ERROR, RETURN AN Operation THAT CAN UNDO THE CURRENT STATE
         let paths: Result<OperationSelection, OperationError> = match self {
             Self::Compress {
                 paths,
@@ -713,6 +816,7 @@ impl Operation {
                         let op_sel = OperationSelection {
                             ignored: paths.clone(),
                             selected: vec![to.clone()],
+                            trash_items: Vec::new(),
                         };
 
                         let mut paths = paths;
@@ -880,7 +984,10 @@ impl Operation {
             }
             Self::Delete { paths } => {
                 let total = paths.len();
-                for (i, path) in paths.into_iter().enumerate() {
+                let started = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map_or(0, |d| d.as_secs() as i64);
+                for (i, path) in paths.iter().enumerate() {
                     futures::executor::block_on(async {
                         controller
                             .check()
@@ -890,12 +997,22 @@ impl Operation {
 
                     controller.set_progress((i as f32) / (total as f32));
 
-                    let _items_opt = compio::runtime::spawn_blocking(|| trash::delete(path))
+                    let path = path.clone();
+                    compio::runtime::spawn_blocking(move || trash::delete(path))
+                        .await
+                        .map_err(wrap_compio_spawn_error)?
+                        .map_err(|e| OperationError::from_err(e, &controller))?;
+                }
+                // Trashing returns nothing, so find the entries just created:
+                // the newest entry per path deleted since the start
+                let trash_items =
+                    compio::runtime::spawn_blocking(move || trashed_entries(&paths, started))
                         .await
                         .map_err(wrap_compio_spawn_error)?;
-                    //TODO: items_opt allows for easy restore
-                }
-                Ok(OperationSelection::default())
+                Ok(OperationSelection {
+                    trash_items,
+                    ..Default::default()
+                })
             }
             Self::DeleteTrash { items } => {
                 let controller_clone = controller.clone();
@@ -1088,6 +1205,7 @@ impl Operation {
                     Result::<_, OperationError>::Ok(OperationSelection {
                         ignored: Vec::new(),
                         selected: vec![path],
+                        trash_items: Vec::new(),
                     })
                 })
             }
@@ -1107,6 +1225,7 @@ impl Operation {
                     Result::<_, OperationError>::Ok(OperationSelection {
                         ignored: Vec::new(),
                         selected: vec![path],
+                        trash_items: Vec::new(),
                     })
                 })
             }
@@ -1167,6 +1286,7 @@ impl Operation {
                     Result::<_, OperationError>::Ok(OperationSelection {
                         ignored: vec![from],
                         selected: vec![to],
+                        trash_items: Vec::new(),
                     })
                 })
             }
@@ -1209,6 +1329,7 @@ impl Operation {
                 Ok(OperationSelection {
                     ignored: Vec::new(),
                     selected: paths,
+                    trash_items: Vec::new(),
                 })
             }
             Self::SetExecutableAndLaunch { path } => {
@@ -1266,6 +1387,7 @@ impl Operation {
                 Ok(OperationSelection {
                     ignored: Vec::new(),
                     selected: vec![path],
+                    trash_items: Vec::new(),
                 })
             }
         };
@@ -1432,6 +1554,87 @@ mod tests {
             );
         }
         Ok(())
+    }
+
+    #[test]
+    fn undo_maps_operations_to_their_reverse() {
+        use super::Operation;
+        let sel = |paths: &[&str]| OperationSelection {
+            selected: paths.iter().map(PathBuf::from).collect(),
+            ..Default::default()
+        };
+
+        // Rename swaps
+        let rename = Operation::Rename {
+            from: "/a/x".into(),
+            to: "/a/y".into(),
+        };
+        assert_eq!(
+            rename.undo(&OperationSelection::default()),
+            vec![Operation::Rename {
+                from: "/a/y".into(),
+                to: "/a/x".into()
+            }]
+        );
+
+        // Move sends each item back to its own source folder
+        let mv = Operation::Move {
+            paths: vec!["/a/one".into(), "/b/two".into()],
+            to: "/dest".into(),
+            cross_device_copy: true,
+        };
+        let undo = mv.undo(&sel(&["/dest/one", "/dest/two"]));
+        assert_eq!(undo.len(), 2);
+        assert!(undo.contains(&Operation::Move {
+            paths: vec!["/dest/one".into()],
+            to: "/a".into(),
+            cross_device_copy: false,
+        }));
+        assert!(undo.contains(&Operation::Move {
+            paths: vec!["/dest/two".into()],
+            to: "/b".into(),
+            cross_device_copy: false,
+        }));
+
+        // Copies and new items are deleted for good, extracted and compressed
+        // results go to the trash
+        let copy = Operation::Copy {
+            paths: vec!["/a/one".into()],
+            to: "/dest".into(),
+        };
+        assert_eq!(
+            copy.undo(&sel(&["/dest/one"])),
+            vec![Operation::PermanentlyDelete {
+                paths: Box::from([PathBuf::from("/dest/one")])
+            }]
+        );
+        let compress = Operation::Compress {
+            paths: vec!["/a/one".into()],
+            to: "/a/one.zip".into(),
+            archive_type: crate::app::ArchiveType::Zip,
+            password: None,
+        };
+        assert_eq!(
+            compress.undo(&OperationSelection::default()),
+            vec![Operation::Delete {
+                paths: vec!["/a/one.zip".into()]
+            }]
+        );
+
+        // Not undoable
+        assert!(
+            Operation::EmptyTrash
+                .undo(&OperationSelection::default())
+                .is_empty()
+        );
+        assert!(
+            Operation::Delete {
+                paths: vec!["/a/one".into()]
+            }
+            .undo(&OperationSelection::default())
+            .is_empty(),
+            "a trash operation with no recorded entries cannot be undone"
+        );
     }
 
     #[test(compio::test)]

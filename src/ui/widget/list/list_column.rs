@@ -21,10 +21,6 @@ pub struct ListButton<'a, Message> {
     selected: bool,
 }
 
-// TODO(dnd): `ListButton` has no `with_dnd_source`/`with_dnd_destination`
-// builders; `iced::clipboard::{dnd, mime}` is not available in iced 0.14.
-// Nothing in this app needs them.
-
 /// Creates a [`ListButton`] with the given content.
 pub fn button<'a, Message>(content: impl Into<Element<'a, Message>>) -> ListButton<'a, Message> {
     ListButton {

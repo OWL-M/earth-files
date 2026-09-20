@@ -165,6 +165,7 @@ pub enum Action {
     TabPrev,
     TabViewGrid,
     TabViewList,
+    Undo,
     ToggleFoldersFirst,
     ToggleShowHidden,
     ToggleShowTypeColumn,
@@ -248,6 +249,7 @@ impl Action {
             Self::ToggleFoldersFirst => Message::ToggleFoldersFirst,
             Self::ToggleShowHidden => Message::ToggleShowHidden,
             Self::ToggleShowTypeColumn => Message::ToggleShowTypeColumn,
+            Self::Undo => Message::Undo,
             Self::ToggleSort(sort) => {
                 Message::TabMessage(entity_opt, tab::Message::ToggleSort(*sort))
             }
@@ -436,9 +438,9 @@ pub enum Message {
     ToggleFoldersFirst,
     ToggleShowHidden,
     ToggleShowTypeColumn,
-    Undo(usize),
+    Undo,
     UndoTrash(widget::ToastId, Arc<[PathBuf]>),
-    UndoTrashStart(Vec<TrashItem>),
+    UndoTrashStart(Option<widget::ToastId>, Vec<TrashItem>),
     WindowClose,
     WindowCloseRequested(window::Id),
     WindowMaximize(window::Id, bool),
@@ -680,6 +682,9 @@ impl Window {
 }
 
 // The [`App`] stores application-specific state.
+/// How many completed operations can be undone, newest first
+const UNDO_DEPTH: usize = 20;
+
 pub struct App {
     core: Core,
     about: About,
@@ -709,6 +714,10 @@ pub struct App {
     progress_operations: BTreeSet<u64>,
     complete_operations: BTreeMap<u64, Operation>,
     failed_operations: BTreeMap<u64, (Operation, Controller, String)>,
+    /// What undoes each of the last completed operations, newest last
+    undo_stack: Vec<Vec<Operation>>,
+    /// Operations started by an undo; their completion is not undoable again
+    undo_ids: BTreeSet<u64>,
     scrollable_name: std::borrow::Cow<'static, str>,
     search_id: widget::Id,
     size: Option<Size>,
@@ -1232,20 +1241,40 @@ impl App {
         let mut commands = Vec::with_capacity(4 * completed.len());
         let mut op_sel = OperationSelection::default();
         for (id, op_sel_pending) in completed {
+            let trash_items = op_sel_pending.trash_items.clone();
+            if let Some((op, _)) = self.pending_operations.get(&id)
+                && !self.undo_ids.remove(&id)
+            {
+                let undo = op.undo(&op_sel_pending);
+                if !undo.is_empty() {
+                    self.undo_stack.push(undo);
+                    if self.undo_stack.len() > UNDO_DEPTH {
+                        self.undo_stack.remove(0);
+                    }
+                }
+            }
             op_sel.ignored.extend(op_sel_pending.ignored);
             op_sel.selected.extend(op_sel_pending.selected);
             if let Some((op, _)) = self.pending_operations.remove(&id) {
                 // Show toast for some operations
                 if let Some(description) = op.toast() {
                     if let Operation::Delete { ref paths } = op {
-                        let paths: Arc<[PathBuf]> = Arc::from(paths.as_slice());
+                        // Restore the recorded entries; fall back to matching the
+                        // trash by path when none were recorded
+                        let action = if trash_items.is_empty() {
+                            let paths: Arc<[PathBuf]> = Arc::from(paths.as_slice());
+                            Box::new(move |tid| Message::UndoTrash(tid, paths.clone()))
+                                as Box<dyn Fn(widget::ToastId) -> Message>
+                        } else {
+                            Box::new(move |tid| {
+                                Message::UndoTrashStart(Some(tid), trash_items.clone())
+                            })
+                        };
                         commands.push(
                             self.toasts
                                 .push(
                                     widget::toaster::Toast::new(description)
-                                        .action(fl!("undo"), move |tid| {
-                                            Message::UndoTrash(tid, paths.clone())
-                                        }),
+                                        .action(fl!("undo"), action),
                                 )
                                 .map(crate::ui::Action::App),
                         );
@@ -2190,6 +2219,8 @@ impl Application for App {
             progress_operations: BTreeSet::new(),
             complete_operations: BTreeMap::new(),
             failed_operations: BTreeMap::new(),
+            undo_stack: Vec::new(),
+            undo_ids: BTreeSet::new(),
             scrollable_name: std::borrow::Cow::Borrowed("File Scrollable"),
             search_id: widget::Id::new("File Search"),
             size: None,
@@ -4209,7 +4240,6 @@ impl Application for App {
                             self.set_show_context(true);
                         }
                         tab::Command::SetOpenWith(mime, id) => {
-                            //TODO: this will block for a few ms, run in background?
                             self.mime_app_cache.set_default(mime, id);
                         }
                         tab::Command::SetPermissions(path, mode) => {
@@ -4255,7 +4285,6 @@ impl Application for App {
                                     .is_none_or(|old| old != (heading_options, direction));
 
                                 const MAX_SORT_NAMES: usize = 999;
-                                // TODO potentially configurable limit on max size?
                                 if self.state.sort_names.len() > MAX_SORT_NAMES {
                                     // truncate is not a good fit because it drops the items at the end, which are newest...
                                     self.state.sort_names = self
@@ -4369,8 +4398,21 @@ impl Application for App {
                     )));
                 }
             }
-            Message::Undo(_id) => {
-                // TODO: undo
+            Message::Undo => {
+                // Skip entries whose files have changed since; they can no longer apply
+                while let Some(undo) = self.undo_stack.pop() {
+                    if undo.iter().all(Operation::is_applicable) {
+                        let tasks: Vec<_> = undo
+                            .into_iter()
+                            .map(|op| {
+                                self.undo_ids.insert(self.pending_operation_id);
+                                self.operation(op)
+                            })
+                            .collect();
+                        return Task::batch(tasks);
+                    }
+                    log::info!("skipping an undo that no longer applies");
+                }
             }
             Message::UndoTrash(id, recently_trashed) => {
                 self.toasts.remove(id);
@@ -4399,10 +4441,19 @@ impl Application for App {
                         }
                     }
 
-                    Message::UndoTrashStart(paths)
+                    Message::UndoTrashStart(None, paths)
                 });
             }
-            Message::UndoTrashStart(items) => {
+            Message::UndoTrashStart(toast_id, items) => {
+                if let Some(toast_id) = toast_id {
+                    self.toasts.remove(toast_id);
+                }
+                // The same restore is what Undo would do: drop that entry and do
+                // not offer to undo the restore itself
+                self.undo_stack.retain(
+                    |undo| !matches!(undo.as_slice(), [Operation::Restore { items: i }] if *i == items),
+                );
+                self.undo_ids.insert(self.pending_operation_id);
                 return self.operation(Operation::Restore { items });
             }
             Message::WindowClose => {
@@ -5799,6 +5850,7 @@ impl Application for App {
             &self.modifiers,
             &self.key_binds,
             self.clipboard_has_content(),
+            !self.undo_stack.is_empty(),
         )]
     }
 
