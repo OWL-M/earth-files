@@ -1587,7 +1587,6 @@ pub enum Command {
     OpenFile(Vec<PathBuf>),
     OpenInNewTab(PathBuf),
     OpenInNewWindow(PathBuf),
-    OpenTrash,
     Preview(PreviewKind),
     RunContextAction(usize),
     SetOpenWith(Mime, String),
@@ -6701,7 +6700,6 @@ impl Tab {
     }
 
     pub fn subscription(&self, preview: bool) -> Subscription<Message> {
-        //TODO: how many thumbnail loads should be in flight at once?
         let jobs = self.thumb_config.jobs.get() as usize;
         let mut subscriptions = Vec::with_capacity(jobs + 3);
 
@@ -7041,7 +7039,6 @@ impl Tab {
                                 show_hidden,
                                 start,
                             } = wrapper;
-                            //TODO: optimal size?
                             let (results_tx, results_rx) = mpsc::channel(65536);
 
                             let ready = Arc::new(atomic::AtomicBool::new(false));

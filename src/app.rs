@@ -1127,7 +1127,6 @@ impl App {
         let mut trash_paths = Vec::new();
 
         for path in paths {
-            //TODO: is there a smarter way to check this? (like checking for trash folders)
             let can_trash = match path.metadata() {
                 Ok(metadata) => matches!(tab::fs_kind(&metadata), tab::FsKind::Local),
                 Err(err) => {
@@ -1604,6 +1603,9 @@ impl App {
     }
 
     fn update_nav_model(&mut self) {
+        // Entities are renumbered by the rebuild, so an open sidebar context
+        // menu no longer refers to anything
+        self.nav_bar_context_id = segmented_button::Entity::null();
         let mut nav_model = segmented_button::ModelBuilder::default();
 
         if self.config.show_recents {
@@ -1710,14 +1712,20 @@ impl App {
             #[cfg(feature = "notify")]
             if let Some(notification_arc) = self.notification_opt.take() {
                 return Task::future(async move {
-                    tokio::task::spawn_blocking(move || {
-                        //TODO: this is nasty
-                        let notification_mutex = Arc::try_unwrap(notification_arc).unwrap();
-                        let notification = notification_mutex.into_inner().unwrap();
-                        notification.close();
+                    let closed = tokio::task::spawn_blocking(move || {
+                        // Closing consumes the handle, so it must be the last reference
+                        match Arc::try_unwrap(notification_arc).map(Mutex::into_inner) {
+                            Ok(Ok(notification)) => {
+                                notification.close();
+                                true
+                            }
+                            _ => false,
+                        }
                     })
-                    .await
-                    .unwrap();
+                    .await;
+                    if !matches!(closed, Ok(true)) {
+                        log::warn!("progress notification could not be closed");
+                    }
                     crate::ui::action::app(Message::MaybeExit)
                 });
             }
@@ -1819,7 +1827,6 @@ impl App {
 
         let mut children = Vec::new();
 
-        //TODO: get height from theme?
         let progress_bar_height = Length::Fixed(4.0);
 
         if !self.pending_operations.is_empty() {
@@ -1975,7 +1982,6 @@ impl App {
     fn settings(&self) -> Element<'_, Message> {
         let tab_config = self.config.tab;
 
-        // TODO: Should dialog be updated here too?
         settings::view_column(vec![
             settings::section()
                 .title(fl!("appearance"))
@@ -2431,7 +2437,6 @@ impl Application for App {
                         .or(if found {
                             None
                         } else {
-                            // TODO do we need to choose the correct mounter?
                             self.mounter_items.keys().copied().next()
                         })
                         && let Some(mounter) = MOUNTERS.get(&key)
@@ -2741,7 +2746,6 @@ impl Application for App {
                 self.toasts.remove(id);
             }
             Message::CosmicSettings(arg) => {
-                //TODO: use special settings URL scheme instead?
                 let mut command = process::Command::new("cosmic-settings");
                 command.arg(arg);
                 match spawn_detached(&mut command) {
@@ -2761,8 +2765,6 @@ impl Application for App {
                                 if item.selected {
                                     if let ItemMetadata::Trash { entry, .. } = &item.metadata {
                                         trash_items.push(entry.clone());
-                                    } else {
-                                        //TODO: error on trying to permanently delete non-trash file?
                                     }
                                 }
                             }
@@ -2814,10 +2816,17 @@ impl Application for App {
                             tasks.push(self.operation(Operation::EmptyTrash));
                         }
                         DialogPage::FailedOperation(id) => {
-                            log::warn!("TODO: retry operation {id}");
+                            if let Some((operation, _, _)) = self.failed_operations.remove(&id) {
+                                tasks.push(self.operation(operation));
+                            }
                         }
-                        DialogPage::FailedOperations(_ids) => {
-                            log::warn!("TODO: retry operations");
+                        DialogPage::FailedOperations(ids) => {
+                            for id in ids {
+                                if let Some((operation, _, _)) = self.failed_operations.remove(&id)
+                                {
+                                    tasks.push(self.operation(operation));
+                                }
+                            }
                         }
                         DialogPage::ExtractPassword { id, password } => {
                             let (operation, _, _err) = self.failed_operations.get(&id).unwrap();
@@ -2862,7 +2871,6 @@ impl Application for App {
                             uri,
                             error: _,
                         } => {
-                            //TODO: re-use mounter_key?
                             tasks.push(self.update(Message::NetworkDriveInput(uri)));
                             tasks.push(self.update(Message::NetworkDriveSubmit));
                         }
@@ -3173,7 +3181,6 @@ impl Application for App {
                 self.mounter_items.insert(mounter_key, mounter_items);
 
                 // Update nav bar
-                //TODO: this could change favorites IDs while they are in use
                 self.update_nav_model();
 
                 return Task::batch(commands);
@@ -3257,7 +3264,6 @@ impl Application for App {
                 self.network_drive_input = input;
             }
             Message::NetworkDriveSubmit => {
-                //TODO: know which mounter to use for network drives
                 if let Some((mounter_key, mounter)) = MOUNTERS.iter().next() {
                     self.network_drive_connecting =
                         Some((*mounter_key, self.network_drive_input.clone()));
@@ -3466,7 +3472,6 @@ impl Application for App {
                     task,
                 )) => {
                     let url = format!("mime:///{mime}");
-                    // TODO: Support multiple URLs
                     if let Some(mut command) =
                         app.command(&[&url]).and_then(|v| v.into_iter().next())
                     {
@@ -3927,8 +3932,6 @@ impl Application for App {
                         if item.selected {
                             if let ItemMetadata::Trash { entry, .. } = &item.metadata {
                                 trash_items.push(entry.clone());
-                            } else {
-                                //TODO: error on trying to restore non-trash file?
                             }
                         }
                     }
@@ -3984,7 +3987,6 @@ impl Application for App {
                 if let Some(tab) = self.tab_model.data::<Tab>(entity) {
                     {
                         //Restore scroll
-                        //TODO: why do scrollers with different IDs get the same scroll position?
                         let scroll = tab.scroll_opt.unwrap_or_default();
                         tasks.push(scrollable::scroll_to(
                             tab.scrollable_id.clone(),
@@ -4202,17 +4204,6 @@ impl Application for App {
                                 log::error!("failed to get current executable path: {err}");
                             }
                         },
-                        tab::Command::OpenTrash => {
-                            //TODO: use handler for x-scheme-handler/trash and open trash:///
-                            let mut command = process::Command::new("earth-files");
-                            command.arg("--trash");
-                            match spawn_detached(&mut command) {
-                                Ok(()) => {}
-                                Err(err) => {
-                                    log::warn!("failed to run earth-files --trash: {err}");
-                                }
-                            }
-                        }
                         tab::Command::Preview(kind) => {
                             self.context_page = ContextPage::Preview(Some(entity), kind);
                             self.set_show_context(true);
@@ -4993,16 +4984,17 @@ impl Application for App {
                     widget::button::standard(fl!("cancel")).on_press(Message::DialogCancel),
                 ),
             DialogPage::FailedOperation(id) => {
-                //TODO: try next dialog page (making sure index is used by Dialog messages)?
                 let (operation, _, err) = self.failed_operations.get(id)?;
 
-                //TODO: nice description of error
                 widget::dialog()
                     .title("Failed operation")
                     .body(format!("{operation:#?}\n{err}"))
                     .icon(icon::from_name("dialog-error").size(64))
-                    //TODO: retry action
                     .primary_action(
+                        widget::button::suggested(fl!("try-again"))
+                            .on_press(Message::DialogComplete),
+                    )
+                    .secondary_action(
                         widget::button::standard(fl!("cancel")).on_press(Message::DialogCancel),
                     )
             }
@@ -5015,13 +5007,15 @@ impl Application for App {
                     })
                     .collect();
 
-                //TODO: nice description of error
                 widget::dialog()
                     .title("Failed operations")
                     .body(errors.join("\n\n"))
                     .icon(icon::from_name("dialog-error").size(64))
-                    //TODO: retry action
                     .primary_action(
+                        widget::button::suggested(fl!("try-again"))
+                            .on_press(Message::DialogComplete),
+                    )
+                    .secondary_action(
                         widget::button::standard(fl!("cancel")).on_press(Message::DialogCancel),
                     )
             }
@@ -5737,7 +5731,6 @@ impl Application for App {
             }
         }
 
-        //TODO: get height from theme?
         let progress_bar_height = Length::Fixed(4.0);
         let progress_bar = widget::determinate_linear(total_progress)
             .width(Length::Fill)

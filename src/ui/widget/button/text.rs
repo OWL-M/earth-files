@@ -119,7 +119,6 @@ impl<'a, Message: Clone + 'static> From<Button<'a, Message>> for Element<'a, Mes
                 ..crate::ui::font::default()
             };
 
-            // TODO: Avoid allocation
             crate::ui::widget::text(builder.label.to_string())
                 .size(builder.font_size.to_pixels())
                 .line_height(LineHeight::Absolute(builder.line_height.to_pixels()))
