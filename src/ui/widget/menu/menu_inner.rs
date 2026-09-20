@@ -1289,7 +1289,6 @@ pub(super) fn init_root_popup_menu<Message>(
             &aod,
             menu.bounds_expand,
             root_bounds,
-            // TODO how to select the tree for the popup
             &mut state.tree.children[0].children,
             menu.is_overlay,
         );
@@ -1463,9 +1462,6 @@ where
         }) else {
             if menu.is_overlay {
                 // no menus left
-                // TODO do we want to avoid this for popups?
-                // state.active_root.remove(menu.depth);
-
                 // keep state.open when the cursor is still inside the menu bar
                 // this allows the overlay to keep drawing when the cursor is
                 // moving aroung the menu bar

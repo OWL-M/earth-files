@@ -46,7 +46,7 @@ pub struct Style {
 }
 
 impl Style {
-    // TODO: `Radius` is not `const fn` compatible.
+    // Not a `const fn`: `Radius` cannot be built in const context.
     pub fn new() -> Self {
         let rad_0 = active().cosmic().corner_radii.radius_0;
         Self {
@@ -70,7 +70,6 @@ impl std::default::Default for Style {
     }
 }
 
-// TODO update to match other styles
 /// A set of rules that dictate the style of a button.
 pub trait Catalog {
     /// The supported style of the [`StyleSheet`].

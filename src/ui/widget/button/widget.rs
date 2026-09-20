@@ -858,7 +858,6 @@ pub fn draw<Renderer: iced_core::Renderer, Theme>(
 
     if styling.background.is_some() || styling.border_width > 0.0 {
         if styling.shadow_offset != Vector::default() {
-            // TODO: Implement proper shadow support
             renderer.fill_quad(
                 renderer::Quad {
                     bounds: Rectangle {

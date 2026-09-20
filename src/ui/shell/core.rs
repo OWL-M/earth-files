@@ -171,7 +171,6 @@ impl Core {
     fn is_condensed_update(&mut self) {
         // Nav bar (280px) + padding (8px) + content (360px)
         let mut breakpoint = 280.0 + 8.0 + 360.0;
-        //TODO: the app may return None from the context_drawer function even if show_context is true
         if self.window.show_context && !self.window.context_is_overlay {
             // Context drawer min width (344px) + padding (8px)
             breakpoint += 344.0 + 8.0;

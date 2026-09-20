@@ -211,7 +211,6 @@ where
             state.selections[i].update(Text {
                 content: selection.as_ref(),
                 bounds: Size::INFINITE,
-                // TODO use the renderer default size
                 size: iced::Pixels(self.text_size.unwrap_or(14.0)),
                 line_height: self.text_line_height,
                 font: self.font.unwrap_or_else(crate::ui::font::default),
@@ -339,9 +338,6 @@ where
         _renderer: &iced::Renderer,
         operation: &mut dyn iced_core::widget::Operation,
     ) {
-        // TODO: double check operation handling
-        // let state = tree.state.downcast_mut::<State>();
-        // operation.custom(state, self.id.as_ref());
     }
 
     fn overlay<'b>(
@@ -618,7 +614,6 @@ pub fn update<
                             x: anchor_rect.x - padding.left as i32,
                             ..anchor_rect
                         },
-                        // TODO: left or right alignment based on direction?
                         anchor: crate::ui::surface::PopupAnchor::BottomLeft,
                         gravity: crate::ui::surface::PopupGravity::BottomRight,
                         // Was the raw `9` = SlideX | FlipY.

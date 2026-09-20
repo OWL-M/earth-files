@@ -613,7 +613,7 @@ where
             icon_spacing = f32::from(self.button_spacing);
             let paragraph = entry.or_insert_with(|| {
                 Plain::new(Text {
-                    content: text.to_string(), // TODO should we just use String at this point?
+                    content: text.to_string(),
                     size: iced::Pixels(self.font_size),
                     bounds: Size::INFINITE,
                     font,
@@ -1060,7 +1060,7 @@ where
                 viewport.size(),
                 Vector::new(0., 0.),
                 bounds,
-                0., // TODO offset?
+                0.,
             );
             let (anchor_rect, gravity) = my_state.inner.with_data_mut(|state| {
                 state.popup_id.insert(self.window_id, id);

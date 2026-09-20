@@ -641,7 +641,7 @@ fn gvfs_dir_is_remote(dir: &Path) -> bool {
 }
 
 /// The mime every directory item carries.
-static DIRECTORY_MIME: LazyLock<Mime> = LazyLock::new(|| "inode/directory".parse().unwrap());
+pub static DIRECTORY_MIME: LazyLock<Mime> = LazyLock::new(|| "inode/directory".parse().unwrap());
 
 /// Icons for a file item, using the launcher's own icon when `path` is a
 /// desktop entry. Returns whether it was one, so callers can also take the

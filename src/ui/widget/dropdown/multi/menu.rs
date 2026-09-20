@@ -588,7 +588,6 @@ where
 
                     let bounds = Rectangle {
                         x: bounds.x + self.padding.left,
-                        // TODO: Figure out why it's offset by 8 pixels
                         y: bounds.y + self.padding.top + 8.0,
                         width: bounds.width,
                         height: elem_height,

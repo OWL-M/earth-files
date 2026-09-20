@@ -7,7 +7,6 @@ use unicode_segmentation::UnicodeSegmentation;
 /// The value of a [`TextInput`].
 ///
 /// [`TextInput`]: crate::ui::widget::TextInput
-// TODO: Reduce allocations, cache results (?)
 #[derive(Default, Debug, Clone, PartialEq)]
 pub struct Value {
     graphemes: Vec<String>,

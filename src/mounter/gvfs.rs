@@ -25,6 +25,7 @@ standard::type,\
 standard::size,\
 standard::icon,\
 standard::is-hidden,\
+standard::content-type,\
 time::modified";
 
 fn resolve_uri(uri: &str) -> (String, gio::File) {
@@ -53,7 +54,10 @@ fn gio_icon_to_path(icon: &gio::Icon, size: u16) -> Option<PathBuf> {
             }
         }
     }
-    //TODO: handle more gio icon types
+    // An icon given as an image file, e.g. a volume's custom icon
+    if let Some(file_icon) = icon.downcast_ref::<gio::FileIcon>() {
+        return file_icon.file().path();
+    }
     None
 }
 
@@ -96,7 +100,6 @@ fn items(monitor: &gio::VolumeMonitor, sizes: IconSizes) -> MounterItems {
                     .map(|f| f.uri().into())
                     .unwrap_or_default();
                 MounterItem::Gvfs(Item {
-                    // TODO can we get URI for volumes with no mount?
                     uri,
                     kind: ItemKind::Volume,
                     index: i,
@@ -157,7 +160,6 @@ fn network_scan(uri: &str, sizes: IconSizes) -> Result<Vec<tab::Item>, String> {
 
         let uri = String::from(file.child(info.name()).uri());
 
-        //TODO: what is the best way to resolve shortcuts?
         let location = Location::Network(uri, display_name.clone(), file.child(&name).path());
 
         let metadata = if force_dir {
@@ -166,32 +168,21 @@ fn network_scan(uri: &str, sizes: IconSizes) -> Result<Vec<tab::Item>, String> {
             let mtime = info.attribute_uint64(gio::FILE_ATTRIBUTE_TIME_MODIFIED);
             let is_dir = matches!(info.file_type(), gio::FileType::Directory);
             let size_opt = (!is_dir).then_some(info.size() as u64);
-            let mut children_opt = None;
-
-            // Counting children costs a directory listing per entry, which is far too
-            // expensive on a remote filesystem
-            if is_dir && !remote {
-                if let Some(path) = file.child(&name).path() {
-                    //TODO: calculate children in the background (and make it cancellable?)
-                    match std::fs::read_dir(&path) {
-                        Ok(entries) => {
-                            children_opt = Some(entries.count());
-                        }
-                        Err(err) => {
-                            log::warn!("failed to read directory {}: {}", path.display(), err);
-                            children_opt = Some(0);
-                        }
-                    }
-                } else {
-                    children_opt = Some(0);
-                }
-            }
+            // Children are counted in the background by the tab's subscription
             ItemMetadata::GvfsPath {
                 mtime,
                 size_opt,
-                children_opt,
+                children_opt: None,
                 is_dir,
             }
+        };
+
+        // Local directories get their size summed in the background like any
+        // other local folder; remote ones would cost a listing per entry
+        let dir_size = if metadata.is_dir() && !remote && location.path_opt().is_some() {
+            DirSize::Calculating(crate::operation::Controller::default())
+        } else {
+            DirSize::NotDirectory
         };
 
         let (mime, icon_handle_grid, icon_handle_list, icon_handle_list_condensed) = {
@@ -210,9 +201,17 @@ fn network_scan(uri: &str, sizes: IconSizes) -> Result<Vec<tab::Item>, String> {
                         .handle(),
                     )
             };
+            // gio reports the content type per entry; directories keep the
+            // mime every directory item carries
+            let mime = if metadata.is_dir() {
+                None
+            } else {
+                info.content_type()
+                    .and_then(|t| t.parse::<mime_guess::Mime>().ok())
+            }
+            .unwrap_or_else(|| tab::DIRECTORY_MIME.clone());
             (
-                //TODO: get mime from content_type?
-                "inode/directory".parse().unwrap(),
+                mime,
                 file_icon(sizes.grid()),
                 file_icon(sizes.list()),
                 file_icon(sizes.list_condensed()),
@@ -243,8 +242,7 @@ fn network_scan(uri: &str, sizes: IconSizes) -> Result<Vec<tab::Item>, String> {
             selected: false,
             highlighted: false,
             overlaps_drag_rect: false,
-            //TODO: scan directory size on gvfs mounts?
-            dir_size: DirSize::NotDirectory,
+            dir_size,
             cut: false,
             checksums: ChecksumState::default(),
         });
@@ -292,7 +290,6 @@ fn mount_op(
             if let Some(event_tx) = event_tx.upgrade() {
                 event_tx.send(Event::NetworkAuth(uri.clone(), auth, auth_tx));
             }
-            //TODO: async recv?
             if let Some(auth) = auth_rx.blocking_recv() {
                 if auth.anonymous_opt == Some(true) {
                     mount_op.set_anonymous(true);
