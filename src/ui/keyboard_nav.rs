@@ -18,9 +18,14 @@ pub enum Action {
     Search,
 }
 
+/// Common keyboard shortcuts, tagged with the window they came from.
+///
+/// The id matters because a nested shell, such as the embedded file chooser,
+/// subscribes alongside its host: without it one Escape or Tab would be acted
+/// on by both windows.
 #[cold]
-pub fn subscription() -> Subscription<Action> {
-    listen_raw(|event, status, _| {
+pub fn subscription() -> Subscription<(iced_core::window::Id, Action)> {
+    listen_raw(|event, status, window_id| {
         if event::Status::Ignored != status {
             return None;
         }
@@ -32,19 +37,22 @@ pub fn subscription() -> Subscription<Action> {
                 ..
             }) => match key {
                 Named::Tab if !modifiers.control() => {
-                    return Some(if modifiers.shift() {
-                        Action::FocusPrevious
-                    } else {
-                        Action::FocusNext
-                    });
+                    return Some((
+                        window_id,
+                        if modifiers.shift() {
+                            Action::FocusPrevious
+                        } else {
+                            Action::FocusNext
+                        },
+                    ));
                 }
 
                 Named::Escape => {
-                    return Some(Action::Escape);
+                    return Some((window_id, Action::Escape));
                 }
 
                 Named::F11 => {
-                    return Some(Action::Fullscreen);
+                    return Some((window_id, Action::Fullscreen));
                 }
 
                 _ => (),
@@ -54,7 +62,7 @@ pub fn subscription() -> Subscription<Action> {
                 modifiers,
                 ..
             }) if c == "f" && modifiers.control() => {
-                return Some(Action::Search);
+                return Some((window_id, Action::Search));
             }
 
             _ => (),

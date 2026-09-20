@@ -7,23 +7,33 @@ use std::sync::LazyLock;
 use crate::config::IconSizes;
 use crate::tab::{Item, SearchItem};
 
-fn percent_decode(s: &str) -> Option<String> {
-    let (mut r, mut b) = (String::with_capacity(s.len()), s.bytes());
-    while let Some(c) = b.next() {
-        if c == b'%' {
-            let (hi, lo) = (b.next()?, b.next()?);
-            let h = |x: u8| match x {
+/// Decode the percent escapes of a `.trashinfo` `Path=` line into a path.
+///
+/// The escapes stand for bytes, not characters: a path holding `é` is written
+/// as two escapes. Collecting them as bytes and building the path from those
+/// keeps any name the filesystem allows, including ones that are not UTF-8.
+/// Pushing each byte as a `char` would instead read them as Latin-1 and
+/// mangle every non-ASCII name.
+fn percent_decode(s: &str) -> Option<PathBuf> {
+    use std::ffi::OsString;
+    use std::os::unix::ffi::OsStringExt;
+
+    let (mut out, mut bytes) = (Vec::with_capacity(s.len()), s.bytes());
+    while let Some(byte) = bytes.next() {
+        if byte == b'%' {
+            let (hi, lo) = (bytes.next()?, bytes.next()?);
+            let digit = |x: u8| match x {
                 b'0'..=b'9' => Some(x - b'0'),
                 b'a'..=b'f' => Some(x - b'a' + 10),
                 b'A'..=b'F' => Some(x - b'A' + 10),
                 _ => None,
             };
-            r.push((h(hi)? << 4 | h(lo)?) as char);
+            out.push(digit(hi)? << 4 | digit(lo)?);
         } else {
-            r.push(c as char);
+            out.push(byte);
         }
     }
-    Some(r)
+    Some(PathBuf::from(OsString::from_vec(out)))
 }
 
 pub trait TrashExt {
@@ -75,7 +85,7 @@ pub fn original_path_for_trash_child(p: &Path) -> Option<PathBuf> {
     let info = std::fs::read_to_string(root.join("info").join(trashinfo_name)).ok()?;
     let orig = percent_decode(info.lines().find_map(|l| l.strip_prefix("Path="))?.trim())?;
     let rel = p.strip_prefix(files.join(top)).ok()?;
-    let mut result = PathBuf::from(&orig);
+    let mut result = orig;
     if !rel.as_os_str().is_empty() {
         result.push(rel);
     }
@@ -138,7 +148,9 @@ impl TrashExt for Trash {
                         log::warn!("failed to get metadata for trash item {entry:?}: {err}")
                     })
                     .ok()?;
-                Some(item_from_trash_entry(entry, metadata, sizes))
+                let item = item_from_trash_entry(entry, metadata, sizes);
+                crate::tab::fill_image_dimensions(&item);
+                Some(item)
             })
             .collect();
         items.sort_by(|a, b| match (a.metadata.is_dir(), b.metadata.is_dir()) {
@@ -168,5 +180,42 @@ impl TrashExt for Trash {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn percent_decode_reads_escapes_as_bytes() {
+        // Percent escapes stand for UTF-8 bytes, not Latin-1 characters
+        assert_eq!(
+            percent_decode("/home/u/Documents/caf%C3%A9.txt"),
+            Some(PathBuf::from("/home/u/Documents/café.txt"))
+        );
+        assert_eq!(
+            percent_decode("/home/u/%D0%BF%D1%80%D0%B8%D0%B2%D0%B5%D1%82"),
+            Some(PathBuf::from("/home/u/привет"))
+        );
+
+        // A name that is not valid UTF-8 survives as raw bytes
+        use std::ffi::OsStr;
+        use std::os::unix::ffi::OsStrExt;
+        assert_eq!(
+            percent_decode("/home/u/%FF%FE"),
+            Some(PathBuf::from(OsStr::from_bytes(&[
+                b'/', b'h', b'o', b'm', b'e', b'/', b'u', b'/', 0xFF, 0xFE
+            ])))
+        );
+
+        // Plain paths pass through, and malformed escapes are refused
+        assert_eq!(
+            percent_decode("/home/u/plain.txt"),
+            Some(PathBuf::from("/home/u/plain.txt"))
+        );
+        assert_eq!(percent_decode("/home/u/bad%"), None);
+        assert_eq!(percent_decode("/home/u/bad%zz"), None);
+        assert_eq!(percent_decode("/home/u/bad%4"), None);
     }
 }

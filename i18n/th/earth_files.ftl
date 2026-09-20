@@ -124,6 +124,9 @@ skip = ข้าม
 set-executable-and-launch = ตั้งเป็นไฟล์ที่สามารถรันได้และเปิด
 set-executable-and-launch-description = คุณต้องการที่จะตั้งไฟล์ "{ $name }" ให้สามารถรันได้และเปิดเลยหรือไม่
 set-and-launch = ตั้งและเปิด
+launch-desktop-entry = Launch application?
+launch-desktop-entry-description = "{$name}" is not an installed application. Launching it runs the command below.
+launch-anyway = Launch
 
 ## Metadata Dialog
 
@@ -168,6 +171,7 @@ username = ชื่อผู้ใช้
 ## Operations
 
 cancelled = ยกเลิกแล้ว
+operation-failed-to-start = The file operation could not be started
 edit-history = แก้ไขประวัติ
 history = ประวัติ
 no-history = ไม่มีไฟล์ในประวัติ
@@ -303,6 +307,8 @@ cut = ตัด
 copy = คัดลอก
 paste = วาง
 select-all = เลือกทั้งหมด
+image-load-error = ⚠ {$error}
+loading-full-image = Loading higher resolution...
 
 ## View
 

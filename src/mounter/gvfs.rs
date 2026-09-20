@@ -4,7 +4,7 @@ use crate::ui::{Task, widget};
 use gio::glib;
 use gio::prelude::*;
 use std::any::TypeId;
-use std::cell::Cell;
+use std::cell::{Cell, OnceCell};
 use std::future::pending;
 use std::hash::Hash;
 use std::path::PathBuf;
@@ -232,7 +232,7 @@ fn network_scan(uri: &str, sizes: IconSizes) -> Result<Vec<tab::Item>, String> {
             metadata,
             hidden,
             location_opt: Some(location),
-            image_dimensions: None,
+            image_dimensions: OnceCell::new(),
             mime,
             icon_handle_grid,
             icon_handle_list,
@@ -292,21 +292,32 @@ fn mount_op(
             if let Some(event_tx) = event_tx.upgrade() {
                 event_tx.send(Event::NetworkAuth(uri.clone(), auth, auth_tx));
             }
-            if let Some(auth) = auth_rx.blocking_recv() {
-                if auth.anonymous_opt == Some(true) {
-                    mount_op.set_anonymous(true);
-                } else {
-                    mount_op.set_username(auth.username_opt.as_deref());
-                    mount_op.set_domain(auth.domain_opt.as_deref());
-                    mount_op.set_password(auth.password_opt.as_deref());
-                    if auth.remember_opt == Some(true) {
-                        mount_op.set_password_save(gio::PasswordSave::Permanently);
+            // Answer later rather than waiting here. This callback runs on the
+            // thread that serves every gvfs command, so blocking it until the
+            // user answers the dialog would stall unmounts, rescans and other
+            // mounts for as long as the dialog is open. GMountOperation allows
+            // the handler to return and reply afterwards.
+            let mount_op = mount_op.clone();
+            glib::MainContext::ref_thread_default().spawn_local(async move {
+                match auth_rx.recv().await {
+                    Some(auth) => {
+                        if auth.anonymous_opt == Some(true) {
+                            mount_op.set_anonymous(true);
+                        } else {
+                            mount_op.set_username(auth.username_opt.as_deref());
+                            mount_op.set_domain(auth.domain_opt.as_deref());
+                            mount_op.set_password(auth.password_opt.as_deref());
+                            if auth.remember_opt == Some(true) {
+                                mount_op.set_password_save(gio::PasswordSave::Permanently);
+                            }
+                        }
+                        mount_op.reply(gio::MountOperationResult::Handled);
                     }
+                    // The dialog was dismissed, or its sender was dropped
+                    // because the mount was torn down: abort, do not hang
+                    None => mount_op.reply(gio::MountOperationResult::Aborted),
                 }
-                mount_op.reply(gio::MountOperationResult::Handled);
-            } else {
-                mount_op.reply(gio::MountOperationResult::Aborted);
-            }
+            });
         },
     );
     mount_op

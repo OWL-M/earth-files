@@ -135,6 +135,9 @@ skip = Atla
 set-executable-and-launch = Çalıştırılabilir olarak ayarla ve başlat
 set-executable-and-launch-description = "{ $name }" dosyasını çalıştırılabilir olarak ayarlayıp başlatmak istiyor musunuz?
 set-and-launch = Ayarla ve başlat
+launch-desktop-entry = Launch application?
+launch-desktop-entry-description = "{$name}" is not an installed application. Launching it runs the command below.
+launch-anyway = Launch
 
 ## Metadata Dialog
 
@@ -179,6 +182,7 @@ username = Kullanıcı adı
 ## Operations
 
 cancelled = İptal edildi
+operation-failed-to-start = The file operation could not be started
 edit-history = Geçmişi düzenle
 history = Geçmiş
 no-history = Geçmişte öge bulunmuyor.
@@ -322,6 +326,8 @@ cut = Kes
 copy = Kopyala
 paste = Yapıştır
 select-all = Tümünü seç
+image-load-error = ⚠ {$error}
+loading-full-image = Loading higher resolution...
 
 ## View
 

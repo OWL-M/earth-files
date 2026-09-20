@@ -241,6 +241,8 @@ cut = Вырезать
 copy = Копировать
 paste = Вставить
 select-all = Выбрать все
+image-load-error = ⚠ {$error}
+loading-full-image = Loading higher resolution...
 
 ## View
 
@@ -270,6 +272,7 @@ sort-type-z-a = Тип от Я до А
 support = Поддержка
 repository = Репозиторий
 cancelled = Отменена
+operation-failed-to-start = The file operation could not be started
 details = Сведения
 dismiss = Скрыть сообщение
 remove = Убрать
@@ -300,6 +303,9 @@ permanently-delete-warning = Вы уверены, что хотите навсе
 set-executable-and-launch = Сделать исполняемым и запустить
 set-executable-and-launch-description = Вы хотите сделать «{ $name }» исполняемым и запустить его?
 set-and-launch = Сделать и запустить
+launch-desktop-entry = Launch application?
+launch-desktop-entry-description = "{$name}" is not an installed application. Launching it runs the command below.
+launch-anyway = Launch
 open-with = Открывать в
 none = Нет прав
 execute-only = Только исполнение

@@ -10,7 +10,7 @@
 //! `minimize` and `show_window_menu`. Commit `ad6765a` in our checkout added
 //! `Drag`, `Maximize`, `ToggleMaximize`, `GetMaximized`, `GetMode`, `Minimize`,
 //! `GetMinimized`, `ShowSystemMenu` and `Run`, and added the `xdg_toplevel`
-//! configure `states` that drive `is_maximized`. `xdg_toplevel.move`,
+//! configure `states` that would tell the shell it is maximized. `xdg_toplevel.move`,
 //! `set_maximized` and `set_minimized` have been observed on the wire from this
 //! app.
 //!

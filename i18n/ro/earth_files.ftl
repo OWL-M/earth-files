@@ -136,6 +136,9 @@ skip = Omitere
 set-executable-and-launch = Fă executabil și rulează
 set-executable-and-launch-description = Dorești să setezi „{ $name }” ca executabil și să îl rulezi?
 set-and-launch = Setează și rulează
+launch-desktop-entry = Launch application?
+launch-desktop-entry-description = "{$name}" is not an installed application. Launching it runs the command below.
+launch-anyway = Launch
 
 ## Metadata Dialog
 
@@ -224,6 +227,7 @@ username = Nume utilizator
 ## Operations
 
 cancelled = Anulat
+operation-failed-to-start = The file operation could not be started
 edit-history = Editează istoricul
 history = Istoric
 no-history = Nicio intrare în istoric.
@@ -386,6 +390,8 @@ cut = Taie
 copy = Copiază
 paste = Lipește
 select-all = Selectează tot
+image-load-error = ⚠ {$error}
+loading-full-image = Loading higher resolution...
 
 ## View
 

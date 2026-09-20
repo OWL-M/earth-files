@@ -190,6 +190,8 @@ cut = Cortar
 copy = Copiar
 paste = Colar
 select-all = Selecionar tudo
+image-load-error = ⚠ {$error}
+loading-full-image = Loading higher resolution...
 
 ## View
 
@@ -210,6 +212,7 @@ details = Detalhes
 dismiss = Dispensar mensagem
 remove = Remover
 cancelled = Canceladas
+operation-failed-to-start = The file operation could not be started
 networks = Redes
 recents = Recentes
 search-title = Pesquisar "{$term}": {$name}
@@ -253,6 +256,9 @@ permanently-delete-warning = Tem a certeza de que pretende eliminar { $target } 
 set-executable-and-launch = Definir como executável e iniciar
 set-executable-and-launch-description = Pretende definir "{ $name }" como executável e iniciá-lo?
 set-and-launch = Definir e iniciar
+launch-desktop-entry = Launch application?
+launch-desktop-entry-description = "{$name}" is not an installed application. Launching it runs the command below.
+launch-anyway = Launch
 open-with = Abrir com
 none = Nenhum(a)
 execute-only = Executar-apenas

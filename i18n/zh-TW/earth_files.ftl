@@ -241,6 +241,8 @@ cut = 剪下
 copy = 複製
 paste = 貼上
 select-all = 全選
+image-load-error = ⚠ {$error}
+loading-full-image = Loading higher resolution...
 
 ## View
 
@@ -313,6 +315,7 @@ delete = 刪除
 remove = 移除
 support = 支援
 cancelled = 已取消
+operation-failed-to-start = The file operation could not be started
 keywords = 資料夾;管理器;
 empty-trash-title = 清空垃圾桶？
 pause = 暫停
@@ -335,6 +338,9 @@ read-write-execute = 讀取、寫入和執行
 favorite-path-error = 開啟目錄時發生錯誤
 set-executable-and-launch-description = 您是否要將「{ $name }」設為可執行並啟動它？
 set-and-launch = 設定並啟動
+launch-desktop-entry = Launch application?
+launch-desktop-entry-description = "{$name}" is not an installed application. Launching it runs the command below.
+launch-anyway = Launch
 none = 無
 execute-only = 僅執行
 write-only = 僅寫入

@@ -594,8 +594,12 @@ pub fn menu_bar<'a>(
     let can_paste =
         clipboard_paste_available && tab_opt.is_some_and(|tab| tab.location.supports_paste());
 
-    let (delete_item, delete_item_action) = if in_trash || modifiers.shift() {
+    // Outside the trash the label only changes when the action does: Delete
+    // already deletes for good inside the trash, but anywhere else it trashes
+    let (delete_item, delete_item_action) = if in_trash {
         (fl!("delete-permanently"), Action::Delete)
+    } else if modifiers.shift() && !modifiers.control() {
+        (fl!("delete-permanently"), Action::PermanentlyDelete)
     } else {
         (fl!("move-to-trash"), Action::Delete)
     };

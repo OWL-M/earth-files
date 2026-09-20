@@ -28,7 +28,6 @@ pub struct Window {
     pub use_template: bool,
     pub content_container: bool,
     pub context_is_overlay: bool,
-    pub sharp_corners: bool,
     /// Whether the context drawer is shown.
     ///
     /// Three sites write it directly: `src/app.rs:2062`, `src/app.rs:3758` and
@@ -40,7 +39,6 @@ pub struct Window {
     pub show_close: bool,
     pub show_maximize: bool,
     pub show_minimize: bool,
-    pub is_maximized: bool,
     pub border_padding: Option<u16>,
     height: f32,
     width: f32,
@@ -102,14 +100,12 @@ impl Default for Core {
                 use_template: true,
                 content_container: true,
                 context_is_overlay: true,
-                sharp_corners: false,
                 show_context: false,
                 show_headerbar: true,
                 show_close: true,
                 show_maximize: true,
                 show_minimize: true,
                 show_window_menu: false,
-                is_maximized: false,
                 height: 0.,
                 width: 0.,
                 border_padding: None,

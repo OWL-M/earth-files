@@ -159,6 +159,9 @@ skip = Preskočiť
 set-executable-and-launch = Nastaviť ako spustiteľné a spustiť
 set-executable-and-launch-description = Chcete nastaviť "{ $name }" ako spustiteľné a spustiť ho?
 set-and-launch = Nastaviť a spustiť
+launch-desktop-entry = Launch application?
+launch-desktop-entry-description = "{$name}" is not an installed application. Launching it runs the command below.
+launch-anyway = Launch
 
 ## Metadata Dialog
 
@@ -247,6 +250,7 @@ username = Používateľské meno
 ## Operations
 
 cancelled = Zrušené
+operation-failed-to-start = The file operation could not be started
 edit-history = Upraviť históriu
 history = História
 no-history = Žiadne položky v histórii.
@@ -467,6 +471,8 @@ cut = Vystrihnúť
 copy = Kopírovať
 paste = Prilepiť
 select-all = Vybrať všetko
+image-load-error = ⚠ {$error}
+loading-full-image = Loading higher resolution...
 
 ## View
 

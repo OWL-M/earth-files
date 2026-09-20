@@ -93,22 +93,22 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
         // `RUST_LOG` is set. Default to warnings so `ui::dnd` can explain failed tab
         // drags, copies and pastes. These warnings are rare and absent in a working
         // session. An explicit `RUST_LOG` still overrides the default.
-        .with(
-            tracing_subscriber::EnvFilter::builder()
-                .with_default_directive(
-                    "earth_files::ui::dnd=warn"
-                        .parse()
-                        .expect("a literal directive that parses"),
-                )
-                // The runner reports Wayland connection failures because
-                // `ui::dnd::init` is never called if the connection fails to open.
-                .with_default_directive(
-                    "earth_files::ui::shell::runner=warn"
-                        .parse()
-                        .expect("a literal directive that parses"),
-                )
-                .from_env_lossy(),
-        )
+        .with({
+            // The builder holds one default directive, so asking for two
+            // would keep only the last. Both go into one default filter
+            // instead, used only when `RUST_LOG` is unset: adding directives
+            // after reading the environment would override what the user
+            // asked for. The runner is included because a Wayland connection
+            // that fails to open means `ui::dnd::init` is never reached.
+            const DEFAULT_FILTER: &str =
+                "earth_files::ui::dnd=warn,earth_files::ui::shell::runner=warn";
+            match std::env::var(tracing_subscriber::EnvFilter::DEFAULT_ENV) {
+                Ok(filter) if !filter.trim().is_empty() => {
+                    tracing_subscriber::EnvFilter::new(filter)
+                }
+                _ => tracing_subscriber::EnvFilter::new(DEFAULT_FILTER),
+            }
+        })
         .with(log_layer)
         .init();
 

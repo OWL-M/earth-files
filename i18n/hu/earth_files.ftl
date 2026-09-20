@@ -139,6 +139,9 @@ skip = Kihagyás
 set-executable-and-launch = Végrehajthatóvá tétel és indítás
 set-executable-and-launch-description = Szeretnéd végrehajthatóvá tenni a(z) „{ $name }” fájlt és elindítani?
 set-and-launch = Beállítás és indítás
+launch-desktop-entry = Launch application?
+launch-desktop-entry-description = "{$name}" is not an installed application. Launching it runs the command below.
+launch-anyway = Launch
 
 ## Metadata Dialog
 
@@ -227,6 +230,7 @@ username = Felhasználónév
 ## Operations
 
 cancelled = Megszakítva
+operation-failed-to-start = The file operation could not be started
 edit-history = Fájlműveleti előzmények
 history = Előzmények
 no-history = Nem találhatók elemek az előzményekben.
@@ -413,6 +417,8 @@ cut = Kivágás
 copy = Másolás
 paste = Beillesztés
 select-all = Összes kijelölése
+image-load-error = ⚠ {$error}
+loading-full-image = Loading higher resolution...
 
 ## View
 

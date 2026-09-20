@@ -52,6 +52,8 @@ gallery-preview = Преглед галерије
 sort-smallest-to-largest = Од најмање до највеће
 zoom-in = Увећајте приказ
 select-all = Означи све
+image-load-error = ⚠ {$error}
+loading-full-image = Loading higher resolution...
 icon-size-and-spacing = Величина и размак иконица
 removing-from-recents =
     Уклањање { $items } { $items ->
@@ -202,6 +204,9 @@ extract-here = Извуци
 grid-view = Преглед у виду мреже
 filesystem = Систем датотека
 set-and-launch = Подеси и покрени
+launch-desktop-entry = Launch application?
+launch-desktop-entry-description = "{$name}" is not an installed application. Launching it runs the command below.
+launch-anyway = Launch
 removed-from-recents =
     Уклоњено { $items } { $items ->
         [one] ставке
@@ -231,6 +236,7 @@ progress-paused = { $percent }%, паузирано
 desktop-view-options = Могућности приказа радне површине...
 show-on-desktop = Прикажи на радној површини
 cancelled = Отказано
+operation-failed-to-start = The file operation could not be started
 new-folder = Нова фасцикла...
 match-desktop = Прати радну површину
 domain = Домен

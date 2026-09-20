@@ -152,6 +152,9 @@ skip = Overslaan
 set-executable-and-launch = Als uitvoerbaar instellen en dan starten
 set-executable-and-launch-description = Wilt u “{ $name }” als uitvoerbaar instellen en dan starten?
 set-and-launch = Uitvoerbaar maken en starten
+launch-desktop-entry = Launch application?
+launch-desktop-entry-description = "{$name}" is not an installed application. Launching it runs the command below.
+launch-anyway = Launch
 
 ## Metadata Dialog
 
@@ -240,6 +243,7 @@ username = Gebruikersnaam
 ## Operations
 
 cancelled = Geannuleerd
+operation-failed-to-start = The file operation could not be started
 edit-history = Geschiedenis bewerken
 history = Geschiedenis
 no-history = Geen items in de geschiedenis.
@@ -414,6 +418,8 @@ cut = Knippen
 copy = Kopiëren
 paste = Plakken
 select-all = Alles selecteren
+image-load-error = ⚠ {$error}
+loading-full-image = Loading higher resolution...
 
 ## View
 

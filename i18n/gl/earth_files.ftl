@@ -21,6 +21,8 @@ cut = Cortar
 copy = Copiar
 paste = Pegar
 select-all = Seleccionar todo
+image-load-error = ⚠ {$error}
+loading-full-image = Loading higher resolution...
 view = Ver
 zoom-in = Aumentar Zoom
 default-size = Tamaño por defecto
@@ -64,15 +66,15 @@ file-type-other = Outro
 details = Detalles
 dismiss = Descartar a mensaxe
 operations-running =
-    { $running } { $executandose ->
-        [unha] operacion
-       *[outra] operacions
-    } executandose ({ $percent }%)...
+    { $running } { $running ->
+        [one] operación
+       *[other] operacións
+    } executándose ({ $percent }%)...
 operations-running-finished =
-    { $running } { $executandose ->
-        [unha] operacion
-       *[outra] operacions
-    } executandose ({ $percent }%), { $finished } rematadas...
+    { $running } { $running ->
+        [one] operación
+       *[other] operacións
+    } executándose ({ $percent }%), { $finished } rematadas...
 pause = Pausa
 resume = Retomar
 create-archive = Crear arquivo comprimido
@@ -150,6 +152,9 @@ skip = Saltar
 set-executable-and-launch = Marcar como executable e lanzalo
 set-executable-and-launch-description = Queres marcar «{ $name }» como executábel e lanzalo?
 set-and-launch = Marcar e executar
+launch-desktop-entry = Launch application?
+launch-desktop-entry-description = "{$name}" is not an installed application. Launching it runs the command below.
+launch-anyway = Launch
 open-with = Abrir con
 owner = Propietario
 group = Grupo
@@ -194,6 +199,7 @@ remember-password = Recordar o contrasinal
 try-again = Voltar a intentar
 username = Nome de usuario
 cancelled = Cancelado
+operation-failed-to-start = The file operation could not be started
 edit-history = Editar historial
 history = Historial
 no-history = Non hai elementos no historial.
@@ -231,10 +237,10 @@ copied =
        *[other] elementos
     } de «{ $from }» a «{ $to }»
 deleted =
-    Eliminando { $items } { $items ->
+    Eliminados { $items } { $items ->
         [one] elemento
        *[other] elementos
-    } do lixo ({ $progress })
+    } do lixo
 emptying-trash = Baleirando { trash } ({ $progress })...
 emptied-trash = Baleirado o { trash }
 extracting =

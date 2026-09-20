@@ -7,7 +7,7 @@ use jiff::tz::TimeZone;
 use std::collections::HashSet;
 use std::fs;
 use std::io::{self, Read, Write};
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::time::SystemTime;
 use zip::result::ZipError;
 
@@ -115,6 +115,7 @@ fn zip_extract<R: io::Read + io::Seek, P: AsRef<Path>>(
 ) -> zip::result::ZipResult<(Vec<PathBuf>, HashSet<PathBuf>)> {
     use std::ffi::OsString;
     use std::fs;
+    use std::os::unix::fs::OpenOptionsExt;
     use zip::result::ZipError;
 
     fn make_writable_dir_all<T: AsRef<Path>>(
@@ -138,6 +139,61 @@ fn zip_extract<R: io::Read + io::Seek, P: AsRef<Path>>(
         Ok(())
     }
 
+    /// Refuse an entry whose path reaches its place through a symlink.
+    ///
+    /// `enclosed_name` rejects `..` and absolute entry names, but an archive
+    /// can hold a symlink entry and then a second entry underneath it: without
+    /// this check the second entry is written through the link, outside the
+    /// destination. An archive that legitimately wants to be unpacked over its
+    /// own symlinked directory is refused too, which is the safe way round.
+    fn reject_symlinked_path(root: &Path, outpath: &Path) -> Result<(), ZipError> {
+        let Ok(relative) = outpath.strip_prefix(root) else {
+            return Err(ZipError::InvalidArchive(
+                "entry escapes the destination".into(),
+            ));
+        };
+        let mut prefix = root.to_path_buf();
+        for component in relative.components() {
+            prefix.push(component);
+            match fs::symlink_metadata(&prefix) {
+                Ok(metadata) if metadata.file_type().is_symlink() => {
+                    return Err(ZipError::InvalidArchive(
+                        "entry is placed through a symbolic link".into(),
+                    ));
+                }
+                _ => {}
+            }
+        }
+        Ok(())
+    }
+
+    /// Whether a symlink entry at `link` pointing at `target` would resolve
+    /// outside `root`. Resolved lexically: the link is not followed, so this
+    /// holds even when the target does not exist yet.
+    fn target_escapes(root: &Path, link: &Path, target: &Path) -> bool {
+        let mut resolved = if target.is_absolute() {
+            PathBuf::new()
+        } else {
+            match link.parent() {
+                Some(parent) => parent.to_path_buf(),
+                None => return true,
+            }
+        };
+        for component in target.components() {
+            match component {
+                Component::CurDir => {}
+                Component::ParentDir => {
+                    if !resolved.pop() {
+                        return true;
+                    }
+                }
+                other => resolved.push(other),
+            }
+        }
+        !resolved.starts_with(root)
+    }
+
+    let root = directory.as_ref();
     let mut buffer = vec![0; 4 * 1024 * 1024];
     let total_files = archive.len();
     let mut written_files = Vec::with_capacity(total_files);
@@ -164,10 +220,11 @@ fn zip_extract<R: io::Read + io::Seek, P: AsRef<Path>>(
             .enclosed_name()
             .ok_or(ZipError::InvalidArchive("Invalid file path".into()))?;
 
-        let outpath = directory.as_ref().join(filepath);
+        let outpath = root.join(filepath);
+        reject_symlinked_path(root, &outpath)?;
 
         if let Some(last_modified) = file.last_modified() {
-            files_by_last_modified.push((outpath.clone(), last_modified));
+            files_by_last_modified.push((outpath.clone(), last_modified, file.is_symlink()));
         }
 
         if file.is_dir() {
@@ -188,6 +245,11 @@ fn zip_extract<R: io::Read + io::Seek, P: AsRef<Path>>(
             file.read_to_end(&mut target)?;
             use std::os::unix::ffi::OsStringExt;
             let target = OsString::from_vec(target);
+            if target_escapes(root, &outpath, Path::new(&target)) {
+                return Err(ZipError::InvalidArchive(
+                    "symbolic link points outside the destination".into(),
+                ));
+            }
             std::os::unix::fs::symlink(&target, outpath.as_path())?;
 
             written_files.push(outpath);
@@ -195,7 +257,14 @@ fn zip_extract<R: io::Read + io::Seek, P: AsRef<Path>>(
         }
 
         let total = file.size();
-        let mut outfile = fs::File::create(&outpath)?;
+        // O_NOFOLLOW so the final component cannot be a symlink planted by an
+        // earlier entry, which `File::create` would happily write through
+        let mut outfile = fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .custom_flags(libc::O_NOFOLLOW)
+            .open(&outpath)?;
         let mut current = 0;
         loop {
             futures::executor::block_on(async {
@@ -237,10 +306,19 @@ fn zip_extract<R: io::Read + io::Seek, P: AsRef<Path>>(
         fs::set_permissions(&path, fs::Permissions::from_mode(mode))?;
     }
 
-    for (path, last_modified) in files_by_last_modified {
+    for (path, last_modified, is_symlink) in files_by_last_modified {
         if let Some(modified) = zip_date_time_to_system_time(last_modified) {
             let file_time = filetime::FileTime::from_system_time(modified);
-            filetime::set_file_mtime(&path, file_time)?;
+            if is_symlink {
+                // `set_file_mtime` follows the link, which would let a symlink
+                // entry alone retimestamp a file outside the destination
+                let accessed = fs::symlink_metadata(&path)
+                    .map(|metadata| filetime::FileTime::from_last_access_time(&metadata))
+                    .unwrap_or(file_time);
+                filetime::set_symlink_file_times(&path, accessed, file_time)?;
+            } else {
+                filetime::set_file_mtime(&path, file_time)?;
+            }
         }
     }
 
@@ -277,4 +355,94 @@ pub fn system_time_to_zip_date_time(system_time: SystemTime) -> Option<zip::Date
         date_time.second() as u8,
     )
     .ok()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn zip_options() -> zip::write::FileOptions<'static, ()> {
+        zip::write::FileOptions::default()
+    }
+
+    /// An archive holding a symlink out of the destination and a file beneath
+    /// it must not write through the link
+    #[test]
+    fn zip_entry_under_a_symlink_cannot_escape() {
+        let tmp = tempfile::tempdir().unwrap();
+        let outside = tmp.path().join("outside");
+        fs::create_dir(&outside).unwrap();
+        fs::write(outside.join("victim.txt"), b"ORIGINAL").unwrap();
+        let dest = tmp.path().join("dest");
+        fs::create_dir(&dest).unwrap();
+
+        let zip_path = tmp.path().join("evil.zip");
+        let mut writer = zip::ZipWriter::new(fs::File::create(&zip_path).unwrap());
+        writer
+            .add_symlink("link", outside.to_str().unwrap(), zip_options())
+            .unwrap();
+        writer.start_file("link/victim.txt", zip_options()).unwrap();
+        writer.write_all(b"PWNED").unwrap();
+        writer.finish().unwrap();
+
+        let result = extract(&zip_path, &dest, &None, &Controller::default());
+        assert!(result.is_err(), "escaping archive must be refused");
+        assert_eq!(
+            fs::read_to_string(outside.join("victim.txt")).unwrap(),
+            "ORIGINAL"
+        );
+    }
+
+    /// A symlink entry on its own must not retimestamp its target either
+    #[test]
+    fn zip_symlink_entry_cannot_retimestamp_outside() {
+        let tmp = tempfile::tempdir().unwrap();
+        let outside = tmp.path().join("outside.txt");
+        fs::write(&outside, b"ORIGINAL").unwrap();
+        let before = fs::metadata(&outside).unwrap().modified().unwrap();
+        let dest = tmp.path().join("dest");
+        fs::create_dir(&dest).unwrap();
+
+        let zip_path = tmp.path().join("touch.zip");
+        let mut writer = zip::ZipWriter::new(fs::File::create(&zip_path).unwrap());
+        writer
+            .add_symlink(
+                "link",
+                outside.to_str().unwrap(),
+                zip_options().last_modified_time(
+                    zip::DateTime::from_date_and_time(1990, 1, 1, 0, 0, 0).unwrap(),
+                ),
+            )
+            .unwrap();
+        writer.finish().unwrap();
+
+        let _ = extract(&zip_path, &dest, &None, &Controller::default());
+        assert_eq!(fs::metadata(&outside).unwrap().modified().unwrap(), before);
+        assert_eq!(fs::read_to_string(&outside).unwrap(), "ORIGINAL");
+    }
+
+    /// An ordinary archive, including a symlink that stays inside, still works
+    #[test]
+    fn zip_ordinary_archive_still_extracts() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dest = tmp.path().join("dest");
+        fs::create_dir(&dest).unwrap();
+
+        let zip_path = tmp.path().join("ok.zip");
+        let mut writer = zip::ZipWriter::new(fs::File::create(&zip_path).unwrap());
+        writer.start_file("a.txt", zip_options()).unwrap();
+        writer.write_all(b"hello").unwrap();
+        writer.add_directory("sub", zip_options()).unwrap();
+        writer.start_file("sub/b.txt", zip_options()).unwrap();
+        writer.write_all(b"world").unwrap();
+        writer
+            .add_symlink("inside", "a.txt", zip_options())
+            .unwrap();
+        writer.finish().unwrap();
+
+        extract(&zip_path, &dest, &None, &Controller::default()).unwrap();
+        assert_eq!(fs::read_to_string(dest.join("a.txt")).unwrap(), "hello");
+        assert_eq!(fs::read_to_string(dest.join("sub/b.txt")).unwrap(), "world");
+        assert_eq!(fs::read_to_string(dest.join("inside")).unwrap(), "hello");
+    }
 }

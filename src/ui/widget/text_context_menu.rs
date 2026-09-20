@@ -286,7 +286,7 @@ fn build_menu_roots(
     has_text: bool,
     clipboard_has_text: bool,
 ) -> Vec<menu::Tree<TextCtxAction>> {
-    let item = |label: &'static str, action: TextCtxAction, enabled: bool| {
+    let item = |label: String, action: TextCtxAction, enabled: bool| {
         menu::Tree::from(crate::ui::Element::from(
             menu::menu_button(vec![widget::text(label).into()])
                 .on_press_maybe(enabled.then_some(action)),
@@ -295,13 +295,21 @@ fn build_menu_roots(
 
     let mut items = Vec::with_capacity(4);
     if is_editable {
-        items.push(item("Cut", TextCtxAction::Cut, has_selection));
+        items.push(item(crate::fl!("cut"), TextCtxAction::Cut, has_selection));
     }
-    items.push(item("Copy", TextCtxAction::Copy, has_selection));
+    items.push(item(crate::fl!("copy"), TextCtxAction::Copy, has_selection));
     if is_editable {
-        items.push(item("Paste", TextCtxAction::Paste, clipboard_has_text));
+        items.push(item(
+            crate::fl!("paste"),
+            TextCtxAction::Paste,
+            clipboard_has_text,
+        ));
     }
-    items.push(item("Select All", TextCtxAction::SelectAll, has_text));
+    items.push(item(
+        crate::fl!("select-all"),
+        TextCtxAction::SelectAll,
+        has_text,
+    ));
 
     vec![menu::Tree::with_children(
         RcElementWrapper::new(crate::ui::Element::from(widget::Row::new())),

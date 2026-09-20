@@ -152,6 +152,9 @@ skip = Пропускане
 set-executable-and-launch = Задаване като изпълним и стартиране
 set-executable-and-launch-description = Искате ли да зададете „{ $name }“ като изпълним и да го стартирате?
 set-and-launch = Задаване и стартиране
+launch-desktop-entry = Launch application?
+launch-desktop-entry-description = "{$name}" is not an installed application. Launching it runs the command below.
+launch-anyway = Launch
 
 ## Metadata Dialog
 
@@ -242,6 +245,7 @@ username = Потребителско име
 ## Operations
 
 cancelled = Отменена
+operation-failed-to-start = The file operation could not be started
 edit-history = Редактиране на историята
 history = История
 no-history = Няма елементи в историята.
@@ -429,6 +433,8 @@ cut = Отрязване
 copy = Копиране
 paste = Поставяне
 select-all = Избор на всички
+image-load-error = ⚠ {$error}
+loading-full-image = Loading higher resolution...
 
 ## View
 

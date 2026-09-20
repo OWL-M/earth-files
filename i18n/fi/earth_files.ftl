@@ -109,6 +109,9 @@ skip = Ohita
 set-executable-and-launch = Aseta käynnistettäväksi ja käynnistä
 set-executable-and-launch-description = Haluatko asettaa kohteen "{ $name }" käynnistettäväksi ja käynnistää sen?
 set-and-launch = Aseta ja käynnistä
+launch-desktop-entry = Launch application?
+launch-desktop-entry-description = "{$name}" is not an installed application. Launching it runs the command below.
+launch-anyway = Launch
 
 ## Metadata Dialog
 
@@ -283,6 +286,8 @@ cut = Leikkaa
 copy = Kopioi
 paste = Liitä
 select-all = Valitse kaikki
+image-load-error = ⚠ {$error}
+loading-full-image = Loading higher resolution...
 
 ## View
 
@@ -321,6 +326,7 @@ delete = Poista
 open-with = Avaa sovelluksella
 remove = Poista
 cancelled = Peruttu
+operation-failed-to-start = The file operation could not be started
 type = Tyyppi: { $mime }
 item-size = Koko: { $size }
 item-created = Luotu: { $created }

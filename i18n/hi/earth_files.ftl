@@ -105,6 +105,9 @@ skip = छोड़ें
 set-executable-and-launch = निष्पादन योग्य के रूप में सेट करें और लॉन्च करें
 set-executable-and-launch-description = क्या आप निष्पादन योग्य के रूप में "{ $name }" सेट करना चाहते हैं और इसे लॉन्च करते हैं?
 set-and-launch = सेट करें और लॉन्च करें
+launch-desktop-entry = Launch application?
+launch-desktop-entry-description = "{$name}" is not an installed application. Launching it runs the command below.
+launch-anyway = Launch
 
 ## Metadata Dialog
 
@@ -277,6 +280,8 @@ cut = काटें
 copy = कॉपी करें
 paste = चिपकाएँ
 select-all = सभी चुनें
+image-load-error = ⚠ {$error}
+loading-full-image = Loading higher resolution...
 
 ## View
 
@@ -353,6 +358,7 @@ removed-from-recents =
     }
 progress-paused = { $percent }%, रुका हुआ
 cancelled = रद्द किया गया
+operation-failed-to-start = The file operation could not be started
 operations-running-finished =
     { $running } { $running ->
         [one] ऑपरेशन

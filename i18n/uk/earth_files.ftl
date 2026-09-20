@@ -180,6 +180,8 @@ cut = Вирізати
 copy = Копіювати
 paste = Вставити
 select-all = Вибрати все
+image-load-error = ⚠ {$error}
+loading-full-image = Loading higher resolution...
 
 ## View
 
@@ -200,6 +202,7 @@ details = Подробиці
 dismiss = Закрити повідомлення
 remove = Вилучити
 cancelled = Скасовані
+operation-failed-to-start = The file operation could not be started
 no-results = Нічого не знайдено
 networks = Мережі
 notification-in-progress = Триває обробка файлів
@@ -243,6 +246,9 @@ permanently-delete-warning = { $target } буде остаточно видал�
 set-executable-and-launch = Зробити виконуваним і запустити
 set-executable-and-launch-description = Бажаєте зробити «{ $name }» виконуваним і запустити його?
 set-and-launch = Зробити і запустити
+launch-desktop-entry = Launch application?
+launch-desktop-entry-description = "{$name}" is not an installed application. Launching it runs the command below.
+launch-anyway = Launch
 open-with = Відкрити за допомогою
 owner = Власник
 group = Група

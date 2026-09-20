@@ -147,6 +147,9 @@ skip = Прапусціць
 set-executable-and-launch = Зрабіць выканальным і запусціць
 set-executable-and-launch-description = Вы хочаце зрабіць "{ $name }" выканальным і запусціць?
 set-and-launch = Задаць і запусціць
+launch-desktop-entry = Launch application?
+launch-desktop-entry-description = "{$name}" is not an installed application. Launching it runs the command below.
+launch-anyway = Launch
 
 ## Metadata Dialog
 
@@ -235,6 +238,7 @@ username = Імя карыстальніка
 ## Operations
 
 cancelled = Скасавана
+operation-failed-to-start = The file operation could not be started
 edit-history = Гісторыя рэдагавання
 history = Гісторыя
 no-history = У гісторыі няма запісаў.
@@ -426,6 +430,8 @@ cut = Выразаць
 copy = Скапіяваць
 paste = Уставіць
 select-all = Вылучыць усё
+image-load-error = ⚠ {$error}
+loading-full-image = Loading higher resolution...
 
 ## View
 

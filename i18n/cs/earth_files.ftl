@@ -130,6 +130,8 @@ cut = Vyjmout
 copy = Kopírovat
 paste = Vložit
 select-all = Vybrat vše
+image-load-error = ⚠ {$error}
+loading-full-image = Loading higher resolution...
 
 ## View
 
@@ -187,6 +189,9 @@ skip = Přeskočit
 set-executable-and-launch = Povolit spouštění a spustit
 set-executable-and-launch-description = Chcete povolit spouštění souboru „{ $name }“ a následně ho spustit?
 set-and-launch = Povolit a spustit
+launch-desktop-entry = Launch application?
+launch-desktop-entry-description = "{$name}" is not an installed application. Launching it runs the command below.
+launch-anyway = Launch
 open-with = Otevřít pomocí
 other = Ostatní
 none = Žádné
@@ -281,6 +286,7 @@ network-drive-error = Nelze přistoupit k síťovému disku
 remember-password = Zapamatovat heslo
 try-again = Zkusit znovu
 cancelled = Zrušené
+operation-failed-to-start = The file operation could not be started
 edit-history = Historie úprav
 history = Historie
 no-history = Žádné položky v historii.

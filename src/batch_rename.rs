@@ -76,6 +76,35 @@ impl Preview {
     }
 }
 
+/// Fill in a template's tags in one pass.
+///
+/// Substituting one tag and then the other would rescan the text just
+/// inserted, so a file whose own name contains the number tag would have part
+/// of its name replaced. Walking the template once means only the template's
+/// own tags are ever matched.
+fn apply_template(template: &str, tags: &Tags, name: &str, number: &str) -> String {
+    let mut out = String::with_capacity(template.len() + name.len());
+    let mut rest = template;
+    while !rest.is_empty() {
+        if !tags.name.is_empty()
+            && let Some(tail) = rest.strip_prefix(tags.name.as_str())
+        {
+            out.push_str(name);
+            rest = tail;
+        } else if !tags.number.is_empty()
+            && let Some(tail) = rest.strip_prefix(tags.number.as_str())
+        {
+            out.push_str(number);
+            rest = tail;
+        } else {
+            let next = rest.chars().next().expect("rest is not empty");
+            out.push(next);
+            rest = &rest[next.len_utf8()..];
+        }
+    }
+    out
+}
+
 /// The new name of each of `names`, in order
 pub fn new_names(names: &[String], settings: &Settings, tags: &Tags) -> Vec<String> {
     match settings.mode {
@@ -86,10 +115,12 @@ pub fn new_names(names: &[String], settings: &Settings, tags: &Tags) -> Vec<Stri
                 .iter()
                 .enumerate()
                 .map(|(i, name)| {
-                    settings
-                        .template
-                        .replace(&tags.name, name)
-                        .replace(&tags.number, &format!("{:0width$}", i + 1))
+                    apply_template(
+                        &settings.template,
+                        tags,
+                        name,
+                        &format!("{:0width$}", i + 1),
+                    )
                 })
                 .collect()
         }
@@ -106,8 +137,21 @@ pub fn new_names(names: &[String], settings: &Settings, tags: &Tags) -> Vec<Stri
     }
 }
 
-/// Every old and new name with its conflicts, for items in `parent`
-pub fn preview(parent: &Path, names: &[String], settings: &Settings, tags: &Tags) -> Preview {
+/// Every old and new name with its conflicts, for items in `parent`.
+///
+/// `check_existing` stats the destination of every changed name. It is worth
+/// it locally, where it turns a failed rename into a warning the user sees
+/// before pressing the button, but on a network mount those stats are slow
+/// enough to be worse than the error. Either way this is only a warning: the
+/// rename refuses to replace an existing file on its own, because the preview
+/// is a snapshot and the folder can change while the dialog is open.
+pub fn preview(
+    parent: &Path,
+    names: &[String],
+    settings: &Settings,
+    tags: &Tags,
+    check_existing: bool,
+) -> Preview {
     let new = new_names(names, settings, tags);
     let mut uses: HashMap<&str, usize> = HashMap::new();
     for name in &new {
@@ -117,7 +161,7 @@ pub fn preview(parent: &Path, names: &[String], settings: &Settings, tags: &Tags
     for (old, new) in names.iter().zip(new.iter()) {
         let changed = old != new;
         let invalid = new.is_empty() || new == "." || new == ".." || new.contains('/');
-        let taken = changed && parent.join(new).exists();
+        let taken = check_existing && changed && parent.join(new).exists();
         let conflict = invalid || taken || uses[new.as_str()] > 1;
         preview.changed += usize::from(changed);
         preview.conflicts += usize::from(conflict);
@@ -175,6 +219,18 @@ mod tests {
     }
 
     #[test]
+    fn template_does_not_reinterpret_tag_text_coming_from_a_filename() {
+        // A file literally named after the number tag must keep its name
+        let names = names(&["[1, 2, 3].txt", "b.txt"]);
+        let new = new_names(&names, &template("[Original name]"), &tags());
+        assert_eq!(new, names);
+
+        // And the tags still apply to the template's own text around it
+        let new = new_names(&names, &template("[1, 2, 3] [Original name]"), &tags());
+        assert_eq!(new, vec!["1 [1, 2, 3].txt", "2 b.txt"]);
+    }
+
+    #[test]
     fn template_without_tags_gives_every_item_the_same_name() {
         let new = new_names(&names(&["a", "b"]), &template("same"), &tags());
         assert_eq!(new, vec!["same", "same"]);
@@ -200,12 +256,19 @@ mod tests {
             &names(&["a", "b"]),
             &template("[Original name]"),
             &tags,
+            true,
         );
         assert_eq!((unchanged.changed, unchanged.conflicts), (0, 0));
         assert!(!unchanged.ready());
 
         // Two items mapping to one name conflict with each other
-        let same = preview(dir.path(), &names(&["a", "b"]), &template("same"), &tags);
+        let same = preview(
+            dir.path(),
+            &names(&["a", "b"]),
+            &template("same"),
+            &tags,
+            true,
+        );
         assert_eq!(same.conflicts, 2);
         assert!(!same.ready());
 
@@ -215,10 +278,17 @@ mod tests {
             &names(&["a", "b"]),
             &replace("a", "taken"),
             &tags,
+            true,
         );
         assert!(taken.rows[0].conflict);
         assert!(!taken.rows[1].conflict);
-        let slash = preview(dir.path(), &names(&["a"]), &replace("a", "x/y"), &tags);
+        let slash = preview(
+            dir.path(),
+            &names(&["a"]),
+            &replace("a", "x/y"),
+            &tags,
+            true,
+        );
         assert!(slash.rows[0].conflict);
 
         // An item keeping its own name is neither changed nor taken
@@ -227,6 +297,7 @@ mod tests {
             &names(&["taken", "b"]),
             &replace("b", "c"),
             &tags,
+            true,
         );
         assert_eq!((keep.changed, keep.conflicts), (1, 0));
         assert!(keep.ready());

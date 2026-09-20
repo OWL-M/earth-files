@@ -116,6 +116,9 @@ skip = Saltar
 set-executable-and-launch = Establecer como ejecutable y ejecutar
 set-executable-and-launch-description = ¿Deseas establecer "{ $name }" como ejecutable y abrirlo?
 set-and-launch = Establecer y ejecutar
+launch-desktop-entry = Launch application?
+launch-desktop-entry-description = "{$name}" is not an installed application. Launching it runs the command below.
+launch-anyway = Launch
 
 ## Metadata Dialog
 
@@ -288,6 +291,8 @@ cut = Cortar
 copy = Copiar
 paste = Pegar
 select-all = Seleccionar todo
+image-load-error = ⚠ {$error}
+loading-full-image = Loading higher resolution...
 
 ## View
 
@@ -321,6 +326,7 @@ details = Detalles
 dismiss = Descartar mensaje
 remove = Eliminar
 cancelled = Canceladas
+operation-failed-to-start = The file operation could not be started
 grid-spacing = Espaciado de cuadrícula
 operations-running =
     { $running ->

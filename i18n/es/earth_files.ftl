@@ -154,6 +154,9 @@ skip = Saltar
 set-executable-and-launch = Establecer como ejecutable y ejecutar
 set-executable-and-launch-description = ¿Quieres establecer "{ $name }" como ejecutable y ejecutar?
 set-and-launch = Establecer y ejecutar
+launch-desktop-entry = Launch application?
+launch-desktop-entry-description = "{$name}" is not an installed application. Launching it runs the command below.
+launch-anyway = Launch
 
 ## Metadata Dialog
 
@@ -244,6 +247,7 @@ username = Nombre de usuario
 ## Operations
 
 cancelled = Cancelada
+operation-failed-to-start = The file operation could not be started
 edit-history = Historial de ediciones
 history = Historial
 no-history = No hay archivos en el historial.
@@ -418,6 +422,8 @@ cut = Cortar
 copy = Copiar
 paste = Pegar
 select-all = Seleccionar todo
+image-load-error = ⚠ {$error}
+loading-full-image = Loading higher resolution...
 
 ## View
 

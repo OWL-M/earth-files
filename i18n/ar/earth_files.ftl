@@ -130,6 +130,8 @@ cut = قصّ
 copy = انسخ
 paste = ألصِق
 select-all = حدِّد الكل
+image-load-error = ⚠ {$error}
+loading-full-image = Loading higher resolution...
 
 ## View
 
@@ -208,6 +210,7 @@ remember-password = تذكر كلمة السر
 try-again = حاول مجددًا
 username = اسم المستخدم
 cancelled = أُلغِيَ
+operation-failed-to-start = The file operation could not be started
 edit-history = عدِّل التأريخ
 history = التأريخ
 no-history = لا توجد عناصر في التأريخ.
@@ -293,6 +296,9 @@ keep-both = احتفظ بكليهما
 skip = تخطَّ
 set-executable-and-launch = عيِّن كقابل للتنفيذ وشغِّل
 set-and-launch = عيِّن وشغِّل
+launch-desktop-entry = Launch application?
+launch-desktop-entry-description = "{$name}" is not an installed application. Launching it runs the command below.
+launch-anyway = Launch
 open-with = افتح بـ
 owner = المالك
 group = المجموعة

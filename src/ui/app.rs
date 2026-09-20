@@ -26,7 +26,7 @@ pub enum Action {
     /// Window focus changed.
     Focus(window::Id),
     /// Keyboard shortcuts managed by the shell.
-    KeyboardNav(keyboard_nav::Action),
+    KeyboardNav(iced_core::window::Id, keyboard_nav::Action),
     /// Requests to maximize the window.
     Maximize,
     /// Requests to minimize the window.

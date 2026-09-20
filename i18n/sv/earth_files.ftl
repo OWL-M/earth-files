@@ -95,6 +95,9 @@ skip = Hoppa över
 set-executable-and-launch = Gör körbar och starta
 set-executable-and-launch-description = Vill du göra "{ $name }" körbar och starta den?
 set-and-launch = Ställ in och starta
+launch-desktop-entry = Launch application?
+launch-desktop-entry-description = "{$name}" is not an installed application. Launching it runs the command below.
+launch-anyway = Launch
 
 ## Metadata dialogruta
 
@@ -171,6 +174,7 @@ remember-password = Kom ihåg lösenord
 ## Operationer
 
 cancelled = Avbruten
+operation-failed-to-start = The file operation could not be started
 edit-history = Redigera historik
 history = Historik
 no-history = Inga objekt i historiken.
@@ -324,6 +328,8 @@ cut = Klipp ut
 copy = Kopiera
 paste = Klistra in
 select-all = Välj alla
+image-load-error = ⚠ {$error}
+loading-full-image = Loading higher resolution...
 
 ## Visa
 

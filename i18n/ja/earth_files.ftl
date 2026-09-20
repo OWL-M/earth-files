@@ -236,6 +236,8 @@ cut = 切り取り
 copy = コピー
 paste = 貼り付け
 select-all = すべてを選択
+image-load-error = ⚠ {$error}
+loading-full-image = Loading higher resolution...
 
 ## View
 
@@ -305,6 +307,9 @@ permanently-delete-warning = { $target }を完全に削除してもよろしい�
 set-executable-and-launch = 実行可能にして起動
 set-executable-and-launch-description = "{ $name }"を実行可能に設定して起動しますか？
 set-and-launch = 設定して起動
+launch-desktop-entry = Launch application?
+launch-desktop-entry-description = "{$name}" is not an installed application. Launching it runs the command below.
+launch-anyway = Launch
 open-with = 別のアプリケーションで開く
 none = なし
 execute-only = 実行のみ
@@ -322,6 +327,7 @@ favorite-path-error-description =
     サイドバーから削除しますか？
 keep = そのままにする
 cancelled = キャンセルされました
+operation-failed-to-start = The file operation could not be started
 progress = { $percent } %
 progress-cancelled = { $percent } %、キャンセルされました
 progress-failed = { $percent } %、失敗

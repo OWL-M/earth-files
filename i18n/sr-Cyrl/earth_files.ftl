@@ -44,6 +44,8 @@ cut = Исеци
 copy = Копирај
 paste = Налепи
 select-all = Изабери све
+image-load-error = ⚠ {$error}
+loading-full-image = Loading higher resolution...
 
 ## View
 

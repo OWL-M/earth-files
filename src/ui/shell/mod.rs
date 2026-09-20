@@ -170,8 +170,11 @@ where
 
         let core = self.core();
         let is_condensed = core.is_condensed();
-        let sharp_corners = core.window.sharp_corners;
-        let maximized = core.window.is_maximized;
+        // exwlshell reports no `xdg_toplevel` configure states, so the window
+        // does not know when it is maximized. Both stay false until that
+        // state is forwarded through the shell; see `src/ui/command.rs`.
+        let sharp_corners = false;
+        let maximized = false;
         let content_container = core.window.content_container;
         let show_context = core.window.show_context;
         let nav_bar_active = core.nav_bar_active();

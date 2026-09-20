@@ -144,6 +144,9 @@ skip = رد کردن
 set-executable-and-launch = تنظیم به عنوان فایل اجرایی و اجرا
 set-executable-and-launch-description = آیا می‌خواهید "{ $name }" را به عنوان فایل اجرایی تنظیم کرده و اجرا کنید؟
 set-and-launch = تنظیم و اجرا
+launch-desktop-entry = Launch application?
+launch-desktop-entry-description = "{$name}" is not an installed application. Launching it runs the command below.
+launch-anyway = Launch
 
 ## Metadata Dialog
 
@@ -232,6 +235,7 @@ username = نام کاربری
 ## Operations
 
 cancelled = لغو شد
+operation-failed-to-start = The file operation could not be started
 edit-history = ویرایش تاریخچه
 history = تاریخچه
 no-history = هیچ موردی در تاریخچه وجود ندارد.
@@ -354,6 +358,8 @@ cut = برش
 copy = کپی
 paste = جایگذاری
 select-all = انتخاب همه
+image-load-error = ⚠ {$error}
+loading-full-image = Loading higher resolution...
 
 ## View
 

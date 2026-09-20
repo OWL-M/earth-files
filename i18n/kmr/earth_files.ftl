@@ -18,6 +18,8 @@ gallery-preview = Pêşdîtina galeriyê
 sort-smallest-to-largest = Biçûktir bo mezintir
 zoom-in = Nêzîk bike
 select-all = Hemûyan hilbijêre
+image-load-error = ⚠ {$error}
+loading-full-image = Loading higher resolution...
 removing-from-recents =
     { $items } tê rakirin { $items ->
         [one] hêman
@@ -159,6 +161,7 @@ progress-paused = { $percent }%, hate rawestandin
 desktop-view-options = Vebijêrkên dîtina sermaseyê...
 show-on-desktop = Li ser sermaseyê nîşan bide
 cancelled = Têkbirî
+operation-failed-to-start = The file operation could not be started
 new-folder = Peldanka nû...
 match-desktop = Bi sermaseyê re li hev bîne
 name-no-slashes = Nav nabe ku "/" tê de hebe
@@ -322,6 +325,9 @@ skip = Derbas bike
 replace-with = Biguhêrîne bi
 owner = Xwedî
 set-and-launch = Saz bike û dest pê bike
+launch-desktop-entry = Launch application?
+launch-desktop-entry-description = "{$name}" is not an installed application. Launching it runs the command below.
+launch-anyway = Launch
 removed-from-recents =
     { $items } hate rakirin { $items ->
         [one] hêman

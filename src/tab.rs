@@ -28,7 +28,7 @@ use rustc_hash::FxHashMap;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::borrow::Cow;
-use std::cell::Cell;
+use std::cell::{Cell, OnceCell};
 use std::cmp::{Ordering, Reverse};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::error::Error;
@@ -111,6 +111,48 @@ static MODE_NAMES: LazyLock<Vec<String>> = LazyLock::new(|| {
         fl!("read-write-execute"),
     ]
 });
+
+/// Names for user and group ids, remembered for the life of the process.
+///
+/// Resolving an id can reach a directory service over the network, and these
+/// names are read while building the details pane, which happens on every
+/// frame and once per selected item. The set of distinct ids in a directory
+/// is small, so the map stays small; names rarely change within a session.
+static USER_NAMES: LazyLock<RwLock<FxHashMap<u32, String>>> = LazyLock::new(Default::default);
+static GROUP_NAMES: LazyLock<RwLock<FxHashMap<u32, String>>> = LazyLock::new(Default::default);
+
+fn cached_name(
+    cache: &LazyLock<RwLock<FxHashMap<u32, String>>>,
+    id: u32,
+    lookup: impl FnOnce(u32) -> String,
+) -> String {
+    if let Ok(names) = cache.read()
+        && let Some(name) = names.get(&id)
+    {
+        return name.clone();
+    }
+    let name = lookup(id);
+    if let Ok(mut names) = cache.write() {
+        names.insert(id, name.clone());
+    }
+    name
+}
+
+pub fn user_name(uid: u32) -> String {
+    cached_name(&USER_NAMES, uid, |uid| {
+        uzers::get_user_by_uid(uid)
+            .and_then(|user| user.name().to_str().map(ToOwned::to_owned))
+            .unwrap_or_default()
+    })
+}
+
+pub fn group_name(gid: u32) -> String {
+    cached_name(&GROUP_NAMES, gid, |gid| {
+        uzers::get_group_by_gid(gid)
+            .and_then(|group| group.name().to_str().map(ToOwned::to_owned))
+            .unwrap_or_default()
+    })
+}
 
 static SPECIAL_DIRS: LazyLock<FxHashMap<PathBuf, &'static str>> = LazyLock::new(|| {
     let mut special_dirs = FxHashMap::default();
@@ -683,6 +725,25 @@ fn file_icons(
     }
 }
 
+/// Read an image's pixel size into its cache.
+///
+/// Only scans call this. They run on a worker, where a slow header read costs
+/// a slower listing; item constructors do not, because items are also built
+/// while handling input, filesystem notifications and search results, and an
+/// image on a stalled mount would freeze the window. An item built outside a
+/// scan keeps an empty cache and shows no size.
+pub fn fill_image_dimensions(item: &Item) {
+    if item.mime.type_() != mime::IMAGE {
+        return;
+    }
+    // For a trashed item this is the copy inside the trash, not the path it
+    // came from, which by now holds nothing or something else
+    let Some(path) = item.path_opt() else {
+        return;
+    };
+    let _ = item.image_dimensions.set(image::image_dimensions(path).ok());
+}
+
 #[cfg(feature = "gvfs")]
 pub fn item_from_gvfs_info(path: PathBuf, file_info: gio::FileInfo, sizes: IconSizes) -> Item {
     let file_name = file_info
@@ -733,9 +794,14 @@ pub fn item_from_gvfs_info(path: PathBuf, file_info: gio::FileInfo, sizes: IconS
             is_dir,
         },
         hidden,
-        image_dimensions: (!remote && mime.type_() == mime::IMAGE)
-            .then(|| image::image_dimensions(&path).ok())
-            .flatten(),
+        // Only the gvfs listing builds these, and it runs on a worker.
+        // Remote paths are left alone: reading content over the network to
+        // learn a pixel size is what the remote guard exists to avoid.
+        image_dimensions: OnceCell::from(
+            (!remote && mime.type_() == mime::IMAGE)
+                .then(|| image::image_dimensions(&path).ok())
+                .flatten(),
+        ),
         location_opt: Some(Location::Path(path)),
         mime,
         icon_handle_grid,
@@ -827,8 +893,8 @@ pub fn item_from_entry(
             children_opt,
         },
         hidden,
+        image_dimensions: OnceCell::new(),
         location_opt: Some(Location::Path(path)),
-        image_dimensions: None,
         mime,
         icon_handle_grid,
         icon_handle_list,
@@ -883,9 +949,7 @@ pub fn item_from_trash_entry(
         metadata: ItemMetadata::Trash { metadata, entry },
         hidden: false,
         location_opt: location,
-        image_dimensions: (mime.type_() == mime::IMAGE)
-            .then(|| image::image_dimensions(&original_path).ok())
-            .flatten(),
+        image_dimensions: OnceCell::new(),
         mime,
         icon_handle_grid,
         icon_handle_list,
@@ -1046,21 +1110,33 @@ pub fn scan_path(tab_path: &PathBuf, sizes: IconSizes) -> Vec<Item> {
                             hidden_files = parse_hidden_file(&path);
                         }
 
-                        let metadata = fs::metadata(&path)
-                            .inspect_err(|err| {
-                                log::warn!(
-                                    "failed to read metadata for entry at {}: {}",
-                                    path.display(),
-                                    err
-                                )
-                            })
-                            .ok()?;
+                        // Fall back to the link itself when the target cannot
+                        // be read, so a broken symlink is still listed and can
+                        // be selected and deleted instead of being invisible
+                        let metadata = match fs::metadata(&path) {
+                            Ok(metadata) => metadata,
+                            Err(err) => match fs::symlink_metadata(&path) {
+                                Ok(metadata) => metadata,
+                                Err(_) => {
+                                    log::warn!(
+                                        "failed to read metadata for entry at {}: {}",
+                                        path.display(),
+                                        err
+                                    );
+                                    return None;
+                                }
+                            },
+                        };
 
-                        if trash {
+                        let item = if trash {
                             item_from_trash_child(path, name, metadata, sizes)
                         } else {
                             Some(item_from_entry(path, name, metadata, sizes))
+                        };
+                        if let Some(item) = &item {
+                            fill_image_dimensions(item);
                         }
+                        item
                     })
                     .collect();
             }
@@ -1255,6 +1331,7 @@ pub fn scan_recents(sizes: IconSizes) -> Vec<Item> {
                 };
 
                 let item = item_from_entry(path, name, metadata, sizes);
+                fill_image_dimensions(&item);
                 Some((item, last_edit.min(last_visit)))
             } else {
                 log::warn!("recent file path does not exist: {}", path.display());
@@ -2168,7 +2245,14 @@ pub struct Item {
     pub hidden: bool,
     pub location_opt: Option<Location>,
     pub mime: Mime,
-    pub image_dimensions: Option<(u32, u32)>,
+    /// Pixel size of an image, filled when it is first needed.
+    ///
+    /// The scan paths that already know it fill it in up front. The rest
+    /// leave it empty, because items are also built while handling input and
+    /// filesystem notifications, where opening a file to read its header
+    /// would block the interface. Only the details pane fills it on demand,
+    /// for the one item it is describing.
+    pub image_dimensions: OnceCell<Option<(u32, u32)>>,
     pub icon_handle_grid: widget::icon::Handle,
     pub icon_handle_list: widget::icon::Handle,
     pub icon_handle_list_condensed: widget::icon::Handle,
@@ -2394,9 +2478,7 @@ impl Item {
 
                 let mode = metadata.mode();
 
-                let user_name = uzers::get_user_by_uid(metadata.uid())
-                    .and_then(|user| user.name().to_str().map(ToOwned::to_owned))
-                    .unwrap_or_default();
+                let user_name = user_name(metadata.uid());
                 let user_path = path.clone();
                 settings.push(
                     widget::settings::item::builder(user_name)
@@ -2417,9 +2499,7 @@ impl Item {
                         )),
                 );
 
-                let group_name = uzers::get_group_by_gid(metadata.gid())
-                    .and_then(|group| group.name().to_str().map(ToOwned::to_owned))
-                    .unwrap_or_default();
+                let group_name = group_name(metadata.gid());
                 let group_path = path.clone();
                 settings.push(
                     widget::settings::item::builder(group_name)
@@ -2456,10 +2536,10 @@ impl Item {
             }
         }
 
-        if let Some(path) = self.path_opt()
-            && let Ok(img) = image::image_dimensions(path)
-        {
-            let (width, height) = img;
+        // Only what the scan already read. Opening the file here would put a
+        // filesystem read in the render pass, which on a slow mount freezes
+        // the window; an item built outside a scan simply shows no size.
+        if let Some((width, height)) = self.image_dimensions.get().copied().flatten() {
             details = details.push(widget::text::body(format!("{width}x{height}")));
         }
         column = column.push(details);
@@ -2737,6 +2817,10 @@ pub struct Tab {
     select_focus: Option<usize>,
     select_range: Option<(usize, usize)>,
     clicked: Option<usize>,
+    /// Set by a double click so the release that follows it does not open the
+    /// item a second time. In single-click mode the first release has already
+    /// opened it, and a double click is still two presses and two releases.
+    opened_by_this_click: bool,
     last_right_click: Option<usize>,
     search_context: Option<SearchContext>,
     date_time_formatter: DateTimeFormatter<fieldsets::YMDT>,
@@ -2899,6 +2983,7 @@ impl Tab {
             select_focus: None,
             select_range: None,
             clicked: None,
+            opened_by_this_click: false,
             last_right_click: None,
             search_context: None,
             date_time_formatter: date_time_formatter(),
@@ -3423,7 +3508,7 @@ impl Tab {
             first = Some(match first {
                 Some((first_row, first_col)) => match row.cmp(&first_row) {
                     Ordering::Less => (row, col),
-                    Ordering::Equal => (row, col.min(first_row)),
+                    Ordering::Equal => (row, col.min(first_col)),
                     Ordering::Greater => (first_row, first_col),
                 },
                 None => (row, col),
@@ -3448,7 +3533,7 @@ impl Tab {
             last = Some(match last {
                 Some((last_row, last_col)) => match row.cmp(&last_row) {
                     Ordering::Greater => (row, col),
-                    Ordering::Equal => (row, col.max(last_row)),
+                    Ordering::Equal => (row, col.max(last_col)),
                     Ordering::Less => (last_row, last_col),
                 },
                 None => (row, col),
@@ -3595,8 +3680,10 @@ impl Tab {
                 commands.push(Command::AutoScroll(auto_scroll));
             }
             Message::ClickRelease(click_i_opt) => {
-                // Single click to open.
-                if !mod_ctrl && self.config.single_click {
+                // Single click to open, once per click sequence: the release
+                // that completes a double click must not open it again
+                let already_opened = std::mem::take(&mut self.opened_by_this_click);
+                if !mod_ctrl && self.config.single_click && !already_opened {
                     let mut paths_to_open = Vec::new();
                     if let Some(ref mut items) = self.items_opt {
                         for (i, item) in items.iter_mut().enumerate() {
@@ -3635,10 +3722,15 @@ impl Tab {
                 self.watch_drag = true;
             }
             Message::DoubleClick(click_i_opt) => {
-                if let Some(clicked_item) = self
-                    .items_opt
-                    .as_ref()
-                    .and_then(|items| click_i_opt.and_then(|click_i| items.get(click_i)))
+                // In single-click mode the first release already opened this
+                // item, so the double click adds nothing but must still stop
+                // the release behind it from opening it a third time
+                self.opened_by_this_click = true;
+                if !self.config.single_click
+                    && let Some(clicked_item) = self
+                        .items_opt
+                        .as_ref()
+                        .and_then(|items| click_i_opt.and_then(|click_i| items.get(click_i)))
                 {
                     if let Some(location) = &clicked_item.location_opt {
                         if clicked_item.metadata.is_dir() {
@@ -3651,8 +3743,6 @@ impl Tab {
                     } else {
                         log::warn!("no location for item {clicked_item:?}");
                     }
-                } else {
-                    log::warn!("no item for click index {click_i_opt:?}");
                 }
             }
             Message::Click(click_i_opt) => {
@@ -3713,12 +3803,23 @@ impl Tab {
                             let min_real = min.min(max);
                             let max_real = max.max(min);
 
+                            let in_range: Vec<usize> = indices
+                                .into_iter()
+                                .skip(min_real)
+                                .take(max_real - min_real + 1)
+                                .collect();
                             if let Some(ref mut items) = self.items_opt {
-                                for index in indices
-                                    .into_iter()
-                                    .skip(min_real)
-                                    .take(max_real - min_real + 1)
-                                {
+                                // Plain shift-click reselects: whatever the
+                                // previous, wider range covered is dropped, so
+                                // the range can be shrunk as well as grown.
+                                // Ctrl with shift keeps the earlier selection
+                                // and adds to it.
+                                if !mod_ctrl {
+                                    for item in items.iter_mut() {
+                                        item.selected = false;
+                                    }
+                                }
+                                for index in in_range {
                                     if let Some(item) = items.get_mut(index) {
                                         if item.hidden {
                                             if self.config.show_hidden {
@@ -5256,24 +5357,28 @@ impl Tab {
                         handle.clone()
                     };
 
-                    let content: crate::ui::Element<'_, Message> =
-                        if let Some(error_msg) = error_msg_opt {
-                            widget::Column::with_capacity(2)
-                                .push(widget::image(image_handle))
-                                .push(widget::text(format!("⚠ {}", error_msg)).size(13))
-                                .padding(space_xs)
-                                .align_x(crate::ui::iced::Alignment::Center)
-                                .into()
-                        } else if is_loading {
-                            widget::Column::with_capacity(2)
-                                .push(widget::image(image_handle))
-                                .push(widget::text("Loading higher resolution...").size(14))
-                                .padding(space_xs)
-                                .align_x(crate::ui::iced::Alignment::Center)
-                                .into()
-                        } else {
-                            crate::load_image::loaded_image(image_handle).into()
-                        };
+                    let content: crate::ui::Element<'_, Message> = if let Some(error_msg) =
+                        error_msg_opt
+                    {
+                        widget::Column::with_capacity(2)
+                            .push(widget::image(image_handle))
+                            .push(
+                                widget::text(fl!("image-load-error", error = error_msg.clone()))
+                                    .size(13),
+                            )
+                            .padding(space_xs)
+                            .align_x(crate::ui::iced::Alignment::Center)
+                            .into()
+                    } else if is_loading {
+                        widget::Column::with_capacity(2)
+                            .push(widget::image(image_handle))
+                            .push(widget::text(fl!("loading-full-image")).size(14))
+                            .padding(space_xs)
+                            .align_x(crate::ui::iced::Alignment::Center)
+                            .into()
+                    } else {
+                        crate::load_image::loaded_image(image_handle).into()
+                    };
 
                     element_opt = Some(widget::container(content).center(Length::Fill).into());
                 }
@@ -5627,8 +5732,15 @@ impl Tab {
             Location::Path(path) | Location::Search(SearchLocation::Path(path), ..) => {
                 let excess_str = "...";
                 let excess_width = text_width_body(excess_str);
-                for (index, ancestor) in path.ancestors().enumerate() {
-                    let (name, found_home) = folder_name(ancestor);
+                // Read from the list built when the location changed. Naming a
+                // segment means stating it, and on a network mount querying
+                // it, which must not happen once per segment per frame.
+                for (index, (ancestor_location, name)) in self.location_ancestors.iter().enumerate()
+                {
+                    let Some(ancestor) = ancestor_location.path_opt() else {
+                        continue;
+                    };
+                    let name = name.clone();
                     let (name_width, name_text): (f32, Element<'_, Message>) =
                         if children.is_empty() {
                             (
@@ -5669,7 +5781,7 @@ impl Tab {
                         w += name_width;
                     }
 
-                    let location = self.location.with_path(ancestor.to_path_buf());
+                    let location = ancestor_location.clone();
                     let mouse_area = crate::mouse_area::MouseArea::new(
                         widget::button::custom(row)
                             .padding(space_xxxs)
@@ -5723,7 +5835,9 @@ impl Tab {
                     }
                     children.push(context_menu.into());
 
-                    if found_home || overflow {
+                    // The list already stops at home, so overflow is the
+                    // only reason left to stop early
+                    if overflow {
                         break;
                     }
                 }
@@ -6516,17 +6630,9 @@ impl Tab {
                     total_size = total_size.saturating_add(metadata.len());
                 }
                 let mode = metadata.mode();
-                user_name.insert(
-                    uzers::get_user_by_uid(metadata.uid())
-                        .and_then(|user| user.name().to_str().map(ToOwned::to_owned))
-                        .unwrap_or_default(),
-                );
+                user_name.insert(crate::tab::user_name(metadata.uid()));
                 mode_user.insert(get_mode_part(mode, MODE_SHIFT_USER));
-                group_name.insert(
-                    uzers::get_group_by_gid(metadata.gid())
-                        .and_then(|group| group.name().to_str().map(ToOwned::to_owned))
-                        .unwrap_or_default(),
-                );
+                group_name.insert(crate::tab::group_name(metadata.gid()));
                 mode_group.insert(get_mode_part(mode, MODE_SHIFT_GROUP));
                 mode_other.insert(get_mode_part(mode, MODE_SHIFT_OTHER));
             }
@@ -6832,7 +6938,7 @@ impl Tab {
 
                     // Determine effective memory budget based on image size
                     let (effective_max_mb, effective_jobs) = if mime.type_() == mime::IMAGE {
-                        match item.image_dimensions {
+                        match item.image_dimensions.get().copied().flatten() {
                             Some((width, height)) => {
                                 let (_use_dedicated, eff_mb, eff_jobs) =
                                     should_use_dedicated_worker(width, height, max_mb, max_jobs);
@@ -7494,6 +7600,106 @@ mod tests {
     fn tab_click_ctrl_selects_multiple() -> io::Result<()> {
         // Select the first and second directory by holding down ctrl
         tab_selects_item(&[0, 1], Modifiers::CTRL, &[true, true])
+    }
+
+    /// Dimensions come from the scan, never from drawing. A scanned image
+    /// carries its size; an item built any other way carries none, rather
+    /// than opening the file while a frame is being drawn.
+    #[test]
+    fn image_dimensions_are_filled_by_the_scan_only() -> io::Result<()> {
+        let fs = empty_fs()?;
+        let path = fs.path();
+        image::RgbaImage::new(7, 3)
+            .save(path.join("pic.png"))
+            .expect("the test image should be written");
+        fs::write(path.join("plain.txt"), b"x")?;
+
+        let (_parent, items) = Location::Path(path.to_owned()).scan(IconSizes::default());
+        let by_name = |name: &str| {
+            items
+                .iter()
+                .find(|item| item.name == name)
+                .expect("the scan should list it")
+        };
+        assert_eq!(
+            by_name("pic.png").image_dimensions.get().copied().flatten(),
+            Some((7, 3))
+        );
+        assert_eq!(
+            by_name("plain.txt").image_dimensions.get().copied().flatten(),
+            None,
+            "a file that is not an image is never opened for its size"
+        );
+
+        // Built outside a scan, as search results and refreshes are
+        let metadata = fs::metadata(path.join("pic.png"))?;
+        let fresh = super::item_from_entry(
+            path.join("pic.png"),
+            "pic.png".to_string(),
+            metadata,
+            IconSizes::default(),
+        );
+        assert!(
+            fresh.image_dimensions.get().is_none(),
+            "constructing an item must not read the file"
+        );
+        Ok(())
+    }
+
+    /// A double click is two presses and two releases. In single-click mode
+    /// the first release opens the item and nothing after it may open it
+    /// again; in double-click mode only the double click opens it.
+    #[test]
+    fn a_click_sequence_opens_an_item_exactly_once() -> io::Result<()> {
+        let opens = |single_click: bool| -> io::Result<usize> {
+            let fs = empty_fs()?;
+            fs::write(fs.path().join("a.txt"), b"x")?;
+            let location = Location::Path(fs.path().to_owned());
+            let (_parent, items) = location.scan(IconSizes::default());
+            let mut tab = Tab::new(
+                location,
+                TabConfig::default(),
+                ThumbCfg::default(),
+                None,
+                std::borrow::Cow::Borrowed("Undefined"),
+                None,
+            );
+            tab.set_items(items);
+            tab.config.single_click = single_click;
+            let file = tab
+                .items_opt
+                .as_deref()
+                .expect("tab should be populated")
+                .iter()
+                .position(|item| !item.metadata.is_dir())
+                .expect("the fixture has files");
+
+            let mut commands = Vec::new();
+            for message in [
+                Message::Click(Some(file)),
+                Message::ClickRelease(Some(file)),
+                Message::DoubleClick(Some(file)),
+                Message::ClickRelease(Some(file)),
+            ] {
+                commands.extend(tab.update(message, Modifiers::empty()));
+            }
+            Ok(commands
+                .iter()
+                .filter(|command| matches!(command, super::Command::OpenFile(_)))
+                .count())
+        };
+
+        assert_eq!(
+            opens(true)?,
+            1,
+            "single-click mode opened it more than once"
+        );
+        assert_eq!(
+            opens(false)?,
+            1,
+            "double-click mode opened it more than once"
+        );
+        Ok(())
     }
 
     #[test]

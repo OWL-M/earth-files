@@ -128,6 +128,9 @@ skip = Scipeáil
 set-executable-and-launch = Socraigh mar inrite agus lainseáil
 set-executable-and-launch-description = Ar mhaith leat "{ $name }" a shocrú mar chomhad inrite agus é a lainseáil?
 set-and-launch = Socraigh agus lainseáil
+launch-desktop-entry = Launch application?
+launch-desktop-entry-description = "{$name}" is not an installed application. Launching it runs the command below.
+launch-anyway = Launch
 
 ## Metadata Dialog
 
@@ -216,6 +219,7 @@ username = Ainm úsáideora
 ## Operations
 
 cancelled = Cealaithe
+operation-failed-to-start = The file operation could not be started
 edit-history = Cuir stair in eagar
 history = Stair
 no-history = Gan aon mhíreanna sa stair.
@@ -380,6 +384,8 @@ cut = Gearr
 copy = Cóipeáil
 paste = Greamaigh
 select-all = Roghnaigh gach ceann
+image-load-error = ⚠ {$error}
+loading-full-image = Loading higher resolution...
 
 ## View
 

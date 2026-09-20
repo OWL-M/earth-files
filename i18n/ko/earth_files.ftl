@@ -105,6 +105,8 @@ cut = 잘라내기
 copy = 복사
 paste = 붙여넣기
 select-all = 모두 선택
+image-load-error = ⚠ {$error}
+loading-full-image = Loading higher resolution...
 
 ## View
 
@@ -195,6 +197,7 @@ progress-paused = { $percent }%, 정지됨
 desktop-view-options = 바탕화면 표시 설정...
 show-on-desktop = 바탕화면에 표시
 cancelled = 취소됨
+operation-failed-to-start = The file operation could not be started
 domain = 도메인
 edit-history = 기록 수정
 progress-failed = { $percent }%, 실패함
@@ -256,6 +259,9 @@ deleting = { trash } 에서 { $items }개의 항목을 제거 중({ $progress })
 set-executable-and-launched = "{ $name }"를 실행 가능으로 설정 및 실행됨
 sort-a-z = A-Z
 set-and-launch = 설정 후 실행
+launch-desktop-entry = Launch application?
+launch-desktop-entry-description = "{$name}" is not an installed application. Launching it runs the command below.
+launch-anyway = Launch
 set-executable-and-launch = 실행 가능으로 설정 후 실행
 restored = { trash } 에서 { $items }개의 항목을 복구했습니다
 sort-z-a = Z-A

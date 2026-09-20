@@ -6,9 +6,7 @@ use crate::ui::app::Task;
 use crate::ui::iced::futures::{self, SinkExt};
 use crate::ui::iced::keyboard::key::{Named, Physical};
 use crate::ui::iced::keyboard::{Event as KeyEvent, Key, Modifiers};
-use crate::ui::iced::{
-    self, Alignment, Event, Length, Size, Subscription, event, mouse, stream, window,
-};
+use crate::ui::iced::{self, Alignment, Event, Length, Size, Subscription, event, stream, window};
 use crate::ui::iced_core::SmolStr;
 use crate::ui::iced_core::widget::Operation;
 use crate::ui::iced_core::widget::operation;
@@ -454,11 +452,14 @@ enum Message {
     DialogUpdate(DialogPage),
     Escape,
     Filename(String),
+    /// A window event, tagged with the window it came from. The chooser shares
+    /// the runtime with its host, so events for other windows arrive here too
+    /// and must not drive it.
+    ForWindow(window::Id, Box<Message>),
     Filter(usize),
     Key(Modifiers, Key, Physical, Option<SmolStr>),
     ModifiersChanged(Modifiers),
     MounterItems(MounterKey, MounterItems),
-    Mouse(window::Id, mouse::Button),
     NavBarClose(segmented_button::Entity),
     NewFolder,
     NotifyEvents(Vec<DebouncedEvent>),
@@ -1496,6 +1497,11 @@ impl Application for App {
                     }
                 }
             }
+            Message::ForWindow(window_id, message) => {
+                if window_id == self.flags.window_id {
+                    return self.update(*message);
+                }
+            }
             Message::ModifiersChanged(modifiers) => {
                 self.modifiers = modifiers;
             }
@@ -1550,12 +1556,6 @@ impl Application for App {
                     return mounter
                         .unmount(data.1.clone())
                         .map(|()| crate::ui::action::none());
-                }
-            }
-            Message::Mouse(window_id, _button) => {
-                // Close context menu when clicking outside.
-                if self.core.main_window_id() == Some(window_id) {
-                    return Task::none();
                 }
             }
             Message::NewFolder => {
@@ -1949,11 +1949,10 @@ impl Application for App {
     fn subscription(&self) -> Subscription<Message> {
         struct WatcherSubscription;
         let mut subscriptions = vec![
+            // The chooser shares the runtime with its host, so every window's
+            // events arrive here. Only this window's may drive the chooser,
+            // otherwise typing in the host window works the dialog too.
             event::listen_with(|event, status, window_id| match event {
-                Event::Mouse(mouse::Event::ButtonPressed(button)) => match status {
-                    event::Status::Ignored => Some(Message::Mouse(window_id, button)),
-                    event::Status::Captured => None,
-                },
                 Event::Keyboard(KeyEvent::KeyPressed {
                     key,
                     physical_key,
@@ -1961,20 +1960,22 @@ impl Application for App {
                     text,
                     ..
                 }) => match status {
-                    event::Status::Ignored => {
-                        Some(Message::Key(modifiers, key, physical_key, text))
-                    }
+                    event::Status::Ignored => Some(Message::ForWindow(
+                        window_id,
+                        Box::new(Message::Key(modifiers, key, physical_key, text)),
+                    )),
                     event::Status::Captured => {
                         if key == Key::Named(Named::Escape) {
-                            Some(Message::Escape)
+                            Some(Message::ForWindow(window_id, Box::new(Message::Escape)))
                         } else {
                             None
                         }
                     }
                 },
-                Event::Keyboard(KeyEvent::ModifiersChanged(modifiers)) => {
-                    Some(Message::ModifiersChanged(modifiers))
-                }
+                Event::Keyboard(KeyEvent::ModifiersChanged(modifiers)) => Some(Message::ForWindow(
+                    window_id,
+                    Box::new(Message::ModifiersChanged(modifiers)),
+                )),
                 _ => None,
             }),
             self.flags

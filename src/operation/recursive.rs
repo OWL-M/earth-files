@@ -16,7 +16,7 @@ use std::error::Error;
 use std::fs;
 use std::future::Future;
 use std::ops::ControlFlow;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::rc::Rc;
 use std::time::Instant;
@@ -206,6 +206,12 @@ impl Context {
                 total_bytes: None,
             };
             (self.on_progress)(&op, &progress);
+            // Noted before the op runs, because a Keep Both conflict rewrites
+            // `op.to` to a fresh name and a Replace leaves an existing path in
+            // place. Only a destination that was not already there counts as
+            // created, and only created paths may be undone.
+            let to_before = op.to.clone();
+            let to_existed = compio::fs::symlink_metadata(&to_before).await.is_ok();
             if op.run(self, progress).await.map_err(|err| {
                 OperationError::from_err(
                     format!(
@@ -226,6 +232,13 @@ impl Context {
                         }
                 ) {
                     written_files.push(op.to.clone());
+                }
+                let creates = matches!(
+                    op.kind,
+                    OpKind::Copy | OpKind::Move { .. } | OpKind::Mkdir | OpKind::Symlink { .. }
+                );
+                if creates && !op.skipped.normal.get() && (op.to != to_before || !to_existed) {
+                    self.op_sel.created.push(op.to.clone());
                 }
                 // The from path is ignored in the operation selection if it is a top level item
                 if self.op_sel.ignored.contains(&op.from) {
@@ -255,6 +268,20 @@ impl Context {
     }
 
     async fn replace(&mut self, op: &Op) -> Result<ControlFlow<bool, PathBuf>, Box<dyn Error>> {
+        // A source and destination that are the same file, which happens when
+        // one of them is reached through a symlinked parent, cannot be copied
+        // onto each other: replacing would unlink the only copy and then fail
+        // to read it back. Nothing to do, so skip it without asking.
+        if same_file(&op.from, &op.to) {
+            log::info!(
+                "skipping {}: it is the same file as {}",
+                op.from.display(),
+                op.to.display()
+            );
+            op.skipped.normal.set(true);
+            return Ok(ControlFlow::Break(true));
+        }
+
         let replace_result = match self.replace_result_opt {
             Some(result) => result,
             None => (self.on_replace)(op, self.remaining_conflicts).await,
@@ -281,6 +308,15 @@ impl Context {
             }
             ReplaceResult::Cancel => Ok(ControlFlow::Break(false)),
         }
+    }
+}
+
+/// Whether two paths name the same file on disk, following symlinks
+fn same_file(a: &Path, b: &Path) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    match (std::fs::metadata(a), std::fs::metadata(b)) {
+        (Ok(a), Ok(b)) => a.dev() == b.dev() && a.ino() == b.ino(),
+        _ => false,
     }
 }
 

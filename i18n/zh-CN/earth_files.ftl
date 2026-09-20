@@ -137,6 +137,9 @@ skip = 跳过
 set-executable-and-launch = 设置为可执行文件并启动
 set-executable-and-launch-description = 您想要将 “{ $name }” 设置为可执行文件并启动它吗？
 set-and-launch = 设置并启动
+launch-desktop-entry = Launch application?
+launch-desktop-entry-description = "{$name}" is not an installed application. Launching it runs the command below.
+launch-anyway = Launch
 
 ## Metadata Dialog
 
@@ -225,6 +228,7 @@ username = 用户名
 ## Operations
 
 cancelled = 已取消
+operation-failed-to-start = The file operation could not be started
 edit-history = 编辑历史记录
 history = 历史记录
 no-history = 历史记录为空。
@@ -410,6 +414,8 @@ cut = 剪切
 copy = 复制
 paste = 粘贴
 select-all = 全选
+image-load-error = ⚠ {$error}
+loading-full-image = Loading higher resolution...
 
 ## View
 

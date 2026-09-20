@@ -75,6 +75,8 @@ file-type-other = Άλλο
 related-apps = Σχετικές εφαρμογές
 zoom-in = Μεγέθυνση
 select-all = Επιλογή όλων
+image-load-error = ⚠ {$error}
+loading-full-image = Loading higher resolution...
 icon-size-and-spacing = Μέγεθος και απόσταση εικονιδίων
 new-window = Νέο παράθυρο
 zoom-out = Σμίκρυνση
@@ -233,6 +235,9 @@ set-executable-and-launched = Έγινε ορισμός του «{ $name }» ω�
 mount-error = Αδυναμία πρόσβασης στη μονάδα
 grid-view = Προβολή πλέγματος
 set-and-launch = Ορισμός και εκκίνηση
+launch-desktop-entry = Launch application?
+launch-desktop-entry-description = "{$name}" is not an installed application. Launching it runs the command below.
+launch-anyway = Launch
 removed-from-recents =
     Έγινε αφαίρεση { $items } { $items ->
         [one] στοιχείου
@@ -257,6 +262,7 @@ restored =
 type-to-search-recursive = Κάνει αναζήτηση στον τρέχοντα φάκελο και όλους τους υποφακέλους
 progress-paused = { $percent }%, σε παύση
 cancelled = Ακυρωμένες
+operation-failed-to-start = The file operation could not be started
 new-folder = Νέος φάκελος...
 match-desktop = Συμφωνία με την επιφάνεια εργασίας
 operations-running-finished =

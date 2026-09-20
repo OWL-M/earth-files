@@ -7,7 +7,7 @@ use crate::ui::iced::futures::{self, SinkExt};
 use crate::ui::iced::keyboard::key::Physical;
 use crate::ui::iced::keyboard::{Event as KeyEvent, Key, Modifiers};
 use crate::ui::iced::window::{self, Event as WindowEvent, Id as WindowId};
-use crate::ui::iced::{self, Alignment, Event, Length, Size, Subscription, event, mouse, stream};
+use crate::ui::iced::{self, Alignment, Event, Length, Size, Subscription, event, stream};
 use crate::ui::iced_core::SmolStr;
 use crate::ui::iced_core::widget::operation::focusable::unfocus;
 use crate::ui::iced_runtime::task;
@@ -36,7 +36,7 @@ use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::sync::{Arc, LazyLock, Mutex};
 use std::time::{self, Duration, Instant};
-use std::{env, fmt, fs, io, process};
+use std::{env, fmt, io, process};
 use tokio::sync::mpsc;
 use trash::TrashItem;
 
@@ -54,7 +54,6 @@ use crate::mounter::{
 };
 use crate::operation::{
     Controller, Operation, OperationError, OperationErrorType, OperationSelection, ReplaceResult,
-    copy_unique_path,
 };
 use crate::spawn_detached::spawn_detached;
 use crate::tab::{
@@ -83,6 +82,9 @@ static EMPTY_TRASH_BUTTON_ID: LazyLock<widget::Id> =
 
 static SET_EXECUTABLE_AND_LAUNCH_CONFIRM_BUTTON_ID: LazyLock<widget::Id> =
     LazyLock::new(|| widget::Id::new("set-executable-and-launch-confirm-button"));
+
+static LAUNCH_DESKTOP_ENTRY_CONFIRM_BUTTON_ID: LazyLock<widget::Id> =
+    LazyLock::new(|| widget::Id::new("launch-desktop-entry-confirm-button"));
 
 static FAVORITE_PATH_ERROR_REMOVE_BUTTON_ID: LazyLock<widget::Id> =
     LazyLock::new(|| widget::Id::new("favorite-path-error-remove-button"));
@@ -343,7 +345,6 @@ pub enum Message {
     ModifiersChanged(window::Id, Modifiers),
     MounterItems(MounterKey, MounterItems),
     MountResult(MounterKey, MounterItem, Result<bool, String>),
-    Mouse(window::Id, mouse::Button),
     MoveTo(Option<Entity>),
     MoveToResult(DialogResult),
     NavBarClose(Entity),
@@ -571,6 +572,12 @@ pub enum DialogPage {
     SetExecutableAndLaunch {
         path: PathBuf,
     },
+    /// Confirm running a desktop entry that is not installed in one of the
+    /// system or user application directories
+    LaunchDesktopEntry {
+        path: PathBuf,
+        command: String,
+    },
     FavoritePathError {
         path: PathBuf,
         entity: Entity,
@@ -708,6 +715,9 @@ pub struct App {
     dialog_text_input: widget::Id,
     /// Whether the network auth dialog shows the password in clear text
     auth_password_visible: bool,
+    /// The batch rename preview, recomputed when the dialog's settings change.
+    /// It stats the filesystem, so it must not be built while rendering.
+    batch_rename_preview: batch_rename::Preview,
     key_binds: HashMap<KeyBind, Action>,
     mime_app_cache: MimeAppCache,
     modifiers: Modifiers,
@@ -862,8 +872,27 @@ impl App {
             if mime == "application/x-desktop" {
                 #[cfg(feature = "desktop")]
                 {
-                    // Try opening desktop application
-                    Self::launch_desktop_entries(&paths);
+                    // A desktop entry runs an arbitrary command line, so only
+                    // the ones installed as applications launch unasked. Any
+                    // other one, such as a file just downloaded or unpacked,
+                    // has to be confirmed first.
+                    let (installed, unknown): (Vec<_>, Vec<_>) = paths
+                        .into_iter()
+                        .partition(|path| Self::desktop_entry_is_installed(path));
+                    Self::launch_desktop_entries(&installed);
+                    for path in unknown {
+                        match Self::desktop_entry_command(&path) {
+                            Some(command) => {
+                                tasks.push(self.push_dialog(
+                                    DialogPage::LaunchDesktopEntry { path, command },
+                                    Some(LAUNCH_DESKTOP_ENTRY_CONFIRM_BUTTON_ID.clone()),
+                                ));
+                            }
+                            None => {
+                                log::warn!("failed to read desktop entry {}", path.display());
+                            }
+                        }
+                    }
                     continue;
                 }
             } else if mime == "application/x-executable" || mime == "application/vnd.appimage" {
@@ -889,15 +918,18 @@ impl App {
                 continue;
             }
 
-            // Try mime apps, which should be faster than xdg-open
-            if self.launch_from_mime_cache(&mime, &paths) {
+            // Try mime apps, which should be faster than xdg-open. Each step
+            // only sees the paths no earlier step managed to open.
+            let mut paths = self.launch_from_mime_cache(&mime, &paths);
+            if paths.is_empty() {
                 continue;
             }
 
             // loop through subclasses if available
             if let Some(mime_sub_classes) = mime_icon::parent_mime_types(&mime) {
                 for sub_class in mime_sub_classes {
-                    if self.launch_from_mime_cache(&sub_class, &paths) {
+                    paths = self.launch_from_mime_cache(&sub_class, &paths);
+                    if paths.is_empty() {
                         continue 'outer;
                     }
                 }
@@ -927,6 +959,28 @@ impl App {
     }
 
     #[cfg(feature = "desktop")]
+    /// Whether a desktop entry lives in one of the directories applications
+    /// are installed into, which is what makes it trusted to run unasked
+    fn desktop_entry_is_installed(path: &Path) -> bool {
+        use freedesktop_desktop_entry as fde;
+        let Ok(path) = path.canonicalize() else {
+            return false;
+        };
+        fde::default_paths().any(|dir| {
+            dir.canonicalize()
+                .is_ok_and(|dir| path.starts_with(&dir) && path != dir)
+        })
+    }
+
+    /// The command line a desktop entry would run, for the confirmation dialog
+    fn desktop_entry_command(path: &Path) -> Option<String> {
+        use freedesktop_desktop_entry::DesktopEntry;
+        DesktopEntry::from_path::<&str>(path, None)
+            .ok()?
+            .exec()
+            .map(str::to_string)
+    }
+
     fn launch_desktop_entries(paths: &[impl AsRef<Path>]) {
         use freedesktop_desktop_entry::DesktopEntry;
         let locales = freedesktop_desktop_entry::get_languages_from_env();
@@ -976,21 +1030,37 @@ impl App {
         }
     }
 
-    fn launch_from_mime_cache<P>(&self, mime: &Mime, paths: &[P]) -> bool
-    where
-        P: std::fmt::Debug + AsRef<Path> + AsRef<std::ffi::OsStr>,
-    {
+    /// Launch `paths` with the first application registered for `mime` that
+    /// accepts them, and return the paths that were not opened.
+    ///
+    /// An application whose `Exec` line takes one file at a time yields one
+    /// command per path, so a single successful spawn does not mean the whole
+    /// selection was handled. The unopened remainder is handed back, both so
+    /// the caller can try a fallback for exactly those and so the ones that
+    /// did open are not launched a second time.
+    fn launch_from_mime_cache(&self, mime: &Mime, paths: &[PathBuf]) -> Vec<PathBuf> {
+        let mut remaining: Vec<PathBuf> = paths.to_vec();
         for app in self.mime_app_cache.get(mime) {
-            let Some(commands) = app.command(paths) else {
+            if remaining.is_empty() {
+                break;
+            }
+            let Some(commands) = app.command(&remaining) else {
                 continue;
             };
-            let len = commands.len();
+            // One command covers every path, or there is one command per path
+            let per_path = commands.len() > 1;
+            let mut opened = Vec::new();
 
             for (i, mut command) in commands.into_iter().enumerate() {
+                let covered: Vec<PathBuf> = if per_path {
+                    remaining.get(i).cloned().into_iter().collect()
+                } else {
+                    remaining.clone()
+                };
                 match spawn_detached(&mut command) {
                     Ok(()) => {
                         if self.config.show_recents {
-                            for path in paths {
+                            for path in &covered {
                                 let _ = recently_used_xbel::update_recently_used(
                                     &path.into(),
                                     Self::APP_ID.to_string(),
@@ -999,27 +1069,18 @@ impl App {
                                 );
                             }
                         }
-
-                        return true;
+                        opened.extend(covered);
                     }
                     Err(err) => {
-                        // More than one command: The app doesn't support lists of paths so each command
-                        // is associated with one instance
-                        //
-                        // One command: Attempted to launch one app with multiple paths
-                        let path = if len > 1 {
-                            format!("{:?}", paths.get(i))
-                        } else {
-                            format!("{paths:?}")
-                        };
-                        log::warn!("failed to open {:?} with {:?}: {}", path, app.id, err);
+                        log::warn!("failed to open {covered:?} with {:?}: {}", app.id, err);
                     }
                 }
             }
+
+            remaining.retain(|path| !opened.contains(path));
         }
 
-        // No app matched for mimes and paths
-        false
+        remaining
     }
 
     #[cfg(feature = "desktop")]
@@ -1214,7 +1275,10 @@ impl App {
         let mut trash_paths = Vec::new();
 
         for path in paths {
-            let can_trash = match path.metadata() {
+            // The link itself decides, not its target: a broken link, or one
+            // pointing at a remote filesystem, still lives here and belongs in
+            // the trash rather than in the permanent-delete dialog
+            let can_trash = match path.symlink_metadata() {
                 Ok(metadata) => matches!(tab::fs_kind(&metadata), tab::FsKind::Local),
                 Err(err) => {
                     log::warn!("failed to get metadata for {}: {}", path.display(), err);
@@ -1243,6 +1307,29 @@ impl App {
         Task::batch(tasks)
     }
 
+    /// Rebuild the batch rename preview if that dialog is the one in front
+    fn refresh_batch_rename_preview(&mut self) {
+        let Some(DialogPage::BatchRename {
+            parent,
+            names,
+            settings,
+        }) = self.dialog_pages.front()
+        else {
+            return;
+        };
+        // Checking every destination is only affordable on a local filesystem
+        let local = parent
+            .symlink_metadata()
+            .is_ok_and(|metadata| matches!(tab::fs_kind(&metadata), tab::FsKind::Local));
+        self.batch_rename_preview = batch_rename::preview(
+            parent,
+            names,
+            settings,
+            &batch_rename::Tags::localized(),
+            local,
+        );
+    }
+
     fn operation(&mut self, operation: Operation) -> Task<Message> {
         let id = self.pending_operation_id;
         let controller = Controller::default();
@@ -1265,7 +1352,18 @@ impl App {
 
                 let msg_tx_clone = msg_tx.clone();
 
-                _ = compio_tx
+                // Every path out of here has to answer with one message.
+                // Without that the operation stays pending for good: the
+                // progress bar never finishes, the sleep inhibitor is never
+                // released, and the app can no longer quit.
+                let failed = |reason: &str| {
+                    log::error!("operation {id} was never run: {reason}");
+                    Message::PendingError(
+                        id,
+                        OperationError::from_msg(fl!("operation-failed-to-start")),
+                    )
+                };
+                let msg = if compio_tx
                     .send(Box::pin(async move {
                         let msg = match operation.perform(&msg_tx_clone, controller).await {
                             Ok(result_paths) => Message::PendingComplete(id, result_paths),
@@ -1274,11 +1372,17 @@ impl App {
 
                         _ = tx.send(msg);
                     }))
-                    .await;
-
-                if let Ok(msg) = rx.await {
-                    let _ = msg_tx.lock().await.send(msg).await;
-                }
+                    .await
+                    .is_err()
+                {
+                    failed("the file operation runtime is gone")
+                } else {
+                    match rx.await {
+                        Ok(msg) => msg,
+                        Err(_) => failed("the file operation runtime dropped it"),
+                    }
+                };
+                let _ = msg_tx.lock().await.send(msg).await;
             },
         ))
         .map(crate::ui::Action::App)
@@ -1396,6 +1500,8 @@ impl App {
                     commands.push(self.rescan_recents());
                 }
 
+                let mut op = op;
+                op.release_payload();
                 self.complete_operations.insert(id, op);
             }
         }
@@ -1437,6 +1543,10 @@ impl App {
 
                 // Remove from progress
                 self.progress_operations.remove(&id);
+                // The payload stays: a failed operation can be retried from
+                // the dialog, and retrying a paste whose bytes were dropped
+                // would write an empty file and call it a success. It is
+                // released when the retry succeeds, or dropped with the entry
                 self.failed_operations
                     .insert(id, (op, controller, err.to_string()));
             }
@@ -2254,14 +2364,19 @@ impl Application for App {
         let tokio_handle = tokio::runtime::Handle::current();
         std::thread::spawn(move || {
             let _tokio = tokio_handle.enter();
-            compio::runtime::RuntimeBuilder::new()
-                .build()
-                .unwrap()
-                .block_on(async move {
+            match compio::runtime::RuntimeBuilder::new().build() {
+                Ok(runtime) => runtime.block_on(async move {
                     while let Some(task) = compio_rx.recv().await {
                         compio::runtime::spawn(task).detach();
                     }
-                });
+                }),
+                Err(err) => {
+                    // Dropping the receiver makes every later operation fail
+                    // fast with an error the user sees, rather than queue up
+                    // behind a runtime that will never run them
+                    log::error!("failed to start the file operation runtime: {err}");
+                }
+            }
         });
 
         let about = About::default()
@@ -2297,6 +2412,7 @@ impl Application for App {
             dialog_pages: DialogPages::new(),
             dialog_text_input: widget::Id::new("Dialog Text Input"),
             auth_password_visible: false,
+            batch_rename_preview: batch_rename::Preview::default(),
             key_binds,
             mime_app_cache: MimeAppCache::new(),
             modifiers: Modifiers::empty(),
@@ -2982,7 +3098,11 @@ impl Application for App {
                             auth_tx,
                         } => {
                             tasks.push(Task::future(async move {
-                                auth_tx.send(auth).await.unwrap();
+                                // The mount can be torn down while the dialog
+                                // is open, which closes the receiver
+                                if let Err(err) = auth_tx.send(auth).await {
+                                    log::warn!("failed to send mount credentials: {err}");
+                                }
                                 crate::ui::action::none()
                             }));
                         }
@@ -3078,13 +3198,8 @@ impl Application for App {
                             let to = parent.join(name);
                             tasks.push(self.operation(Operation::Rename { from, to }));
                         }
-                        DialogPage::BatchRename {
-                            parent,
-                            names,
-                            settings,
-                        } => {
-                            let tags = batch_rename::Tags::localized();
-                            let preview = batch_rename::preview(&parent, &names, &settings, &tags);
+                        DialogPage::BatchRename { parent, .. } => {
+                            let preview = std::mem::take(&mut self.batch_rename_preview);
                             if preview.ready() {
                                 let renames = preview
                                     .rows
@@ -3100,6 +3215,12 @@ impl Application for App {
                         }
                         DialogPage::SetExecutableAndLaunch { path } => {
                             tasks.push(self.operation(Operation::SetExecutableAndLaunch { path }));
+                        }
+                        DialogPage::LaunchDesktopEntry { path, .. } => {
+                            #[cfg(feature = "desktop")]
+                            Self::launch_desktop_entries(&[path]);
+                            #[cfg(not(feature = "desktop"))]
+                            let _ = path;
                         }
                         DialogPage::FavoritePathError { entity, .. } => {
                             if let Some(FavoriteIndex(favorite_i)) =
@@ -3119,7 +3240,11 @@ impl Application for App {
                 return self.push_dialog(dialog_page, focused_id);
             }
             Message::DialogUpdate(dialog_page) => {
+                let batch_rename = matches!(dialog_page, DialogPage::BatchRename { .. });
                 self.dialog_pages.update_front(dialog_page);
+                if batch_rename {
+                    self.refresh_batch_rename_preview();
+                }
             }
             Message::DialogUpdateComplete(dialog_page) => {
                 return Task::batch([
@@ -3351,12 +3476,6 @@ impl Application for App {
                     );
                 }
             },
-            Message::Mouse(window_id, _button) => {
-                // Close context menu when clicking outside.
-                if self.core.main_window_id() == Some(window_id) {
-                    return Task::none();
-                }
-            }
             Message::MoveTo(entity_opt) => {
                 let selected_paths: Box<[_]> = self.selected_paths(entity_opt).collect();
                 return self.move_to(&selected_paths);
@@ -3772,20 +3891,14 @@ impl Application for App {
                     return Task::none();
                 };
 
-                // Generate unique filename for the pasted image
-                let base_name = format!("{}.{}", fl!("pasted-image"), extension);
-                let base_path = to.join(&base_name);
-                let final_path = copy_unique_path(&base_path, &to);
-
-                // Write image data to file
-                match fs::write(&final_path, &contents.data) {
-                    Ok(_) => {
-                        log::info!("Pasted image saved to {:?}", final_path);
-                    }
-                    Err(err) => {
-                        log::error!("Failed to save pasted image: {}", err);
-                    }
-                }
+                // Written by an operation like every other file this app
+                // creates, so it reports failure, shows progress and can be
+                // undone instead of blocking the interface and logging
+                let path = to.join(format!("{}.{}", fl!("pasted-image"), extension));
+                return self.operation(Operation::WriteFile {
+                    path,
+                    data: contents.data.into(),
+                });
             }
             Message::PasteVideo(to) => {
                 return clipboard::read_data::<ClipboardPasteVideo>().map(move |contents_opt| {
@@ -3808,20 +3921,14 @@ impl Application for App {
                     return Task::none();
                 };
 
-                // Generate unique filename for the pasted video
-                let base_name = format!("{}.{}", fl!("pasted-video"), extension);
-                let base_path = to.join(&base_name);
-                let final_path = copy_unique_path(&base_path, &to);
-
-                // Write video data to file
-                match fs::write(&final_path, &contents.data) {
-                    Ok(_) => {
-                        log::info!("Pasted video saved to {:?}", final_path);
-                    }
-                    Err(err) => {
-                        log::error!("Failed to save pasted video: {}", err);
-                    }
-                }
+                // Written by an operation like every other file this app
+                // creates, so it reports failure, shows progress and can be
+                // undone instead of blocking the interface and logging
+                let path = to.join(format!("{}.{}", fl!("pasted-video"), extension));
+                return self.operation(Operation::WriteFile {
+                    path,
+                    data: contents.data.into(),
+                });
             }
             Message::PasteText(to) => {
                 return clipboard::read_data::<ClipboardPasteText>().map(move |contents_opt| {
@@ -3834,20 +3941,11 @@ impl Application for App {
                 });
             }
             Message::PasteTextContents(to, contents) => {
-                // Generate unique filename for the pasted text
-                let base_name = format!("{}.txt", fl!("pasted-text"));
-                let base_path = to.join(&base_name);
-                let final_path = copy_unique_path(&base_path, &to);
-
-                // Write text data to file
-                match fs::write(&final_path, &contents.data) {
-                    Ok(_) => {
-                        log::info!("Pasted text saved to {:?}", final_path);
-                    }
-                    Err(err) => {
-                        log::error!("Failed to save pasted text: {}", err);
-                    }
-                }
+                let path = to.join(format!("{}.txt", fl!("pasted-text")));
+                return self.operation(Operation::WriteFile {
+                    path,
+                    data: contents.data.into_bytes().into(),
+                });
             }
             Message::CheckClipboard => {
                 // Check if clipboard has any paste-able content and cache it
@@ -4027,7 +4125,7 @@ impl Application for App {
                     };
                     if let Some((parent, names)) = batch {
                         let tags = batch_rename::Tags::localized();
-                        return self.push_dialog(
+                        let task = self.push_dialog(
                             DialogPage::BatchRename {
                                 parent,
                                 names,
@@ -4035,6 +4133,8 @@ impl Application for App {
                             },
                             Some(self.dialog_text_input.clone()),
                         );
+                        self.refresh_batch_rename_preview();
+                        return task;
                     }
                     if !selected.is_empty() {
                         let mut last_name = String::new();
@@ -5668,7 +5768,7 @@ impl Application for App {
                 use batch_rename::{Mode, Settings};
 
                 let tags = batch_rename::Tags::localized();
-                let preview = batch_rename::preview(parent, names, settings, &tags);
+                let preview = &self.batch_rename_preview;
                 let update = |settings: Settings| {
                     Message::DialogUpdate(DialogPage::BatchRename {
                         parent: parent.clone(),
@@ -5890,6 +5990,29 @@ impl Application for App {
                         "set-executable-and-launch-description",
                         name = name
                     )))
+            }
+            DialogPage::LaunchDesktopEntry { path, command } => {
+                let name = path
+                    .file_name()
+                    .unwrap_or(path.as_os_str())
+                    .to_string_lossy()
+                    .into_owned();
+                widget::dialog()
+                    .title(fl!("launch-desktop-entry"))
+                    .icon(icon::from_name("dialog-warning").size(64))
+                    .body(fl!("launch-desktop-entry-description", name = name))
+                    .control(widget::text::monotext(command.clone()))
+                    .primary_action(
+                        widget::button::text(fl!("launch-anyway"))
+                            .class(Button::Destructive)
+                            .on_press(Message::DialogComplete)
+                            .id(LAUNCH_DESKTOP_ENTRY_CONFIRM_BUTTON_ID.clone()),
+                    )
+                    .secondary_action(
+                        widget::button::text(fl!("cancel"))
+                            .class(Button::Standard)
+                            .on_press(Message::DialogCancel),
+                    )
             }
             DialogPage::FavoritePathError { path, .. } => widget::dialog()
                 .title(fl!("favorite-path-error"))
@@ -6203,10 +6326,6 @@ impl Application for App {
             // Focus, close and resize events carry no window id here.
             // Filter them by window id if a multi-window bug shows up.
             event::listen_with(|event, status, window_id| match event {
-                Event::Mouse(mouse::Event::ButtonPressed(button)) => match status {
-                    event::Status::Ignored => Some(Message::Mouse(window_id, button)),
-                    event::Status::Captured => None,
-                },
                 Event::Keyboard(KeyEvent::KeyPressed {
                     key,
                     physical_key,
@@ -6485,6 +6604,13 @@ impl Application for App {
                 })
         }));
 
+        // The embedded file chooser runs its own shell, and nothing else
+        // drives it: without this it gets no key handling, no Escape, and no
+        // watcher or config updates
+        if let Some(dialog) = &self.file_dialog_opt {
+            subscriptions.push(dialog.subscription());
+        }
+
         if !self.pending_operations.is_empty() {
             // Hold a logind lock for as long as operations are pending: the
             // subscription ends when the last one finishes, which drops the fd
@@ -6592,6 +6718,7 @@ impl Application for App {
 #[cfg(test)]
 pub(crate) mod test_utils {
     use std::cmp::Ordering;
+    use std::fs;
     use std::fs::File;
     use std::io::{self, Write};
     use std::iter;

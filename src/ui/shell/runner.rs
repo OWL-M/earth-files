@@ -285,10 +285,10 @@ impl<App: Application> Shell<App> {
     pub fn style(&self, _theme: &Theme) -> iced::theme::Style {
         if let Some(style) = self.app.style() {
             style
-        } else if self.app.core().window.is_maximized && !self.theme.cosmic().frosted_maximized_apps
-        {
-            crate::ui::theme::style::iced::application::style(&self.theme)
         } else {
+            // A maximized window would use the opaque application style here,
+            // but the shell is never told that it is maximized; see the note
+            // on configure states below.
             iced::theme::Style {
                 background_color: iced::Color::TRANSPARENT,
                 text_color: self.theme.cosmic().on_bg_color().to_color(),
@@ -471,20 +471,28 @@ impl<App: Application> Shell<App> {
                 self.app.on_window_resize(id, width, height);
             }
 
-            Action::KeyboardNav(message) => match message {
-                crate::ui::keyboard_nav::Action::FocusNext => {
-                    return iced::widget::operation::focus_next().map(crate::ui::Action::Cosmic);
+            // A nested shell subscribes alongside its host, so each one acts
+            // only on the shortcuts aimed at its own window
+            Action::KeyboardNav(window_id, message)
+                if self.app.core().main_window_id() == Some(window_id) =>
+            {
+                match message {
+                    crate::ui::keyboard_nav::Action::FocusNext => {
+                        return iced::widget::operation::focus_next()
+                            .map(crate::ui::Action::Cosmic);
+                    }
+                    crate::ui::keyboard_nav::Action::FocusPrevious => {
+                        return iced::widget::operation::focus_previous()
+                            .map(crate::ui::Action::Cosmic);
+                    }
+                    crate::ui::keyboard_nav::Action::Escape => return self.app.on_escape(),
+                    crate::ui::keyboard_nav::Action::Search => return self.app.on_search(),
+                    crate::ui::keyboard_nav::Action::Fullscreen => {
+                        return self.app.core().toggle_maximize(None);
+                    }
                 }
-                crate::ui::keyboard_nav::Action::FocusPrevious => {
-                    return iced::widget::operation::focus_previous()
-                        .map(crate::ui::Action::Cosmic);
-                }
-                crate::ui::keyboard_nav::Action::Escape => return self.app.on_escape(),
-                crate::ui::keyboard_nav::Action::Search => return self.app.on_search(),
-                crate::ui::keyboard_nav::Action::Fullscreen => {
-                    return self.app.core().toggle_maximize(None);
-                }
-            },
+            }
+            Action::KeyboardNav(..) => {}
 
             Action::ContextDrawer(show) => {
                 self.app.core_mut().set_show_context(show);
@@ -604,8 +612,9 @@ impl<App: Application> Shell<App> {
         // for the popup's own id (verified in the exwlshell spike), which
         // `SurfaceClosed` already handled. The one with no replacement is
         // `WindowEvent::WindowState`: exwlshell reports no `xdg_toplevel`
-        // configure states, so `Core::window.is_maximized` and `sharp_corners`
-        // now stay at their defaults.
+        // configure states, so nothing can tell the shell that the window is
+        // maximized. The fields that used to carry it are gone; wiring the
+        // compositor state through here is what would bring them back.
         let window_events = iced::event::listen_with(|event, _, id| match event {
             iced::Event::Window(window::Event::Resized(iced::Size { width, height })) => {
                 Some(Action::WindowResize(id, width, height))
@@ -625,7 +634,7 @@ impl<App: Application> Shell<App> {
         if self.app.core().keyboard_nav() {
             subscriptions.push(
                 crate::ui::keyboard_nav::subscription()
-                    .map(Action::KeyboardNav)
+                    .map(|(window_id, action)| Action::KeyboardNav(window_id, action))
                     .map(crate::ui::Action::Cosmic),
             );
         }

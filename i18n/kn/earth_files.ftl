@@ -120,6 +120,9 @@ skip = ಬಿಟ್ಟುಬಿಡಿ
 set-executable-and-launch = ಕಾರ್ಯನಿರ್ವಹಿಸುವಂತೆ ಸೆಟ್ ಮಾಡಿ ಮತ್ತು ಪ್ರಾರಂಭಿಸಿ
 set-executable-and-launch-description = ನೀವು "{ $name }" ಅನ್ನು ಕಾರ್ಯನಿರ್ವಹಿಸುವಂತೆ ಸೆಟ್ ಮಾಡಿ ಮತ್ತು ಪ್ರಾರಂಭಿಸಬೇಕೆಂದು ಬಯಸುವಿರಾ?
 set-and-launch = ಸೆಟ್ ಮಾಡಿ ಮತ್ತು ಪ್ರಾರಂಭಿಸಿ
+launch-desktop-entry = Launch application?
+launch-desktop-entry-description = "{$name}" is not an installed application. Launching it runs the command below.
+launch-anyway = Launch
 
 ## Metadata Dialog
 
@@ -168,6 +171,7 @@ history = ಇತಿಹಾಸ
 no-history = ಇತಿಹಾಸದಲ್ಲಿ ಐಟಂಗಳಿಲ್ಲ
 pending = ಬಾಕಿ
 failed = ವಿಫಲವಾಗಿದೆ
+operation-failed-to-start = The file operation could not be started
 complete = ಪೂರ್ಣವಾಗಿದೆ
 compressing =
     ಸಂಕುಚಿತ ಮಾಡಲಾಗುತ್ತಿದೆ { $items } { $items ->
@@ -293,6 +297,8 @@ cut = ಕತ್ತರಿಸಿ
 copy = ನಕಲಿಸಿ
 paste = ಅಂಟಿಸಿ
 select-all = ಎಲ್ಲವನ್ನು ಆಯ್ಕೆಮಾಡಿ
+image-load-error = ⚠ {$error}
+loading-full-image = Loading higher resolution...
 
 ## View
 

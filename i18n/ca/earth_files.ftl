@@ -140,6 +140,9 @@ skip = Omet
 set-executable-and-launch = Defineix com a executable i executa
 set-executable-and-launch-description = Voleu definir "{ $name }" com a executable i executar-lo?
 set-and-launch = Defineix i executa
+launch-desktop-entry = Launch application?
+launch-desktop-entry-description = "{$name}" is not an installed application. Launching it runs the command below.
+launch-anyway = Launch
 
 ## Metadata Dialog
 
@@ -217,6 +220,7 @@ username = Nom d'usuari
 ## Operations
 
 cancelled = Cancel·lat
+operation-failed-to-start = The file operation could not be started
 edit-history = Edita l'historial
 history = Historial
 no-history = Historial buit.
@@ -360,6 +364,8 @@ cut = Retalla
 copy = Copia
 paste = Enganxa
 select-all = Selecciona-ho tot
+image-load-error = ⚠ {$error}
+loading-full-image = Loading higher resolution...
 
 ## View
 

@@ -120,6 +120,9 @@ skip = Spring over
 set-executable-and-launch = Angiv som eksekverbar og start
 set-executable-and-launch-description = Vil du angive "{ $name }" som eksekverbar og starte den?
 set-and-launch = Angiv og start
+launch-desktop-entry = Launch application?
+launch-desktop-entry-description = "{$name}" is not an installed application. Launching it runs the command below.
+launch-anyway = Launch
 
 ## Metadata Dialog
 
@@ -164,6 +167,7 @@ username = Brugernavn
 ## Operations
 
 cancelled = Annulleret
+operation-failed-to-start = The file operation could not be started
 edit-history = Redigér historie
 history = Historie
 no-history = Ingen historik.
@@ -307,6 +311,8 @@ cut = Klip
 copy = Kopiér
 paste = Indsæt
 select-all = Vælg alle
+image-load-error = ⚠ {$error}
+loading-full-image = Loading higher resolution...
 
 ## View
 
