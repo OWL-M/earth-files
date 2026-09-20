@@ -250,7 +250,6 @@ impl<M: Send + 'static> Dialog<M> {
         mapper: fn(DialogMessage) -> M,
         on_result: impl Fn(DialogResult) -> M + 'static,
     ) -> (Self, Task<M>) {
-        //TODO: only do this once somehow?
         crate::localize::localize();
 
         let (config_handler, config) = Config::load();
@@ -460,6 +459,7 @@ enum Message {
     ModifiersChanged(Modifiers),
     MounterItems(MounterKey, MounterItems),
     Mouse(window::Id, mouse::Button),
+    NavBarClose(segmented_button::Entity),
     NewFolder,
     NotifyEvents(Vec<DebouncedEvent>),
     NotifyWatcher(WatcherWrapper),
@@ -645,14 +645,13 @@ impl App {
             }
         }
         row = row.push(
-            //TODO: easier way to create buttons with rich text
             widget::button::custom(
                 widget::Row::with_children([Element::from(&self.accept_label)])
                     .padding([0, space_s])
                     .width(Length::Shrink)
                     .height(space_l.to_length())
                     .spacing(space_xxxs.to_pixels())
-                    .align_y(Alignment::Center)
+                    .align_y(Alignment::Center),
             )
             .padding(0)
             .on_press_maybe(if self.flags.kind.save() {
@@ -666,8 +665,7 @@ impl App {
             } else {
                 None
             })
-            .class(widget::button::ButtonClass::Suggested)
-            /*TODO: a11y feature: .label(&self.accept_label.text)*/
+            .class(widget::button::ButtonClass::Suggested),
         );
 
         col = col.push(row);
@@ -963,7 +961,6 @@ impl App {
             // Watch new paths
             for path in &new_paths {
                 if !old_paths.contains(path) {
-                    //TODO: should this be recursive?
                     match watcher.watch(path, notify::RecursiveMode::NonRecursive) {
                         Ok(()) => {
                             log::debug!("watching {}", path.display());
@@ -978,7 +975,6 @@ impl App {
             self.watcher_opt = Some((watcher, new_paths));
         }
 
-        //TODO: should any of this run in a command?
         Task::none()
     }
 }
@@ -1102,7 +1098,6 @@ impl Application for App {
     fn dialog(&self) -> Option<Element<'_, Message>> {
         let Spacing { space_xxs, .. } = spacing();
 
-        //TODO: should gallery view just be a dialog?
         if self.tab.gallery {
             return Some(
                 widget::Column::with_children([
@@ -1206,7 +1201,6 @@ impl Application for App {
         if let Some(term) = self.search_get() {
             if self.core.is_condensed() {
                 elements.push(
-                    //TODO: selected state is not appearing different
                     widget::button::icon(widget::icon::from_name("system-search-symbolic"))
                         .on_press(Message::SearchClear)
                         .padding(8)
@@ -1261,8 +1255,12 @@ impl Application for App {
         let mut nav = widget::nav_bar(nav_model, |entity| {
             crate::ui::Action::Cosmic(crate::ui::app::Action::NavBar(entity))
         })
-        //TODO .on_close(|entity| crate::ui::action::app(Message::NavBarClose(entity)))
-        .close_icon(widget::icon::from_name("media-eject-symbolic").size(16).icon())
+        .on_close(|entity| crate::ui::Action::App(Message::NavBarClose(entity)))
+        .close_icon(
+            widget::icon::from_name("media-eject-symbolic")
+                .size(16)
+                .icon(),
+        )
         .into_container();
 
         if !self.core().is_condensed() {
@@ -1530,10 +1528,18 @@ impl Application for App {
                 self.mounter_items.insert(mounter_key, mounter_items);
 
                 // Update nav bar
-                //TODO: this could change favorites IDs while they are in use
                 self.update_nav_model();
 
                 return Task::batch(commands);
+            }
+            Message::NavBarClose(entity) => {
+                if let Some(data) = self.nav_model.data::<MounterData>(entity)
+                    && let Some(mounter) = MOUNTERS.get(&data.0)
+                {
+                    return mounter
+                        .unmount(data.1.clone())
+                        .map(|()| crate::ui::action::none());
+                }
             }
             Message::Mouse(window_id, _button) => {
                 // Close context menu when clicking outside.
@@ -1564,7 +1570,6 @@ impl Application for App {
                                 ) = event.kind
                                 {
                                     // If metadata or data changed, find the matching item and reload it
-                                    //TODO: this could be further optimized by looking at what exactly changed
                                     if let Some(items) = &mut self.tab.items_opt {
                                         for item in items.iter_mut() {
                                             if item.path_opt() == Some(event_path) {

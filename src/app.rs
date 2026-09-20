@@ -1780,7 +1780,6 @@ impl App {
             self.watcher_opt = Some((watcher, new_paths));
         }
 
-        //TODO: should any of this run in a command?
         Task::none()
     }
 
@@ -4861,7 +4860,6 @@ impl Application for App {
     }
 
     fn dialog(&self) -> Option<Element<'_, Message>> {
-        //TODO: should gallery view just be a dialog?
         let entity = self.tab_model.active();
         if let Some(tab) = self.tab_model.data::<Tab>(entity)
             && tab.gallery

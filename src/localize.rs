@@ -7,7 +7,7 @@ use icu::collator::preferences::CollationNumericOrdering;
 use icu::collator::{Collator, CollatorBorrowed, CollatorPreferences};
 use icu::locale::Locale;
 use rust_embed::RustEmbed;
-use std::sync::LazyLock;
+use std::sync::{LazyLock, Once};
 
 #[derive(RustEmbed)]
 #[folder = "i18n/"]
@@ -86,11 +86,16 @@ pub fn localizer() -> Box<dyn Localizer> {
     Box::from(DefaultLocalizer::new(&*LANGUAGE_LOADER, &Localizations))
 }
 
+/// Select the UI language once. Both the app and every dialog a host builds
+/// call this, so later calls are no-ops.
 pub fn localize() {
-    let localizer = localizer();
-    let requested_languages = i18n_embed::DesktopLanguageRequester::requested_languages();
+    static ONCE: Once = Once::new();
+    ONCE.call_once(|| {
+        let localizer = localizer();
+        let requested_languages = i18n_embed::DesktopLanguageRequester::requested_languages();
 
-    if let Err(error) = localizer.select(&requested_languages) {
-        eprintln!("Error while loading language for Earth Files {error}");
-    }
+        if let Err(error) = localizer.select(&requested_languages) {
+            eprintln!("Error while loading language for Earth Files {error}");
+        }
+    });
 }
