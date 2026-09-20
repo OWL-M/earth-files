@@ -267,10 +267,6 @@ where
             .overlay(tree, layout, renderer, viewport, translation)
     }
 
-    // TODO(dnd): tab drag-to-reorder must be rebuilt on smithay-clipboard. iced
-    // 0.14's `Widget` has no `drag_destinations` pass-through, so the tab bar
-    // leaf is unreachable from the root walk.
-
 }
 
 impl<'a, Message, Renderer> From<LayerContainer<'a, Message, Renderer>>

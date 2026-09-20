@@ -2572,6 +2572,7 @@ pub enum HeadingOptions {
     Modified,
     Size,
     TrashedOn,
+    Type,
 }
 
 impl fmt::Display for HeadingOptions {
@@ -2581,6 +2582,7 @@ impl fmt::Display for HeadingOptions {
             Self::Modified => write!(f, "{}", fl!("modified")),
             Self::Size => write!(f, "{}", fl!("size")),
             Self::TrashedOn => write!(f, "{}", fl!("trashed-on")),
+            Self::Type => write!(f, "{}", fl!("type-heading")),
         }
     }
 }
@@ -2592,6 +2594,7 @@ impl HeadingOptions {
             Self::Modified.to_string(),
             Self::Size.to_string(),
             Self::TrashedOn.to_string(),
+            Self::Type.to_string(),
         ]
     }
 }
@@ -4918,6 +4921,30 @@ impl Tab {
                     )
                 }
             }),
+            HeadingOptions::Type => items.sort_by(|a, b| {
+                let by_type = || {
+                    check_reverse(
+                        crate::file_category::compare_by_type(
+                            a.1.metadata.is_dir(),
+                            &a.1.mime,
+                            &a.1.display_name,
+                            b.1.metadata.is_dir(),
+                            &b.1.mime,
+                            &b.1.display_name,
+                        ),
+                        sort_direction,
+                    )
+                };
+                if folders_first {
+                    match (a.1.metadata.is_dir(), b.1.metadata.is_dir()) {
+                        (true, false) => Ordering::Less,
+                        (false, true) => Ordering::Greater,
+                        _ => by_type(),
+                    }
+                } else {
+                    by_type()
+                }
+            }),
             HeadingOptions::Modified => {
                 items.sort_by(|a, b| {
                     let a_modified = a.1.metadata.modified();
@@ -5199,7 +5226,12 @@ impl Tab {
         let name_width = 300.0;
         let modified_width = 200.0;
         let size_width = 100.0;
-        let condensed = size.width < (name_width + modified_width + size_width);
+        let type_width = if self.config.show_type_column {
+            120.0
+        } else {
+            0.0
+        };
+        let condensed = size.width < (name_width + modified_width + size_width + type_width);
 
         let (sort_name, sort_direction, _) = self.sort_options();
         let heading_item = |name, width, msg| {
@@ -5223,7 +5255,7 @@ impl Tab {
                 .into()
         };
 
-        let heading_row = widget::Row::with_children([
+        let mut headings = vec![
             heading_item(fl!("name"), Length::Fill, HeadingOptions::Name),
             if self.location.is_trash() {
                 heading_item(
@@ -5239,10 +5271,18 @@ impl Tab {
                 )
             },
             heading_item(fl!("size"), Length::Fixed(size_width), HeadingOptions::Size),
-        ])
-        .align_y(Alignment::Center)
-        .height(Length::Fixed((space_m + 4).into()))
-        .padding([0, space_xxs]);
+        ];
+        if self.config.show_type_column {
+            headings.push(heading_item(
+                fl!("type-heading"),
+                Length::Fixed(type_width),
+                HeadingOptions::Type,
+            ));
+        }
+        let heading_row = widget::Row::with_children(headings)
+            .align_y(Alignment::Center)
+            .height(Length::Fixed((space_m + 4).into()))
+            .padding([0, space_xxs]);
 
         let accent_rule =
             rule::horizontal(1).class(Rule::Custom(Box::new(|theme| rule::Style {
@@ -5439,11 +5479,13 @@ impl Tab {
                     };
 
                     // Each breadcrumb carries the menu for its own ancestor index
-                    let mut context_menu =
-                        widget::context_menu(mouse_area, Some(menu::location_context_menu(index)))
-                            .on_open(Message::LocationContextMenuIndex(Some(index)))
-                            .on_close(Message::LocationContextMenuIndex(None))
-                            .on_surface_action(Message::Surface);
+                    let mut context_menu = widget::context_menu(
+                        mouse_area,
+                        Some(menu::location_context_menu(index, &self.mode)),
+                    )
+                    .on_open(Message::LocationContextMenuIndex(Some(index)))
+                    .on_close(Message::LocationContextMenuIndex(None))
+                    .on_surface_action(Message::Surface);
                     if let Some(window_id) = self.window_id {
                         context_menu = context_menu.window_id(window_id);
                     }
@@ -5778,7 +5820,9 @@ impl Tab {
         let name_width = 300.0;
         let modified_width = 200.0;
         let size_width = 100.0;
-        let condensed = size.width < (name_width + modified_width + size_width);
+        let show_type_column = self.config.show_type_column;
+        let type_width = if show_type_column { 120.0 } else { 0.0 };
+        let condensed = size.width < (name_width + modified_width + size_width + type_width);
         let is_search = matches!(self.location, Location::Search(..));
         let icon_size = if condensed || is_search {
             icon_sizes.list_condensed()
@@ -5916,6 +5960,18 @@ impl Tab {
                         }
                     };
 
+                    let type_cell = || -> Element<'_, Message> {
+                        widget::text::body(
+                            crate::file_category::FileCategory::of(
+                                item.metadata.is_dir(),
+                                &item.mime,
+                            )
+                            .to_string(),
+                        )
+                        .width(Length::Fixed(type_width))
+                        .into()
+                    };
+
                     let row = if condensed {
                         widget::Row::with_children([
                             widget::icon::icon(item.icon_handle_list_condensed.clone())
@@ -5934,7 +5990,7 @@ impl Tab {
                         .align_y(Alignment::Center)
                         .spacing(space_xxs.to_pixels())
                     } else if is_search {
-                        widget::Row::with_children([
+                        let mut cells: Vec<Element<'_, Message>> = vec![
                             widget::icon::icon(item.icon_handle_list_condensed.clone())
                                 .content_fit(ContentFit::Contain)
                                 .size(icon_size)
@@ -5955,12 +6011,16 @@ impl Tab {
                             widget::text::body(size_text.clone())
                                 .width(Length::Fixed(size_width))
                                 .into(),
-                        ])
-                        .height(Length::Fixed(f32::from(row_height)))
-                        .align_y(Alignment::Center)
-                        .spacing(space_xxs.to_pixels())
+                        ];
+                        if show_type_column {
+                            cells.push(type_cell());
+                        }
+                        widget::Row::with_children(cells)
+                            .height(Length::Fixed(f32::from(row_height)))
+                            .align_y(Alignment::Center)
+                            .spacing(space_xxs.to_pixels())
                     } else {
-                        widget::Row::with_children([
+                        let mut cells: Vec<Element<'_, Message>> = vec![
                             widget::icon::icon(item.icon_handle_list.clone())
                                 .content_fit(ContentFit::Contain)
                                 .size(icon_size)
@@ -5974,10 +6034,14 @@ impl Tab {
                             widget::text::body(size_text.clone())
                                 .width(Length::Fixed(size_width))
                                 .into(),
-                        ])
-                        .height(Length::Fixed(f32::from(row_height)))
-                        .align_y(Alignment::Center)
-                        .spacing(space_xxs.to_pixels())
+                        ];
+                        if show_type_column {
+                            cells.push(type_cell());
+                        }
+                        widget::Row::with_children(cells)
+                            .height(Length::Fixed(f32::from(row_height)))
+                            .align_y(Alignment::Center)
+                            .spacing(space_xxs.to_pixels())
                     };
 
                     let button =
@@ -7414,6 +7478,57 @@ mod tests {
             std::borrow::Cow::Borrowed("Undefined"),
             None,
         );
+
+        Ok(())
+    }
+
+    #[test]
+    fn sort_by_type_groups_mime_then_name() -> io::Result<()> {
+        use super::HeadingOptions;
+
+        let fs = empty_fs()?;
+        let path = fs.path();
+        // Two images, one text file and one folder; names chosen so a plain
+        // name sort would interleave the two mime groups.
+        fs::create_dir(path.join("a-folder"))?;
+        fs::write(path.join("b.txt"), b"x")?;
+        fs::write(path.join("c.png"), b"x")?;
+        fs::write(path.join("a.png"), b"x")?;
+
+        let location = Location::Path(path.to_owned());
+        let (parent_item_opt, items) = location.scan(IconSizes::default());
+        let mut tab = Tab::new(
+            location,
+            TabConfig::default(),
+            ThumbCfg::default(),
+            None,
+            std::borrow::Cow::Borrowed("Undefined"),
+            None,
+        );
+        tab.parent_item_opt = parent_item_opt;
+        tab.set_items(items);
+
+        let names = |tab: &Tab| -> Vec<String> {
+            tab.column_sort()
+                .expect("tab should have items")
+                .into_iter()
+                .map(|(_, item)| item.name.clone())
+                .collect()
+        };
+
+        tab.sort_name = HeadingOptions::Type;
+        tab.sort_direction = true;
+        assert_eq!(names(&tab), ["a-folder", "a.png", "c.png", "b.txt"]);
+
+        tab.sort_direction = false;
+        assert_eq!(names(&tab), ["a-folder", "b.txt", "c.png", "a.png"]);
+
+        // Without folders first, folders still group first as the Folder category
+        tab.config.folders_first = false;
+        tab.sort_direction = true;
+        assert_eq!(names(&tab), ["a-folder", "a.png", "c.png", "b.txt"]);
+        tab.sort_direction = false;
+        assert_eq!(names(&tab), ["b.txt", "c.png", "a.png", "a-folder"]);
 
         Ok(())
     }

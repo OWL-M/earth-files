@@ -114,7 +114,6 @@ pub fn exec_to_command(
                             if let Some(path) = path
                                 && !field_code_used
                             {
-                                // TODO: files on remote file systems should be copied to a temporary local file.
                                 batch_process = true;
                                 field_code_used = true;
                                 new_argument.push_str(path.as_bytes());
@@ -529,29 +528,51 @@ impl MimeAppCache {
             .map(|string| string.trim().replace(".desktop", ""))
     }
 
+    /// The terminal to open folders in: the mimeapps default for
+    /// `x-scheme-handler/terminal`, then `$TERMINAL`, then a list of common
+    /// terminals, then whatever terminal emulator was found first.
     pub fn terminal(&self) -> Option<&Arc<MimeApp>> {
-        //TODO: consider rules in https://github.com/Vladimir-csp/xdg-terminal-exec
-        // The current approach works but might not adhere to the spec (yet)
+        const COMMON_TERMINALS: &[&str] = &[
+            "org.gnome.Ptyxis",
+            "org.gnome.Console",
+            "org.gnome.Terminal",
+            "org.kde.konsole",
+            "kitty",
+            "Alacritty",
+            "foot",
+            "org.wezfurlong.wezterm",
+            "com.mitchellh.ghostty",
+            "xterm",
+        ];
 
-        // Look for and return preferred terminals
-        //TODO: fallback order beyond cosmic-term?
+        let by_id = |id: &str| self.terminals.iter().find(|terminal| terminal.id == id);
 
-        let mut preference_order = vec!["com.system76.CosmicTerm".to_string()];
-
-        if let Some(id) = self.get_default_terminal() {
-            preference_order.insert(0, id);
+        if let Some(terminal) = self.get_default_terminal().and_then(|id| by_id(&id)) {
+            return Some(terminal);
         }
 
-        for id in &preference_order {
-            for terminal in &self.terminals {
-                if &terminal.id == id {
-                    return Some(terminal);
-                }
-            }
+        // `$TERMINAL` names a binary, so match it against the desktop id or the
+        // basename of the program each entry executes
+        if let Some(name) = std::env::var_os("TERMINAL")
+            && let Some(name) = Path::new(&name).file_name().and_then(OsStr::to_str)
+            && let Some(terminal) = self.terminals.iter().find(|terminal| {
+                terminal.id == name
+                    || terminal.exec.as_deref().is_some_and(|exec| {
+                        exec.split_whitespace()
+                            .next()
+                            .and_then(|program| Path::new(program).file_name())
+                            .and_then(OsStr::to_str)
+                            == Some(name)
+                    })
+            })
+        {
+            return Some(terminal);
         }
 
-        // Return whatever was the first terminal found
-        self.terminals.first()
+        COMMON_TERMINALS
+            .iter()
+            .find_map(|id| by_id(id))
+            .or_else(|| self.terminals.first())
     }
 
     #[cfg(not(feature = "desktop"))]

@@ -21,6 +21,7 @@ pub mod config;
 mod context_action;
 pub mod desktop_entry;
 pub mod dialog;
+pub mod file_category;
 mod key_bind;
 pub(crate) mod large_image;
 pub(crate) mod load_image;
@@ -139,12 +140,28 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
         } else if &arg == "--network" {
             Location::Network("network:///".to_string(), fl!("networks"), None)
         } else {
-            //TODO: support more URLs
             let path = match url::Url::parse(&arg) {
                 Ok(url) if url.scheme() == "file" => if let Ok(path) = url.to_file_path() { path } else {
                     log::warn!("invalid argument {arg:?}");
                     continue;
                 },
+                Ok(url) if url.scheme() == "trash" => {
+                    locations.push(Location::Trash);
+                    continue;
+                }
+                Ok(url) if url.scheme() == "recent" => {
+                    if config.show_recents {
+                        locations.push(Location::Recents);
+                    } else {
+                        log::warn!("recents feature is disabled in config");
+                    }
+                    continue;
+                }
+                Ok(url) if url.scheme() == "network" => {
+                    locations.push(Location::Network("network:///".to_string(), fl!("networks"), None));
+                    continue;
+                }
+                // Any other scheme is a network location, mounted when its tab opens
                 Ok(url) => {
                     uris.push(url);
                     continue;

@@ -11,6 +11,16 @@ recents = الأحدث
 name = الاسم
 modified = مُعدل
 size = الحجم
+type-heading = النوع
+file-type-folder = مجلد
+file-type-image = صورة
+file-type-video = فيديو
+file-type-audio = صوت
+file-type-text = نص
+file-type-archive = أرشيف
+file-type-document = مستند
+file-type-program = برنامج
+file-type-other = أخرى
 
 # Dialogs
 
@@ -129,6 +139,7 @@ view = عرض
 grid-view = عرض الشبكة
 list-view = عرض اللائحة
 show-hidden-files = أظهر الملفات المخفية
+show-type-column = أظهر عمود النوع
 list-directories-first = اسرد المجلدات اولاً
 menu-settings = الإعدادات...
 menu-about = عن { earth-files }...
@@ -244,6 +255,8 @@ sort-newest-first = الأحدث أولاً
 sort-oldest-first = الأقدم أولاً
 sort-smallest-to-largest = من الأصغر إلى الأكبر
 sort-largest-to-smallest = من الأكبر إلي الأصغر
+sort-type-a-z = النوع أ-ي
+sort-type-z-a = النوع ي-أ
 operations-running =
     { $running } { $running ->
         [one] عملية

@@ -212,6 +212,7 @@ impl Config {
             folders_first: self.dialog.folders_first,
             icon_sizes: self.dialog.icon_sizes,
             show_hidden: self.dialog.show_hidden,
+            show_type_column: false,
             single_click: false,
             view: self.dialog.view,
         }
@@ -304,6 +305,8 @@ pub struct TabConfig {
     pub icon_sizes: IconSizes,
     /// Show hidden files and folders
     pub show_hidden: bool,
+    /// Show the Type column in list view
+    pub show_type_column: bool,
     /// Single click to open
     pub single_click: bool,
     /// Selected view, grid or list
@@ -316,6 +319,7 @@ impl Default for TabConfig {
             folders_first: true,
             icon_sizes: IconSizes::default(),
             show_hidden: false,
+            show_type_column: false,
             single_click: false,
             view: View::List,
         }

@@ -236,7 +236,6 @@ pub fn context_menu<'a>(
                 children.push(menu_item(fl!("compress"), Action::Compress));
                 children.push(menu::Item::Divider);
 
-                //TODO: Print?
                 children.push(menu_item(fl!("show-details"), Action::Preview));
                 if any_trash_item {
                     children.push(menu::Item::Divider);
@@ -273,8 +272,6 @@ pub fn context_menu<'a>(
                     }
                 }
             } else {
-                //TODO: need better designs for menu with no selection
-                //TODO: have things like properties but they apply to the folder?
                 if tab.location != Location::Recents {
                     children.push(menu_item(fl!("new-folder"), Action::NewFolder));
                     children.push(menu_item(fl!("new-file"), Action::NewFile));
@@ -292,10 +289,19 @@ pub fn context_menu<'a>(
                 }
 
                 children.push(menu::Item::Divider);
-                // TODO: Nested menu
-                children.push(sort_item(fl!("sort-by-name"), HeadingOptions::Name));
-                children.push(sort_item(fl!("sort-by-modified"), HeadingOptions::Modified));
-                children.push(sort_item(fl!("sort-by-size"), HeadingOptions::Size));
+                children.push(menu::Item::Folder(
+                    fl!("sort"),
+                    vec![
+                        sort_item(fl!("name"), HeadingOptions::Name),
+                        sort_item(fl!("modified"), HeadingOptions::Modified),
+                        sort_item(fl!("size"), HeadingOptions::Size),
+                        sort_item(fl!("type-heading"), HeadingOptions::Type),
+                    ],
+                ));
+
+                // With nothing selected the details pane shows the current folder
+                children.push(menu::Item::Divider);
+                children.push(menu_item(fl!("show-details"), Action::Preview));
             }
         }
         (
@@ -328,9 +334,15 @@ pub fn context_menu<'a>(
                 if !children.is_empty() {
                     children.push(menu::Item::Divider);
                 }
-                children.push(sort_item(fl!("sort-by-name"), HeadingOptions::Name));
-                children.push(sort_item(fl!("sort-by-modified"), HeadingOptions::Modified));
-                children.push(sort_item(fl!("sort-by-size"), HeadingOptions::Size));
+                children.push(menu::Item::Folder(
+                    fl!("sort"),
+                    vec![
+                        sort_item(fl!("name"), HeadingOptions::Name),
+                        sort_item(fl!("modified"), HeadingOptions::Modified),
+                        sort_item(fl!("size"), HeadingOptions::Size),
+                        sort_item(fl!("type-heading"), HeadingOptions::Type),
+                    ],
+                ));
             }
         }
         (_, Location::Network(..)) => {
@@ -345,9 +357,15 @@ pub fn context_menu<'a>(
                 if !children.is_empty() {
                     children.push(menu::Item::Divider);
                 }
-                children.push(sort_item(fl!("sort-by-name"), HeadingOptions::Name));
-                children.push(sort_item(fl!("sort-by-modified"), HeadingOptions::Modified));
-                children.push(sort_item(fl!("sort-by-size"), HeadingOptions::Size));
+                children.push(menu::Item::Folder(
+                    fl!("sort"),
+                    vec![
+                        sort_item(fl!("name"), HeadingOptions::Name),
+                        sort_item(fl!("modified"), HeadingOptions::Modified),
+                        sort_item(fl!("size"), HeadingOptions::Size),
+                        sort_item(fl!("type-heading"), HeadingOptions::Type),
+                    ],
+                ));
             }
         }
         (_, Location::Trash | Location::Search(SearchLocation::Trash, ..)) => {
@@ -367,10 +385,15 @@ pub fn context_menu<'a>(
                 children.push(menu::Item::Divider);
                 children.push(menu_item(fl!("delete-permanently"), Action::Delete));
             } else {
-                // TODO: Nested menu
-                children.push(sort_item(fl!("sort-by-name"), HeadingOptions::Name));
-                children.push(sort_item(fl!("sort-by-trashed"), HeadingOptions::TrashedOn));
-                children.push(sort_item(fl!("sort-by-size"), HeadingOptions::Size));
+                children.push(menu::Item::Folder(
+                    fl!("sort"),
+                    vec![
+                        sort_item(fl!("name"), HeadingOptions::Name),
+                        sort_item(fl!("trashed-on"), HeadingOptions::TrashedOn),
+                        sort_item(fl!("size"), HeadingOptions::Size),
+                        sort_item(fl!("type-heading"), HeadingOptions::Type),
+                    ],
+                ));
             }
         }
     }
@@ -480,7 +503,8 @@ pub fn dialog_menu(
                         tab::HeadingOptions::Size,
                         false,
                     ),
-                    //TODO: sort by type
+                    sort_item(fl!("sort-type-a-z"), tab::HeadingOptions::Type, true),
+                    sort_item(fl!("sort-type-z-a"), tab::HeadingOptions::Type, false),
                 ],
             ),
         ),
@@ -665,6 +689,12 @@ pub fn menu_bar<'a>(
                             Action::ToggleShowHidden,
                         ),
                         menu::Item::CheckBox(
+                            fl!("show-type-column"),
+                            None,
+                            tab_opt.is_some_and(|tab| tab.config.show_type_column),
+                            Action::ToggleShowTypeColumn,
+                        ),
+                        menu::Item::CheckBox(
                             fl!("list-directories-first"),
                             None,
                             tab_opt.is_some_and(|tab| tab.config.folders_first),
@@ -721,40 +751,46 @@ pub fn menu_bar<'a>(
                             tab::HeadingOptions::Size,
                             false,
                         ),
-                        //TODO: sort by type
+                        sort_item(fl!("sort-type-a-z"), tab::HeadingOptions::Type, true),
+                        sort_item(fl!("sort-type-z-a"), tab::HeadingOptions::Type, false),
                     ],
                 ),
             ],
         )
 }
 
-pub fn location_context_menu(ancestor_index: usize) -> Vec<menu::Tree<tab::Message>> {
-    //TODO: only add some of these when in App mode
-    menu::items(
-        &HashMap::new(),
-        vec![
-            menu::Item::Button(
-                fl!("open-in-new-tab"),
-                None,
-                LocationMenuAction::OpenInNewTab(ancestor_index),
-            ),
-            menu::Item::Button(
-                fl!("open-in-new-window"),
-                None,
-                LocationMenuAction::OpenInNewWindow(ancestor_index),
-            ),
-            menu::Item::Divider,
-            menu::Item::Button(
-                fl!("show-details"),
-                None,
-                LocationMenuAction::Preview(ancestor_index),
-            ),
-            menu::Item::Divider,
-            menu::Item::Button(
-                fl!("add-to-sidebar"),
-                None,
-                LocationMenuAction::AddToSidebar(ancestor_index),
-            ),
-        ],
-    )
+/// The breadcrumb context menu. Tabs, windows and the sidebar only exist in
+/// the app, so the dialog gets the details entry alone.
+pub fn location_context_menu(
+    ancestor_index: usize,
+    mode: &tab::Mode,
+) -> Vec<menu::Tree<tab::Message>> {
+    let mut items = Vec::new();
+    if matches!(mode, tab::Mode::App) {
+        items.push(menu::Item::Button(
+            fl!("open-in-new-tab"),
+            None,
+            LocationMenuAction::OpenInNewTab(ancestor_index),
+        ));
+        items.push(menu::Item::Button(
+            fl!("open-in-new-window"),
+            None,
+            LocationMenuAction::OpenInNewWindow(ancestor_index),
+        ));
+        items.push(menu::Item::Divider);
+    }
+    items.push(menu::Item::Button(
+        fl!("show-details"),
+        None,
+        LocationMenuAction::Preview(ancestor_index),
+    ));
+    if matches!(mode, tab::Mode::App) {
+        items.push(menu::Item::Divider);
+        items.push(menu::Item::Button(
+            fl!("add-to-sidebar"),
+            None,
+            LocationMenuAction::AddToSidebar(ancestor_index),
+        ));
+    }
+    menu::items(&HashMap::new(), items)
 }

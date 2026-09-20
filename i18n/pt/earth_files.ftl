@@ -13,6 +13,16 @@ undo = Anular
 name = Nome
 modified = Modificado
 size = Tamanho
+type-heading = Tipo
+file-type-folder = Pasta
+file-type-image = Imagem
+file-type-video = Vídeo
+file-type-audio = Áudio
+file-type-text = Texto
+file-type-archive = Arquivo
+file-type-document = Documento
+file-type-program = Programa
+file-type-other = Outro
 
 # Dialogs
 
@@ -188,6 +198,7 @@ view = Ver
 grid-view = Visualização em grelha
 list-view = Visualização em lista
 show-hidden-files = Mostrar ficheiros ocultos
+show-type-column = Mostrar coluna de tipo
 list-directories-first = Listar primeiro os diretórios
 menu-settings = Definições...
 menu-about = Acerca do { earth-files }...
@@ -353,6 +364,8 @@ sort-newest-first = Mais recentes primeiro
 sort-oldest-first = Mais antigos primeiro
 sort-smallest-to-largest = Do menor para o maior
 sort-largest-to-smallest = Do maior para o menor
+sort-type-a-z = Tipo A-Z
+sort-type-z-a = Tipo Z-A
 context-action-confirm-title = Executar "{ $name }"?
 run = Executar
 rename-confirm = Renomear

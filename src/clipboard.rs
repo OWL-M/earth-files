@@ -38,7 +38,7 @@ impl ClipboardCopy {
             ClipboardKind::Cut => "cut",
         }
         .to_string();
-        //TODO: do we have to use \r\n?
+        // text/uri-list (RFC 2483) requires CRLF line endings; text/plain does not
         let cr_nl = "\r\n";
         for path in paths {
             let path = path.as_ref();
@@ -46,13 +46,11 @@ impl ClipboardCopy {
             match path.to_str() {
                 Some(path_str) => {
                     if !text_plain.is_empty() {
-                        text_plain.push_str(cr_nl);
+                        text_plain.push('\n');
                     }
-                    //TODO: what if the path contains CR or NL?
                     text_plain.push_str(path_str);
                 }
                 None => {
-                    //TODO: allow non-UTF-8?
                     log::warn!(
                         "{} is not valid UTF-8, not adding to text/plain clipboard",
                         path.display()

@@ -13,6 +13,16 @@ undo = 元に戻す
 name = 名前
 modified = 更新日
 size = サイズ
+type-heading = 種類
+file-type-folder = フォルダ
+file-type-image = 画像
+file-type-video = 動画
+file-type-audio = 音声
+file-type-text = テキスト
+file-type-archive = アーカイブ
+file-type-document = ドキュメント
+file-type-program = プログラム
+file-type-other = その他
 
 # Dialogs
 
@@ -221,6 +231,7 @@ view = 表示
 grid-view = グリッドの表示
 list-view = リストの表示
 show-hidden-files = 隠しファイルを表示
+show-type-column = 種類の列を表示
 list-directories-first = フォルダを最初に表示
 menu-settings = 設定...
 menu-about = { earth-files }について...
@@ -234,6 +245,8 @@ sort-newest-first = 新しい順
 sort-oldest-first = 古い順
 sort-smallest-to-largest = 最小から最大まで
 sort-largest-to-smallest = 最大から最小まで
+sort-type-a-z = 種類 A-Z
+sort-type-z-a = 種類 Z-A
 repository = リポジトリ
 support = サポート
 remove = 削除

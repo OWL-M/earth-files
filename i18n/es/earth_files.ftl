@@ -26,6 +26,16 @@ name = Nombre
 modified = Modificado
 trashed-on = Enviado a la papelera
 size = Tamaño
+type-heading = Tipo
+file-type-folder = Carpeta
+file-type-image = Imagen
+file-type-video = Vídeo
+file-type-audio = Audio
+file-type-text = Texto
+file-type-archive = Archivo comprimido
+file-type-document = Documento
+file-type-program = Programa
+file-type-other = Otro
 # Progress footer
 details = Detalles
 dismiss = Descartar mensaje
@@ -396,6 +406,7 @@ view = Vista
 grid-view = Vista de cuadrícula
 list-view = Vista de lista
 show-hidden-files = Mostrar archivos ocultos
+show-type-column = Mostrar columna de tipo
 list-directories-first = Enumerar los directorios primero
 gallery-preview = Vista previa de la galería
 menu-settings = Configuración...
@@ -410,6 +421,8 @@ sort-newest-first = Más reciente primero
 sort-oldest-first = Más antiguo primero
 sort-smallest-to-largest = De menor a mayor
 sort-largest-to-smallest = De mayor a menor
+sort-type-a-z = Tipo A-Z
+sort-type-z-a = Tipo Z-A
 removing-from-recents =
     Quitando { $items } { $items ->
         [one] elemento

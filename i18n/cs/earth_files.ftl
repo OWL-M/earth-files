@@ -11,6 +11,16 @@ trash = Koš
 name = Název
 modified = Datum změny
 size = Velikost
+type-heading = Typ
+file-type-folder = Složka
+file-type-image = Obrázek
+file-type-video = Video
+file-type-audio = Zvuk
+file-type-text = Text
+file-type-archive = Archiv
+file-type-document = Dokument
+file-type-program = Program
+file-type-other = Ostatní
 
 # Dialogs
 
@@ -129,6 +139,7 @@ view = Zobrazení
 grid-view = Zobrazit jako mřížku
 list-view = Zobrazit jako seznam
 show-hidden-files = Zobrazit skryté soubory
+show-type-column = Zobrazit sloupec typu
 list-directories-first = Řadit nejprve složky
 menu-settings = Nastavení...
 menu-about = O aplikaci { earth-files }...
@@ -401,6 +412,8 @@ sort-newest-first = Nejnovější první
 sort-oldest-first = Nejstarší první
 sort-smallest-to-largest = Od nejmenšího po největší
 sort-largest-to-smallest = Od největšího po nejmenší
+sort-type-a-z = Typ A-Z
+sort-type-z-a = Typ Z-A
 gallery-preview = Náhled galerie
 sort = Řazení
 sort-a-z = A-Z

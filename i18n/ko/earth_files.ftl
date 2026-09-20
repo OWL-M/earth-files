@@ -34,6 +34,16 @@ replace-warning = 저장하려는 파일로 해당 항목을 대체할까요? �
 name = 이름
 modified = 수정된 날짜
 size = 크기
+type-heading = 형식
+file-type-folder = 폴더
+file-type-image = 이미지
+file-type-video = 동영상
+file-type-audio = 오디오
+file-type-text = 텍스트
+file-type-archive = 압축 파일
+file-type-document = 문서
+file-type-program = 프로그램
+file-type-other = 기타
 
 # Context Pages
 
@@ -248,12 +258,15 @@ sort-z-a = Z-A
 operations-running-finished = { $running }개의 작업 진행 중 ({ $percent }%), { $finished } 완료됨...
 sort = 정렬
 show-hidden-files = 숨긴 파일 표시
+show-type-column = 형식 열 표시
 trash-folder-icon = 휴지통 아이콘
 extracting = "{ $from }"에서 "{ $to }"(으)로 { $items }개의 항목을 압축 해제 중 ({ $progress })...
 permanently-deleted = { $items }개의 항목을 영구적으로 제거했습니다
 renaming = "{ $from }" 에서 "{ $to }" 로 이름 변경 중
 set-executable-and-launch-description = "{ $name }"을 실행 가능으로 설정하고 실행할까요?
 sort-largest-to-smallest = 큰 항목부터 작은 항목
+sort-type-a-z = 형식 A-Z
+sort-type-z-a = 형식 Z-A
 moved = "{ $from }"에서 "{ $to }"(으)로 { $items }개의 항목을 이동했습니다
 display-settings = 화면 설정...
 desktop-appearance = 데스크톱 외관...

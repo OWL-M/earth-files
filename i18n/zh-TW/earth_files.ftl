@@ -14,6 +14,16 @@ today = 今天
 name = 名稱
 modified = 修改時間
 size = 大小
+type-heading = 類型
+file-type-folder = 資料夾
+file-type-image = 圖片
+file-type-video = 影片
+file-type-audio = 音訊
+file-type-text = 文字
+file-type-archive = 壓縮檔
+file-type-document = 文件
+file-type-program = 程式
+file-type-other = 其他
 
 # Dialogs
 
@@ -238,6 +248,7 @@ view = 檢視
 grid-view = 網格檢視
 list-view = 列表檢視
 show-hidden-files = 顯示隱藏檔案
+show-type-column = 顯示類型欄
 list-directories-first = 目錄優先列出
 menu-settings = 設定...
 menu-about = 關於 { earth-files }...
@@ -251,6 +262,8 @@ sort-newest-first = 最新優先
 sort-oldest-first = 最舊優先
 sort-smallest-to-largest = 從小到大
 sort-largest-to-smallest = 從大到小
+sort-type-a-z = 類型 A-Z
+sort-type-z-a = 類型 Z-A
 deleted =
     已經刪除 { $items } { $items ->
         [one] 項目

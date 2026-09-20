@@ -10,6 +10,16 @@ undo = Скасувати
 name = Назва
 modified = Змінено
 size = Розмір
+type-heading = Тип
+file-type-folder = Тека
+file-type-image = Зображення
+file-type-video = Відео
+file-type-audio = Аудіо
+file-type-text = Текст
+file-type-archive = Архів
+file-type-document = Документ
+file-type-program = Програма
+file-type-other = Інше
 
 # Dialogs
 
@@ -177,6 +187,7 @@ view = Вид
 grid-view = Перегляд таблицею
 list-view = Перегляд списком
 show-hidden-files = Показати приховані файли
+show-type-column = Показати стовпець типу
 list-directories-first = Теки спочатку
 menu-settings = Налаштування...
 menu-about = Про { earth-files }...
@@ -342,6 +353,8 @@ sort-newest-first = Спочатку найновіші
 sort-oldest-first = Спочатку найстаріші
 sort-smallest-to-largest = Від найменшого до найбільшого
 sort-largest-to-smallest = Від найбільшого до найменшого
+sort-type-a-z = Тип А-Я
+sort-type-z-a = Тип Я-А
 permanently-deleting =
     Остаточне вилучення { $items } { $items ->
         [one] елемента

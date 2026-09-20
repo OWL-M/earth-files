@@ -166,6 +166,7 @@ pub enum Action {
     TabViewList,
     ToggleFoldersFirst,
     ToggleShowHidden,
+    ToggleShowTypeColumn,
     ToggleSort(HeadingOptions),
     WindowClose,
     WindowNew,
@@ -245,6 +246,7 @@ impl Action {
             Self::TabViewList => Message::TabView(entity_opt, tab::View::List),
             Self::ToggleFoldersFirst => Message::ToggleFoldersFirst,
             Self::ToggleShowHidden => Message::ToggleShowHidden,
+            Self::ToggleShowTypeColumn => Message::ToggleShowTypeColumn,
             Self::ToggleSort(sort) => {
                 Message::TabMessage(entity_opt, tab::Message::ToggleSort(*sort))
             }
@@ -432,6 +434,7 @@ pub enum Message {
     ToggleContextPage(ContextPage),
     ToggleFoldersFirst,
     ToggleShowHidden,
+    ToggleShowTypeColumn,
     Undo(usize),
     UndoTrash(widget::ToastId, Arc<[PathBuf]>),
     UndoTrashStart(Vec<TrashItem>),
@@ -2218,6 +2221,10 @@ impl Application for App {
                 commands.push(crate::ui::task::message(crate::ui::Action::App(
                     Message::NetworkDriveOpenEntityAfterMount { entity: e },
                 )));
+            } else {
+                // Not in the sidebar: open it directly, the mounter mounts it as needed
+                let uri = location.to_string();
+                commands.push(app.open_tab(Location::Network(uri.clone(), uri, None), true, None));
             }
         }
 
@@ -4077,6 +4084,11 @@ impl Application for App {
             Message::ToggleShowHidden => {
                 let mut config = self.config.tab;
                 config.show_hidden = !config.show_hidden;
+                return self.update(Message::TabConfig(config));
+            }
+            Message::ToggleShowTypeColumn => {
+                let mut config = self.config.tab;
+                config.show_type_column = !config.show_type_column;
                 return self.update(Message::TabConfig(config));
             }
             Message::TabMessage(entity_opt, tab_message) => {

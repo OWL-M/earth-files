@@ -15,6 +15,16 @@ name = Имя
 modified = Изменено
 trashed-on = Удалено
 size = Размер
+type-heading = Тип
+file-type-folder = Папка
+file-type-image = Изображение
+file-type-video = Видео
+file-type-audio = Аудио
+file-type-text = Текст
+file-type-archive = Архив
+file-type-document = Документ
+file-type-program = Программа
+file-type-other = Прочее
 
 # Dialogs
 
@@ -238,6 +248,7 @@ view = Вид
 grid-view = Сетка
 list-view = Список
 show-hidden-files = Показывать скрытые файлы
+show-type-column = Показывать столбец типа
 list-directories-first = Показывать сначала папки
 menu-settings = Параметры...
 menu-about = О приложении { earth-files }...
@@ -251,6 +262,8 @@ sort-newest-first = Сначала новые
 sort-oldest-first = Сначала старые
 sort-smallest-to-largest = От меньшего к большему
 sort-largest-to-smallest = От большего к меньшему
+sort-type-a-z = Тип от А до Я
+sort-type-z-a = Тип от Я до А
 support = Поддержка
 repository = Репозиторий
 cancelled = Отменена

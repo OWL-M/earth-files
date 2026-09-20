@@ -28,6 +28,16 @@ name = Name
 modified = Modified
 trashed-on = Trashed
 size = Size
+type-heading = Type
+file-type-folder = Folder
+file-type-image = Image
+file-type-video = Video
+file-type-audio = Audio
+file-type-text = Text
+file-type-archive = Archive
+file-type-document = Document
+file-type-program = Program
+file-type-other = Other
 
 # Progress footer
 details = Details
@@ -387,6 +397,7 @@ view = View
 grid-view = Grid view
 list-view = List view
 show-hidden-files = Show hidden files
+show-type-column = Show type column
 list-directories-first = List directories first
 gallery-preview = Gallery preview
 menu-settings = Settings...
@@ -400,5 +411,7 @@ sort-newest-first = Newest first
 sort-oldest-first = Oldest first
 sort-smallest-to-largest = Smallest to largest
 sort-largest-to-smallest = Largest to smallest
+sort-type-a-z = Type A-Z
+sort-type-z-a = Type Z-A
 
 close = Close

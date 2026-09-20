@@ -253,10 +253,6 @@ impl<Message: 'static + Clone> Widget<Message, crate::ui::Theme, Renderer> for F
             translation,
         )
     }
-
-    // TODO(dnd): tab drag-to-reorder must be rebuilt on smithay-clipboard. iced
-    // 0.14's `Widget` has no `drag_destinations` pass-through, so the tab bar
-    // leaf is unreachable from the root walk.
 }
 
 impl<'a, Message: 'static + Clone> From<FlexRow<'a, Message>> for Element<'a, Message> {

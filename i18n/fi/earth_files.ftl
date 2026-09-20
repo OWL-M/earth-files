@@ -27,6 +27,16 @@ name = Nimi
 modified = Muokattu
 trashed-on = Siirretty roskakoriin
 size = Koko
+type-heading = Tyyppi
+file-type-folder = Kansio
+file-type-image = Kuva
+file-type-video = Video
+file-type-audio = Ääni
+file-type-text = Teksti
+file-type-archive = Arkisto
+file-type-document = Asiakirja
+file-type-program = Ohjelma
+file-type-other = Muu
 
 # Dialogs
 
@@ -280,6 +290,7 @@ view = Näytä
 grid-view = Ruudukkonäkymä
 list-view = Listanäkymä
 show-hidden-files = Näytä piilotetut tiedostot
+show-type-column = Näytä tyyppisarake
 list-directories-first = Näytä kansiot ensin
 gallery-preview = Gallerian esikatselu
 menu-settings = Asetukset…
@@ -294,6 +305,8 @@ sort-newest-first = Uusin ensin
 sort-oldest-first = Vanhin ensin
 sort-smallest-to-largest = Pienimmästä suurimpaan
 sort-largest-to-smallest = Suurimmasta pienimpään
+sort-type-a-z = Tyyppi A-Ö
+sort-type-z-a = Tyyppi Ö-A
 resume = Jatka
 extract-password-required = Salasana vaaditaan
 extract-to-title = Pura kansioon

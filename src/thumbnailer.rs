@@ -88,13 +88,16 @@ impl ThumbnailerCache {
             data_dir
         }));
 
+        // A thumbnailer file shadows any later directory's file of the same name,
+        // so the user's data home overrides the system thumbnailers
+        let mut seen_names = std::collections::HashSet::new();
         let mut thumbnailer_paths = Vec::new();
         for dir in search_dirs {
             log::trace!("looking for thumbnailers in {}", dir.display());
             match fs::read_dir(&dir) {
                 Ok(entries) => {
                     thumbnailer_paths.extend(entries.filter_map(|entry_res| {
-                        entry_res
+                        let entry = entry_res
                             .inspect_err(|err| {
                                 log::warn!(
                                     "failed to read entry in directory {}: {}",
@@ -102,8 +105,8 @@ impl ThumbnailerCache {
                                     err
                                 )
                             })
-                            .ok()
-                            .map(|entry| entry.path())
+                            .ok()?;
+                        seen_names.insert(entry.file_name()).then(|| entry.path())
                     }));
                 }
                 Err(err) => {
@@ -112,7 +115,6 @@ impl ThumbnailerCache {
             }
         }
 
-        //TODO: handle directory specific behavior
         for path in thumbnailer_paths {
             let entry = match GenericEntry::from_path(&path) {
                 Ok(ok) => ok,
@@ -122,7 +124,6 @@ impl ThumbnailerCache {
                 }
             };
 
-            //TODO: use TryExec?
             let Some(section) = entry.group("Thumbnailer Entry") else {
                 log::warn!(
                     "missing Thumbnailer Entry section for thumbnailer {}",
@@ -130,6 +131,15 @@ impl ThumbnailerCache {
                 );
                 continue;
             };
+            if let Some(try_exec) = section.entry("TryExec")
+                && !executable_exists(try_exec)
+            {
+                log::debug!(
+                    "skipping thumbnailer {}: TryExec {try_exec:?} not found",
+                    path.display()
+                );
+                continue;
+            }
             let Some(exec) = section.entry("Exec") else {
                 log::warn!("missing Exec attribute for thumbnailer {}", path.display());
                 continue;
@@ -163,6 +173,21 @@ impl ThumbnailerCache {
     pub fn get(&self, key: &Mime) -> Vec<Thumbnailer> {
         self.cache.get(key).map_or_else(Vec::new, Vec::clone)
     }
+}
+
+/// Whether `program` is an executable file, searched on `PATH` when relative.
+fn executable_exists(program: &str) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+    let is_executable = |path: &Path| {
+        fs::metadata(path).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
+    };
+    let program = Path::new(program);
+    if program.is_absolute() {
+        return is_executable(program);
+    }
+    std::env::var_os("PATH").is_some_and(|paths| {
+        std::env::split_paths(&paths).any(|dir| is_executable(&dir.join(program)))
+    })
 }
 
 static THUMBNAILER_CACHE: LazyLock<Mutex<ThumbnailerCache>> =

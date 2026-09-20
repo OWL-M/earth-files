@@ -23,6 +23,16 @@ name = ಹೆಸರು
 modified = ಮಾರ್ಪಡಿಸಿದ ದಿನಾಂಕ
 trashed-on = ಕಸದಲ್ಲಿ ಹಾಕಿದ ದಿನ
 size = ಗಾತ್ರ
+type-heading = ಪ್ರಕಾರ
+file-type-folder = ಫೋಲ್ಡರ್
+file-type-image = ಚಿತ್ರ
+file-type-video = ವೀಡಿಯೊ
+file-type-audio = ಆಡಿಯೊ
+file-type-text = ಪಠ್ಯ
+file-type-archive = ಆರ್ಕೈವ್
+file-type-document = ದಸ್ತಾವೇಜು
+file-type-program = ಪ್ರೋಗ್ರಾಂ
+file-type-other = ಇತರೆ
 
 # Dialogs
 
@@ -271,6 +281,7 @@ view = ದೃಶ್ಯ
 grid-view = ಗ್ರೀಡ್ ವೀಕ್ಷಣೆ
 list-view = ಪಟ್ಟಿಯ ವೀಕ್ಷಣೆ
 show-hidden-files = ಮರೆಮಾಡಿದ ಫೈಲ್‌ಗಳನ್ನು ತೋರಿಸಿ
+show-type-column = ಪ್ರಕಾರದ ಕಾಲಮ್ ತೋರಿಸಿ
 list-directories-first = ಡೈರೆಕ್ಟರಿಗಳನ್ನು ಮೊದಲು ತೋರಿಸಿ
 menu-settings = ಸೆಟ್ಟಿಂಗ್‌ಗಳು...
 menu-about = { earth-files } ಬಗ್ಗೆ...
@@ -284,3 +295,5 @@ sort-newest-first = ಹೊಸದರಿಂದ ಹಳೆಯದು
 sort-oldest-first = ಹಳೆಯದರಿಂದ ಹೊಸದು
 sort-smallest-to-largest = ಚಿಕ್ಕದರಿಂದ ದೊಡ್ಡದು
 sort-largest-to-smallest = ದೊಡ್ಡದರಿಂದ ಚಿಕ್ಕದು
+sort-type-a-z = ಪ್ರಕಾರ ಅ-ಆ ಕ್ರಮದಲ್ಲಿ ವಿಂಗಡಿಸಿ
+sort-type-z-a = ಪ್ರಕಾರ ಆ-ಅ ಕ್ರಮದಲ್ಲಿ ವಿಂಗಡಿಸಿ

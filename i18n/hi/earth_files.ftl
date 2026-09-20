@@ -23,6 +23,16 @@ name = नाम
 modified = संशोधित तिथि
 trashed-on = कचरे में डालने की तिथि
 size = आकार
+type-heading = प्रकार
+file-type-folder = फ़ोल्डर
+file-type-image = छवि
+file-type-video = वीडियो
+file-type-audio = ऑडियो
+file-type-text = पाठ
+file-type-archive = संग्रह
+file-type-document = दस्तावेज़
+file-type-program = प्रोग्राम
+file-type-other = अन्य
 
 # Dialogs
 
@@ -270,6 +280,7 @@ view = दृश्य
 grid-view = ग्रिड दृश्य
 list-view = सूची दृश्य
 show-hidden-files = छिपी हुई फाइलें दिखाएँ
+show-type-column = प्रकार कॉलम दिखाएँ
 list-directories-first = सबसे पहले डाइरेक्ट्री दिखाएँ
 menu-settings = सेटिंग्स..।
 menu-about = { earth-files } के बारे में...
@@ -283,6 +294,8 @@ sort-newest-first = नए से पुराने
 sort-oldest-first = पुराने से नए
 sort-smallest-to-largest = छोटे से बड़े
 sort-largest-to-smallest = बड़े से छोटे
+sort-type-a-z = प्रकार अ-ह क्रम में क्रमबद्ध करें
+sort-type-z-a = प्रकार ह-अ क्रम में क्रमबद्ध करें
 repository = रिपॉजिटरी
 support = समर्थन
 read-execute = पढ़ें और निष्पादित करें

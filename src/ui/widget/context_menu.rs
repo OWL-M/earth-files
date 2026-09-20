@@ -361,10 +361,6 @@ impl<Message: 'static + Clone> Widget<Message, crate::ui::Theme, iced::Renderer>
         )
     }
 
-    // TODO(dnd): tab drag-to-reorder must be rebuilt on smithay-clipboard. iced
-    // 0.14's `Widget` has no `drag_destinations` pass-through, so the tab bar
-    // leaf is unreachable from the root walk.
-
     fn operate(
         &mut self,
         tree: &mut Tree,
