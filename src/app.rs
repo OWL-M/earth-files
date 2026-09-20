@@ -3365,6 +3365,12 @@ impl Application for App {
                     {
                         let mut contains_change = false;
                         for event in &events {
+                            // Opening or reading a file changes nothing in the listing.
+                            // Reacting to it would rescan, and a rescan reads every file's
+                            // header for its type, which raises these events again.
+                            if matches!(event.kind, notify::EventKind::Access(_)) {
+                                continue;
+                            }
                             for event_path in &event.paths {
                                 if event_path.starts_with(path) {
                                     if let notify::EventKind::Modify(
