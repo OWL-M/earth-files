@@ -235,6 +235,8 @@ removed-from-recents =
     } iš { recents }
 renaming = Pervadinamas „{ $from }“ į „{ $to }“
 renamed = „{ $from }“ pervadintas į „{ $to }“
+renaming-many = Pervadinama: { item-count }
+renamed-many = Pervadinta: { item-count }
 restoring =
     { $items } { $items ->
         [one] Atkuriamas elementas

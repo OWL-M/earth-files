@@ -323,6 +323,8 @@ removed-from-recents =
     } de { recents }
 renaming = Renomeando "{ $from }" para "{ $to }"
 renamed = "{ $from }" renomeado para "{ $to }"
+renaming-many = Renomeando { item-count }
+renamed-many = { item-count } renomeados
 restoring =
     Restaurando { $items } { $items ->
         [one] item

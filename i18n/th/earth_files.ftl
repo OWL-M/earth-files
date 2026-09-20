@@ -226,6 +226,8 @@ moved =
     } จาก "{ $from }" สู่ "{ $to }"
 renaming = กำลังเปลี่ยนชื่อจาก "{ $from }" เป็น "{ $to }"
 renamed = เปลี่ยนชื่อจาก "{ $from }" เป็น "{ $to }" แล้ว
+renaming-many = กำลังเปลี่ยนชื่อ { item-count }
+renamed-many = เปลี่ยนชื่อ { item-count } แล้ว
 restoring = กำลังกู้คืน { $items } รายการจาก { trash } ({ $progress })...
 restored = กู้คืน { $items } รายการจาก { trash } แล้ว
 unknown-folder = แฟ้มที่ไม่รู้จัก

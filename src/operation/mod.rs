@@ -320,6 +320,22 @@ impl Operation {
                 from: to.clone(),
                 to: from.clone(),
             }],
+            Self::BatchRename { renames } => {
+                // Only the renames that went through are reversed, last first
+                let done =
+                    |to: &PathBuf| result.selected.is_empty() || result.selected.contains(to);
+                let renames: Vec<_> = renames
+                    .iter()
+                    .rev()
+                    .filter(|(_, to)| done(to))
+                    .map(|(from, to)| (to.clone(), from.clone()))
+                    .collect();
+                if renames.is_empty() {
+                    Vec::new()
+                } else {
+                    vec![Self::BatchRename { renames }]
+                }
+            }
             Self::Move { paths, .. } => {
                 // Each moved item goes back to the folder it came from
                 let mut by_parent: FxOrderMap<PathBuf, Vec<PathBuf>> = FxOrderMap::default();
@@ -373,6 +389,7 @@ impl Operation {
     pub fn is_applicable(&self) -> bool {
         match self {
             Self::Rename { from, .. } => from.exists(),
+            Self::BatchRename { renames } => renames.iter().all(|(from, _)| from.exists()),
             Self::Move { paths, to, .. } => to.is_dir() && paths.iter().all(|p| p.exists()),
             Self::PermanentlyDelete { paths } => paths.iter().all(|p| p.exists()),
             Self::Delete { paths } => paths.iter().all(|p| p.exists()),
@@ -547,6 +564,10 @@ pub enum Operation {
         from: PathBuf,
         to: PathBuf,
     },
+    /// Rename several items as one step, in order
+    BatchRename {
+        renames: Vec<(PathBuf, PathBuf)>,
+    },
     /// Restore a path from the trash
     Restore {
         items: Vec<trash::TrashItem>,
@@ -681,6 +702,7 @@ impl Operation {
             Self::Rename { from, to } => {
                 fl!("renaming", from = file_name(from), to = file_name(to))
             }
+            Self::BatchRename { renames } => fl!("renaming-many", count = renames.len()),
             Self::RemoveFromRecents { paths } => fl!("removing-from-recents", items = paths.len()),
             Self::Restore { items } => fl!("restoring", items = items.len(), progress = progress()),
             Self::SetExecutableAndLaunch { path } => {
@@ -743,6 +765,7 @@ impl Operation {
             Self::PermanentlyDelete { paths } => fl!("permanently-deleted", items = paths.len()),
             Self::RemoveFromRecents { paths } => fl!("removed-from-recents", items = paths.len()),
             Self::Rename { from, to } => fl!("renamed", from = file_name(from), to = file_name(to)),
+            Self::BatchRename { renames } => fl!("renamed-many", count = renames.len()),
             Self::Restore { items } => fl!("restored", items = items.len()),
             Self::SetExecutableAndLaunch { path } => {
                 fl!("set-executable-and-launched", name = file_name(path))
@@ -768,6 +791,7 @@ impl Operation {
             | Self::Extract { .. }
             | Self::Move { .. }
             | Self::PermanentlyDelete { .. }
+            | Self::BatchRename { .. }
             | Self::Restore { .. } => true,
             Self::NewFile { .. }
             | Self::NewFolder { .. }
@@ -1292,6 +1316,30 @@ impl Operation {
             }
             .await
             .map_err(wrap_compio_spawn_error)?,
+            Self::BatchRename { renames } => {
+                let controller_clone = controller.clone();
+
+                compio::runtime::spawn(async move {
+                    let controller = controller_clone;
+                    let total = renames.len();
+                    let mut op_sel = OperationSelection::default();
+                    for (i, (from, to)) in renames.into_iter().enumerate() {
+                        controller
+                            .check()
+                            .await
+                            .map_err(|s| OperationError::from_state(s, &controller))?;
+                        controller.set_progress((i as f32) / (total as f32));
+                        compio::fs::rename(&from, &to)
+                            .await
+                            .map_err(|e| OperationError::from_err(e, &controller))?;
+                        op_sel.ignored.push(from);
+                        op_sel.selected.push(to);
+                    }
+                    Result::<_, OperationError>::Ok(op_sel)
+                })
+            }
+            .await
+            .map_err(wrap_compio_spawn_error)?,
             Self::Restore { items } => {
                 let total = items.len();
                 let mut paths = Vec::with_capacity(total);
@@ -1576,6 +1624,25 @@ mod tests {
                 to: "/a/x".into()
             }]
         );
+
+        // A batch reverses only the renames that went through, last first
+        let batch = Operation::BatchRename {
+            renames: vec![
+                ("/a/1".into(), "/a/one".into()),
+                ("/a/2".into(), "/a/two".into()),
+                ("/a/3".into(), "/a/three".into()),
+            ],
+        };
+        assert_eq!(
+            batch.undo(&sel(&["/a/one", "/a/two"])),
+            vec![Operation::BatchRename {
+                renames: vec![
+                    ("/a/two".into(), "/a/2".into()),
+                    ("/a/one".into(), "/a/1".into()),
+                ],
+            }]
+        );
+        assert_eq!(batch.undo(&OperationSelection::default()).len(), 1);
 
         // Move sends each item back to its own source folder
         let mv = Operation::Move {

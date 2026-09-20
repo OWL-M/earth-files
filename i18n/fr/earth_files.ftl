@@ -301,6 +301,8 @@ permanently-deleted =
     } définitivement
 renaming = Renommage de "{ $from }" en "{ $to }"
 renamed = "{ $from }" renommé en "{ $to }"
+renaming-many = Renommage de { item-count }
+renamed-many = { item-count } renommés
 restoring =
     Restauration de { $items } { $items ->
         [one] élément

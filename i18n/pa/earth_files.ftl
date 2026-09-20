@@ -208,6 +208,8 @@ creating = "{ $parent }" ਵਿੱਚ "{ $name }" ਨੂੰ ਬਣਾਇਆ ਜ�
 created = "{ $parent }" ਵਿੱਚ "{ $name }" ਨੂੰ ਬਣਾਇਆ ਗਿਆ
 renaming = "{ $from }" ਦਾ ਨਾਂ "{ $to }" ਬਦਲਿਆ ਜਾ ਰਿਹਾ ਹੈ
 renamed = "{ $from }" ਦਾ ਨਾਂ ਬਦਲ ਕੇ "{ $to }" ਕੀਤਾ ਗਿਆ
+renaming-many = { item-count } ਦਾ ਨਾਂ ਬਦਲਿਆ ਜਾ ਰਿਹਾ ਹੈ
+renamed-many = { item-count } ਦਾ ਨਾਂ ਬਦਲਿਆ ਗਿਆ
 items = ਚੀਜ਼ਾਂ: { $items }
 item-count = {$count ->
         [one] {$count} ਆਈਟਮ

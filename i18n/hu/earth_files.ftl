@@ -317,6 +317,8 @@ removed-from-recents =
     } eltávolítva a { recents }ból
 renaming = „{ $from }” átnevezése erre: „{ $to }”
 renamed = „{ $from }” átnevezve erre: „{ $to }”
+renaming-many = { item-count } átnevezése
+renamed-many = { item-count } átnevezve
 restoring =
     { $items } { $items ->
         [one] elem

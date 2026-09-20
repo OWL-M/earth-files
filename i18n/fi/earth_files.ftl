@@ -207,6 +207,8 @@ moved =
     } sijainnista "{ $from }" kohteeseen "{ $to }"
 renaming = Nimetään kohde "{ $from }" muotoon "{ $to }"
 renamed = Nimetty kohde "{ $from }" muotoon "{ $to }"
+renaming-many = Nimetään uudelleen { item-count }
+renamed-many = Nimetty uudelleen { item-count }
 restoring =
     Palautetaan { $items } { $items ->
         [one] kohde

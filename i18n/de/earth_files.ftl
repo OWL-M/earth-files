@@ -297,6 +297,8 @@ permanently-deleted =
     } endgültig gelöscht
 renaming = „{ $from }“ wird in „{ $to }“ umbenannt
 renamed = „{ $from }“ wurde in „{ $to }“ umbenannt
+renaming-many = { item-count } werden umbenannt
+renamed-many = { item-count } umbenannt
 restoring =
     { $items } { $items ->
         [one] Element wird

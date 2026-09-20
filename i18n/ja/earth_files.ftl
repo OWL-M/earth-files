@@ -170,6 +170,8 @@ moved =
     }
 renaming = { $from }を{ $to }に変更中
 renamed = { $from }を{ $to }に変更完了
+renaming-many = { item-count } の名前を変更中
+renamed-many = { item-count } の名前を変更しました
 restoring =
     { trash }から{ $items }個のアイテムを復元中 ({ $progress }) { $items ->
         [one] 項目

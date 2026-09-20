@@ -320,6 +320,8 @@ removed-from-recents =
     } z Poprzednich
 renaming = Zmieniana nazwa z „{ $from }” na „{ $to }”
 renamed = Zmieniono nazwę z „{ $from }” na „{ $to }”
+renaming-many = Zmienianie nazwy: { item-count }
+renamed-many = Zmieniono nazwę: { item-count }
 restoring =
     Przywracanie { $items } { $items ->
         [one] elementu

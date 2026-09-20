@@ -246,6 +246,8 @@ removed-from-recents =
     } dihapus dari { recents }
 renaming = Mengganti nama "{ $from }" ke "{ $to }"
 renamed = Nama diganti "{ $from }" ke "{ $to }"
+renaming-many = Mengganti nama { item-count }
+renamed-many = { item-count } diganti namanya
 restoring =
     Memulihkan { $items } { $items ->
         [one] item

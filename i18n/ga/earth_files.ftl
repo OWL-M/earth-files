@@ -284,6 +284,8 @@ moved =
     } ó "{ $from }" go "{ $to }"
 renaming = Ag athainmniú "{ $from }" go "{ $to }"
 renamed = Athainmnithe "{ $from }" go "{ $to }"
+renaming-many = { item-count } á n-athainmniú
+renamed-many = Athainmníodh { item-count }
 restoring =
     Ag athchóiriú{ $items } { $items ->
         [one] mhír

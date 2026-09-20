@@ -326,6 +326,8 @@ removed-from-recents =
     } úr { recents }
 renaming = Endurnefni „{ $from }“ í „{ $to }“
 renamed = Endurnefndi „{ $from }“ í „{ $to }“
+renaming-many = Endurnefni { item-count }
+renamed-many = Endurnefndi { item-count }
 restoring =
     Endurheimti { $items } { $items ->
         [one] atriði

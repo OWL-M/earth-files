@@ -322,6 +322,8 @@ permanently-deleted =
     }
 renaming = Cambiando el nombre de "{ $from }" a "{ $to }"
 renamed = Se ha cambiado el nombre de "{ $from }" a "{ $to }"
+renaming-many = Renombrando { item-count }
+renamed-many = Se han renombrado { item-count }
 restoring =
     Restaurando { $items } { $items ->
         [one] elemento

@@ -315,6 +315,8 @@ removed-from-recents =
     }
 renaming = 正在将“{ $from }”重命名为“{ $to }”
 renamed = 已重命名 “{ $from }” 为 “{ $to }”
+renaming-many = 正在重命名 { item-count }
+renamed-many = 已重命名 { item-count }
 restoring =
     正在从{ trash }中还原 { $items } { $items ->
         [one] 项目

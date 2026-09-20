@@ -1373,6 +1373,12 @@ impl App {
                     if self.update_favorites([(from, to)].as_slice()) {
                         commands.push(self.update_config());
                     }
+                } else if let Operation::BatchRename { ref renames } = op {
+                    let path_changes: Box<[_]> =
+                        renames.iter().map(|(from, to)| (from, to)).collect();
+                    if self.update_favorites(&path_changes) {
+                        commands.push(self.update_config());
+                    }
                 } else if let Operation::Move {
                     ref paths, ref to, ..
                 } = op
@@ -3079,14 +3085,13 @@ impl Application for App {
                             let tags = batch_rename::Tags::localized();
                             let preview = batch_rename::preview(&parent, &names, &settings, &tags);
                             if preview.ready() {
-                                for row in preview.rows {
-                                    if row.old != row.new {
-                                        tasks.push(self.operation(Operation::Rename {
-                                            from: parent.join(&row.old),
-                                            to: parent.join(&row.new),
-                                        }));
-                                    }
-                                }
+                                let renames = preview
+                                    .rows
+                                    .iter()
+                                    .filter(|row| row.old != row.new)
+                                    .map(|row| (parent.join(&row.old), parent.join(&row.new)))
+                                    .collect();
+                                tasks.push(self.operation(Operation::BatchRename { renames }));
                             }
                         }
                         DialogPage::Replace { .. } => {

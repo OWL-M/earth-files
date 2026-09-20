@@ -312,6 +312,8 @@ moved =
     } da "{ $from }" a "{ $to }"
 renaming = Rinominazione di "{ $from }" in "{ $to }"
 renamed = Rinominato "{ $from }" in "{ $to }"
+renaming-many = Rinominazione di { item-count }
+renamed-many = Rinominati { item-count }
 restoring =
     Ripristino in corso di { $items } { $items ->
         [one] elemento

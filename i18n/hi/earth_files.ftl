@@ -203,6 +203,8 @@ moved =
     } से { $from } तक { $to } स्थानांतरित किया गया
 renaming = { $from } से { $to } तक नाम बदला जा रहा है
 renamed = { $from } से { $to } तक नाम बदला गया
+renaming-many = { item-count } का नाम बदला जा रहा है
+renamed-many = { item-count } का नाम बदला गया
 restoring =
     { $items } { $items ->
         [one] आइटम

@@ -218,6 +218,8 @@ moved =
     } ನಿಂದ { $from } ಗೆ { $to } ಸ್ಥಳಾಂತರಿಸಲಾಯಿತು
 renaming = { $from } ನಿಂದ { $to } ಗೆ ಹೆಸರು ಬದಲಾಯಿಸಲಾಗುತ್ತಿದೆ
 renamed = { $from } ನಿಂದ { $to } ಗೆ ಹೆಸರು ಬದಲಾಯಿಸಲಾಯಿತು
+renaming-many = { item-count } ಮರುಹೆಸರಿಸಲಾಗುತ್ತಿದೆ
+renamed-many = { item-count } ಮರುಹೆಸರಿಸಲಾಗಿದೆ
 restoring =
     { $items } { $items ->
         [one] ಐಟಂ    

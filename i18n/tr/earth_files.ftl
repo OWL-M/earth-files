@@ -237,6 +237,8 @@ moved =
     } "{ $from }" den "{ $to }" e taşındı
 renaming = "{ $from }" adı "{ $to }" olarak değiştiriliyor
 renamed = "{ $from }" adı "{ $to }" olarak değiştirildi
+renaming-many = { item-count } yeniden adlandırılıyor
+renamed-many = { item-count } yeniden adlandırıldı
 restoring =
     { $items } { $items ->
         [one] öge

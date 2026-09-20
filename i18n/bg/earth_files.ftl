@@ -333,6 +333,8 @@ removed-from-recents =
     } от { recents }
 renaming = Преименуване на „{ $from }“ на „{ $to }“
 renamed = „{ $from }“ е преименувано на „{ $to }“
+renaming-many = Преименуване на { item-count }
+renamed-many = Преименувани: { item-count }
 restoring =
     Възстановяване на { $items } { $items ->
         [one] елемент

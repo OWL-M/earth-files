@@ -354,6 +354,8 @@ permanently-deleted =
     }
 write-execute = Nivîsandin û xebitandin
 renaming = Navê ji "{ $from }" biguhêrîne bo "{ $to }"
+renaming-many = Navê { item-count } tê guhertin
+renamed-many = Navê { item-count } hat guhertin
 set-executable-and-launch-description = Tu dixwazî "{ $name }" wekî pelê xebitandinê saz bikî û bixebtînî?
 replace = Biguhêrîne
 replace-title = "{ $filename }" jixwe di vê cihê de heye

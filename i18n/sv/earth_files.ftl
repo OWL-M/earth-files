@@ -229,6 +229,8 @@ moved =
     } från "{ $from }" till "{ $to }"
 renaming = Byter namn på "{ $from }" till "{ $to }"
 renamed = Bytt namn på "{ $from }" till "{ $to }"
+renaming-many = Byter namn på { item-count }
+renamed-many = Bytte namn på { item-count }
 restoring =
     Återställer { $items } { $items ->
         [one] objekt

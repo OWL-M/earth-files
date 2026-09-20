@@ -158,6 +158,8 @@ item-count = {$count ->
         [one] {$count} üksus
        *[other] {$count} üksust
     }
+renaming-many = Nimetan ümber { item-count }
+renamed-many = Ümber nimetatud: { item-count }
 item-size = Suurus: { $size }
 item-created = Loodud: { $created }
 item-modified = Muudetud: { $modified }

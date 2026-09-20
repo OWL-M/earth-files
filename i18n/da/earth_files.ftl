@@ -222,6 +222,8 @@ moved =
     } fra "{ $from }" til "{ $to }"
 renaming = Omdøber "{ $from }" til "{ $to }"
 renamed = Omdøbt "{ $from }" til "{ $to }"
+renaming-many = Omdøber { item-count }
+renamed-many = Omdøbte { item-count }
 restoring =
     Genopretter { $items } { $items ->
         [one] objekt

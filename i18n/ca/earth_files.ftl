@@ -275,6 +275,8 @@ moved =
     } de "{ $from }" a "{ $to }"
 renaming = S'està canviant el nom de "{ $from }" a "{ $to }"
 renamed = S'ha canviat el nom de "{ $from }" a "{ $to }"
+renaming-many = S'està canviant el nom de { item-count }
+renamed-many = S'ha canviat el nom de { item-count }
 restoring =
     { $items ->
         [one] S'està restaurant { $items } element

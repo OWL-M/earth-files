@@ -320,6 +320,8 @@ permanently-deleted =
     } permanent verwijderd
 renaming = '{ $from }' als '{ $to }' hernoemen
 renamed = '{ $from }' als '{ $to }' hernoemd
+renaming-many = { item-count } hernoemen
+renamed-many = { item-count } hernoemd
 restoring =
     { $items } { $items ->
         [one] bestand

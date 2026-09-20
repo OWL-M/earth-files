@@ -292,6 +292,8 @@ moved =
     } din „{ $from }” în „{ $to }”
 renaming = Se redenumește „{ $from }” în „{ $to }”
 renamed = S-a redenumit „{ $from }” în „{ $to }”
+renaming-many = Se redenumesc { item-count }
+renamed-many = S-au redenumit { item-count }
 restoring =
     Se restabilește { $items } { $items ->
         [one] element

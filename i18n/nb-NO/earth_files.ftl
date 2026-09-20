@@ -270,6 +270,8 @@ removed-from-recents =
     } fra { recents }
 renaming = Bytter navn «{ $from }» til «{ $to }»
 renamed = Byttet navn «{ $from }» til «{ $to }»
+renaming-many = Gir nytt navn til { item-count }
+renamed-many = Ga nytt navn til { item-count }
 restoring =
     Gjenopretter { $items } { $items ->
         [one] objekt

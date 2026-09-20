@@ -327,6 +327,8 @@ permanently-deleted =
     }
 renaming = Перайменаванне { $from } у { $to }
 renamed = Перайменавана { $from } у { $to }
+renaming-many = Перайменаванне: { item-count }
+renamed-many = Перайменавана: { item-count }
 restoring =
     Аднаўленне { $items } { $items ->
         [one] элемента

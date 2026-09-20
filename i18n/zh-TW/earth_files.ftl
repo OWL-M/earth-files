@@ -174,6 +174,8 @@ moved =
     } 從「{ $from }」至「{ $to }」
 renaming = 正在將「{ $from }」重新命名為「{ $to }」
 renamed = 已將「{ $from }」重新命名為「{ $to }」
+renaming-many = 正在重新命名 { item-count }
+renamed-many = 已重新命名 { item-count }
 restoring =
     正在還原 { $items } 項目 { $items ->
         [one] 項目

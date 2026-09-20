@@ -365,6 +365,8 @@ removed-from-recents =
     } z { recents }
 renaming = Premenovávam "{ $from }" na "{ $to }"
 renamed = Premenované "{ $from }" na "{ $to }"
+renaming-many = Premenováva sa { item-count }
+renamed-many = Premenované: { item-count }
 restoring =
     Obnovujem { $items } { $items ->
         [one] položku

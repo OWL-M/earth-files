@@ -169,6 +169,8 @@ moved =
     } из «{ $from }» в «{ $to }»
 renaming = Переименование «{ $from }» в «{ $to }»
 renamed = «{ $from }» переименован в «{ $to }»
+renaming-many = Переименование: { item-count }
+renamed-many = Переименовано: { item-count }
 restoring =
     Восстановление { $items } { $items ->
         [one] элемента

@@ -235,6 +235,8 @@ removed-from-recents =
     } { recents } тізімінен өшірілді
 renaming = "{ $from }" атын "{ $to }" деп өзгерту
 renamed = "{ $from }" аты "{ $to }" деп өзгертілді
+renaming-many = { item-count } атауы өзгертілуде
+renamed-many = { item-count } атауы өзгертілді
 restoring =
     { $items } { $items ->
         [one] нәрсені
