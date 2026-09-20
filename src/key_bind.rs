@@ -3,11 +3,17 @@ use crate::ui::iced::keyboard::Key;
 use crate::ui::widget::menu::key_bind::{KeyBind, Modifier};
 use std::collections::HashMap;
 
+use crate::FxOrderMap;
 use crate::app::Action;
 use crate::tab;
 
-//TODO: load from config
-pub fn key_binds(mode: &tab::Mode) -> HashMap<KeyBind, Action> {
+/// The built-in shortcuts for `mode`, with the user's `overrides` from the
+/// config applied on top. An override replaces whatever the same shortcut was
+/// bound to; entries that fail to parse are logged and skipped.
+pub fn key_binds(
+    mode: &tab::Mode,
+    overrides: &FxOrderMap<String, Action>,
+) -> HashMap<KeyBind, Action> {
     let mut key_binds = HashMap::new();
 
     macro_rules! bind {
@@ -86,5 +92,172 @@ pub fn key_binds(mode: &tab::Mode) -> HashMap<KeyBind, Action> {
         bind!([Ctrl], Key::Character("f".into()), SearchActivate);
     }
 
+    for (shortcut, action) in overrides {
+        match parse_key_bind(shortcut) {
+            Some(key_bind) => {
+                key_binds.retain(|existing, _| !same_shortcut(existing, &key_bind));
+                key_binds.insert(key_bind, *action);
+            }
+            None => log::warn!("ignoring invalid shortcut {shortcut:?} in config"),
+        }
+    }
+
     key_binds
+}
+
+/// Whether two bindings are the same shortcut, ignoring modifier order.
+fn same_shortcut(a: &KeyBind, b: &KeyBind) -> bool {
+    a.key == b.key
+        && a.modifiers.len() == b.modifiers.len()
+        && a.modifiers.iter().all(|m| b.modifiers.contains(m))
+}
+
+/// Parse a shortcut such as `Ctrl+Shift+N`, `Alt+ArrowLeft` or `F5`.
+///
+/// Modifiers are `Ctrl`, `Alt`, `Shift` and `Super`, in any order and case.
+/// The key is a single character, a named key (`Enter`, `Tab`, `Backspace`,
+/// `Delete`, `Escape`, `Insert`, `Home`, `End`, `PageUp`, `PageDown`, `Up`,
+/// `Down`, `Left`, `Right`, `F1`..`F12`), or `Space` / `Plus` for the two
+/// characters that cannot be written literally.
+pub fn parse_key_bind(shortcut: &str) -> Option<KeyBind> {
+    let mut modifiers = Vec::new();
+    let mut tokens = shortcut.split('+').map(str::trim).peekable();
+    let mut key = None;
+    while let Some(token) = tokens.next() {
+        if tokens.peek().is_none() {
+            key = Some(parse_key(token)?);
+        } else {
+            let modifier = match token.to_ascii_lowercase().as_str() {
+                "ctrl" | "control" => Modifier::Ctrl,
+                "alt" => Modifier::Alt,
+                "shift" => Modifier::Shift,
+                "super" | "meta" | "logo" | "win" => Modifier::Super,
+                _ => return None,
+            };
+            if !modifiers.contains(&modifier) {
+                modifiers.push(modifier);
+            }
+        }
+    }
+    // The defaults list modifiers in enum order; match it so lookups agree
+    modifiers.sort();
+    Some(KeyBind {
+        modifiers,
+        key: key?,
+    })
+}
+
+fn parse_key(token: &str) -> Option<Key> {
+    let named = match token.to_ascii_lowercase().as_str() {
+        "enter" | "return" => Named::Enter,
+        "tab" => Named::Tab,
+        "backspace" => Named::Backspace,
+        "delete" | "del" => Named::Delete,
+        "escape" | "esc" => Named::Escape,
+        "insert" => Named::Insert,
+        "home" => Named::Home,
+        "end" => Named::End,
+        "pageup" => Named::PageUp,
+        "pagedown" => Named::PageDown,
+        "up" | "arrowup" => Named::ArrowUp,
+        "down" | "arrowdown" => Named::ArrowDown,
+        "left" | "arrowleft" => Named::ArrowLeft,
+        "right" | "arrowright" => Named::ArrowRight,
+        "f1" => Named::F1,
+        "f2" => Named::F2,
+        "f3" => Named::F3,
+        "f4" => Named::F4,
+        "f5" => Named::F5,
+        "f6" => Named::F6,
+        "f7" => Named::F7,
+        "f8" => Named::F8,
+        "f9" => Named::F9,
+        "f10" => Named::F10,
+        "f11" => Named::F11,
+        "f12" => Named::F12,
+        "space" => return Some(Key::Character(" ".into())),
+        "plus" => return Some(Key::Character("+".into())),
+        _ => {
+            let mut chars = token.chars();
+            let c = chars.next()?;
+            if chars.next().is_some() {
+                return None;
+            }
+            return Some(Key::Character(c.to_lowercase().collect::<String>().into()));
+        }
+    };
+    Some(Key::Named(named))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Action, FxOrderMap, Key, KeyBind, Modifier, Named, key_binds, parse_key_bind};
+    use crate::tab;
+
+    fn bind(modifiers: &[Modifier], key: Key) -> KeyBind {
+        KeyBind {
+            modifiers: modifiers.to_vec(),
+            key,
+        }
+    }
+
+    #[test]
+    fn parses_modifiers_in_any_order_and_case() {
+        let expected = bind(
+            &[Modifier::Ctrl, Modifier::Shift],
+            Key::Character("n".into()),
+        );
+        assert_eq!(parse_key_bind("Ctrl+Shift+N"), Some(expected.clone()));
+        assert_eq!(parse_key_bind("shift + ctrl + n"), Some(expected));
+    }
+
+    #[test]
+    fn parses_named_and_special_keys() {
+        assert_eq!(parse_key_bind("F5"), Some(bind(&[], Key::Named(Named::F5))));
+        assert_eq!(
+            parse_key_bind("Alt+ArrowLeft"),
+            Some(bind(&[Modifier::Alt], Key::Named(Named::ArrowLeft)))
+        );
+        assert_eq!(
+            parse_key_bind("Space"),
+            Some(bind(&[], Key::Character(" ".into())))
+        );
+        assert_eq!(
+            parse_key_bind("Ctrl+Plus"),
+            Some(bind(&[Modifier::Ctrl], Key::Character("+".into())))
+        );
+    }
+
+    #[test]
+    fn rejects_invalid_shortcuts() {
+        assert_eq!(parse_key_bind("Bogus+X"), None);
+        assert_eq!(parse_key_bind("Ctrl+"), None);
+        assert_eq!(parse_key_bind("Ctrl+Ab"), None);
+        assert_eq!(parse_key_bind(""), None);
+    }
+
+    #[test]
+    fn overrides_replace_and_extend_defaults() {
+        let mut overrides = FxOrderMap::default();
+        overrides.insert("ctrl + h".to_string(), Action::Reload);
+        overrides.insert("F9".to_string(), Action::Reload);
+        overrides.insert("Nonsense".to_string(), Action::Reload);
+        let binds = key_binds(&tab::Mode::App, &overrides);
+
+        let ctrl_h: Vec<_> = binds
+            .iter()
+            .filter(|(kb, _)| kb.key == Key::Character("h".into()))
+            .collect();
+        assert_eq!(ctrl_h.len(), 1, "one Ctrl+H binding: {ctrl_h:?}");
+        assert_eq!(*ctrl_h[0].1, Action::Reload);
+        assert_eq!(
+            binds.get(&bind(&[], Key::Named(Named::F9))),
+            Some(&Action::Reload)
+        );
+        // Untouched defaults survive
+        assert_eq!(
+            binds.get(&bind(&[], Key::Named(Named::F5))),
+            Some(&Action::Reload)
+        );
+    }
 }

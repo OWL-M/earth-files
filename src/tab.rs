@@ -38,7 +38,7 @@ use std::hash::Hash;
 use std::io::{BufRead, BufReader, Read};
 use std::os::unix::fs::MetadataExt;
 use std::path::{self, Path, PathBuf};
-use std::sync::{Arc, LazyLock, RwLock, atomic};
+use std::sync::{Arc, LazyLock, Mutex, RwLock, atomic};
 use std::time::{Duration, Instant, SystemTime};
 use tempfile::NamedTempFile;
 use tokio::sync::mpsc;
@@ -69,10 +69,7 @@ use crate::ui::convert::{ToPadding, ToPixels};
 
 pub const DOUBLE_CLICK_DURATION: Duration = Duration::from_millis(500);
 pub const TYPE_SELECT_TIMEOUT: Duration = Duration::from_millis(1000);
-//TODO: best limit for search items
 const MAX_SEARCH_LATENCY: Duration = Duration::from_millis(20);
-const MAX_SEARCH_RESULTS: usize = 200;
-//TODO: configurable thumbnail size?
 const THUMBNAIL_SIZE: u32 = (ICON_SIZE_GRID as u32) * (ICON_SCALE_MAX as u32);
 /// Maximum bytes of text to pass to the editor for preview; caps shaping work to avoid blocking.
 /// Files larger than this get a truncated preview (first N bytes only).
@@ -323,12 +320,10 @@ fn tab_complete(path: &Path) -> Result<Vec<(String, PathBuf)>, Box<dyn Error>> {
     }
 
     completions.sort_by(|a, b| LANGUAGE_SORTER.compare(&a.0, &b.0));
-    //TODO: make the list scrollable?
     completions.truncate(8);
     Ok(completions)
 }
 
-//TODO: translate, add more levels?
 fn format_size(size: u64) -> String {
     const KB: u64 = 1000;
     const MB: u64 = 1000 * KB;
@@ -444,11 +439,27 @@ pub enum FsKind {
     Gvfs,
 }
 
+/// Device numbers of the mounted filesystems and their kind, read from
+/// `/proc/self/mountinfo` and refreshed after [`FS_KINDS_TTL`] so mounts made
+/// after startup are classified too.
+static FS_KINDS: Mutex<Option<(Instant, FxHashMap<u64, FsKind>)>> = Mutex::new(None);
+const FS_KINDS_TTL: Duration = Duration::from_secs(5);
+
 pub fn fs_kind(metadata: &Metadata) -> FsKind {
-    //TODO: method to reload remote filesystems dynamically
-    //TODO: fix for https://github.com/eminence/procfs/issues/262
-    static DEVICES: LazyLock<FxHashMap<u64, FsKind>> = LazyLock::new(|| {
-        let mut devices = FxHashMap::default();
+    let mut guard = FS_KINDS.lock().unwrap_or_else(|e| e.into_inner());
+    if guard
+        .as_ref()
+        .is_none_or(|(read_at, _)| read_at.elapsed() >= FS_KINDS_TTL)
+    {
+        *guard = Some((Instant::now(), read_fs_kinds()));
+    }
+    let (_, devices) = guard.as_ref().expect("filled above");
+    devices.get(&metadata.dev()).map_or(FsKind::Local, |x| *x)
+}
+
+fn read_fs_kinds() -> FxHashMap<u64, FsKind> {
+    let mut devices = FxHashMap::default();
+    {
         match procfs::process::Process::myself() {
             Ok(process) => match process.mountinfo() {
                 Ok(mount_infos) => {
@@ -500,9 +511,8 @@ pub fn fs_kind(metadata: &Metadata) -> FsKind {
                 log::warn!("failed to get process info: {err}");
             }
         }
-        devices
-    });
-    DEVICES.get(&metadata.dev()).map_or(FsKind::Local, |x| *x)
+    }
+    devices
 }
 
 #[cfg(not(feature = "desktop"))]
@@ -4497,6 +4507,7 @@ impl Tab {
                 }
             }
             Message::SearchReady(finished) => {
+                let max_results = usize::from(self.config.max_search_results.get());
                 if let Some(context) = &mut self.search_context {
                     if let Some(items) = &mut self.items_opt {
                         if finished || context.ready.swap(false, atomic::Ordering::SeqCst) {
@@ -4516,7 +4527,7 @@ impl Tab {
                                         items.len()
                                     };
 
-                                if index < MAX_SEARCH_RESULTS {
+                                if index < max_results {
                                     //TODO: use correct IconSizes
                                     let item =
                                         item_from_search_item(search_item, IconSizes::default());
@@ -4528,8 +4539,8 @@ impl Tab {
                                 }
                             }
                         }
-                        if items.len() >= MAX_SEARCH_RESULTS {
-                            items.truncate(MAX_SEARCH_RESULTS);
+                        if items.len() >= max_results {
+                            items.truncate(max_results);
                             if let Some(last_modified) =
                                 items.last().and_then(|item| item.metadata.modified())
                             {

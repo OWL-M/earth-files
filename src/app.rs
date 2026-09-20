@@ -27,6 +27,7 @@ use mime_guess::Mime;
 use notify_debouncer_full::notify::{self, RecommendedWatcher};
 use notify_debouncer_full::{DebouncedEvent, Debouncer, RecommendedCache, new_debouncer};
 use rustc_hash::{FxHashMap, FxHashSet};
+use serde::{Deserialize, Serialize};
 use slotmap::Key as SlotMapKey;
 use std::any::TypeId;
 use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
@@ -103,7 +104,7 @@ pub struct Flags {
     pub uris: Vec<url::Url>,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub enum Action {
     About,
     AddToSidebar,
@@ -1570,6 +1571,7 @@ impl App {
     }
 
     fn update_config(&mut self) -> Task<Message> {
+        self.key_binds = key_binds(&tab::Mode::App, &self.config.key_binds);
         crate::ui::theme::set_density(self.config.density);
         crate::ui::theme::set_header_size(self.config.header_size);
         self.update_nav_model();
@@ -2119,7 +2121,7 @@ impl Application for App {
 
         let app_themes = vec![fl!("match-desktop"), fl!("dark"), fl!("light")];
 
-        let key_binds = key_binds(&tab::Mode::App);
+        let key_binds = key_binds(&tab::Mode::App, &flags.config.key_binds);
 
         // Create a dedicated thread for the compio runtime to handle operations on.
         // Supports io_uring on Linux, IOPC on Windows, and polling everywhere else.

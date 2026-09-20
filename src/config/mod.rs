@@ -5,6 +5,8 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
+use crate::app::Action;
+
 use crate::FxOrderMap;
 use crate::tab::{HeadingOptions, Location, View};
 use crate::ui::theme::{self, Density};
@@ -197,6 +199,10 @@ pub struct Config {
     pub show_recents: bool,
     pub tab: TabConfig,
     pub type_to_search: TypeToSearch,
+    /// Keyboard shortcut overrides, applied on top of the built-in ones.
+    /// Keys are shortcuts such as `"Ctrl+Shift+N"` or `"F5"`, values are
+    /// action names, e.g. `key_binds: { "Ctrl+Shift+H": ToggleShowHidden }`.
+    pub key_binds: FxOrderMap<String, Action>,
 }
 
 impl Config {
@@ -213,6 +219,7 @@ impl Config {
             icon_sizes: self.dialog.icon_sizes,
             show_hidden: self.dialog.show_hidden,
             show_type_column: false,
+            max_search_results: DEFAULT_MAX_SEARCH_RESULTS,
             single_click: false,
             view: self.dialog.view,
         }
@@ -243,6 +250,7 @@ impl Default for Config {
             show_recents: true,
             tab: TabConfig::default(),
             type_to_search: TypeToSearch::Recursive,
+            key_binds: FxOrderMap::default(),
         }
     }
 }
@@ -294,6 +302,8 @@ impl Default for ThumbCfg {
 /// Global and local [`crate::tab::Tab`] config.
 ///
 /// [`TabConfig`] contains options that are passed to each instance of [`crate::tab::Tab`].
+const DEFAULT_MAX_SEARCH_RESULTS: NonZeroU16 = NonZeroU16::new(200).unwrap();
+
 /// These options are set globally through the main config, but each tab may change options
 /// locally. Local changes aren't saved to the main config.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Deserialize, Serialize)]
@@ -307,6 +317,8 @@ pub struct TabConfig {
     pub show_hidden: bool,
     /// Show the Type column in list view
     pub show_type_column: bool,
+    /// Maximum number of search results kept
+    pub max_search_results: NonZeroU16,
     /// Single click to open
     pub single_click: bool,
     /// Selected view, grid or list
@@ -320,6 +332,7 @@ impl Default for TabConfig {
             icon_sizes: IconSizes::default(),
             show_hidden: false,
             show_type_column: false,
+            max_search_results: DEFAULT_MAX_SEARCH_RESULTS,
             single_click: false,
             view: View::List,
         }

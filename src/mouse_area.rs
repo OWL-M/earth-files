@@ -474,7 +474,6 @@ where
             if let Some(bounds) = state.drag_rect(cursor) {
                 let cosmic = theme.cosmic();
                 let mut bg_color = cosmic.accent_color();
-                //TODO: get correct alpha
                 bg_color.alpha = 0.2;
                 renderer.start_layer(*viewport);
                 renderer.fill_quad(
@@ -678,7 +677,6 @@ fn update<Message: Clone>(
                 }
             }
             click::Kind::Triple => {
-                // TODO what to do here
                 if let Some(message) = widget.on_press.as_ref() {
                     shell.publish(message(cursor.position_in(layout_bounds)));
                 }
