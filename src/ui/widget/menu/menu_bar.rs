@@ -650,6 +650,32 @@ where
         }
     }
 
+    fn mouse_interaction(
+        &self,
+        tree: &Tree,
+        layout: Layout<'_>,
+        view_cursor: Cursor,
+        viewport: &Rectangle,
+        renderer: &Renderer,
+    ) -> mouse::Interaction {
+        // The root under the pointer decides, as a row of buttons would
+        self.menu_roots
+            .iter()
+            .zip(&tree.children)
+            .zip(layout.children())
+            .map(|((root, t), lo)| {
+                root.item.mouse_interaction(
+                    &t.children[root.index],
+                    lo,
+                    view_cursor,
+                    viewport,
+                    renderer,
+                )
+            })
+            .max()
+            .unwrap_or_default()
+    }
+
     fn draw(
         &self,
         tree: &Tree,

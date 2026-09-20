@@ -248,6 +248,15 @@ impl Catalog for Theme {
             return hovered(focused, self);
         }
 
+        // Menu roots are flat at rest and only tint on hover
+        if matches!(style, Button::MenuRoot) {
+            let mut style = self.active(focused, selected, style);
+            style.background = Some(Background::Color(
+                self.cosmic().text_button.hover.to_color(),
+            ));
+            return style;
+        }
+
         appearance(
             self,
             focused || matches!(style, Button::Image),
@@ -273,6 +282,14 @@ impl Catalog for Theme {
     fn pressed(&self, focused: bool, selected: bool, style: &Self::Class) -> Style {
         if let Button::Custom { pressed, .. } = style {
             return pressed(focused, self);
+        }
+
+        if matches!(style, Button::MenuRoot) {
+            let mut style = self.active(focused, selected, style);
+            style.background = Some(Background::Color(
+                self.cosmic().text_button.pressed.to_color(),
+            ));
+            return style;
         }
 
         appearance(self, focused, selected, false, style, |component| {

@@ -283,9 +283,12 @@ where
     Element<'a, Message, crate::ui::Theme, Renderer>: From<widget::Button<'a, Message>>,
     Message: std::clone::Clone + 'a,
 {
+    // The menu bar handles the press itself; the root is still an enabled
+    // button so it draws its hover state and requests a pointer cursor
     widget::button::custom(widget::text(label))
         .padding([4, 12])
         .class(theme::Button::MenuRoot)
+        .force_enabled(true)
 }
 
 fn entry_tree<

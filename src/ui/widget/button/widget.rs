@@ -629,10 +629,11 @@ impl<'a, Message: 'a + Clone> Widget<Message, crate::ui::Theme, iced::Renderer>
         _viewport: &Rectangle,
         _renderer: &iced::Renderer,
     ) -> mouse::Interaction {
+        // Match `draw`: a force-enabled button is clickable for its parent
         mouse_interaction(
             layout,
             cursor,
-            self.on_press.is_some(),
+            self.on_press.is_some() || self.on_press_down.is_some() || self.force_enabled,
         )
     }
 

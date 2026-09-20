@@ -33,13 +33,20 @@ pub const fn nav_bar_toggle<Message>() -> NavBarToggle<Message> {
 
 impl<Message: 'static + Clone> From<NavBarToggle<Message>> for Element<'_, Message> {
     fn from(nav_bar_toggle: NavBarToggle<Message>) -> Self {
+        // Standard names (GNOME 45+ and most themes), with older spellings as
+        // fallbacks; the COSMIC-only `navbar-*` names exist in no other theme
         let icon = if nav_bar_toggle.active {
-            "navbar-open-symbolic"
+            "sidebar-hide-symbolic"
         } else {
-            "navbar-closed-symbolic"
+            "sidebar-show-symbolic"
         };
+        let mut named = widget::icon::from_name(icon);
+        named.fallback = Some(widget::icon::IconFallback::Names(vec![
+            "view-sidebar-symbolic".into(),
+            "open-menu-symbolic".into(),
+        ]));
 
-        widget::button::icon(widget::icon::from_name(icon))
+        widget::button::icon(named)
             .padding([8, 16])
             .on_press_maybe(nav_bar_toggle.on_toggle)
             .selected(nav_bar_toggle.selected)
