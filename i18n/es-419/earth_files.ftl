@@ -385,6 +385,10 @@ remove-from-recents = Quitar de recientes
 calculating = Calculando...
 type = Tipo: { $mime }
 items = Elementos: { $items }
+item-count = {$count ->
+        [one] {$count} elemento
+       *[other] {$count} elementos
+    }
 item-size = Tamaños: { $size }
 item-created = Creado: { $created }
 item-modified = Modificado: { $modified }

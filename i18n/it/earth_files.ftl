@@ -319,6 +319,10 @@ default-app = { $name } (predefinito)
 show-details = Mostra dettagli
 type = Tipo: { $mime }
 items = Files: { $items }
+item-count = {$count ->
+        [one] {$count} elemento
+       *[other] {$count} elementi
+    }
 item-size = Dimensione: { $size }
 item-created = Creato: { $created }
 item-modified = Modificato in data: { $modified }

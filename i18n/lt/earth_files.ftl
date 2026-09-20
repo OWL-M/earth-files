@@ -251,6 +251,12 @@ default-app = { $name } (numatytas)
 show-details = Rodyti išsamią informaciją
 type = Tipas: { $mime }
 items = Elementai: { $items }
+item-count = {$count ->
+        [one] {$count} elementas
+        [few] {$count} elementai
+        [many] {$count} elemento
+       *[other] {$count} elementų
+    }
 item-size = Dydis: { $size }
 item-created = Sukurtas: { $created }
 item-modified = Modifikuota: { $modified }

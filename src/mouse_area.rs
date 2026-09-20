@@ -23,6 +23,8 @@ pub struct MouseArea<'a, Message> {
     content: Element<'a, Message>,
     on_auto_scroll: Option<Box<dyn OnAutoScroll<'a, Message>>>,
     on_drag: Option<Box<dyn OnDrag<'a, Message>>>,
+    on_drag_delta: Option<Box<dyn OnDragDelta<'a, Message>>>,
+    interaction: Option<mouse::Interaction>,
     on_dnd: Option<Box<dyn Fn(DndDrag) -> Message + 'a>>,
     on_double_click: Option<Box<dyn OnMouseButton<'a, Message>>>,
     on_press: Option<Box<dyn OnMouseButton<'a, Message>>>,
@@ -57,6 +59,24 @@ impl<'a, Message> MouseArea<'a, Message> {
     #[must_use]
     pub fn on_drag(mut self, message: impl OnDrag<'a, Message>) -> Self {
         self.on_drag = Some(Box::new(message));
+        self
+    }
+
+    /// The cursor to show while the pointer is over this area or a drag
+    /// started here is in progress, e.g. a resize cursor on a divider.
+    #[must_use]
+    pub fn interaction(mut self, interaction: mouse::Interaction) -> Self {
+        self.interaction = Some(interaction);
+        self
+    }
+
+    /// The message to emit while dragging, with the offset of the pointer from
+    /// where the drag started. For gestures that move something by an amount,
+    /// such as resizing, where the rectangle of [`Self::on_drag`] loses the
+    /// direction.
+    #[must_use]
+    pub fn on_drag_delta(mut self, message: impl OnDragDelta<'a, Message>) -> Self {
+        self.on_drag_delta = Some(Box::new(message));
         self
     }
 
@@ -231,6 +251,9 @@ impl<'a, Message, F> OnMouseButton<'a, Message> for F where F: Fn(Option<Point>)
 pub trait OnDrag<'a, Message>: Fn(Option<Rectangle>) -> Message + 'a {}
 impl<'a, Message, F> OnDrag<'a, Message> for F where F: Fn(Option<Rectangle>) -> Message + 'a {}
 
+pub trait OnDragDelta<'a, Message>: Fn(Vector) -> Message + 'a {}
+impl<'a, Message, F> OnDragDelta<'a, Message> for F where F: Fn(Vector) -> Message + 'a {}
+
 pub trait OnResize<'a, Message>: Fn(Rectangle) -> Message + 'a {}
 impl<'a, Message, F> OnResize<'a, Message> for F where F: Fn(Rectangle) -> Message + 'a {}
 
@@ -324,6 +347,8 @@ impl<'a, Message> MouseArea<'a, Message> {
             content: content.into(),
             on_auto_scroll: None,
             on_drag: None,
+            on_drag_delta: None,
+            interaction: None,
             on_dnd: None,
             on_drag_end: None,
             on_double_click: None,
@@ -440,6 +465,12 @@ where
         viewport: &Rectangle,
         renderer: &Renderer,
     ) -> mouse::Interaction {
+        if let Some(interaction) = self.interaction {
+            let dragging = tree.state.downcast_ref::<State>().drag_initiated.is_some();
+            if dragging || cursor.is_over(layout.bounds()) {
+                return interaction;
+            }
+        }
         self.content.as_widget().mouse_interaction(
             &tree.children[0],
             layout,
@@ -682,7 +713,7 @@ fn update<Message: Clone>(
                 }
             }
         }
-        if widget.on_drag.is_some() {
+        if widget.on_drag.is_some() || widget.on_drag_delta.is_some() {
             state.drag_initiated = cursor.position();
         }
 
@@ -740,6 +771,9 @@ fn update<Message: Clone>(
     {
         if !recent_click {
             state.prev_click = None;
+            // A press held without moving is over too: otherwise later pointer
+            // movement would still report a drag
+            state.drag_initiated = None;
             return;
         }
         if state.drag_initiated.take().is_some() {
@@ -878,5 +912,13 @@ fn update<Message: Clone>(
                 rect
             },
         )));
+    }
+
+    if let Some(message) = widget.on_drag_delta.as_ref()
+        && matches!(event, Event::Mouse(mouse::Event::CursorMoved { .. }))
+        && let Some(source) = state.drag_initiated
+        && let Some(position) = cursor.position()
+    {
+        shell.publish(message(position - source));
     }
 }

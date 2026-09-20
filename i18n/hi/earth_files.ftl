@@ -25,6 +25,10 @@ modified = संशोधित तिथि
 trashed-on = कचरे में डालने की तिथि
 size = आकार
 type-heading = प्रकार
+item-count = {$count ->
+        [one] {$count} आइटम
+       *[other] {$count} आइटम
+    }
 file-type-folder = फ़ोल्डर
 file-type-image = छवि
 file-type-video = वीडियो

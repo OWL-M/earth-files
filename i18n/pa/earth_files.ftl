@@ -194,6 +194,10 @@ created = "{ $parent }" ਵਿੱਚ "{ $name }" ਨੂੰ ਬਣਾਇਆ ਗ�
 renaming = "{ $from }" ਦਾ ਨਾਂ "{ $to }" ਬਦਲਿਆ ਜਾ ਰਿਹਾ ਹੈ
 renamed = "{ $from }" ਦਾ ਨਾਂ ਬਦਲ ਕੇ "{ $to }" ਕੀਤਾ ਗਿਆ
 items = ਚੀਜ਼ਾਂ: { $items }
+item-count = {$count ->
+        [one] {$count} ਆਈਟਮ
+       *[other] {$count} ਆਈਟਮਾਂ
+    }
 item-size = ਆਕਾਰ: { $size }
 item-created = ਬਣਾਇਆ: { $created }
 item-modified = ਸੋਧ ਕੀਤੀ: { $modified }

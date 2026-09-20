@@ -384,6 +384,9 @@ reload-folder = 重新載入資料夾
 gallery-preview = 圖庫預覽
 type = 類型：{ $mime }
 items = 項目：{ $items }
+item-count = {$count ->
+       *[other] {$count} 個項目
+    }
 item-size = 大小：{ $size }
 item-created = 建立時間：{ $created }
 item-modified = 修改時間：{ $modified }

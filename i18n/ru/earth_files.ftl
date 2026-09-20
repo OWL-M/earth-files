@@ -324,6 +324,12 @@ setting-permissions = Изменение прав доступа «{ $name }» �
 set-permissions = Права доступа «{ $name }» изменены на { $mode }
 type = Тип: { $mime }
 items = Элементов: { $items }
+item-count = {$count ->
+        [one] {$count} элемент
+        [few] {$count} элемента
+        [many] {$count} элементов
+       *[other] {$count} элемента
+    }
 item-size = Размер: { $size }
 item-created = Дата создания: { $created }
 item-modified = Дата изменения: { $modified }

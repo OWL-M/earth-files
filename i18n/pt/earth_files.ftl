@@ -339,6 +339,10 @@ removed-from-recents =
     } de { recents }
 type = Tipo: { $mime }
 items = Itens: { $items }
+item-count = {$count ->
+        [one] {$count} item
+       *[other] {$count} itens
+    }
 item-size = Tamanho: { $size }
 item-created = Criado: { $created }
 item-modified = Modificado: { $modified }

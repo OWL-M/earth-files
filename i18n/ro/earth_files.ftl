@@ -298,6 +298,11 @@ default-app = { $name } (implicit)
 show-details = Afișează detalii
 type = Tip: { $mime }
 items = Elemente: { $items }
+item-count = {$count ->
+        [one] {$count} element
+        [few] {$count} elemente
+       *[other] {$count} de elemente
+    }
 item-size = Dimensiune: { $size }
 item-created = Creat: { $created }
 item-modified = Modificat: { $modified }

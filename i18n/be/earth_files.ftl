@@ -335,6 +335,12 @@ default-app = { $name } (па змаўчанні)
 show-details = Паказаць дэталі
 type = Тып: { $mime }
 items = Элементаў: { $items }
+item-count = {$count ->
+        [one] {$count} элемент
+        [few] {$count} элементы
+        [many] {$count} элементаў
+       *[other] {$count} элемента
+    }
 item-size = Памер: { $size }
 item-created = Створана: { $created }
 item-modified = Зменена: { $modified }

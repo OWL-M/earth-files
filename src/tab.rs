@@ -1668,6 +1668,9 @@ pub enum Message {
     TabComplete(PathBuf, Vec<(String, PathBuf)>),
     Thumbnail(PathBuf, ItemThumbnail),
     ToggleSort(HeadingOptions),
+    ColumnResizeStart(ColumnDivider),
+    ColumnResizeDrag(f32),
+    ColumnResizeEnd,
     WindowDrag,
     WindowToggleMaximize,
     ZoomIn,
@@ -2559,6 +2562,69 @@ pub enum View {
     Grid,
     List,
 }
+/// Room the fixed list-view columns must leave for everything left of them:
+/// outer padding, the icon, the gaps and the name text.
+pub const NAME_MIN: f32 = 300.0;
+/// Narrowest a fixed column can be dragged or shrunk to.
+pub const COLUMN_MIN: f32 = 48.0;
+/// How far a divider's grab zone extends into the column on its left, on top
+/// of the gap between cells.
+const DIVIDER_GRAB: f32 = 6.0;
+
+/// A draggable boundary between two list-view columns. Dragging it transfers
+/// width between its two neighbours, so the boundary follows the pointer.
+/// The last column ends at the frame edge, which cannot move.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ColumnDivider {
+    NameModified,
+    ModifiedSize,
+    /// Only while the Type column is shown
+    SizeType,
+}
+
+/// Requested widths of the fixed list-view columns, in pixels. Kept per tab
+/// for the session; not saved. Name takes whatever is left.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ColumnWidths {
+    pub modified: f32,
+    pub size: f32,
+    pub type_: f32,
+}
+
+impl ColumnWidths {
+    fn fixed_total(&self, show_type: bool) -> f32 {
+        self.modified + self.size + if show_type { self.type_ } else { 0.0 }
+    }
+}
+
+/// The requested widths fitted into the current view width: what is laid out.
+#[derive(Clone, Copy, Debug)]
+struct ListGeometry {
+    /// Effective widths, each at least [`COLUMN_MIN`]
+    widths: ColumnWidths,
+    show_type: bool,
+    /// View width minus the effective fixed widths, at least [`NAME_MIN`]
+    name_room: f32,
+}
+
+/// A divider drag in progress, with the effective widths when it started.
+#[derive(Clone, Copy, Debug)]
+struct ColumnResize {
+    divider: ColumnDivider,
+    start: ColumnWidths,
+    start_name_room: f32,
+}
+
+impl Default for ColumnWidths {
+    fn default() -> Self {
+        Self {
+            modified: 200.0,
+            size: 100.0,
+            type_: 120.0,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Hash, PartialEq, PartialOrd, Ord, Eq, Deserialize, Serialize)]
 pub enum HeadingOptions {
     Name = 0,
@@ -2683,6 +2749,8 @@ pub struct Tab {
     dnd_ancestor: Option<usize>,
     window_id: Option<window::Id>,
     large_image_manager: LargeImageManager,
+    column_widths: ColumnWidths,
+    column_resize: Option<ColumnResize>,
 }
 
 async fn calculate_dir_size(path: &Path, controller: Controller) -> Result<u64, OperationError> {
@@ -2835,6 +2903,8 @@ impl Tab {
             dnd_ancestor: None,
             window_id,
             large_image_manager: LargeImageManager::new(),
+            column_widths: ColumnWidths::default(),
+            column_resize: None,
         }
     }
 
@@ -3223,6 +3293,36 @@ impl Tab {
                 item.highlighted = false;
             }
         }
+    }
+
+    /// The list-view column geometry for the current view width, or `None`
+    /// when the view is too narrow and the list uses its condensed layout.
+    ///
+    /// The requested widths are shrunk from the right, down to [`COLUMN_MIN`]
+    /// each, until Name has [`NAME_MIN`] of room. Only the effective widths
+    /// shrink, so widening the window restores what was requested.
+    fn list_geometry(&self) -> Option<ListGeometry> {
+        let width = self.size_opt.get()?.width;
+        let show_type = self.config.show_type_column;
+        let mut widths = self.column_widths;
+        let mut room = width - widths.fixed_total(show_type);
+        let mut shrink = |column: &mut f32| {
+            if room < NAME_MIN {
+                let shrunk = (*column - (NAME_MIN - room)).max(COLUMN_MIN);
+                room += *column - shrunk;
+                *column = shrunk;
+            }
+        };
+        if show_type {
+            shrink(&mut widths.type_);
+        }
+        shrink(&mut widths.size);
+        shrink(&mut widths.modified);
+        (room >= NAME_MIN).then_some(ListGeometry {
+            widths,
+            show_type,
+            name_room: room,
+        })
     }
 
     /// The part of the item view currently on screen, for a view of `size`.
@@ -4726,6 +4826,59 @@ impl Tab {
                     generation,
                 );
             }
+            Message::ColumnResizeStart(divider) => {
+                if let Some(geometry) = self.list_geometry() {
+                    self.column_resize = Some(ColumnResize {
+                        divider,
+                        start: geometry.widths,
+                        start_name_room: geometry.name_room,
+                    });
+                }
+            }
+            Message::ColumnResizeDrag(delta_x) => {
+                let Some(resize) = self.column_resize else {
+                    return commands;
+                };
+                if resize.divider == ColumnDivider::SizeType && !self.config.show_type_column {
+                    self.column_resize = None;
+                    return commands;
+                }
+                // The divider trades width between its two neighbours, clamped so
+                // neither goes below its minimum. Everything else stays put, so
+                // the divider follows the pointer.
+                let (left_start, left_min, right_start) = match resize.divider {
+                    ColumnDivider::NameModified => {
+                        (resize.start_name_room, NAME_MIN, resize.start.modified)
+                    }
+                    ColumnDivider::ModifiedSize => {
+                        (resize.start.modified, COLUMN_MIN, resize.start.size)
+                    }
+                    ColumnDivider::SizeType => (resize.start.size, COLUMN_MIN, resize.start.type_),
+                };
+                let lo = left_min - left_start;
+                let hi = right_start - COLUMN_MIN;
+                if lo > hi {
+                    return commands;
+                }
+                let delta_x = delta_x.round().clamp(lo, hi);
+                let widths = &mut self.column_widths;
+                match resize.divider {
+                    ColumnDivider::NameModified => {
+                        widths.modified = resize.start.modified - delta_x;
+                    }
+                    ColumnDivider::ModifiedSize => {
+                        widths.modified = resize.start.modified + delta_x;
+                        widths.size = resize.start.size - delta_x;
+                    }
+                    ColumnDivider::SizeType => {
+                        widths.size = resize.start.size + delta_x;
+                        widths.type_ = resize.start.type_ - delta_x;
+                    }
+                }
+            }
+            Message::ColumnResizeEnd => {
+                self.column_resize = None;
+            }
             Message::ToggleSort(heading_option) => {
                 if !matches!(self.location, Location::Search(..)) {
                     let heading_sort = if self.sort_name == heading_option {
@@ -5039,7 +5192,6 @@ impl Tab {
             ..
         } = spacing();
 
-        //TODO: display error messages when image not found?
         let mut name_opt = None;
         let mut element_opt: Option<Element<Message>> = None;
         if let Some(index) = self.select_focus
@@ -5107,7 +5259,6 @@ impl Tab {
                                 .align_x(crate::ui::iced::Alignment::Center)
                                 .into()
                         } else {
-                            //TODO: use widget::image::viewer, when its zoom can be reset
                             crate::load_image::loaded_image(image_handle).into()
                         };
 
@@ -5169,7 +5320,6 @@ impl Tab {
             if let Some(element) = element_opt {
                 row = row.push(element);
             } else {
-                //TODO: what to do when no image?
                 row = row.push(space::horizontal().width(Length::Fill));
                 row = row.push(space::vertical().height(Length::Fill));
             }
@@ -5200,7 +5350,6 @@ impl Tab {
     }
 
     pub fn location_view(&self) -> Element<'_, Message> {
-        //TODO: responsiveness is done in a hacky way, potentially move this to a custom widget?
         fn text_width<'a>(
             content: &'a str,
             font: font::Font,
@@ -5269,61 +5418,91 @@ impl Tab {
         row = row.push(widget::space::horizontal().width(Length::Fixed(space_s.into())));
         w += f32::from(space_s);
 
-        //TODO: allow resizing?
-        let name_width = 300.0;
-        let modified_width = 200.0;
-        let size_width = 100.0;
-        let type_width = if self.config.show_type_column {
-            120.0
-        } else {
-            0.0
-        };
-        let condensed = size.width < (name_width + modified_width + size_width + type_width);
+        let geometry = self.list_geometry();
+        let condensed = geometry.is_none();
+        // With no geometry the header is not shown; any widths do for the build
+        let geometry = geometry.unwrap_or(ListGeometry {
+            widths: self.column_widths,
+            show_type: self.config.show_type_column,
+            name_room: 0.0,
+        });
 
         let (sort_name, sort_direction, _) = self.sort_options();
-        let heading_item = |name, width, msg| {
-            let mut row = widget::Row::with_capacity(2)
-                .align_y(Alignment::Center)
-                .spacing(space_xxxs.to_pixels())
-                .width(width);
-            row = row.push(widget::text::heading(name));
-            match (sort_name == msg, sort_direction) {
-                (true, true) => {
-                    row = row.push(widget::icon::from_name("pan-down-symbolic").size(16));
+        let heading =
+            |label: String, width: Length, option: HeadingOptions| -> Element<'_, Message> {
+                let mut content = widget::Row::with_capacity(2)
+                    .align_y(Alignment::Center)
+                    .spacing(space_xxxs.to_pixels())
+                    .width(width)
+                    .height(Length::Fill);
+                content = content.push(widget::text::heading(label));
+                match (sort_name == option, sort_direction) {
+                    (true, true) => {
+                        content =
+                            content.push(widget::icon::from_name("pan-down-symbolic").size(16));
+                    }
+                    (true, false) => {
+                        content = content.push(widget::icon::from_name("pan-up-symbolic").size(16));
+                    }
+                    _ => {}
                 }
-                (true, false) => {
-                    row = row.push(widget::icon::from_name("pan-up-symbolic").size(16));
-                }
-                _ => {}
-            }
-            //TODO: make it possible to resize with the mouse
-            mouse_area::MouseArea::new(row)
-                .on_press(move |_point_opt| Message::ToggleSort(msg))
-                .into()
+                // A pointer cursor marks the heading as clickable; no hover effect
+                mouse_area::MouseArea::new(content)
+                    .interaction(crate::ui::iced_core::mouse::Interaction::Pointer)
+                    .on_press(move |_| Message::ToggleSort(option))
+                    .into()
+            };
+        // Each divider occupies the gap between two cells plus `DIVIDER_GRAB`
+        // of the heading on its left, which is made that much narrower. The
+        // fixed widths right of any boundary therefore add up exactly as in
+        // the rows, which is what keeps headings over their cells.
+        let divider = |divider: ColumnDivider| -> Element<'_, Message> {
+            mouse_area::MouseArea::new(
+                widget::space::horizontal()
+                    .width(Length::Fixed(f32::from(space_xxs) + DIVIDER_GRAB))
+                    .height(Length::Fill),
+            )
+            .interaction(crate::ui::iced_core::mouse::Interaction::ResizingHorizontally)
+            .on_press(move |_| Message::ColumnResizeStart(divider))
+            .on_drag_delta(|delta| Message::ColumnResizeDrag(delta.x))
+            .on_drag_end(|_| Message::ColumnResizeEnd)
+            .on_release(|_| Message::ColumnResizeEnd)
+            .into()
         };
 
+        let (modified_label, modified_option) = if self.location.is_trash() {
+            (fl!("trashed-on"), HeadingOptions::TrashedOn)
+        } else {
+            (fl!("modified"), HeadingOptions::Modified)
+        };
+        let widths = geometry.widths;
         let mut headings = vec![
-            heading_item(fl!("name"), Length::Fill, HeadingOptions::Name),
-            if self.location.is_trash() {
-                heading_item(
-                    fl!("trashed-on"),
-                    Length::Fixed(modified_width),
-                    HeadingOptions::TrashedOn,
-                )
-            } else {
-                heading_item(
-                    fl!("modified"),
-                    Length::Fixed(modified_width),
-                    HeadingOptions::Modified,
-                )
-            },
-            heading_item(fl!("size"), Length::Fixed(size_width), HeadingOptions::Size),
+            heading(fl!("name"), Length::Fill, HeadingOptions::Name),
+            divider(ColumnDivider::NameModified),
+            heading(
+                modified_label,
+                Length::Fixed(widths.modified - DIVIDER_GRAB),
+                modified_option,
+            ),
+            divider(ColumnDivider::ModifiedSize),
         ];
-        if self.config.show_type_column {
-            headings.push(heading_item(
+        if geometry.show_type {
+            headings.push(heading(
+                fl!("size"),
+                Length::Fixed(widths.size - DIVIDER_GRAB),
+                HeadingOptions::Size,
+            ));
+            headings.push(divider(ColumnDivider::SizeType));
+            headings.push(heading(
                 fl!("type-heading"),
-                Length::Fixed(type_width),
+                Length::Fixed(widths.type_),
                 HeadingOptions::Type,
+            ));
+        } else {
+            headings.push(heading(
+                fl!("size"),
+                Length::Fixed(widths.size),
+                HeadingOptions::Size,
             ));
         }
         let heading_row = widget::Row::with_children(headings)
@@ -5344,7 +5523,6 @@ impl Tab {
         if let Some(edit_location) = &self.edit_location {
             let mut text_input = None;
 
-            //TODO: allow editing other locations
             if let Location::Network(ref uri, ..) = edit_location.location {
                 let location = edit_location.location.clone();
                 text_input = Some(
@@ -5393,7 +5571,6 @@ impl Tab {
                         let selected = edit_location.selected == Some(i);
                         column = column.push(
                             widget::button::custom(widget::text::body(name))
-                                //TODO: match to design
                                 .class(if selected {
                                     Button::Standard
                                 } else {
@@ -5407,7 +5584,6 @@ impl Tab {
                     popover = popover.popup(
                         widget::container(column)
                             .class(Container::Dropdown)
-                            //TODO: This is a hack to get the popover to be the right width
                             .max_width(size.width - 140.0),
                     );
                 }
@@ -5473,7 +5649,6 @@ impl Tab {
                     let mut row = widget::Row::with_capacity(2)
                         .align_y(Alignment::Center)
                         .spacing(space_xxxs.to_pixels());
-                    //TODO: figure out why this hardcoded offset is needed after the first item is ellipsed
                     let overflow_offset = 64.0;
                     let overflow = w + name_width + overflow_offset > size.width && index > 0;
                     if overflow {
@@ -5695,14 +5870,12 @@ impl Tab {
                 );
                 item.rect_opt.set(Some(item_rect));
 
-                //TODO: error if the row or col is already set?
                 while grid_elements.len() <= row {
                     grid_elements.push(Vec::new());
                 }
 
                 // Only build elements if visible (for performance)
                 if item_rect.intersects(&visible_rect) {
-                    //TODO: one focus group per grid item (needs custom widget)
                     let buttons: Vec<Element<Message>> = vec![
                         widget::button::custom(
                             widget::icon::icon(item.icon_handle_grid.clone())
@@ -5790,7 +5963,7 @@ impl Tab {
 
             column = column.push(grid);
 
-            //TODO: HACK If we don't reach the bottom of the view, go ahead and add a spacer to do that
+            // Pad the content to the bottom of the view so the whole view is scrollable
             {
                 let mut max_bottom = 0;
                 for (_, item) in items {
@@ -5848,13 +6021,14 @@ impl Tab {
         } = self.config;
 
         let size = self.size_opt.get().unwrap_or_else(|| Size::new(0.0, 0.0));
-        //TODO: allow resizing?
-        let name_width = 300.0;
-        let modified_width = 200.0;
-        let size_width = 100.0;
+        let geometry = self.list_geometry();
+        let condensed = geometry.is_none();
         let show_type_column = self.config.show_type_column;
-        let type_width = if show_type_column { 120.0 } else { 0.0 };
-        let condensed = size.width < (name_width + modified_width + size_width + type_width);
+        // Only read in the non-condensed layouts
+        let widths = geometry.map(|g| g.widths).unwrap_or(self.column_widths);
+        let modified_width = widths.modified;
+        let size_width = widths.size;
+        let type_width = if show_type_column { widths.type_ } else { 0.0 };
         let is_search = matches!(self.location, Location::Search(..));
         let icon_size = if condensed || is_search {
             icon_sizes.list_condensed()
@@ -5922,39 +6096,20 @@ impl Tab {
                             children_opt,
                         } => {
                             if metadata.is_dir() {
-                                //TODO: translate
-                                if let Some(children) = children_opt {
-                                    if *children == 1 {
-                                        format!("{children} item")
-                                    } else {
-                                        format!("{children} items")
-                                    }
-                                } else {
-                                    String::new()
-                                }
+                                children_opt.map_or_else(String::new, |children| {
+                                    fl!("item-count", count = children)
+                                })
                             } else {
                                 format_size(metadata.len())
                             }
                         }
                         ItemMetadata::Trash { metadata, .. } => match metadata.size {
                             trash::TrashItemSize::Entries(entries) => {
-                                //TODO: translate
-                                if entries == 1 {
-                                    format!("{entries} item")
-                                } else {
-                                    format!("{entries} items")
-                                }
+                                fl!("item-count", count = entries)
                             }
                             trash::TrashItemSize::Bytes(bytes) => format_size(bytes),
                         },
-                        ItemMetadata::SimpleDir { entries } => {
-                            //TODO: translate
-                            if *entries == 1 {
-                                format!("{entries} item")
-                            } else {
-                                format!("{entries} items")
-                            }
-                        }
+                        ItemMetadata::SimpleDir { entries } => fl!("item-count", count = entries),
                         ItemMetadata::SimpleFile { size } => format_size(*size),
                         #[cfg(feature = "gvfs")]
                         ItemMetadata::GvfsPath {
@@ -5965,12 +6120,9 @@ impl Tab {
                         } => {
                             if *is_dir {
                                 // Children are not counted on remote filesystems
-                                match children_opt {
-                                    //TODO: translate
-                                    Some(1) => "1 item".to_string(),
-                                    Some(child_count) => format!("{child_count} items"),
-                                    None => String::new(),
-                                }
+                                children_opt.map_or_else(String::new, |children| {
+                                    fl!("item-count", count = children)
+                                })
                             } else {
                                 format_size(size_opt.unwrap_or_default())
                             }
@@ -5997,7 +6149,6 @@ impl Tab {
                                 .into(),
                             widget::Column::with_children([
                                 Item::list_display_name(item.display_name.clone()).into(),
-                                //TODO: translate?
                                 widget::text::caption(format!("{modified_text} - {size_text}"))
                                     .into(),
                             ])
@@ -6111,7 +6262,7 @@ impl Tab {
             // Cache content height for scroll clamping on next frame
             self.content_height_opt.set(Some(y));
         }
-        //TODO: HACK If we don't reach the bottom of the view, go ahead and add a spacer to do that
+        // Pad the content to the bottom of the view so the whole view is scrollable
         {
             let top_deduct = (if condensed || is_search { 6 } else { 9 }) * space_xxs;
 

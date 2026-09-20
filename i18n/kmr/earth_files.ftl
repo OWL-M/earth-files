@@ -286,6 +286,10 @@ item-size = Mezinahî: { $size }
 connecting = Tê girêdan...
 read-write = Xwendin û nivîsandin
 items = Hêman: { $items }
+item-count = {$count ->
+        [one] {$count} hêman
+       *[other] {$count} hêman
+    }
 type = Cûre: { $mime }
 replace-warning = Tu dixwazî bi ya ku tu niha tomar dikî biguhêrînî? Naveroka berê wê were jêbirin.
 show-details = Hûrgiliyan nîşan bide

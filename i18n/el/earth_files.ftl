@@ -165,6 +165,10 @@ permanently-deleting =
 read-write = Ανάγνωση και εγγραφή
 none = Κανένα
 items = Στοιχεία: { $items }
+item-count = {$count ->
+        [one] {$count} στοιχείο
+       *[other] {$count} στοιχεία
+    }
 type = Τύπος: { $mime }
 compressed =
     Έγινε συμπίεση { $items } { $items ->

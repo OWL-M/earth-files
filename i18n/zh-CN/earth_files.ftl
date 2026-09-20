@@ -337,6 +337,9 @@ default-app = { $name }（默认）
 show-details = 显示详情
 type = 文件类型：{ $mime }
 items = 文件数：{ $items }
+item-count = {$count ->
+       *[other] {$count} 个项目
+    }
 item-size = 文件大小：{ $size }
 item-created = 创建于：{ $created }
 item-modified = 修改于：{ $modified }

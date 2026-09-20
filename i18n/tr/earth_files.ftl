@@ -244,6 +244,10 @@ default-app = { $name } (varsayılan)
 show-details = Detayları göster
 type = Tür: { $mime }
 items = Öge sayısı: { $items }
+item-count = {$count ->
+        [one] {$count} öğe
+       *[other] {$count} öğe
+    }
 item-size = Boyut: { $size }
 item-created = Oluşturulma: { $created }
 item-modified = Düzenlenme: { $modified }

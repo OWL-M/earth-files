@@ -156,6 +156,10 @@ default-app = { $name } (amezwer)
 show-details = Sken talqayt
 type = Anaw: { $mime }
 items = Iferdisen: { $items }
+item-count = {$count ->
+        [one] {$count} uferdis
+       *[other] {$count} iferdisen
+    }
 item-size = Tiddi: { $size }
 item-created = Yettwarna: { $created }
 item-modified = Ittusnifel: { $modified }

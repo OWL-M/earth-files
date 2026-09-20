@@ -340,6 +340,10 @@ default-app = { $name } (стандартно)
 show-details = Показване на подробностите
 type = Вид: { $mime }
 items = Елементи: { $items }
+item-count = {$count ->
+        [one] {$count} елемент
+       *[other] {$count} елемента
+    }
 item-size = Размер: { $size }
 item-created = Създаден: { $created }
 item-modified = Променян: { $modified }

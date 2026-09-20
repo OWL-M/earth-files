@@ -392,6 +392,11 @@ unknown-folder = neznámá složka
 show-details = Zobrazit podrobnosti
 type = Typ: { $mime }
 items = Položky: { $items }
+item-count = {$count ->
+        [one] {$count} položka
+        [few] {$count} položky
+       *[other] {$count} položek
+    }
 item-size = Velikost: { $size }
 item-created = Vytvořeno: { $created }
 item-modified = Změněno: { $modified }

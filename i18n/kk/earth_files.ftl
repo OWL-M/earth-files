@@ -251,6 +251,10 @@ default-app = { $name } (әдепкі)
 show-details = Мәліметтерді көрсету
 type = Түрі: { $mime }
 items = Элементтер: { $items }
+item-count = {$count ->
+        [one] {$count} элемент
+       *[other] {$count} элемент
+    }
 item-size = Өлшемі: { $size }
 item-created = Жасалған: { $created }
 item-modified = Өзгертілген: { $modified }

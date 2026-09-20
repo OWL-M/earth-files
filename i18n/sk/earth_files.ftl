@@ -375,6 +375,12 @@ default-app = { $name } (predvolené)
 show-details = Zobraziť podrobnosti
 type = Typ: { $mime }
 items = Položky: { $items }
+item-count = {$count ->
+        [one] {$count} položka
+        [few] {$count} položky
+        [many] {$count} položky
+       *[other] {$count} položiek
+    }
 item-size = Veľkosť: { $size }
 item-created = Vytvorené: { $created }
 item-modified = Upravené: { $modified }

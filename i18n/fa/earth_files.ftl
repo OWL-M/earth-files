@@ -265,6 +265,10 @@ default-app = { $name } (پیش‌فرض)
 show-details = نمایش جزئیات
 type = نوع: { $mime }
 items = مورد: { $items }
+item-count = {$count ->
+        [one] {$count} مورد
+       *[other] {$count} مورد
+    }
 item-size = حجم: { $size }
 item-created = ایجاد شده: { $created }
 item-modified = تغییر یافته: { $modified }

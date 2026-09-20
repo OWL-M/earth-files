@@ -229,6 +229,14 @@ unknown-folder = مجلد مجهول
 show-details = أظهِر التفاصيل
 type = النوع: { $mime }
 items = العناصر: { $items }
+item-count = {$count ->
+        [zero] لا عناصر
+        [one] عنصر واحد
+        [two] عنصران
+        [few] {$count} عناصر
+        [many] {$count} عنصرًا
+       *[other] {$count} عنصر
+    }
 item-size = الحجم: { $size }
 item-created = أُنشئ في: { $created }
 item-modified = عُدّل في: { $modified }

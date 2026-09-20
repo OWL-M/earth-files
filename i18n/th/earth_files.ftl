@@ -228,6 +228,9 @@ default-app = { $name } (ค่าเริ่มต้น)
 show-details = แสดงรายละเอียด
 type = ชนิด: { $mime }
 items = ไฟล์: { $items }
+item-count = {$count ->
+       *[other] {$count} รายการ
+    }
 item-size = ขนาดไฟล์: { $size }
 item-created = สร้างเมื่อ: { $created }
 item-modified = แก้ไขเมื่อ: { $modified }

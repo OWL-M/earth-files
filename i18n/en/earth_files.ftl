@@ -317,6 +317,10 @@ search-application = Search by app name
 show-details = Show details
 type = Type: {$mime}
 items = Items: {$items}
+item-count = {$count ->
+        [one] {$count} item
+       *[other] {$count} items
+    }
 item-size = Size: {$size}
 item-created = Created: {$created}
 item-modified = Modified: {$modified}

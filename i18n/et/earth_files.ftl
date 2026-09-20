@@ -139,6 +139,10 @@ default-app = { $name } (vaikimisi)
 show-details = Näita üksikasju
 type = Tüüp: { $mime }
 items = Objekte: { $items }
+item-count = {$count ->
+        [one] {$count} üksus
+       *[other] {$count} üksust
+    }
 item-size = Suurus: { $size }
 item-created = Loodud: { $created }
 item-modified = Muudetud: { $modified }

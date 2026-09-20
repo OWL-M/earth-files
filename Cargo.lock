@@ -1764,7 +1764,7 @@ dependencies = [
 [[package]]
 name = "exwlshellev"
 version = "0.20.1"
-source = "git+https://github.com/id3v1669/exwlshelleventloop?branch=xxas#d8f09128d58b6fbec70f453b6374a3fabaca2e38"
+source = "git+https://github.com/waycrate/exwlshelleventloop?branch=master#f0ac124cb840a585025da53f668e5e6c63a99b0e"
 dependencies = [
  "calloop 0.14.4",
  "calloop-wayland-source 0.4.1",
@@ -2731,7 +2731,7 @@ dependencies = [
 [[package]]
 name = "iced_exdevtools"
 version = "0.20.1"
-source = "git+https://github.com/id3v1669/exwlshelleventloop?branch=xxas#d8f09128d58b6fbec70f453b6374a3fabaca2e38"
+source = "git+https://github.com/waycrate/exwlshelleventloop?branch=master#f0ac124cb840a585025da53f668e5e6c63a99b0e"
 dependencies = [
  "iced_debug",
  "iced_devtools",
@@ -2744,7 +2744,7 @@ dependencies = [
 [[package]]
 name = "iced_exwlshell"
 version = "0.20.1"
-source = "git+https://github.com/id3v1669/exwlshelleventloop?branch=xxas#d8f09128d58b6fbec70f453b6374a3fabaca2e38"
+source = "git+https://github.com/waycrate/exwlshelleventloop?branch=master#f0ac124cb840a585025da53f668e5e6c63a99b0e"
 dependencies = [
  "enumflags2",
  "exwlshellev",
@@ -2770,7 +2770,7 @@ dependencies = [
 [[package]]
 name = "iced_exwlshell_macros"
 version = "0.20.1"
-source = "git+https://github.com/id3v1669/exwlshelleventloop?branch=xxas#d8f09128d58b6fbec70f453b6374a3fabaca2e38"
+source = "git+https://github.com/waycrate/exwlshelleventloop?branch=master#f0ac124cb840a585025da53f668e5e6c63a99b0e"
 dependencies = [
  "darling 0.24.1",
  "manyhow",
@@ -2873,7 +2873,7 @@ dependencies = [
 [[package]]
 name = "iced_wayland_subscriber"
 version = "0.20.1"
-source = "git+https://github.com/id3v1669/exwlshelleventloop?branch=xxas#d8f09128d58b6fbec70f453b6374a3fabaca2e38"
+source = "git+https://github.com/waycrate/exwlshelleventloop?branch=master#f0ac124cb840a585025da53f668e5e6c63a99b0e"
 dependencies = [
  "futures",
  "iced_core",
@@ -7366,7 +7366,7 @@ dependencies = [
 [[package]]
 name = "waycrate_xkbkeycode"
 version = "0.20.1"
-source = "git+https://github.com/id3v1669/exwlshelleventloop?branch=xxas#d8f09128d58b6fbec70f453b6374a3fabaca2e38"
+source = "git+https://github.com/waycrate/exwlshelleventloop?branch=master#f0ac124cb840a585025da53f668e5e6c63a99b0e"
 dependencies = [
  "calloop 0.14.4",
  "log",

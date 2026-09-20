@@ -359,6 +359,9 @@ removed-from-recents =
 show-details = 詳細を表示
 type = 種類: { $mime }
 items = アイテム: { $items }
+item-count = {$count ->
+       *[other] {$count} 個のアイテム
+    }
 item-size = サイズ: { $size }
 item-created = 作成日時: { $created }
 item-modified = 最終更新日時: { $modified }

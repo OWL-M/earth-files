@@ -142,6 +142,9 @@ connecting = 연결 중...
 read-write = 읽기 및 쓰기
 none = 없음
 items = 항목: { $items }
+item-count = {$count ->
+       *[other] {$count}개 항목
+    }
 no-results = 결과 없음
 type = 형식: { $mime }
 resume = 재개

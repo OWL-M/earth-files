@@ -327,6 +327,12 @@ set-permissions = Надано права { $mode } для «{ $name }»
 show-details = Показати подробиці
 type = Тип: { $mime }
 items = Елементів: { $items }
+item-count = {$count ->
+        [one] {$count} елемент
+        [few] {$count} елементи
+        [many] {$count} елементів
+       *[other] {$count} елемента
+    }
 item-size = Розмір: { $size }
 item-created = Створено: { $created }
 item-modified = Змінено: { $modified }

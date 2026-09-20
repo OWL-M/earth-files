@@ -25,6 +25,10 @@ modified = ಮಾರ್ಪಡಿಸಿದ ದಿನಾಂಕ
 trashed-on = ಕಸದಲ್ಲಿ ಹಾಕಿದ ದಿನ
 size = ಗಾತ್ರ
 type-heading = ಪ್ರಕಾರ
+item-count = {$count ->
+        [one] {$count} ಐಟಂ
+       *[other] {$count} ಐಟಂಗಳು
+    }
 file-type-folder = ಫೋಲ್ಡರ್
 file-type-image = ಚಿತ್ರ
 file-type-video = ವೀಡಿಯೊ

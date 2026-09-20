@@ -339,6 +339,10 @@ default-app = { $name } (alapértelmezett)
 show-details = Részletek megjelenítése
 type = Típus: { $mime }
 items = Elemek száma: { $items }
+item-count = {$count ->
+        [one] {$count} elem
+       *[other] {$count} elem
+    }
 item-size = Méret: { $size }
 item-created = Létrehozva: { $created }
 item-modified = Módosítva: { $modified }

@@ -271,6 +271,10 @@ default-app = { $name } (standard)
 show-details = Vis detaljer
 type = Type: { $mime }
 items = Objekter: { $items }
+item-count = {$count ->
+        [one] {$count} element
+       *[other] {$count} elementer
+    }
 item-size = Størrelse: { $size }
 item-created = Opprettet: { $created }
 item-modified = Endret: { $modified }

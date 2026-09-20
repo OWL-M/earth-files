@@ -106,6 +106,11 @@ read-write = Читање и уписивање
 copy = Умножи
 none = Ништа
 items = Ставки: { $items }
+item-count = {$count ->
+        [one] {$count} ставка
+        [few] {$count} ставке
+       *[other] {$count} ставки
+    }
 no-results = Нису пронађени резултати
 theme = Тема
 type = Врста: { $mime }

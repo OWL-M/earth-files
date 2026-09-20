@@ -215,6 +215,9 @@ default-app = { $name } (bawaan)
 show-details = Tampilkan rincian
 type = Jenis: { $mime }
 items = Item: { $items }
+item-count = {$count ->
+       *[other] {$count} item
+    }
 item-size = Ukuran: { $size }
 moving =
     Memindahkan { $items } { $items ->

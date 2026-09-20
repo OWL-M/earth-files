@@ -282,6 +282,10 @@ default-app = { $name } (per defecte)
 show-details = Mostra els detalls
 type = Tipus: { $mime }
 items = Elements: { $items }
+item-count = {$count ->
+        [one] {$count} element
+       *[other] {$count} elements
+    }
 item-size = Mida: { $size }
 item-created = Creat: { $created }
 item-modified = Modificat: { $modified }

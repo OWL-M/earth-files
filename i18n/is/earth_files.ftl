@@ -221,6 +221,10 @@ default-app = { $name } (sjálfgefið)
 show-details = Sýna upplýsingar
 type = Gerð: { $mime }
 items = Atriði: { $items }
+item-count = {$count ->
+        [one] {$count} atriði
+       *[other] {$count} atriði
+    }
 item-size = Stærð: { $size }
 item-created = Búið til: { $created }
 item-modified = Breytt: { $modified }

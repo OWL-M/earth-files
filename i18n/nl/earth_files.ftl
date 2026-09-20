@@ -327,6 +327,10 @@ default-app = { $name } (standaard)
 show-details = Details weergeven
 type = Type: { $mime }
 items = Bestanden: { $items }
+item-count = {$count ->
+        [one] {$count} item
+       *[other] {$count} items
+    }
 item-size = Grootte: { $size }
 item-created = Aangemaakt op: { $created }
 item-modified = Bewerkt op: { $modified }

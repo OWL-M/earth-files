@@ -306,6 +306,13 @@ default-app = { $name } (réamhshocraithe)
 show-details = Taispeáin sonraí
 type = Cineál: { $mime }
 items = Míreanna: { $items }
+item-count = {$count ->
+        [one] {$count} mhír
+        [two] {$count} mhír
+        [few] {$count} mhír
+        [many] {$count} mír
+       *[other] {$count} mír
+    }
 item-size = Méid: { $size }
 item-created = Cruthaithe: { $created }
 item-modified = Mionathraithe: { $modified }

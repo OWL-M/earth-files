@@ -391,6 +391,10 @@ permanently-deleted =
        *[other] kohdetta
     }
 items = Kohteita: { $items }
+item-count = {$count ->
+        [one] {$count} kohde
+       *[other] {$count} kohdetta
+    }
 item-accessed = Käytetty: { $accessed }
 type-to-search-enter-path = Kirjoittaa polun kansioon tai tiedostoon
 eject = Poista asemasta
