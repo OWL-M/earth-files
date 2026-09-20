@@ -90,7 +90,9 @@ impl<'a, Message> FlexRow<'a, Message> {
     }
 }
 
-impl<Message: 'static + Clone> Widget<Message, crate::ui::Theme, Renderer> for FlexRow<'_, Message> {
+impl<Message: 'static + Clone> Widget<Message, crate::ui::Theme, Renderer>
+    for FlexRow<'_, Message>
+{
     fn children(&self) -> Vec<Tree> {
         self.children.iter().map(Tree::new).collect()
     }
@@ -143,12 +145,9 @@ impl<Message: 'static + Clone> Widget<Message, crate::ui::Theme, Renderer> for F
                 .zip(&mut tree.children)
                 .zip(layout.children())
                 .for_each(|((child, state), c_layout)| {
-                    child.as_widget_mut().operate(
-                        state,
-                        c_layout,
-                        renderer,
-                        operation,
-                    );
+                    child
+                        .as_widget_mut()
+                        .operate(state, c_layout, renderer, operation);
                 });
         });
     }
@@ -171,14 +170,7 @@ impl<Message: 'static + Clone> Widget<Message, crate::ui::Theme, Renderer> for F
             .zip(layout.children())
         {
             child.as_widget_mut().update(
-                state,
-                event,
-                c_layout,
-                cursor,
-                renderer,
-                clipboard,
-                shell,
-                viewport,
+                state, event, c_layout, cursor, renderer, clipboard, shell, viewport,
             );
         }
     }
@@ -196,13 +188,9 @@ impl<Message: 'static + Clone> Widget<Message, crate::ui::Theme, Renderer> for F
             .zip(&tree.children)
             .zip(layout.children())
             .map(|((child, state), c_layout)| {
-                child.as_widget().mouse_interaction(
-                    state,
-                    c_layout,
-                    cursor,
-                    viewport,
-                    renderer,
-                )
+                child
+                    .as_widget()
+                    .mouse_interaction(state, c_layout, cursor, viewport, renderer)
             })
             .max()
             .unwrap_or_default()
@@ -224,15 +212,9 @@ impl<Message: 'static + Clone> Widget<Message, crate::ui::Theme, Renderer> for F
             .zip(&tree.children)
             .zip(layout.children())
         {
-            child.as_widget().draw(
-                state,
-                renderer,
-                theme,
-                style,
-                c_layout,
-                cursor,
-                viewport,
-            );
+            child
+                .as_widget()
+                .draw(state, renderer, theme, style, c_layout, cursor, viewport);
         }
     }
 

@@ -10,8 +10,8 @@ use iced::Renderer;
 use iced_core::text::LineHeight;
 
 pub mod widget;
-pub use widget::{Catalog, Format, Style, StyleFn, Text, draw, layout};
 use std::borrow::Cow;
+pub use widget::{Catalog, Format, Style, StyleFn, Text, draw, layout};
 
 // `HasSelectableText` is implemented by `widget::Text` below and by
 // `ui::widget::text_editor::TextEditor`.
@@ -80,7 +80,6 @@ pub trait HasSelectableText {
         None
     }
 }
-
 
 /// Creates a new [`Text`] widget with the provided content.
 ///
@@ -169,7 +168,9 @@ pub fn heading<'a>(text: impl Into<Cow<'a, str>> + 'a) -> Text<'a, crate::ui::Th
 }
 
 /// [`Text`] widget with the Caption Heading typography preset.
-pub fn caption_heading<'a>(text: impl Into<Cow<'a, str>> + 'a) -> Text<'a, crate::ui::Theme, Renderer> {
+pub fn caption_heading<'a>(
+    text: impl Into<Cow<'a, str>> + 'a,
+) -> Text<'a, crate::ui::Theme, Renderer> {
     #[inline(never)]
     fn inner(text: Cow<str>) -> Text<crate::ui::Theme, Renderer> {
         Text::new(text)
@@ -220,7 +221,6 @@ pub fn monotext<'a>(text: impl Into<Cow<'a, str>> + 'a) -> Text<'a, crate::ui::T
     inner(text.into())
 }
 
-
 // ---------------------------------------------------------------------------
 // `HasSelectableText` for `Text`.
 // ---------------------------------------------------------------------------
@@ -246,7 +246,9 @@ impl<Theme: Catalog> HasSelectableText for Text<'_, Theme, Renderer> {
     }
 
     fn clipboard_has_text(&self, tree: &WidgetTree) -> bool {
-        tree.state.downcast_ref::<widget::State>().has_clipboard_text()
+        tree.state
+            .downcast_ref::<widget::State>()
+            .has_clipboard_text()
     }
 
     fn is_focused(&self, tree: &WidgetTree) -> bool {

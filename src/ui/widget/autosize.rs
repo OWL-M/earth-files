@@ -8,6 +8,7 @@
 // `event::self` is only used inside the `#[cfg(wayland_platform)]` block below,
 // which never compiles in this crate (see the `[lints.rust]` note in
 // Cargo.toml), hence the otherwise-unused import.
+pub use iced::widget::container::{Catalog, Style};
 #[allow(unused_imports)]
 use iced_core::event::{self, Event};
 use iced_core::widget::{Id, Operation, Tree};
@@ -15,7 +16,6 @@ use iced_core::{
     Clipboard, Element, Layout, Length, Rectangle, Shell, Vector, Widget, layout, mouse, overlay,
     renderer,
 };
-pub use iced::widget::container::{Catalog, Style};
 
 pub fn autosize<'a, Message: 'static, Theme, E>(
     content: E,
@@ -156,10 +156,7 @@ where
         operation.traverse(&mut |operation| {
             self.content.as_widget_mut().operate(
                 &mut tree.children[0],
-                layout
-                    .children()
-                    .next()
-                    .unwrap(),
+                layout.children().next().unwrap(),
                 renderer,
                 operation,
             );
@@ -190,10 +187,7 @@ where
         self.content.as_widget_mut().update(
             &mut tree.children[0],
             event,
-            layout
-                .children()
-                .next()
-                .unwrap(),
+            layout.children().next().unwrap(),
             cursor_position,
             renderer,
             clipboard,
@@ -252,16 +246,12 @@ where
     ) -> Option<overlay::Element<'b, Message, Theme, Renderer>> {
         self.content.as_widget_mut().overlay(
             &mut tree.children[0],
-            layout
-                .children()
-                .next()
-                .unwrap(),
+            layout.children().next().unwrap(),
             renderer,
             viewport,
             translation,
         )
     }
-
 }
 
 impl<'a, Message, Theme, Renderer> From<Autosize<'a, Message, Theme, Renderer>>

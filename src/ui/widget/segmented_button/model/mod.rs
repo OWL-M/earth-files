@@ -336,6 +336,12 @@ where
         self.order.len()
     }
 
+    /// Whether the model has no items.
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.order.is_empty()
+    }
+
     /// Iterates across items in the model in the order that they are displayed.
     pub fn iter(&self) -> impl Iterator<Item = Entity> + '_ {
         self.order.iter().copied()

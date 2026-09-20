@@ -3,14 +3,14 @@
 
 //! Vendored from pop-os/libcosmic, src/widget/dialog.rs
 
-use iced::{Length, Pixels};
 use crate::ui::theme::style;
+use iced::{Length, Pixels};
 
 use crate::ui::Element;
+use crate::ui::convert::ToPixels;
 use crate::ui::theme;
 use crate::ui::widget;
 use std::borrow::Cow;
-use crate::ui::convert::{ToPixels};
 
 pub fn dialog<'a, Message>() -> Dialog<'a, Message> {
     Dialog::new()
@@ -172,7 +172,8 @@ impl<'a, Message: Clone + 'static> From<Dialog<'a, Message>> for Element<'a, Mes
         }
 
         let mut container = widget::container(
-            widget::Column::with_children([content_row.into(), button_row.into()]).spacing(space_l.to_pixels()),
+            widget::Column::with_children([content_row.into(), button_row.into()])
+                .spacing(space_l.to_pixels()),
         )
         .class(style::Container::Dialog(dialog.is_overlay))
         .padding(space_m)

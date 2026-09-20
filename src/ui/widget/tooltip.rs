@@ -5,8 +5,8 @@
 
 use crate::ui::Element;
 
+use crate::ui::convert::ToPixels;
 pub use iced::widget::tooltip::Position;
-use crate::ui::convert::{ToPixels};
 
 pub type Tooltip<'a, Message> =
     iced::widget::Tooltip<'a, Message, crate::ui::Theme, iced::Renderer>;

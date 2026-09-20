@@ -11,12 +11,12 @@ use apply::Apply;
 use iced::{Background, Length, window};
 use iced_core::{Border, Color, Shadow};
 
-use crate::ui::widget::{menu, scrollable, segmented_button};
+use crate::ui::Theme;
+use crate::ui::convert::{ToColor, ToRadius};
+use crate::ui::theme;
 use crate::ui::widget::Icon;
 use crate::ui::widget::{Container, container};
-use crate::ui::Theme;
-use crate::ui::theme;
-use crate::ui::convert::{ToColor, ToRadius};
+use crate::ui::widget::{menu, scrollable, segmented_button};
 
 pub type Id = segmented_button::Entity;
 pub type Model = segmented_button::SingleSelectModel;
@@ -100,28 +100,22 @@ impl<'a, Message: Clone + 'static> NavBar<'a, Message> {
         self
     }
 
-    pub fn with_positioner(
-        mut self,
-        positioner: crate::ui::surface::Positioner,
-    ) -> Self {
+    pub fn with_positioner(mut self, positioner: crate::ui::surface::Positioner) -> Self {
         self.segmented_button = self.segmented_button.with_positioner(positioner);
         self
     }
 
-    #[must_use]
     pub fn window_id(mut self, id: window::Id) -> Self {
         self.segmented_button = self.segmented_button.window_id(id);
         self
     }
 
-    #[must_use]
     pub fn window_id_maybe(mut self, id: Option<window::Id>) -> Self {
         self.segmented_button = self.segmented_button.window_id_maybe(id);
 
         self
     }
 
-    #[must_use]
     pub fn on_surface_action(
         mut self,
         handler: impl Fn(crate::ui::surface::Action<Message>) -> Message + Send + Sync + 'static,

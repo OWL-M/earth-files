@@ -6,12 +6,12 @@
 use super::model::{Entity, Model, Selectable};
 use super::{InsertPosition, ReorderEvent};
 use crate::ui::shell::runner::{WindowingSystem, windowing_system};
+use crate::ui::theme::SegmentedButton as Style;
 use crate::ui::widget::menu::{
     self, CloseCondition, ItemHeight, ItemWidth, MenuBarState, PathHighlight, menu_roots_children,
     menu_roots_diff,
 };
 use crate::ui::widget::{Icon, icon};
-use crate::ui::theme::SegmentedButton as Style;
 use iced::Renderer;
 
 use crate::ui::Element;
@@ -22,9 +22,7 @@ use iced::{
     keyboard, mouse, touch, window,
 };
 use iced_core::mouse::ScrollDelta;
-use iced_core::text::{
-    self, LineHeight, Renderer as TextRenderer, Shaping, Wrapping,
-};
+use iced_core::text::{self, LineHeight, Renderer as TextRenderer, Shaping, Wrapping};
 use iced_core::widget::operation::Focusable;
 use iced_core::widget::{self, Tree, operation, tree};
 use iced_core::{
@@ -40,11 +38,15 @@ use std::hash::{Hash, Hasher};
 use std::marker::PhantomData;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+
 use crate::ui::convert::{ToColor, ToRadius};
 
-type Plain = iced_core::text::paragraph::Plain<
-    <iced::Renderer as iced_core::text::Renderer>::Paragraph,
->;
+/// The message for a drop target changing: the button and whether the drop is
+/// a file drop, or `None` when nothing is hovered
+type OnDropHint<Message> = Box<dyn Fn(Option<(Entity, bool)>) -> Message + 'static>;
+
+type Plain =
+    iced_core::text::paragraph::Plain<<iced::Renderer as iced_core::text::Renderer>::Paragraph>;
 
 thread_local! {
     // Prevents two segmented buttons from being focused at the same time.
@@ -187,7 +189,7 @@ where
     #[setters(skip)]
     pub(super) tab_drag: Option<TabDragSource<Message>>,
     #[setters(skip)]
-    pub(super) on_drop_hint: Option<Box<dyn Fn(Option<(Entity, bool)>) -> Message + 'static>>,
+    pub(super) on_drop_hint: Option<OnDropHint<Message>>,
     /// What to do when *files* are dropped on one of these buttons, as opposed
     /// to a tab being dragged among them. `None` for a button that is not a
     /// destination, which is also how the drop hint knows not to light it up.
@@ -656,7 +658,6 @@ where
         (width, f32::from(self.button_height))
     }
 
-
     pub(super) fn max_button_dimensions(
         &self,
         state: &mut LocalState,
@@ -890,10 +891,11 @@ where
             .map(|(x, y)| Point::new(x, y))
             .filter(|point| bounds.contains(*point))
             .and_then(|point| {
-                self.variant_bounds(state, bounds).find_map(|item| match item {
-                    ItemBounds::Button(entity, rect) if rect.contains(point) => Some(entity),
-                    _ => None,
-                })
+                self.variant_bounds(state, bounds)
+                    .find_map(|item| match item {
+                        ItemBounds::Button(entity, rect) if rect.contains(point) => Some(entity),
+                        _ => None,
+                    })
             })
             // A button the callback has no message for is not a destination,
             // so it must not be drawn as one either.
@@ -933,21 +935,16 @@ where
         shell.request_redraw();
     }
 
-    pub fn with_positioner(
-        mut self,
-        positioner: crate::ui::surface::Positioner,
-    ) -> Self {
+    pub fn with_positioner(mut self, positioner: crate::ui::surface::Positioner) -> Self {
         self.positioner = positioner;
         self
     }
 
-    #[must_use]
     pub fn window_id(mut self, id: window::Id) -> Self {
         self.window_id = id;
         self
     }
 
-    #[must_use]
     pub fn window_id_maybe(mut self, id: Option<window::Id>) -> Self {
         if let Some(id) = id {
             self.window_id = id;
@@ -955,7 +952,6 @@ where
         self
     }
 
-    #[must_use]
     pub fn on_surface_action(
         mut self,
         handler: impl Fn(crate::ui::surface::Action<Message>) -> Message + Send + Sync + 'static,
@@ -1044,7 +1040,9 @@ where
                 cross_offset: 0,
                 root_bounds_list: vec![bounds],
                 path_highlight: Some(PathHighlight::MenuActive),
-                style: std::borrow::Cow::Borrowed(&crate::ui::theme::menu_bar::MenuBarStyle::Default),
+                style: std::borrow::Cow::Borrowed(
+                    &crate::ui::theme::menu_bar::MenuBarStyle::Default,
+                ),
                 position: Point::new(0., 0.),
                 is_overlay: false,
                 window_id: id,
@@ -1064,33 +1062,44 @@ where
             );
             let (anchor_rect, gravity) = my_state.inner.with_data_mut(|state| {
                 state.popup_id.insert(self.window_id, id);
-                (state
-                    .menu_states
-                    .iter()
-                    .find(|s| s.index.is_none())
-                    .map(|s| s.menu_bounds.parent_bounds)
-                    .map_or_else(
-                        || {
-                            let bounds = layout.bounds();
-                            Rectangle {
-                                x: bounds.x as i32,
-                                y: bounds.y as i32,
+                (
+                    state
+                        .menu_states
+                        .iter()
+                        .find(|s| s.index.is_none())
+                        .map(|s| s.menu_bounds.parent_bounds)
+                        .map_or_else(
+                            || {
+                                let bounds = layout.bounds();
+                                Rectangle {
+                                    x: bounds.x as i32,
+                                    y: bounds.y as i32,
+                                    width: 1,
+                                    height: 1,
+                                }
+                            },
+                            |r| Rectangle {
+                                x: r.x as i32,
+                                y: r.y as i32,
                                 width: 1,
                                 height: 1,
-                            }
-                        },
-                        |r| Rectangle {
-                            x: r.x as i32,
-                            y: r.y as i32,
-                            width: 1,
-                            height: 1,
-                        },
-                    ), match (state.horizontal_direction, state.vertical_direction) {
-                        (menu::Direction::Positive, menu::Direction::Positive) => crate::ui::surface::PopupGravity::BottomRight,
-                        (menu::Direction::Positive, menu::Direction::Negative) => crate::ui::surface::PopupGravity::TopRight,
-                        (menu::Direction::Negative, menu::Direction::Positive) => crate::ui::surface::PopupGravity::BottomLeft,
-                        (menu::Direction::Negative, menu::Direction::Negative) => crate::ui::surface::PopupGravity::TopLeft,
-                    })
+                            },
+                        ),
+                    match (state.horizontal_direction, state.vertical_direction) {
+                        (menu::Direction::Positive, menu::Direction::Positive) => {
+                            crate::ui::surface::PopupGravity::BottomRight
+                        }
+                        (menu::Direction::Positive, menu::Direction::Negative) => {
+                            crate::ui::surface::PopupGravity::TopRight
+                        }
+                        (menu::Direction::Negative, menu::Direction::Positive) => {
+                            crate::ui::surface::PopupGravity::BottomLeft
+                        }
+                        (menu::Direction::Negative, menu::Direction::Negative) => {
+                            crate::ui::surface::PopupGravity::TopLeft
+                        }
+                    },
+                )
             });
 
             let menu_node =
@@ -1102,28 +1111,25 @@ where
                     popup_size.height.ceil() as u32 + 2,
                 )),
                 anchor_rect,
-                anchor:
-                    crate::ui::surface::PopupAnchor::BottomLeft,
+                anchor: crate::ui::surface::PopupAnchor::BottomLeft,
                 gravity,
                 ..Default::default()
             };
             let parent = self.window_id;
 
-            shell.publish((surface_action)(
-                crate::ui::surface::action::simple_popup(
-                    move || PopupSettings {
-                        parent,
-                        id,
-                        positioner,
-                    },
-                    Some(move || {
-                        Element::from(
-                            crate::ui::widget::container(popup_menu.clone()).center(Length::Fill),
-                        )
-                        .map(crate::ui::Action::App)
-                    }),
-                ),
-            ));
+            shell.publish((surface_action)(crate::ui::surface::action::simple_popup(
+                move || PopupSettings {
+                    parent,
+                    id,
+                    positioner,
+                },
+                Some(move || {
+                    Element::from(
+                        crate::ui::widget::container(popup_menu.clone()).center(Length::Fill),
+                    )
+                    .map(crate::ui::Action::App)
+                }),
+            )));
         }
     }
 }
@@ -1136,7 +1142,6 @@ where
     SelectionMode: Default,
     Message: 'static + Clone,
 {
-
     fn children(&self) -> Vec<Tree> {
         let mut children = Vec::new();
 
@@ -1381,8 +1386,8 @@ where
                             // Emit close message if the close button is pressed.
                             if let Some(on_close) = self.on_close.as_ref() {
                                 if over_close_button
-                                    && (left_button_released(&event)
-                                        || (touch_lifted(&event) && fingers_pressed == 1))
+                                    && (left_button_released(event)
+                                        || (touch_lifted(event) && fingers_pressed == 1))
                                 {
                                     shell.publish(on_close(key));
                                     shell.capture_event();
@@ -1436,7 +1441,7 @@ where
                             }
                         }
 
-                        if is_lifted(&event) {
+                        if is_lifted(event) {
                             state.unfocus();
                         }
 
@@ -1466,7 +1471,7 @@ where
                         if let Some(on_activate) = self.on_activate.as_ref() {
                             if is_pressed(event) {
                                 state.pressed_item = Some(Item::Tab(key));
-                            } else if is_lifted(&event) && self.button_is_pressed(state, key) {
+                            } else if is_lifted(event) && self.button_is_pressed(state, key) {
                                 shell.publish(on_activate(key));
                                 state.set_focused();
                                 state.focused_item = Item::Tab(key);
@@ -1479,8 +1484,8 @@ where
                         // Present a context menu on a right click event.
                         if self.context_menu.is_some()
                             && let Some(on_context) = self.on_context.as_ref()
-                            && (right_button_released(&event)
-                                || (touch_lifted(&event) && fingers_pressed == 2))
+                            && (right_button_released(event)
+                                || (touch_lifted(event) && fingers_pressed == 2))
                         {
                             state.show_context = Some(key);
                             state.context_cursor = cursor_position.position().unwrap_or_default();
@@ -1495,10 +1500,7 @@ where
                             shell.publish(on_context(key));
                             shell.capture_event();
 
-                            if matches!(
-                                windowing_system(),
-                                Some(WindowingSystem::Wayland)
-                            ) {
+                            if matches!(windowing_system(), Some(WindowingSystem::Wayland)) {
                                 self.create_popup(
                                     layout,
                                     cursor_position,
@@ -1591,12 +1593,12 @@ where
             }
             if state.is_focused() {
                 // Unfocus on clicks outside of the boundaries of the segmented button.
-                if is_pressed(&event) {
+                if is_pressed(event) {
                     state.unfocus();
                     state.pressed_item = None;
                     return;
                 }
-            } else if is_lifted(&event) {
+            } else if is_lifted(event) {
                 state.pressed_item = None;
             }
         }
@@ -1640,7 +1642,9 @@ where
                 let surface_action = self.on_surface_action.as_ref().unwrap();
                 shell.capture_event();
 
-                shell.publish(surface_action(crate::ui::surface::action::destroy_popup(_id)));
+                shell.publish(surface_action(crate::ui::surface::action::destroy_popup(
+                    _id,
+                )));
             }
             state.show_context = None;
 
@@ -1942,7 +1946,9 @@ where
                             if accented {
                                 Background::Color(theme.cosmic().small_widget_divider().to_color())
                             } else {
-                                Background::Color(theme.cosmic().primary_container_divider().to_color())
+                                Background::Color(
+                                    theme.cosmic().primary_container_divider().to_color(),
+                                )
                             }
                         },
                     );
@@ -2163,14 +2169,17 @@ where
                             height: 16.0,
                             ..image_bounds
                         },
-                        crate::ui::widget::icon(match crate::ui::widget::common::object_select().data() {
-                            iced_core::svg::Data::Bytes(bytes) => {
-                                crate::ui::widget::icon::from_svg_bytes(bytes.as_ref()).symbolic(true)
-                            }
-                            iced_core::svg::Data::Path(path) => {
-                                crate::ui::widget::icon::from_path(path.clone())
-                            }
-                        }),
+                        crate::ui::widget::icon(
+                            match crate::ui::widget::common::object_select().data() {
+                                iced_core::svg::Data::Bytes(bytes) => {
+                                    crate::ui::widget::icon::from_svg_bytes(bytes.as_ref())
+                                        .symbolic(true)
+                                }
+                                iced_core::svg::Data::Path(path) => {
+                                    crate::ui::widget::icon::from_path(path.clone())
+                                }
+                            },
+                        ),
                     );
 
                     let offset = 16.0 + f32::from(self.button_spacing);
@@ -2233,22 +2242,22 @@ where
                 );
             }
 
-            if show_drop_hint_marker {
-                if matches!(
+            if show_drop_hint_marker
+                && matches!(
                     drop_hint_marker,
                     Some(DropHint {
                         entity,
                         side: DropSide::After
                     }) if entity == key
-                ) {
-                    draw_drop_indicator(
-                        renderer,
-                        original_bounds,
-                        DropSide::After,
-                        Self::VERTICAL,
-                        appearance.active.text_color,
-                    );
-                }
+                )
+            {
+                draw_drop_indicator(
+                    renderer,
+                    original_bounds,
+                    DropSide::After,
+                    Self::VERTICAL,
+                    appearance.active.text_color,
+                );
             }
 
             nth += 1;
@@ -2263,10 +2272,8 @@ where
         _viewport: &iced_core::Rectangle,
         translation: Vector,
     ) -> Option<iced_core::overlay::Element<'b, Message, crate::ui::Theme, Renderer>> {
-        if matches!(
-            windowing_system(),
-            Some(WindowingSystem::Wayland)
-        ) && self.on_surface_action.is_some()
+        if matches!(windowing_system(), Some(WindowingSystem::Wayland))
+            && self.on_surface_action.is_some()
             && self.window_id != crate::ui::window::none()
         {
             return None;
@@ -2327,7 +2334,9 @@ where
                 cross_offset: 0,
                 root_bounds_list: vec![bounds],
                 path_highlight: Some(PathHighlight::MenuActive),
-                style: std::borrow::Cow::Borrowed(&crate::ui::theme::menu_bar::MenuBarStyle::Default),
+                style: std::borrow::Cow::Borrowed(
+                    &crate::ui::theme::menu_bar::MenuBarStyle::Default,
+                ),
                 position: Point::new(translation.x, translation.y),
                 is_overlay: true,
                 window_id: crate::ui::window::none(),
@@ -2337,7 +2346,6 @@ where
             .overlay(),
         )
     }
-
 }
 
 impl<'a, Variant, SelectionMode, Message> From<SegmentedButton<'a, Variant, SelectionMode, Message>>
@@ -2799,4 +2807,3 @@ fn is_lifted(event: &Event) -> bool {
 fn touch_lifted(event: &Event) -> bool {
     matches!(event, Event::Touch(touch::Event::FingerLifted { .. }))
 }
-

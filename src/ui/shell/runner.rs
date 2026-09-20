@@ -26,11 +26,14 @@
 
 use super::{Application, Core};
 use crate::ui::app::Task as AppTask;
+use crate::ui::convert::ToColor;
 use crate::ui::iced::{self, Subscription, window};
 use crate::ui::{Element, Theme};
 use std::borrow::Cow;
 use std::cell::RefCell;
-use crate::ui::convert::{ToColor};
+
+/// Builds a popup's content, capturing everything it needs
+type PopupView<M> = Box<dyn Fn() -> Element<'static, crate::ui::Action<M>> + Send + Sync>;
 
 /// The windowing system the app is running under.
 ///
@@ -246,10 +249,7 @@ pub struct Shell<App: Application> {
     /// `context_menu`, `segmented_button` and `dropdown`.
     ///
     /// Each builder captures its content and takes no `&App`.
-    popup_views: std::collections::HashMap<
-        window::Id,
-        Box<dyn Fn() -> Element<'static, crate::ui::Action<App::Message>> + Send + Sync>,
-    >,
+    popup_views: std::collections::HashMap<window::Id, PopupView<App::Message>>,
     /// Refcount of open surfaces per id. Text context menus can reuse an id on
     /// a second right-click before the previous surface's `SurfaceClosed` arrives
     /// (`drain_text_context_popups`). Counting open surfaces prevents that
@@ -285,8 +285,7 @@ impl<App: Application> Shell<App> {
     pub fn style(&self, _theme: &Theme) -> iced::theme::Style {
         if let Some(style) = self.app.style() {
             style
-        } else if self.app.core().window.is_maximized
-            && !self.theme.cosmic().frosted_maximized_apps
+        } else if self.app.core().window.is_maximized && !self.theme.cosmic().frosted_maximized_apps
         {
             crate::ui::theme::style::iced::application::style(&self.theme)
         } else {
@@ -428,7 +427,10 @@ impl<App: Application> Shell<App> {
                 limits,
                 size,
             } => {
-                self.app.core_mut().menu_bars.insert(menu_bar, (limits, size));
+                self.app
+                    .core_mut()
+                    .menu_bars
+                    .insert(menu_bar, (limits, size));
                 iced::Task::none()
             }
             // `menu`, `context_menu`, `segmented_button` and `dropdown` all
@@ -442,10 +444,7 @@ impl<App: Application> Shell<App> {
                     self.popup_views.insert(id, Box::new(move || view()));
                 }
 
-                iced::Task::done(crate::ui::action::exwl::popup(
-                    id,
-                    settings.to_exwlshell(),
-                ))
+                iced::Task::done(crate::ui::action::exwl::popup(id, settings.to_exwlshell()))
             }
             crate::ui::surface::Action::DestroyPopup(id) => {
                 // The view is dropped in `Action::SurfaceClosed`, once the
@@ -634,8 +633,9 @@ impl<App: Application> Shell<App> {
         // Drives the text context-menu popup queues: a right-click queues a
         // popup but publishes no message, so this re-emits `Action::None` to
         // make `update()` run and drain the queue.
-        subscriptions
-            .push(crate::ui::widget::text_context_menu::wake_subscription::<App::Message>());
+        subscriptions.push(crate::ui::widget::text_context_menu::wake_subscription::<
+            App::Message,
+        >());
 
         Subscription::batch(subscriptions)
     }

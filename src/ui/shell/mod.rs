@@ -21,12 +21,12 @@ pub use core::Core;
 pub use runner::{Shell, run};
 pub use settings::Settings;
 
+use crate::ui::Element;
 use crate::ui::app::Task;
+use crate::ui::convert::ToPadding;
+use crate::ui::convert::{PushMaybe, ToColor, ToRadius};
 use crate::ui::iced::{Subscription, window};
 use crate::ui::widget::{nav_bar, segmented_button};
-use crate::ui::Element;
-use crate::ui::convert::{PushMaybe, ToColor, ToRadius};
-use crate::ui::convert::{ToPadding};
 
 /// An interactive application driven by [`Shell`].
 #[allow(unused_variables)]
@@ -202,12 +202,15 @@ where
                 let nav = id_container(nav, widget::Id::new("COSMIC_nav_bar"));
                 widgets.push(
                     container(nav)
-                        .padding(([
-                            0,
-                            if is_condensed { border_padding } else { 8 },
-                            border_padding,
-                            border_padding,
-                        ]).to_padding())
+                        .padding(
+                            ([
+                                0,
+                                if is_condensed { border_padding } else { 8 },
+                                border_padding,
+                                border_padding,
+                            ])
+                            .to_padding(),
+                        )
                         .into(),
                 );
                 true
@@ -239,7 +242,10 @@ where
                                 ))
                             })
                             .apply(container)
-                            .padding(([0, if content_container { border_padding } else { 0 }, 0, 0]).to_padding())
+                            .padding(
+                                ([0, if content_container { border_padding } else { 0 }, 0, 0])
+                                    .to_padding(),
+                            )
                             .apply(Element::from)
                             .map(crate::ui::Action::App),
                         );
@@ -278,11 +284,14 @@ where
                                 ))
                             })
                             .apply(container)
-                            .padding((if content_container {
-                                [0, border_padding, border_padding, border_padding]
-                            } else {
-                                [0, 0, 0, 0]
-                            }).to_padding())
+                            .padding(
+                                (if content_container {
+                                    [0, border_padding, border_padding, border_padding]
+                                } else {
+                                    [0, 0, 0, 0]
+                                })
+                                .to_padding(),
+                            )
                             .into(),
                         );
                     } else {
@@ -298,12 +307,8 @@ where
         let content_col = widget::Column::with_capacity(2)
             .push(content_row)
             .push_maybe(self.footer().map(|footer| {
-                container(footer.map(crate::ui::Action::App)).padding(([
-                    0,
-                    border_padding,
-                    border_padding,
-                    border_padding,
-                ]).to_padding())
+                container(footer.map(crate::ui::Action::App))
+                    .padding(([0, border_padding, border_padding, border_padding]).to_padding())
             }));
 
         let content: Element<'_, crate::ui::Action<Self::Message>> = if content_container {

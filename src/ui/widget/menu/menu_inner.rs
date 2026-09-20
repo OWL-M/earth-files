@@ -14,16 +14,16 @@ use super::menu_tree::MenuTree;
 use crate::ui::shell::runner::{WindowingSystem, windowing_system};
 use crate::ui::theme::menu_bar::StyleSheet;
 
+use crate::ui::convert::{ToPadding, ToRadius};
 use iced::{Alignment, window};
-use iced_core::{Border, Renderer as IcedRenderer, Shadow, Widget};
 use iced_core::layout::{Limits, Node};
 use iced_core::mouse::{self, Cursor};
 use iced_core::widget::Tree;
+use iced_core::{Border, Renderer as IcedRenderer, Shadow, Widget};
 use iced_core::{
     Clipboard, Layout, Length, Padding, Point, Rectangle, Shell, Size, Vector, event, overlay,
     renderer, touch,
 };
-use crate::ui::convert::{ToPadding, ToRadius};
 
 /// The condition of when to close a menu
 #[derive(Debug, Clone, Copy)]
@@ -695,8 +695,9 @@ impl<'b, Message: Clone + 'static> Menu<'b, Message> {
                                     root = *parent.0;
                                     depth = depth.saturating_sub(1);
                                 }
-                                shell
-                                    .publish((handler)(crate::ui::surface::Action::DestroyPopup(root)));
+                                shell.publish((handler)(crate::ui::surface::Action::DestroyPopup(
+                                    root,
+                                )));
                             }
 
                             state.reset();
@@ -1053,32 +1054,43 @@ impl<Message: std::clone::Clone + 'static> Widget<Message, crate::ui::Theme, ice
                 self.main_offset as f32,
             );
             let (anchor_rect, gravity) = self.tree.inner.with_data_mut(|state| {
-                (state
-                    .menu_states
-                    .get(self.depth + 1)
-                    .map(|s| s.menu_bounds.parent_bounds)
-                    .map_or_else(
-                        || {
-                            let bounds = layout.bounds();
-                            Rectangle {
-                                x: bounds.x as i32,
-                                y: bounds.y as i32,
-                                width: bounds.width as i32,
-                                height: bounds.height as i32,
-                            }
-                        },
-                        |r| Rectangle {
-                            x: r.x as i32,
-                            y: r.y as i32,
-                            width: r.width as i32,
-                            height: r.height as i32,
-                        },
-                    ), match (state.horizontal_direction, state.vertical_direction) {
-                        (Direction::Positive, Direction::Positive) => crate::ui::surface::PopupGravity::BottomRight,
-                        (Direction::Positive, Direction::Negative) => crate::ui::surface::PopupGravity::TopRight,
-                        (Direction::Negative, Direction::Positive) => crate::ui::surface::PopupGravity::BottomLeft,
-                        (Direction::Negative, Direction::Negative) => crate::ui::surface::PopupGravity::TopLeft,
-                    })
+                (
+                    state
+                        .menu_states
+                        .get(self.depth + 1)
+                        .map(|s| s.menu_bounds.parent_bounds)
+                        .map_or_else(
+                            || {
+                                let bounds = layout.bounds();
+                                Rectangle {
+                                    x: bounds.x as i32,
+                                    y: bounds.y as i32,
+                                    width: bounds.width as i32,
+                                    height: bounds.height as i32,
+                                }
+                            },
+                            |r| Rectangle {
+                                x: r.x as i32,
+                                y: r.y as i32,
+                                width: r.width as i32,
+                                height: r.height as i32,
+                            },
+                        ),
+                    match (state.horizontal_direction, state.vertical_direction) {
+                        (Direction::Positive, Direction::Positive) => {
+                            crate::ui::surface::PopupGravity::BottomRight
+                        }
+                        (Direction::Positive, Direction::Negative) => {
+                            crate::ui::surface::PopupGravity::TopRight
+                        }
+                        (Direction::Negative, Direction::Positive) => {
+                            crate::ui::surface::PopupGravity::BottomLeft
+                        }
+                        (Direction::Negative, Direction::Negative) => {
+                            crate::ui::surface::PopupGravity::TopLeft
+                        }
+                    },
+                )
             });
 
             let menu_node = Widget::layout(
@@ -1095,8 +1107,7 @@ impl<Message: std::clone::Clone + 'static> Widget<Message, crate::ui::Theme, ice
                     popup_size.height.ceil() as u32 + 2,
                 )),
                 anchor_rect,
-                anchor:
-                    crate::ui::surface::PopupAnchor::TopRight,
+                anchor: crate::ui::surface::PopupAnchor::TopRight,
                 gravity,
                 ..Default::default()
             };
@@ -1238,6 +1249,7 @@ pub(crate) fn init_root_menu<Message: Clone>(
     });
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn init_root_popup_menu<Message>(
     menu: &mut Menu<'_, Message>,
     renderer: &iced::Renderer,
@@ -1531,14 +1543,13 @@ where
             .as_ref()
             .is_some_and(|i| *i != new_index && !active_menu[*i].children.is_empty());
 
-        if matches!(windowing_system(), Some(WindowingSystem::Wayland)) && remove {
-            if let Some(id) = state.popup_id.remove(&menu.window_id) {
+        if matches!(windowing_system(), Some(WindowingSystem::Wayland)) && remove
+            && let Some(id) = state.popup_id.remove(&menu.window_id) {
                 state.active_root.truncate(menu.depth + 1);
                 shell.publish((menu.on_surface_action.as_ref().unwrap())({
                     crate::ui::surface::action::destroy_popup(id)
                 }));
             }
-        }
         let item = &active_menu[new_index];
         // set new index
         let old_index = last_menu_state.index.replace(new_index);

@@ -15,17 +15,17 @@ use iced_runtime::{Action, Task, keyboard, task};
 use iced_core::event::Event;
 use iced_core::renderer::{self, Quad, Renderer};
 use iced_core::widget::Operation;
+use iced_core::widget::operation;
 use iced_core::widget::tree::{self, Tree};
 use iced_core::{
     Background, Border, Clipboard, Color, Layout, Length, Padding, Point, Rectangle, Shadow, Shell,
     Vector, Widget, layout, mouse, overlay, svg, touch,
 };
-use iced_core::widget::operation;
 
 use crate::ui::theme::active;
 
 pub use super::style::{Catalog, Style};
-use crate::ui::convert::{ToRadius};
+use crate::ui::convert::ToRadius;
 
 /// Internally defines different button widget variants.
 enum Variant<Message> {
@@ -349,10 +349,7 @@ impl<'a, Message: 'a + Clone> Widget<Message, crate::ui::Theme, iced::Renderer>
         operation.traverse(&mut |operation| {
             self.content.as_widget_mut().operate(
                 &mut tree.children[0],
-                layout
-                    .children()
-                    .next()
-                    .unwrap(),
+                layout.children().next().unwrap(),
                 renderer,
                 operation,
             );
@@ -381,12 +378,12 @@ impl<'a, Message: 'a + Clone> Widget<Message, crate::ui::Theme, iced::Renderer>
             match event {
                 Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left))
                 | Event::Touch(touch::Event::FingerPressed { .. }) => {
-                    if let Some(position) = cursor.position() {
-                        if removal_bounds(layout.bounds(), 4.0).contains(position) {
-                            shell.publish(on_remove.clone());
-                            shell.capture_event();
-                            return;
-                        }
+                    if let Some(position) = cursor.position()
+                        && removal_bounds(layout.bounds(), 4.0).contains(position)
+                    {
+                        shell.publish(on_remove.clone());
+                        shell.capture_event();
+                        return;
                     }
                 }
 
@@ -396,10 +393,7 @@ impl<'a, Message: 'a + Clone> Widget<Message, crate::ui::Theme, iced::Renderer>
         self.content.as_widget_mut().update(
             &mut tree.children[0],
             event,
-            layout
-                .children()
-                .next()
-                .unwrap(),
+            layout.children().next().unwrap(),
             cursor,
             renderer,
             clipboard,
@@ -568,8 +562,9 @@ impl<'a, Message: 'a + Clone> Widget<Message, crate::ui::Theme, iced::Renderer>
                         selection_background,
                     );
 
-                    let svg_handle = svg::Svg::new(crate::ui::widget::common::object_select().clone())
-                        .color(icon_color);
+                    let svg_handle =
+                        svg::Svg::new(crate::ui::widget::common::object_select().clone())
+                            .color(icon_color);
                     let bounds = Rectangle {
                         width: 16.0,
                         height: 16.0,
@@ -581,41 +576,40 @@ impl<'a, Message: 'a + Clone> Widget<Message, crate::ui::Theme, iced::Renderer>
                     }
                 }
 
-                if on_remove.is_some() {
-                    if let Some(position) = cursor.position() {
-                        if bounds.contains(position) {
-                            let bounds = removal_bounds(layout.bounds(), 4.0);
-                            renderer.fill_quad(
-                                renderer::Quad {
-                                    bounds,
-                                    shadow: Shadow::default(),
-                                    border: Border {
-                                        radius: c_rad.radius_m.to_radius(),
-                                        ..Default::default()
-                                    },
-                                    snap: true,
-                                },
-                                selection_background,
-                            );
-                            let svg_handle = svg::Svg::new(close_icon.clone()).color(icon_color);
-                            iced_core::svg::Renderer::draw_svg(
-                                renderer,
-                                svg_handle,
-                                Rectangle {
-                                    width: 16.0,
-                                    height: 16.0,
-                                    x: bounds.x + 4.0,
-                                    y: bounds.y + 4.0,
-                                },
-                                Rectangle {
-                                    width: 16.0,
-                                    height: 16.0,
-                                    x: bounds.x + 4.0,
-                                    y: bounds.y + 4.0,
-                                },
-                            );
-                        }
-                    }
+                if on_remove.is_some()
+                    && let Some(position) = cursor.position()
+                    && bounds.contains(position)
+                {
+                    let bounds = removal_bounds(layout.bounds(), 4.0);
+                    renderer.fill_quad(
+                        renderer::Quad {
+                            bounds,
+                            shadow: Shadow::default(),
+                            border: Border {
+                                radius: c_rad.radius_m.to_radius(),
+                                ..Default::default()
+                            },
+                            snap: true,
+                        },
+                        selection_background,
+                    );
+                    let svg_handle = svg::Svg::new(close_icon.clone()).color(icon_color);
+                    iced_core::svg::Renderer::draw_svg(
+                        renderer,
+                        svg_handle,
+                        Rectangle {
+                            width: 16.0,
+                            height: 16.0,
+                            x: bounds.x + 4.0,
+                            y: bounds.y + 4.0,
+                        },
+                        Rectangle {
+                            width: 16.0,
+                            height: 16.0,
+                            x: bounds.x + 4.0,
+                            y: bounds.y + 4.0,
+                        },
+                    );
                 }
             });
         }
@@ -650,16 +644,12 @@ impl<'a, Message: 'a + Clone> Widget<Message, crate::ui::Theme, iced::Renderer>
         translation.y += position.y;
         self.content.as_widget_mut().overlay(
             &mut tree.children[0],
-            layout
-                .children()
-                .next()
-                .unwrap(),
+            layout.children().next().unwrap(),
             renderer,
             viewport,
             translation,
         )
     }
-
 }
 
 impl<'a, Message: Clone + 'a> From<Button<'a, Message>> for crate::ui::Element<'a, Message> {
@@ -742,7 +732,6 @@ pub fn update<'a, Message: Clone>(
                     }
 
                     shell.capture_event();
-                    return;
                 }
             }
         }
@@ -762,7 +751,6 @@ pub fn update<'a, Message: Clone>(
                     }
 
                     shell.capture_event();
-                    return;
                 }
             } else if on_press_down.is_some() {
                 let state = state();
@@ -796,7 +784,6 @@ pub fn update<'a, Message: Clone>(
 
                     shell.publish(msg);
                     shell.capture_event();
-                    return;
                 }
             }
         }

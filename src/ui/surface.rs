@@ -20,17 +20,14 @@ use iced_core::layout::Limits;
 use iced_core::window;
 use std::sync::Arc;
 
-pub use iced_exwlshell::reexport::{
-    PopupAnchor, PopupConstraintAdjustment, PopupGravity,
-};
 use iced_exwlshell::actions::IcedNewPopupSettings;
 use iced_exwlshell::reexport::{PixelSize, PopupPlacement};
+pub use iced_exwlshell::reexport::{PopupAnchor, PopupConstraintAdjustment, PopupGravity};
 
 /// Produces the content of a surface created from within a widget.
 ///
 /// Typed on the message the widget publishes.
-pub type View<M> =
-    Arc<dyn Fn() -> Element<'static, crate::ui::Action<M>> + Send + Sync + 'static>;
+pub type View<M> = Arc<dyn Fn() -> Element<'static, crate::ui::Action<M>> + Send + Sync + 'static>;
 
 /// Builds the settings for a popup, at the moment the shell acts on the request.
 pub type Settings = Arc<dyn Fn() -> PopupSettings + Send + Sync + 'static>;
@@ -148,9 +145,7 @@ impl<M: 'static> Action<M> {
         match self {
             Action::Popup(settings, view) => Action::Popup(
                 settings,
-                view.map(|view| {
-                    Arc::new(move || view().map(g.clone())) as View<N>
-                }),
+                view.map(|view| Arc::new(move || view().map(g.clone())) as View<N>),
             ),
             Action::DestroyPopup(id) => Action::DestroyPopup(id),
             Action::ResponsiveMenuBar {
@@ -198,7 +193,6 @@ impl<M> std::fmt::Debug for Action<M> {
 }
 
 /// Wrap a surface action into a task the shell will handle.
-#[must_use]
 pub fn surface_task<M: Send + 'static>(action: Action<M>) -> iced::Task<crate::ui::Action<M>> {
     iced::Task::done(crate::ui::Action::Surface(action))
 }
@@ -219,9 +213,7 @@ pub mod action {
     #[must_use]
     pub fn simple_popup<M: 'static>(
         settings: impl Fn() -> PopupSettings + Send + Sync + 'static,
-        view: Option<
-            impl Fn() -> Element<'static, crate::ui::Action<M>> + Send + Sync + 'static,
-        >,
+        view: Option<impl Fn() -> Element<'static, crate::ui::Action<M>> + Send + Sync + 'static>,
     ) -> Action<M> {
         Action::Popup(
             Arc::new(settings),

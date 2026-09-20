@@ -5,14 +5,15 @@
 //!
 //! Vendored from pop-os/libcosmic, src/widget/selectable_text.rs
 
-use iced::Renderer;
 use crate::ui::widget::menu::MenuBarState;
+use iced::Renderer;
 
+use crate::ui::convert::{ToColor, ToRadius};
+use crate::ui::widget::text::{Catalog, Style};
 use iced::window;
 use iced_core::event::Event;
 use iced_core::text::LineHeight;
 use iced_core::widget::Widget;
-use crate::ui::widget::text::{Catalog, Style};
 use iced_core::widget::text::{Alignment, Shaping, Wrapping};
 use iced_core::widget::tree::{self, Tree};
 use iced_core::{
@@ -20,7 +21,6 @@ use iced_core::{
     overlay, renderer,
 };
 use std::borrow::Cow;
-use crate::ui::convert::{ToColor, ToRadius};
 
 // iced's `Text` is not selectable and has no `selectable()`; this crate's
 // `ui::widget::text::Text` is.
@@ -150,7 +150,6 @@ impl<'a> SelectableText<'a> {
         self
     }
 
-
     #[must_use]
     pub fn style(mut self, style: impl Fn(&crate::ui::Theme) -> Style + 'a) -> Self
     where
@@ -218,7 +217,9 @@ fn w_mut<'x, Message>(
     inner
 }
 
-impl<'a, Message: Clone + 'static> Widget<Message, crate::ui::Theme, Renderer> for SelectableText<'a> {
+impl<'a, Message: Clone + 'static> Widget<Message, crate::ui::Theme, Renderer>
+    for SelectableText<'a>
+{
     fn tag(&self) -> tree::Tag {
         if self.shows_context_menu() {
             tree::Tag::of::<TextWrapperState>()
@@ -247,10 +248,10 @@ impl<'a, Message: Clone + 'static> Widget<Message, crate::ui::Theme, Renderer> f
     }
 
     fn diff(&self, tree: &mut Tree) {
-        if self.shows_context_menu() {
-            if let Some(child) = tree.children.first_mut() {
-                child.diff(&self.inner as &dyn Widget<Message, crate::ui::Theme, Renderer>);
-            }
+        if self.shows_context_menu()
+            && let Some(child) = tree.children.first_mut()
+        {
+            child.diff(&self.inner as &dyn Widget<Message, crate::ui::Theme, Renderer>);
         }
     }
 
@@ -463,7 +464,6 @@ impl<'a, Message: Clone + 'static> Widget<Message, crate::ui::Theme, Renderer> f
         };
         w_mut::<Message>(&mut self.inner).operate(inner_tree, layout, renderer, operation);
     }
-
 }
 
 impl<'a, Message: Clone + 'static> From<SelectableText<'a>> for crate::ui::Element<'a, Message> {

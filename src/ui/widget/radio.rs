@@ -267,12 +267,11 @@ where
         if !shell.is_event_captured() {
             match event {
                 Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left))
-                | Event::Touch(touch::Event::FingerLifted { .. }) => {
-                    if cursor.is_over(layout.bounds()) {
-                        shell.publish(self.on_click.clone());
-                        shell.capture_event();
-                        return;
-                    }
+                | Event::Touch(touch::Event::FingerLifted { .. })
+                    if cursor.is_over(layout.bounds()) =>
+                {
+                    shell.publish(self.on_click.clone());
+                    shell.capture_event();
                 }
                 _ => {}
             }

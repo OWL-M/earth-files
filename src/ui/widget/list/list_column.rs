@@ -5,9 +5,9 @@
 
 use crate::ui::theme;
 use crate::ui::widget::divider;
-use iced::{Length, Padding};
 use iced::widget::container::Catalog;
 use iced::widget::space::vertical;
+use iced::{Length, Padding};
 
 use crate::ui::widget::{container, row};
 use apply::Apply;

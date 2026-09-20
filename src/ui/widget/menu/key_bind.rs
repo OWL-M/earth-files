@@ -222,7 +222,7 @@ mod test {
         };
 
         assert!(bind.matches(Modifiers::CTRL, &Key::Character(" ".into()), None,));
-        assert!(format!("{}", bind) == String::from("Ctrl + Space"))
+        assert!(format!("{}", bind) == "Ctrl + Space")
     }
 
     #[test]

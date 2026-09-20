@@ -3,8 +3,8 @@
 
 //! Vendored from pop-os/libcosmic, src/widget/progress_bar/style.rs
 
+use crate::ui::convert::ToColor;
 use iced::Color;
-use crate::ui::convert::{ToColor};
 
 #[derive(Debug, Clone, Copy)]
 pub struct Appearance {
@@ -83,14 +83,20 @@ impl StyleSheet for crate::ui::Theme {
                 theme.accent_text_color().to_color(),
             )
         } else if theme.is_dark {
-            (theme.palette.neutral_5.to_color(), theme.accent_color().to_color())
+            (
+                theme.palette.neutral_5.to_color(),
+                theme.accent_color().to_color(),
+            )
         } else if theme.is_high_contrast {
             (
                 theme.palette.neutral_4.to_color(),
                 theme.accent_text_color().to_color(),
             )
         } else {
-            (theme.palette.neutral_3.to_color(), theme.accent_color().to_color())
+            (
+                theme.palette.neutral_3.to_color(),
+                theme.accent_color().to_color(),
+            )
         };
 
         if !is_determinate && is_circular {

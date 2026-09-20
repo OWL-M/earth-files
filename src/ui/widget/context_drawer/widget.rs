@@ -10,13 +10,13 @@ use crate::fl;
 use crate::ui::{Element, Theme};
 use std::borrow::Cow;
 
+use crate::ui::convert::{PushMaybe, ToPadding, ToPixels};
 use iced_core::event::Event;
 use iced_core::widget::{Operation, Tree};
 use iced_core::{
     Alignment, Clipboard, Layout, Length, Rectangle, Shell, Vector, Widget, layout, mouse,
     overlay as iced_overlay, renderer,
 };
-use crate::ui::convert::{PushMaybe, ToPadding, ToPixels};
 
 #[must_use]
 pub struct ContextDrawer<'a, Message> {
@@ -44,6 +44,7 @@ impl<'a, Message: Clone + 'static> ContextDrawer<'a, Message> {
         )
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn new_inner_overlay<Drawer>(
         title: Option<Cow<'a, str>>,
         actions: Option<Element<'a, Message>>,
@@ -58,6 +59,7 @@ impl<'a, Message: Clone + 'static> ContextDrawer<'a, Message> {
         Drawer: Into<Element<'a, Message>>,
     {
         #[inline(never)]
+        #[allow(clippy::too_many_arguments)]
         fn inner<'a, Message: Clone + 'static>(
             title: Option<Cow<'a, str>>,
             actions_opt: Option<Element<'a, Message>>,
@@ -92,11 +94,13 @@ impl<'a, Message: Clone + 'static> ContextDrawer<'a, Message> {
                 (title, None)
             };
 
-            let header_row = crate::ui::widget::Row::with_capacity(2).push(actions_slot).push(
-                button::text(fl!("close"))
-                    .trailing_icon(icon::from_name("go-next-symbolic"))
-                    .on_press(on_close),
-            );
+            let header_row = crate::ui::widget::Row::with_capacity(2)
+                .push(actions_slot)
+                .push(
+                    button::text(fl!("close"))
+                        .trailing_icon(icon::from_name("go-next-symbolic"))
+                        .on_press(on_close),
+                );
             let header = crate::ui::widget::Column::with_capacity(3)
                 .align_x(Alignment::Center)
                 .padding([space_m, horizontal_padding])
@@ -113,12 +117,15 @@ impl<'a, Message: Clone + 'static> ContextDrawer<'a, Message> {
                 .push(header)
                 .push(
                     container(drawer)
-                        .padding(([
-                            0,
-                            horizontal_padding,
-                            if footer.is_some() { 0 } else { space_l },
-                            horizontal_padding,
-                        ]).to_padding())
+                        .padding(
+                            ([
+                                0,
+                                horizontal_padding,
+                                if footer.is_some() { 0 } else { space_l },
+                                horizontal_padding,
+                            ])
+                            .to_padding(),
+                        )
                         .apply(scrollable)
                         .height(Length::Fill),
                 )
@@ -155,6 +162,7 @@ impl<'a, Message: Clone + 'static> ContextDrawer<'a, Message> {
     }
 
     /// Creates an empty [`ContextDrawer`].
+    #[allow(clippy::too_many_arguments)]
     pub fn new<Content, Drawer>(
         title: Option<Cow<'a, str>>,
         actions: Option<Element<'a, Message>>,
@@ -328,7 +336,6 @@ impl<Message: Clone> Widget<Message, crate::ui::Theme, Renderer> for ContextDraw
             position,
         })))
     }
-
 }
 
 impl<'a, Message: 'a + Clone> From<ContextDrawer<'a, Message>> for Element<'a, Message> {

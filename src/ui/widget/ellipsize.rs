@@ -383,7 +383,10 @@ where
             state.cache = Some((width, self.content.to_string(), resolved));
         }
 
-        let content = state.cache.as_ref().map_or("", |(_, _, resolved)| &**resolved);
+        let content = state
+            .cache
+            .as_ref()
+            .map_or("", |(_, _, resolved)| &**resolved);
         layout_text(&mut state.paragraph, renderer, limits, content, self.format)
     }
 

@@ -16,9 +16,9 @@ use iced_core::Element;
 use slotmap::{SlotMap, new_key_type};
 use widget::Toaster;
 
+use crate::ui::convert::{PushMaybe, ToPadding, ToPixels};
 use crate::ui::theme::{Container as ContainerClass, Spacing, spacing};
 use crate::ui::widget::{Column, Row, button, container, icon, text};
-use crate::ui::convert::{PushMaybe, ToPadding, ToPixels};
 
 mod widget;
 

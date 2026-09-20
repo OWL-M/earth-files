@@ -13,16 +13,16 @@ use std::rc::Rc;
 
 use iced_core::{Element, renderer};
 
+use crate::ui::convert::ToColor;
+use crate::ui::convert::ToLength;
+use crate::ui::theme;
+use crate::ui::widget;
+use crate::ui::widget::RcElementWrapper;
+use crate::ui::widget::button::Button;
+use crate::ui::widget::icon;
 use crate::ui::widget::menu::action::MenuAction;
 use crate::ui::widget::menu::key_bind::KeyBind;
-use crate::ui::widget::button::Button;
-use crate::ui::theme;
-use crate::ui::widget::RcElementWrapper;
-use crate::ui::widget::icon;
-use crate::ui::widget;
 use iced_core::{Alignment, Length};
-use crate::ui::convert::{ToColor};
-use crate::ui::convert::{ToLength};
 
 /// Nested menu is essentially a tree of items, a menu is a collection of items
 /// a menu itself can also be an item of another menu.
@@ -332,13 +332,21 @@ fn entry_tree<
                 .width(Length::Fixed(16.0))
                 .into()
         });
-        items.push(widget::space::horizontal().width(spacing.space_xxs.to_length()).into());
+        items.push(
+            widget::space::horizontal()
+                .width(spacing.space_xxs.to_length())
+                .into(),
+        );
     }
 
     match icon {
         IconSlot::Icon(icon) => {
             items.push(widget::icon::icon(icon).size(14).into());
-            items.push(widget::space::horizontal().width(spacing.space_xxs.to_length()).into());
+            items.push(
+                widget::space::horizontal()
+                    .width(spacing.space_xxs.to_length())
+                    .into(),
+            );
         }
         IconSlot::Reserved => {
             items.push(
@@ -346,7 +354,11 @@ fn entry_tree<
                     .width(Length::Fixed(14.0))
                     .into(),
             );
-            items.push(widget::space::horizontal().width(spacing.space_xxs.to_length()).into());
+            items.push(
+                widget::space::horizontal()
+                    .width(spacing.space_xxs.to_length())
+                    .into(),
+            );
         }
         IconSlot::None => {}
     }
@@ -354,7 +366,11 @@ fn entry_tree<
     let ellipsize = widget::EllipsizeMode::Middle(1);
     items.push(widget::ellipsize::text(label.into(), ellipsize).into());
     items.push(widget::space::horizontal().into());
-    items.push(widget::ellipsize::text(key, ellipsize).class(key_class).into());
+    items.push(
+        widget::ellipsize::text(key, ellipsize)
+            .class(key_class)
+            .into(),
+    );
 
     let mut button = menu_button(items);
     if enabled {
@@ -407,20 +423,20 @@ pub fn menu_items<
                 MenuItem::Button(label, icon, action) => {
                     let mut entry = Entry::new(label, action);
                     entry.icon = icon.into();
-                    trees.push(entry_tree(entry, key_binds, key_class.clone()));
+                    trees.push(entry_tree(entry, key_binds, key_class));
                 }
                 MenuItem::ButtonDisabled(label, icon, action) => {
                     let mut entry = Entry::new(label, action).enabled(false);
                     entry.icon = icon.into();
-                    trees.push(entry_tree(entry, key_binds, key_class.clone()));
+                    trees.push(entry_tree(entry, key_binds, key_class));
                 }
                 MenuItem::CheckBox(label, icon, value, action) => {
                     let mut entry = Entry::new(label, action).checked(value);
                     entry.icon = icon.into();
-                    trees.push(entry_tree(entry, key_binds, key_class.clone()));
+                    trees.push(entry_tree(entry, key_binds, key_class));
                 }
                 MenuItem::Entry(entry) => {
-                    trees.push(entry_tree(entry, key_binds, key_class.clone()));
+                    trees.push(entry_tree(entry, key_binds, key_class));
                 }
                 MenuItem::Folder(label, children) => {
                     let l: Cow<'static, str> = label.into();

@@ -308,7 +308,6 @@ fn thumbnail_cache_filename(file_uri: &str) -> String {
     format!("{}.png", crate::hex::lower(Md5::digest(file_uri)))
 }
 
-
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 #[repr(u32)]
 pub enum ThumbnailSize {

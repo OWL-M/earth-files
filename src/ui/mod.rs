@@ -12,8 +12,8 @@ pub mod config;
 pub mod convert;
 pub mod dnd;
 pub mod font;
-pub mod keyboard_nav;
 pub mod icon_theme;
+pub mod keyboard_nav;
 pub mod shell;
 pub mod surface;
 pub mod task;
@@ -24,11 +24,11 @@ pub mod window;
 pub use iced;
 // `iced::core` / `iced::runtime` are private in `iced`; the crates themselves
 // are direct dependencies instead.
+pub use action::Action;
+pub use apply::Apply;
+pub use iced::Task;
 pub use iced_core;
 pub use iced_runtime;
-pub use apply::Apply;
-pub use action::Action;
-pub use iced::Task;
 
 /// The renderer every widget in this app draws through.
 pub type Renderer = iced::Renderer;

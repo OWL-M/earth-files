@@ -313,7 +313,8 @@ impl Core {
     #[must_use]
     #[inline]
     pub fn main_window_id(&self) -> Option<window::Id> {
-        self.main_window.filter(|id| crate::ui::window::none() != *id)
+        self.main_window
+            .filter(|id| crate::ui::window::none() != *id)
     }
 
     /// Reset the tracked main window to a new value, returning the old one.
@@ -348,7 +349,10 @@ impl Core {
         crate::ui::command::minimize(id)
     }
 
-    pub fn toggle_maximize<M: Send + 'static>(&self, id: Option<window::Id>) -> crate::ui::app::Task<M> {
+    pub fn toggle_maximize<M: Send + 'static>(
+        &self,
+        id: Option<window::Id>,
+    ) -> crate::ui::app::Task<M> {
         let Some(id) = id.or(self.main_window) else {
             return crate::ui::iced::Task::none();
         };

@@ -82,7 +82,12 @@ impl ToColor for palette::Srgba<f32> {
 impl ToColor for palette::Srgba<u8> {
     #[inline]
     fn to_color(self) -> Color {
-        Color::from_rgba8(self.red, self.green, self.blue, f32::from(self.alpha) / 255.0)
+        Color::from_rgba8(
+            self.red,
+            self.green,
+            self.blue,
+            f32::from(self.alpha) / 255.0,
+        )
     }
 }
 

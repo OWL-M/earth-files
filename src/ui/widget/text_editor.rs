@@ -21,11 +21,11 @@
 //! gated path and Select All is inert. The right-click block still runs, so
 //! the menu opens with Copy disabled because there is no selection.
 
-pub use iced::widget::text_editor::{
-    Action, Binding, Catalog, Content, Cursor, Edit, KeyPress, Line, LineEnding, Motion,
-    Position, Selection, State, Status, Style, StyleFn,
-};
 pub use iced::advanced::widget::Id;
+pub use iced::widget::text_editor::{
+    Action, Binding, Catalog, Content, Cursor, Edit, KeyPress, Line, LineEnding, Motion, Position,
+    Selection, State, Status, Style, StyleFn,
+};
 
 use crate::ui::widget::menu::MenuBarState;
 
@@ -245,9 +245,7 @@ impl<'a, Message: Clone + 'static> Widget<Message, crate::ui::Theme, iced::Rende
     fn diff(&self, tree: &mut Tree) {
         if self.has_context_menu {
             if let Some(child) = tree.children.first_mut() {
-                child.diff(
-                    &self.inner as &dyn Widget<Message, crate::ui::Theme, iced::Renderer>,
-                );
+                child.diff(&self.inner as &dyn Widget<Message, crate::ui::Theme, iced::Renderer>);
             }
         } else {
             ew::<Message>(&self.inner).diff(tree);
@@ -333,11 +331,11 @@ impl<'a, Message: Clone + 'static> Widget<Message, crate::ui::Theme, iced::Rende
                             return;
                         }
                     }
-                    Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) => {
-                        if state.context_menu_position.take().is_some() {
-                            shell.capture_event();
-                            return;
-                        }
+                    Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left))
+                        if state.context_menu_position.take().is_some() =>
+                    {
+                        shell.capture_event();
+                        return;
                     }
                     _ => {}
                 }
@@ -525,7 +523,6 @@ impl<'a, Message: Clone + 'static> Widget<Message, crate::ui::Theme, iced::Rende
         };
         ew_mut::<Message>(&mut self.inner).operate(inner_tree, layout, renderer, operation);
     }
-
 }
 
 // Implemented on the wrapper rather than the inner `TextEditor` because it
@@ -584,7 +581,9 @@ impl<Message> crate::ui::widget::text::HasSelectableText for TextEditor<'_, Mess
     }
 }
 
-impl<'a, Message: Clone + 'static> From<TextEditor<'a, Message>> for crate::ui::Element<'a, Message> {
+impl<'a, Message: Clone + 'static> From<TextEditor<'a, Message>>
+    for crate::ui::Element<'a, Message>
+{
     fn from(editor: TextEditor<'a, Message>) -> Self {
         Self::new(editor)
     }

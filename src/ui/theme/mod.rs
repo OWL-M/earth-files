@@ -9,8 +9,8 @@
 //!
 //! The app's `Config` selects the density used by [`spacing`].
 
-use mundy::{ColorScheme, Interest, Preferences};
 use ::palette::Srgba;
+use mundy::{ColorScheme, Interest, Preferences};
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicU8, Ordering};
 use std::time::Duration;
@@ -162,11 +162,13 @@ static ACTIVE: AtomicU8 = AtomicU8::new(0);
 /// [`active`] during `draw`, instead of using the supplied theme, then see
 /// the theme being rendered.
 pub fn set_active(theme: &Theme) {
-    ACTIVE.store(u8::from(theme.theme_type == ThemeType::Light), Ordering::Relaxed);
+    ACTIVE.store(
+        u8::from(theme.theme_type == ThemeType::Light),
+        Ordering::Relaxed,
+    );
 }
 
 /// The currently-active theme.
-#[must_use]
 pub fn active() -> Theme {
     if ACTIVE.load(Ordering::Relaxed) == 0 {
         Theme::dark()
@@ -229,7 +231,6 @@ thread_local! {
 }
 
 /// The theme matching the desktop's colour-scheme preference.
-#[must_use]
 pub fn system_preference() -> Theme {
     if system_prefers_dark() {
         Theme::dark()
@@ -514,7 +515,13 @@ mod tests {
         // Changing these values affects every user's layout.
         let s = Spacing::from(Density::Standard);
         assert_eq!(
-            (s.space_none, s.space_xxxs, s.space_xxs, s.space_xs, s.space_s),
+            (
+                s.space_none,
+                s.space_xxxs,
+                s.space_xxs,
+                s.space_xs,
+                s.space_s
+            ),
             (0, 4, 8, 12, 16)
         );
         assert_eq!(

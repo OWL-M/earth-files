@@ -7,6 +7,7 @@
 use super::menu::{self, Menu};
 use crate::ui::widget::icon;
 use derive_setters::Setters;
+use iced::widget::pick_list;
 use iced_core::event::Event;
 use iced_core::text::{self, Text};
 use iced_core::widget::tree::{self, Tree};
@@ -14,7 +15,6 @@ use iced_core::{
     Clipboard, Layout, Length, Padding, Pixels, Rectangle, Shadow, Shell, Size, Vector, Widget,
     alignment, keyboard, layout, mouse, overlay, renderer, svg, touch,
 };
-use iced::widget::pick_list;
 
 pub use iced::widget::pick_list::{Catalog, Style};
 
@@ -100,9 +100,10 @@ impl<'a, S: AsRef<str>, Message: 'a, Item: Clone + PartialEq + 'static>
                     if state.selections.is_empty() {
                         for list in &self.selections.lists {
                             for (_, item) in &list.options {
-                                state
-                                    .selections
-                                    .push((item.clone(), crate::ui::widget::dropdown::Plain::default()));
+                                state.selections.push((
+                                    item.clone(),
+                                    crate::ui::widget::dropdown::Plain::default(),
+                                ));
                             }
                         }
                     }
@@ -129,7 +130,7 @@ impl<'a, S: AsRef<str>, Message: 'a, Item: Clone + PartialEq + 'static>
         _viewport: &Rectangle,
     ) {
         update(
-            &event,
+            event,
             layout,
             cursor,
             shell,
@@ -270,20 +271,21 @@ pub fn layout(
 
     let max_width = match width {
         Length::Shrink => {
-            let measure = move |(label, paragraph): (_, &mut crate::ui::widget::dropdown::Plain)| -> f32 {
-                paragraph.update(Text {
-                    content: label,
-                    bounds: Size::new(f32::MAX, f32::MAX),
-                    size: iced::Pixels(text_size),
-                    line_height: text_line_height,
-                    font: font.unwrap_or_else(crate::ui::font::default),
-                    align_x: text::Alignment::Left,
-                    align_y: alignment::Vertical::Top,
-                    shaping: text::Shaping::Advanced,
-                    wrapping: text::Wrapping::default(),
-                });
-                paragraph.min_width().round()
-            };
+            let measure =
+                move |(label, paragraph): (_, &mut crate::ui::widget::dropdown::Plain)| -> f32 {
+                    paragraph.update(Text {
+                        content: label,
+                        bounds: Size::new(f32::MAX, f32::MAX),
+                        size: iced::Pixels(text_size),
+                        line_height: text_line_height,
+                        font: font.unwrap_or_else(crate::ui::font::default),
+                        align_x: text::Alignment::Left,
+                        align_y: alignment::Vertical::Top,
+                        shaping: text::Shaping::Advanced,
+                        wrapping: text::Wrapping::default(),
+                    });
+                    paragraph.min_width().round()
+                };
 
             selection.map(measure).unwrap_or_default()
         }
@@ -407,21 +409,22 @@ pub fn overlay<'a, S: AsRef<str>, Message: 'a, Item: Clone + PartialEq + 'static
             None,
         )
         .width({
-            let measure =
-                |label: &str, paragraph: &mut crate::ui::widget::dropdown::Plain, line_height: text::LineHeight| {
-                    paragraph.update(Text {
-                        content: label,
-                        bounds: Size::new(f32::MAX, f32::MAX),
-                        size: iced::Pixels(text_size),
-                        line_height,
-                        font: font.unwrap_or_else(crate::ui::font::default),
-                        align_x: text::Alignment::Left,
-                        align_y: alignment::Vertical::Top,
-                        shaping: text::Shaping::Advanced,
-                        wrapping: text::Wrapping::default(),
-                    });
-                    paragraph.min_width().round()
-                };
+            let measure = |label: &str,
+                           paragraph: &mut crate::ui::widget::dropdown::Plain,
+                           line_height: text::LineHeight| {
+                paragraph.update(Text {
+                    content: label,
+                    bounds: Size::new(f32::MAX, f32::MAX),
+                    size: iced::Pixels(text_size),
+                    line_height,
+                    font: font.unwrap_or_else(crate::ui::font::default),
+                    align_x: text::Alignment::Left,
+                    align_y: alignment::Vertical::Top,
+                    shaping: text::Shaping::Advanced,
+                    wrapping: text::Wrapping::default(),
+                });
+                paragraph.min_width().round()
+            };
 
             let mut desc_count = 0;
             padding.x().mul_add(
@@ -433,7 +436,9 @@ pub fn overlay<'a, S: AsRef<str>, Message: 'a, Item: Clone + PartialEq + 'static
                             let paragraph = if state.descriptions.len() > desc_count {
                                 &mut state.descriptions[desc_count]
                             } else {
-                                state.descriptions.push(crate::ui::widget::dropdown::Plain::default());
+                                state
+                                    .descriptions
+                                    .push(crate::ui::widget::dropdown::Plain::default());
                                 state.descriptions.last_mut().unwrap()
                             };
                             desc_count += 1;
@@ -447,9 +452,10 @@ pub fn overlay<'a, S: AsRef<str>, Message: 'a, Item: Clone + PartialEq + 'static
                             let selection_index = match selection_index {
                                 Some(index) => index,
                                 None => {
-                                    state
-                                        .selections
-                                        .push((item.clone(), crate::ui::widget::dropdown::Plain::default()));
+                                    state.selections.push((
+                                        item.clone(),
+                                        crate::ui::widget::dropdown::Plain::default(),
+                                    ));
                                     state.selections.len() - 1
                                 }
                             };

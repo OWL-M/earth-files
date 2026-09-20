@@ -20,8 +20,7 @@ pub use widget::*;
 use crate::ui::surface;
 
 pub(crate) type Plain = iced_core::text::paragraph::Plain<Paragraph>;
-pub(crate) type Paragraph =
-    <iced::Renderer as iced_core::text::Renderer>::Paragraph;
+pub(crate) type Paragraph = <iced::Renderer as iced_core::text::Renderer>::Paragraph;
 pub use iced_core::widget::Id;
 use iced_core::window;
 

@@ -7,6 +7,7 @@ use super::Model;
 pub use crate::ui::widget::dropdown::menu::{Appearance, StyleSheet};
 
 use iced::widget::Container;
+use iced::widget::scrollable::Scrollable;
 use iced_core::event::Event;
 use iced_core::layout::{self, Layout};
 use iced_core::text::{self, Text};
@@ -15,7 +16,6 @@ use iced_core::{
     Border, Clipboard, Element, Length, Padding, Pixels, Point, Rectangle, Renderer, Shadow, Shell,
     Size, Vector, Widget, alignment, mouse, overlay, renderer, svg, touch,
 };
-use iced::widget::scrollable::Scrollable;
 
 /// A dropdown menu with multiple lists.
 #[must_use]
@@ -185,7 +185,9 @@ impl<'a, Message: 'a> Overlay<'a, Message> {
     }
 }
 
-impl<Message> iced_core::Overlay<Message, crate::ui::Theme, iced::Renderer> for Overlay<'_, Message> {
+impl<Message> iced_core::Overlay<Message, crate::ui::Theme, iced::Renderer>
+    for Overlay<'_, Message>
+{
     fn layout(&mut self, renderer: &iced::Renderer, bounds: Size) -> layout::Node {
         let position = self.position;
         let space_below = bounds.height - (position.y + self.target_height);
@@ -348,12 +350,11 @@ where
 
         match event {
             Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) => {
-                if cursor.is_over(bounds) {
-                    if let Some(item) = self.hovered_option.as_ref() {
-                        shell.publish((self.on_selected)(item.clone()));
-                        shell.capture_event();
-                        return;
-                    }
+                if cursor.is_over(bounds)
+                    && let Some(item) = self.hovered_option.as_ref()
+                {
+                    shell.publish((self.on_selected)(item.clone()));
+                    shell.capture_event();
                 }
             }
             Event::Mouse(mouse::Event::CursorMoved { .. }) => {
@@ -385,10 +386,10 @@ where
                         if bounds.contains(cursor_position) {
                             if let OptionElement::Option((_, item)) = element {
                                 *self.hovered_option = Some(item.clone());
-                                if previous_hover_option.as_ref() != Some(item) {
-                                    if let Some(on_option_hovered) = self.on_option_hovered {
-                                        shell.publish(on_option_hovered(item.clone()));
-                                    }
+                                if previous_hover_option.as_ref() != Some(item)
+                                    && let Some(on_option_hovered) = self.on_option_hovered
+                                {
+                                    shell.publish(on_option_hovered(item.clone()));
                                 }
                             }
 

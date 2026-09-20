@@ -9,10 +9,10 @@ pub mod section;
 pub use self::item::{flex_item, flex_item_row, item, item_row};
 pub use self::section::{Section, section};
 
-use iced::widget::Column;
-use crate::ui::{Element, Theme};
+use crate::ui::convert::ToPixels;
 use crate::ui::theme;
-use crate::ui::convert::{ToPixels};
+use crate::ui::{Element, Theme};
+use iced::widget::Column;
 
 /// A column with a predefined style for creating a settings panel
 #[must_use]

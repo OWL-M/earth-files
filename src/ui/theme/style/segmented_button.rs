@@ -7,11 +7,11 @@ use iced::Border;
 use iced_core::Background;
 use palette::WithAlpha;
 
+use crate::ui::convert::{ToColor, ToRadius};
 use crate::ui::theme::{Palette, Theme};
 use crate::ui::widget::segmented_button::{
     Appearance, ItemAppearance, ItemStatusAppearance, StyleSheet,
 };
-use crate::ui::convert::{ToColor, ToRadius};
 
 #[derive(Default)]
 pub enum SegmentedButton {
@@ -143,13 +143,13 @@ impl StyleSheet for Theme {
 }
 
 mod horizontal {
-    use crate::ui::convert::{ToColor, ToRadius};
     use super::Appearance;
-    use crate::ui::widget::segmented_button::{ItemAppearance, ItemStatusAppearance};
+    use crate::ui::convert::{ToColor, ToRadius};
     use crate::ui::theme::{Component, Palette, PaletteContainer as Container};
+    use crate::ui::widget::segmented_button::{ItemAppearance, ItemStatusAppearance};
     use iced::Border;
     use iced_core::Background;
-        use palette::WithAlpha;
+    use palette::WithAlpha;
 
     pub fn tab_bar(cosmic: &Palette, container: &Container) -> Appearance {
         let active = tab_bar_active(cosmic);
@@ -184,10 +184,7 @@ mod horizontal {
         }
     }
 
-    pub fn selection_active(
-        cosmic: &Palette,
-        component: &Component,
-    ) -> ItemStatusAppearance {
+    pub fn selection_active(cosmic: &Palette, component: &Component) -> ItemStatusAppearance {
         let rad_xl = cosmic.corner_radii.radius_xl;
         let rad_0 = cosmic.corner_radii.radius_0;
 
@@ -251,13 +248,13 @@ mod horizontal {
 }
 
 mod vertical {
-    use crate::ui::convert::{ToColor, ToRadius};
     use super::Appearance;
-    use crate::ui::widget::segmented_button::{ItemAppearance, ItemStatusAppearance};
+    use crate::ui::convert::{ToColor, ToRadius};
     use crate::ui::theme::{Component, Palette, PaletteContainer as Container};
+    use crate::ui::widget::segmented_button::{ItemAppearance, ItemStatusAppearance};
     use iced::Border;
     use iced_core::Background;
-        use palette::WithAlpha;
+    use palette::WithAlpha;
 
     pub fn tab_bar(cosmic: &Palette, container: &Container) -> Appearance {
         let active = tab_bar_active(cosmic);
@@ -279,10 +276,7 @@ mod vertical {
         }
     }
 
-    pub fn selection_active(
-        cosmic: &Palette,
-        component: &Component,
-    ) -> ItemStatusAppearance {
+    pub fn selection_active(cosmic: &Palette, component: &Component) -> ItemStatusAppearance {
         let rad_0 = cosmic.corner_radii.radius_0;
         let rad_xl = cosmic.corner_radii.radius_xl;
 
@@ -343,11 +337,7 @@ mod vertical {
     }
 }
 
-pub fn hover(
-    cosmic: &Palette,
-    default: &ItemStatusAppearance,
-    alpha: f32,
-) -> ItemStatusAppearance {
+pub fn hover(cosmic: &Palette, default: &ItemStatusAppearance, alpha: f32) -> ItemStatusAppearance {
     ItemStatusAppearance {
         background: Some(Background::Color(
             cosmic.palette.neutral_5.with_alpha(alpha).to_color(),

@@ -22,19 +22,19 @@ pub use crate::ui::widget::text::{HasSelectableText, clipboard_has_text};
 
 use iced_core::window;
 
+use crate::ui::theme;
+use crate::ui::widget;
 use crate::ui::widget::RcElementWrapper;
 use crate::ui::widget::menu::{
     self, CloseCondition, ItemHeight, ItemWidth, Menu, MenuBarState, PathHighlight, menu_roots_diff,
 };
-use crate::ui::theme;
-use crate::ui::widget;
 
+use iced_core::event;
 use iced_core::layout::Limits;
 use iced_core::widget::Tree;
 use iced_core::{
     Clipboard, Layout, Point, Rectangle, Shell, Size, Vector, clipboard, mouse, overlay, renderer,
 };
-use iced_core::event;
 use std::borrow::Cow;
 use std::sync::{Arc, Mutex};
 
@@ -84,7 +84,9 @@ pub(crate) fn set_current_window_id(id: iced_core::window::Id) {
 }
 
 pub(crate) fn current_window_id() -> iced_core::window::Id {
-    CURRENT_WINDOW_ID.get().unwrap_or_else(crate::ui::window::none)
+    CURRENT_WINDOW_ID
+        .get()
+        .unwrap_or_else(crate::ui::window::none)
 }
 
 /// Drains all popup requests queued by widgets this frame.
@@ -116,8 +118,10 @@ pub(crate) fn into_popup_view<Message: Clone + 'static>(
             pending_action: pending_action.clone(),
             _phantom: std::marker::PhantomData,
         };
-        crate::ui::Element::from(crate::ui::widget::container(popup_widget).center(iced_core::Length::Fill))
-            .map(crate::ui::action::app)
+        crate::ui::Element::from(
+            crate::ui::widget::container(popup_widget).center(iced_core::Length::Fill),
+        )
+        .map(crate::ui::action::app)
     });
 
     (settings, view)
@@ -232,7 +236,7 @@ where
             state.active_root.clear();
             state.open = true;
         }
-        menu_roots_diff(&mut menu_roots, &mut state.tree);
+        menu_roots_diff(&menu_roots, &mut state.tree);
     });
 
     let menu = Menu {
@@ -423,20 +427,20 @@ where
                 }
                 TextCtxAction::Cut => {
                     self.widget.copy_to_clipboard(self.tree, clipboard);
-                    if let Some(contents) = self.widget.delete_selection(self.tree) {
-                        if let Some(on_input) = self.on_input {
-                            shell.publish((on_input)(contents));
-                        }
+                    if let Some(contents) = self.widget.delete_selection(self.tree)
+                        && let Some(on_input) = self.on_input
+                    {
+                        shell.publish((on_input)(contents));
                     }
                 }
                 TextCtxAction::Paste => {
                     let content: String = clipboard
                         .read(clipboard::Kind::Standard)
                         .unwrap_or_default();
-                    if let Some(contents) = self.widget.paste_text(self.tree, &content) {
-                        if let Some(on_input) = self.on_input {
-                            shell.publish((on_input)(contents));
-                        }
+                    if let Some(contents) = self.widget.paste_text(self.tree, &content)
+                        && let Some(on_input) = self.on_input
+                    {
+                        shell.publish((on_input)(contents));
                     }
                 }
                 TextCtxAction::SelectAll => {
@@ -473,6 +477,7 @@ where
 /// Pushes a [`PopupRequest`] onto the request queue; the shell runner drains
 /// it and creates the popup, so it flows through the normal Task + view
 /// pipeline.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn create_text_context_popup(
     click_position: Point,
     selected_text: Option<String>,
@@ -499,7 +504,7 @@ pub(crate) fn create_text_context_popup(
     let id = menu_bar_state.inner.with_data_mut(|state| {
         state.menu_states.clear();
         state.active_root.clear();
-        menu_roots_diff(&mut menu_roots, &mut state.tree);
+        menu_roots_diff(&menu_roots, &mut state.tree);
         if let Some(id) = state.popup_id.get(&window_id).copied() {
             queue_destroy_popup(id);
             state.view_cursor = cursor;
@@ -569,7 +574,10 @@ pub(crate) fn create_text_context_popup(
         }
     });
 
-    let menu_node = popup_menu.layout(renderer, iced_core::layout::Limits::NONE.min_width(1.).min_height(1.));
+    let menu_node = popup_menu.layout(
+        renderer,
+        iced_core::layout::Limits::NONE.min_width(1.).min_height(1.),
+    );
     let popup_size = menu_node.size();
 
     let positioner = Positioner {

@@ -6,10 +6,10 @@
 use iced_core::Color;
 use palette::WithAlpha;
 
+use crate::ui::convert::{ToColor, ToRadius};
 use crate::ui::theme::Theme;
 use crate::ui::widget::text_input::input::ColorExt;
 use crate::ui::widget::text_input::{Appearance, StyleSheet};
-use crate::ui::convert::{ToColor, ToRadius};
 
 #[derive(Default)]
 pub enum TextInput {

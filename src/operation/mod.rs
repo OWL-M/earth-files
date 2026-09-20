@@ -1,9 +1,9 @@
 use crate::app::{ArchiveType, DialogPage, Message, REPLACE_BUTTON_ID};
 use crate::config::IconSizes;
 use crate::spawn_detached::spawn_detached;
-use crate::{FxOrderMap, archive, fl, tab};
 use crate::ui::iced::futures::channel::mpsc::Sender;
 use crate::ui::iced::futures::{self, SinkExt, StreamExt, stream};
+use crate::{FxOrderMap, archive, fl, tab};
 use std::borrow::Cow;
 use std::fmt::Formatter;
 use std::fs;
@@ -24,6 +24,9 @@ pub use self::reader::OpReader;
 pub mod reader;
 
 use self::recursive::{Context, Method};
+
+/// Source and destination paths, paired
+type PathPairs = Vec<(PathBuf, PathBuf)>;
 pub mod recursive;
 
 async fn handle_replace(
@@ -173,7 +176,7 @@ async fn copy_or_move(
 
         // Pairs still to copy or move recursively, and pairs a plain rename
         // already handled
-        let (from_to_pairs, renamed): (Vec<(PathBuf, PathBuf)>, Vec<(PathBuf, PathBuf)>) =
+        let (from_to_pairs, renamed): (PathPairs, PathPairs) =
             if matches!(method, Method::Move { .. }) {
                 from_to_pairs_iter
                     .map(|(from, to)| async move {
@@ -1354,11 +1357,7 @@ impl Operation {
                     paths.push(item.original_path());
 
                     // Items with .trashinfo id use standard restore; sub-items use manual move
-                    if item
-                        .id
-                        .to_str()
-                        .map_or(false, |s| s.ends_with(".trashinfo"))
-                    {
+                    if item.id.to_str().is_some_and(|s| s.ends_with(".trashinfo")) {
                         compio::runtime::spawn_blocking(|| trash::os_limited::restore_all([item]))
                             .await
                             .map_err(wrap_compio_spawn_error)?

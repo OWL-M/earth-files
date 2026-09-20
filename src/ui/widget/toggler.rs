@@ -8,6 +8,8 @@ use std::time::{Duration, Instant};
 use crate::ui::anim;
 
 use crate::ui::Element;
+use iced::widget::Id;
+pub use iced::widget::toggler::Status;
 use iced_core::renderer::{self, Renderer};
 use iced_core::widget::{self, Tree, tree};
 #[allow(unused_imports)]
@@ -15,8 +17,6 @@ use iced_core::{
     Border, Clipboard, Event, Layout, Length, Pixels, Rectangle, Shell, Size, Widget, alignment,
     event, layout, mouse, text, touch, window,
 };
-use iced::widget::Id;
-pub use iced::widget::toggler::Status;
 
 // `Style` and `Catalog` are defined here rather than re-exported from iced,
 // because `iced_widget 0.14`'s `toggler::Style` is a different shape:
@@ -162,7 +162,6 @@ impl<'a, Message> Toggler<'a, Message> {
         self
     }
 
-
     /// Sets the [`Font`] of the text of the [`Toggler`]
     ///
     /// [`Font`]: iced::text::Renderer::Font
@@ -222,7 +221,7 @@ impl<'a, Message> Widget<Message, crate::ui::Theme, iced::Renderer> for Toggler<
     ) -> layout::Node {
         let limits = limits.width(self.width);
 
-        let res = next_to_each_other(
+        next_to_each_other(
             &limits,
             self.spacing,
             |limits| {
@@ -260,8 +259,7 @@ impl<'a, Message> Widget<Message, crate::ui::Theme, iced::Renderer> for Toggler<
                 }
             },
             |_| layout::Node::new(Size::new(48., 24.)),
-        );
-        res
+        )
     }
 
     fn update(

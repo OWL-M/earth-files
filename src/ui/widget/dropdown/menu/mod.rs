@@ -13,6 +13,7 @@ pub use appearance::{Appearance, StyleSheet};
 use crate::ui::widget::icon;
 use crate::ui::widget::wrapper::RcWrapper;
 use iced::widget::Container;
+use iced::widget::scrollable::Scrollable;
 use iced_core::event::Event;
 use iced_core::layout::{self, Layout};
 use iced_core::text::{self, Text};
@@ -21,7 +22,6 @@ use iced_core::{
     Border, Clipboard, Element, Length, Padding, Pixels, Point, Rectangle, Renderer, Shadow, Shell,
     Size, Vector, Widget, alignment, mouse, overlay, renderer, svg, touch,
 };
-use iced::widget::scrollable::Scrollable;
 
 /// A list of selectable options.
 #[must_use]
@@ -51,6 +51,7 @@ where
 {
     /// Creates a new [`Menu`] with the given [`State`], a list of options, and
     /// the message to produced when an option is selected.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         state: State,
         options: Cow<'a, [S]>,
@@ -428,7 +429,8 @@ where
     text_line_height: text::LineHeight,
 }
 
-impl<S: AsRef<str>, Message> Widget<Message, crate::ui::Theme, iced::Renderer> for List<'_, S, Message>
+impl<S: AsRef<str>, Message> Widget<Message, crate::ui::Theme, iced::Renderer>
+    for List<'_, S, Message>
 where
     [S]: std::borrow::ToOwned,
     Message: Clone,
@@ -478,15 +480,14 @@ where
         match event {
             Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) => {
                 let hovered_guard = self.hovered_option.lock().unwrap();
-                if cursor.is_over(layout.bounds()) {
-                    if let Some(index) = *hovered_guard {
-                        shell.publish((self.on_selected)(index));
-                        if let Some(close_on_selected) = self.close_on_selected.as_ref() {
-                            shell.publish(close_on_selected.clone());
-                        }
-                        shell.capture_event();
-                        return;
+                if cursor.is_over(layout.bounds())
+                    && let Some(index) = *hovered_guard
+                {
+                    shell.publish((self.on_selected)(index));
+                    if let Some(close_on_selected) = self.close_on_selected.as_ref() {
+                        shell.publish(close_on_selected.clone());
                     }
+                    shell.capture_event();
                 }
             }
             Event::Mouse(mouse::Event::CursorMoved { .. }) => {
@@ -547,7 +548,6 @@ where
                             shell.publish(close_on_selected.clone());
                         }
                         shell.capture_event();
-                        return;
                     }
                 }
             }

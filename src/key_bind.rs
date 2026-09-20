@@ -1,5 +1,5 @@
-use crate::ui::iced_core::keyboard::key::Named;
 use crate::ui::iced::keyboard::Key;
+use crate::ui::iced_core::keyboard::key::Named;
 use crate::ui::widget::menu::key_bind::{KeyBind, Modifier};
 use std::collections::HashMap;
 

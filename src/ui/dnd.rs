@@ -573,7 +573,12 @@ pub fn read_selection(allowed: &[String]) -> Option<(Vec<u8>, String)> {
     // safe to retire concurrently; no proxy is touched after the unlock.
     let (read_fd, mime, conn) = {
         let shared = shared().lock().unwrap();
-        receive(&shared, shared.selection_offer.as_ref(), allowed, "read_selection")?
+        receive(
+            &shared,
+            shared.selection_offer.as_ref(),
+            allowed,
+            "read_selection",
+        )?
     };
     // Keep the connection alive for the length of the read; nothing else here
     // needs it.
@@ -669,7 +674,11 @@ fn receive(
     };
 
     let offered = mimes.lock().unwrap().clone();
-    let Some(mime) = allowed.iter().find(|wanted| offered.contains(wanted)).cloned() else {
+    let Some(mime) = allowed
+        .iter()
+        .find(|wanted| offered.contains(wanted))
+        .cloned()
+    else {
         log::debug!("{what}: nothing in {offered:?} is one of {allowed:?}");
         return None;
     };
@@ -697,7 +706,12 @@ fn pipe() -> io::Result<(OwnedFd, WriteFd)> {
         return Err(io::Error::last_os_error());
     }
     // SAFETY: both are fresh fds this process now owns.
-    unsafe { Ok((OwnedFd::from_raw_fd(fds[0]), WriteFd(OwnedFd::from_raw_fd(fds[1])))) }
+    unsafe {
+        Ok((
+            OwnedFd::from_raw_fd(fds[0]),
+            WriteFd(OwnedFd::from_raw_fd(fds[1])),
+        ))
+    }
 }
 
 /// The write half of [`pipe`], only ever handed straight to `receive`.
@@ -952,10 +966,7 @@ impl Dispatch<WlDataDevice, ()> for State {
                 }
                 shared.retired_offer = shared.selection_offer.take().map(|(offer, _)| offer);
                 shared.selection_offer = id.map(|offer| {
-                    let mimes = offer
-                        .data::<OfferMimes>()
-                        .cloned()
-                        .unwrap_or_default();
+                    let mimes = offer.data::<OfferMimes>().cloned().unwrap_or_default();
                     log::debug!("clipboard offers {:?}", mimes.lock().unwrap());
                     (offer, mimes)
                 });

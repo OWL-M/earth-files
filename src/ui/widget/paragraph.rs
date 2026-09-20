@@ -83,7 +83,10 @@ pub fn cursor_position(
 }
 
 /// cosmic-text 0.15 `src/edit/editor.rs:33`, verbatim.
-fn cursor_glyph_opt(cursor: &cosmic_text::Cursor, run: &cosmic_text::LayoutRun) -> Option<(usize, f32)> {
+fn cursor_glyph_opt(
+    cursor: &cosmic_text::Cursor,
+    run: &cosmic_text::LayoutRun,
+) -> Option<(usize, f32)> {
     if cursor.line == run.line_i {
         for (glyph_i, glyph) in run.glyphs.iter().enumerate() {
             if cursor.index == glyph.start {

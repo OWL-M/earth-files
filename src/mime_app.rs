@@ -1,8 +1,8 @@
 // Copyright 2023 System76 <info@system76.com>
 // SPDX-License-Identifier: GPL-3.0-only
 
-use bstr::{BString, ByteSlice, ByteVec};
 use crate::ui::widget;
+use bstr::{BString, ByteSlice, ByteVec};
 pub use mime_guess::Mime;
 #[cfg(feature = "desktop")]
 use notify_debouncer_full::notify;
@@ -121,12 +121,10 @@ pub fn exec_to_command(
                         }
 
                         // %F and %U behave the same in a file manager.
-                        Some('F') | Some('U') => {
-                            if !field_code_used && new_argument.is_empty() {
-                                field_code_used = true;
-                                for path in path_opt.iter().map(AsRef::as_ref) {
-                                    args.push(BString::new(path.as_bytes().to_owned()));
-                                }
+                        Some('F') | Some('U') if !field_code_used && new_argument.is_empty() => {
+                            field_code_used = true;
+                            for path in path_opt.iter().map(AsRef::as_ref) {
+                                args.push(BString::new(path.as_bytes().to_owned()));
                             }
                         }
 

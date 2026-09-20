@@ -1,22 +1,22 @@
-#[cfg(feature = "desktop")]
-use freedesktop_desktop_entry::{DesktopEntry, get_languages_from_env};
 use crate::ui::iced::advanced::graphics;
 use crate::ui::iced::advanced::text::{self, Paragraph};
 use crate::ui::iced::alignment::Vertical;
-use crate::ui::iced_core::mouse::ScrollDelta;
 use crate::ui::iced::futures::{self, SinkExt};
 use crate::ui::iced::keyboard::Modifiers;
-use crate::ui::widget::scrollable::{self, AbsoluteOffset, Viewport};
 use crate::ui::iced::widget::{rule, stack};
 use crate::ui::iced::{
     Alignment, Color, ContentFit, Length, Point, Rectangle, Size, Subscription, padding, stream,
     window,
 };
+use crate::ui::iced_core::mouse::ScrollDelta;
+use crate::ui::theme;
 use crate::ui::widget::menu::action::MenuAction;
 use crate::ui::widget::menu::key_bind::KeyBind;
+use crate::ui::widget::scrollable::{self, AbsoluteOffset, Viewport};
 use crate::ui::widget::{self, Id, space};
-use crate::ui::theme;
 use crate::ui::{Apply, Element, font};
+#[cfg(feature = "desktop")]
+use freedesktop_desktop_entry::{DesktopEntry, get_languages_from_env};
 use i18n_embed::LanguageLoader;
 use icu::datetime::input::DateTime;
 use icu::datetime::options::TimePrecision;
@@ -47,8 +47,7 @@ use walkdir::WalkDir;
 
 use crate::app::{Action, PreviewItem, PreviewKind};
 use crate::config::{
-    ContextActionPreset, ICON_SCALE_MAX, ICON_SIZE_GRID, IconSizes, TabConfig,
-    ThumbCfg,
+    ContextActionPreset, ICON_SCALE_MAX, ICON_SIZE_GRID, IconSizes, TabConfig, ThumbCfg,
 };
 use crate::dialog::DialogKind;
 use crate::large_image::{
@@ -62,10 +61,10 @@ use crate::operation::{Controller, OperationError};
 use crate::thumbnail_cacher::{CachedThumbnail, ThumbnailCacher, ThumbnailSize};
 use crate::thumbnailer::thumbnailer;
 use crate::trash::{Trash, TrashExt};
-use crate::{FxOrderMap, fl, menu, mime_app, mouse_area};
-use crate::ui::theme::{Button, Container, Layer, Rule, Spacing, spacing};
 use crate::ui::convert::{ToColor, ToRadius};
 use crate::ui::convert::{ToPadding, ToPixels};
+use crate::ui::theme::{Button, Container, Layer, Rule, Spacing, spacing};
+use crate::{FxOrderMap, fl, menu, mime_app, mouse_area};
 
 pub const DOUBLE_CLICK_DURATION: Duration = Duration::from_millis(500);
 pub const TYPE_SELECT_TIMEOUT: Duration = Duration::from_millis(1000);
@@ -174,7 +173,13 @@ fn button_appearance(
             appearance.icon_color = Some(cosmic.on_bg_component_color().to_color());
             appearance.text_color = Some(cosmic.on_bg_component_color().to_color());
             if cut {
-                appearance.text_color = Some(cosmic.background(theme.transparent).component.on_disabled.to_color());
+                appearance.text_color = Some(
+                    cosmic
+                        .background(theme.transparent)
+                        .component
+                        .on_disabled
+                        .to_color(),
+                );
             } else {
                 appearance.text_color = Some(cosmic.on_bg_component_color().to_color());
             }
@@ -182,7 +187,13 @@ fn button_appearance(
             appearance.background = Some(cosmic.bg_component_color().to_color().into());
         }
     } else if cut {
-        appearance.text_color = Some(cosmic.background(theme.transparent).component.on_disabled.to_color());
+        appearance.text_color = Some(
+            cosmic
+                .background(theme.transparent)
+                .component
+                .on_disabled
+                .to_color(),
+        );
     }
     if focused && accent {
         appearance.outline_width = 1.0;
@@ -1544,10 +1555,7 @@ impl Location {
     pub fn supports_paste(&self) -> bool {
         matches!(
             self,
-            Self::Path(..)
-                | Self::Search(..)
-                | Self::Recents
-                | Self::Network(_, _, Some(_))
+            Self::Path(..) | Self::Search(..) | Self::Recents | Self::Network(_, _, Some(_))
         )
     }
 }
@@ -3612,17 +3620,12 @@ impl Tab {
                     }
                 }
 
-                if click_i_opt != self.clicked.take() {
-                    if let Some(ref mut items) = self.items_opt {
-                        for (i, item) in items.iter_mut().enumerate() {
-                            if mod_ctrl {
-                                if Some(i) == click_i_opt && item.selected {
-                                    item.selected = false;
-                                    self.select_range = None;
-                                }
-                            } else if Some(i) != click_i_opt {
-                                item.selected = false;
-                            }
+                if click_i_opt != self.clicked.take()
+                    && let Some(ref mut items) = self.items_opt
+                {
+                    for (i, item) in items.iter_mut().enumerate() {
+                        if mod_ctrl && Some(i) == click_i_opt && item.selected {
+                            item.selected = false;
                         }
                     }
                 }
@@ -3908,9 +3911,7 @@ impl Tab {
                         && dnd.position.is_some()
                         && self.location.supports_paste()
                         && let Some(to) = target
-                            .and_then(|i| {
-                                self.items_opt.as_ref()?.get(i)?.path_opt().cloned()
-                            })
+                            .and_then(|i| self.items_opt.as_ref()?.get(i)?.path_opt().cloned())
                             .or_else(|| self.location.path_opt().cloned())
                     {
                         commands.push(Command::DropFiles(to, mod_ctrl));
@@ -4987,7 +4988,9 @@ impl Tab {
                 ));
             }
             Message::CopyChecksum(value) => {
-                commands.push(Command::Iced(crate::ui::iced::clipboard::write(value).into()));
+                commands.push(Command::Iced(
+                    crate::ui::iced::clipboard::write(value).into(),
+                ));
             }
         }
 
@@ -5022,8 +5025,7 @@ impl Tab {
             if location != self.location || selected_paths.is_some() {
                 if location.path_opt().is_none_or(|path| path.is_dir()) {
                     if selected_paths.is_none() {
-                        selected_paths =
-                            self.location.path_opt().map(|path| vec![path.clone()]);
+                        selected_paths = self.location.path_opt().map(|path| vec![path.clone()]);
                     }
                     self.change_location(&location, history_i_opt);
                     commands.push(Command::ChangeLocation(
@@ -5521,13 +5523,12 @@ impl Tab {
             .height(Length::Fixed((space_m + 4).into()))
             .padding([0, space_xxs]);
 
-        let accent_rule =
-            rule::horizontal(1).class(Rule::Custom(Box::new(|theme| rule::Style {
-                color: theme.cosmic().accent_color().to_color(),
-                radius: 0.0.into(),
-                fill_mode: rule::FillMode::Full,
-                snap: true,
-            })));
+        let accent_rule = rule::horizontal(1).class(Rule::Custom(Box::new(|theme| rule::Style {
+            color: theme.cosmic().accent_color().to_color(),
+            radius: 0.0.into(),
+            fill_mode: rule::FillMode::Full,
+            snap: true,
+        })));
         let heading_rule = widget::container(rule::horizontal(1))
             .padding([0, theme::active().cosmic().corner_radii.radius_xs[0] as u16]);
 
@@ -5623,36 +5624,34 @@ impl Tab {
 
         let mut children: Vec<Element<_>> = Vec::new();
         match &self.location {
-            Location::Path(path)
-            | Location::Search(SearchLocation::Path(path), ..) => {
+            Location::Path(path) | Location::Search(SearchLocation::Path(path), ..) => {
                 let excess_str = "...";
                 let excess_width = text_width_body(excess_str);
                 for (index, ancestor) in path.ancestors().enumerate() {
                     let (name, found_home) = folder_name(ancestor);
-                    let (name_width, name_text): (f32, Element<'_, Message>) = if children
-                        .is_empty()
-                    {
-                        (
-                            text_width_heading(&name),
-                            widget::ellipsize::heading(name, widget::EllipsizeMode::End(1))
-                                .wrapping(text::Wrapping::None)
-                                .into(),
-                        )
-                    } else {
-                        children.push(
-                            widget::icon::from_name("go-next-symbolic")
-                                .size(16)
-                                .icon()
-                                .into(),
-                        );
-                        w += 16.0;
-                        (
-                            text_width_body(&name),
-                            widget::text::body(name)
-                                .wrapping(text::Wrapping::None)
-                                .into(),
-                        )
-                    };
+                    let (name_width, name_text): (f32, Element<'_, Message>) =
+                        if children.is_empty() {
+                            (
+                                text_width_heading(&name),
+                                widget::ellipsize::heading(name, widget::EllipsizeMode::End(1))
+                                    .wrapping(text::Wrapping::None)
+                                    .into(),
+                            )
+                        } else {
+                            children.push(
+                                widget::icon::from_name("go-next-symbolic")
+                                    .size(16)
+                                    .icon()
+                                    .into(),
+                            );
+                            w += 16.0;
+                            (
+                                text_width_body(&name),
+                                widget::text::body(name)
+                                    .wrapping(text::Wrapping::None)
+                                    .into(),
+                            )
+                        };
 
                     // Add padding for mouse area
                     w += 2.0 * f32::from(space_xxxs);
@@ -6315,7 +6314,9 @@ impl Tab {
         self.size_opt.set(Some(size));
 
         let Spacing {
-            space_xxs, space_xs, ..
+            space_xxs,
+            space_xs,
+            ..
         } = spacing();
 
         let location_view = self.location_view();
@@ -6384,7 +6385,7 @@ impl Tab {
                                 .into(),
                         ]))
                         .padding([space_xxs, space_xs])
-                        .layer(Layer::Primary.into())
+                        .layer(Layer::Primary)
                         .apply(widget::container)
                         .padding(([0, 0, 7, 0]).to_padding()),
                     );
@@ -6402,7 +6403,7 @@ impl Tab {
                                 .into(),
                         ]))
                         .padding([space_xxs, space_xs])
-                        .layer(Layer::Primary.into())
+                        .layer(Layer::Primary)
                         .apply(widget::container)
                         .padding(([0, 0, 7, 0]).to_padding()),
                     );
@@ -6417,7 +6418,7 @@ impl Tab {
                             .into(),
                     ]))
                     .padding([space_xxs, space_xs])
-                    .layer(Layer::Primary.into())
+                    .layer(Layer::Primary)
                     .apply(widget::container)
                     .padding(([0, 0, 7, 0]).to_padding()),
                 );
@@ -7639,7 +7640,7 @@ mod tests {
             .map(|base| path.join(std::iter::repeat_n(base, 255).collect::<String>()))
             .collect();
 
-        for (file, base) in paths.iter().zip(base_nums.into_iter()) {
+        for (file, base) in paths.iter().zip(base_nums) {
             trace!("Creating long file name for {base}");
             fs::File::create(file)?;
         }

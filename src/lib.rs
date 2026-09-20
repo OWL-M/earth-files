@@ -1,8 +1,8 @@
 // Copyright 2023 System76 <info@system76.com>
 // SPDX-License-Identifier: GPL-3.0-only
 
-use crate::ui::shell::Settings;
 use crate::ui::iced_core::layout::Limits;
+use crate::ui::shell::Settings;
 use std::path::PathBuf;
 use std::{env, fs, process};
 use tracing_subscriber::layer::SubscriberExt;
@@ -13,8 +13,6 @@ use crate::config::{Config, State};
 use crate::tab::Location;
 
 pub mod app;
-mod hex;
-mod inhibit;
 mod archive;
 mod batch_rename;
 pub mod channel;
@@ -24,6 +22,8 @@ mod context_action;
 pub mod desktop_entry;
 pub mod dialog;
 pub mod file_category;
+mod hex;
+mod inhibit;
 mod key_bind;
 pub(crate) mod large_image;
 pub(crate) mod load_image;

@@ -10,7 +10,6 @@
 // items this app never calls. Scoping the allow to this module keeps the
 // app's own dead-code warnings meaningful.
 #![allow(dead_code)]
-
 // `button`'s vendored code warns under this crate's feature set: four
 // `let mut button` bindings are reassigned only inside
 // `#[cfg(feature = "a11y")]` blocks, and `button::draw`'s `is_image`
@@ -18,13 +17,11 @@
 // `draw` is public API. Scoped here for the same reason as `dead_code` above:
 // it keeps the app's own warnings meaningful.
 #![allow(unused_mut, unused_variables)]
-
 // `text_input::input::draw`'s `icon_layout` is assigned up to three times as it
 // walks the layout children, and only the last is read. The dead writes are how
 // it advances the iterator, so they cannot be removed without changing
 // behaviour. Scoped here for the same reason as the allows above.
 #![allow(unused_assignments)]
-
 // `segmented_button`'s `SegmentedButton::tab_drag` is `pub(super)` while its
 // `TabDragSource` type is private; neither may be widened without changing the
 // module's public surface. Scoped here for the same reason as the allows above.
@@ -110,8 +107,8 @@ pub use progress_bar::{
 
 pub mod segmented_button;
 
-pub mod svg;
 pub mod scrollable;
+pub mod svg;
 pub use scrollable::{horizontal, scrollable, vertical};
 
 pub mod settings;

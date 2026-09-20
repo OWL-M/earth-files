@@ -6,8 +6,8 @@
 //! Vendored from pop-os/libcosmic, src/widget/menu/flex.rs
 
 use iced_core::Widget;
-use iced_core::widget::Tree;
 use iced_core::layout::{Limits, Node};
+use iced_core::widget::Tree;
 use iced_core::{Alignment, Element, Padding, Point, Size, renderer};
 
 use crate::ui::widget::RcElementWrapper;
@@ -53,6 +53,7 @@ impl Axis {
 /// padding and alignment to the items as needed.
 ///
 /// It returns a new layout [`Node`].
+#[allow(clippy::too_many_arguments)]
 pub fn resolve<'a, E, Message, Renderer>(
     axis: &Axis,
     renderer: &Renderer,
@@ -227,7 +228,8 @@ where
 /// padding and alignment to the items as needed.
 ///
 /// It returns a new layout [`Node`].
-pub fn resolve_wrapper<'a, Message>(
+#[allow(clippy::too_many_arguments)]
+pub fn resolve_wrapper<Message>(
     axis: &Axis,
     renderer: &iced::Renderer,
     limits: &Limits,
@@ -251,7 +253,7 @@ pub fn resolve_wrapper<'a, Message>(
     if align_items == Alignment::Center {
         let mut fill_cross = axis.cross(limits.min());
 
-        for (child, tree) in items.into_iter().zip(tree.iter_mut()) {
+        for (child, tree) in items.iter_mut().zip(tree.iter_mut()) {
             let c_size = child.size();
             let cross_fill_factor = match axis {
                 Axis::Horizontal => c_size.height,
@@ -274,7 +276,7 @@ pub fn resolve_wrapper<'a, Message>(
         cross = fill_cross;
     }
 
-    for (i, (child, tree)) in items.into_iter().zip(tree.iter_mut()).enumerate() {
+    for (i, (child, tree)) in items.iter_mut().zip(tree.iter_mut()).enumerate() {
         let c_size = child.size();
         let fill_factor = match axis {
             Axis::Horizontal => c_size.width,
@@ -317,7 +319,7 @@ pub fn resolve_wrapper<'a, Message>(
 
     let remaining = available.max(0.0);
 
-    for (i, (child, tree)) in items.into_iter().zip(tree.iter_mut()).enumerate() {
+    for (i, (child, tree)) in items.iter_mut().zip(tree.iter_mut()).enumerate() {
         let c_size = child.size();
         let fill_factor = match axis {
             Axis::Horizontal => c_size.width,

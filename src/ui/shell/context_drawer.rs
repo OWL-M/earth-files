@@ -24,7 +24,10 @@ pub fn about<'a, Message: Clone + 'static>(
     on_url_press: impl Fn(&'a str) -> Message + 'a,
     on_close: Message,
 ) -> ContextDrawer<'a, Message> {
-    context_drawer(crate::ui::widget::about::about(about, on_url_press), on_close)
+    context_drawer(
+        crate::ui::widget::about::about(about, on_url_press),
+        on_close,
+    )
 }
 
 pub fn context_drawer<'a, Message: Clone + 'static>(

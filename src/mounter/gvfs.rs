@@ -16,6 +16,9 @@ use crate::config::IconSizes;
 use crate::err_str;
 use crate::tab::{self, ChecksumState, DirSize, ItemMetadata, ItemThumbnail, Location};
 
+/// What `Cmd::DirInfo` answers: content type, display name and local path
+type DirInfoResult = Result<(String, String, Option<PathBuf>), glib::Error>;
+
 const TARGET_URI_ATTRIBUTE: &str = "standard::target-uri";
 
 // Attributes requested when listing a network directory.
@@ -321,10 +324,7 @@ enum Cmd {
         IconSizes,
         mpsc::Sender<Result<Vec<tab::Item>, String>>,
     ),
-    DirInfo(
-        String,
-        mpsc::Sender<Result<(String, String, Option<PathBuf>), glib::Error>>,
-    ),
+    DirInfo(String, mpsc::Sender<DirInfoResult>),
     Unmount(MounterItem),
 }
 

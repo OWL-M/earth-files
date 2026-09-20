@@ -116,7 +116,10 @@ where
     }
 
     /// Adds an element to the [`MenuColumn`].
-    pub fn push(mut self, child: impl Into<Element<'a, Message, crate::ui::Theme, Renderer>>) -> Self {
+    pub fn push(
+        mut self,
+        child: impl Into<Element<'a, Message, crate::ui::Theme, Renderer>>,
+    ) -> Self {
         let child = child.into();
         let child_size = child.as_widget().size_hint();
 
@@ -128,7 +131,6 @@ where
     }
 
     /// Adds an element to the [`MenuColumn`], if `Some`.
-    #[must_use]
     pub fn push_maybe(
         self,
         child: Option<impl Into<Element<'a, Message, crate::ui::Theme, Renderer>>>,
@@ -225,12 +227,9 @@ where
                 .zip(&mut tree.children)
                 .zip(layout.children())
                 .for_each(|((child, state), c_layout)| {
-                    child.as_widget_mut().operate(
-                        state,
-                        c_layout,
-                        renderer,
-                        operation,
-                    );
+                    child
+                        .as_widget_mut()
+                        .operate(state, c_layout, renderer, operation);
                 });
         });
     }
@@ -254,14 +253,7 @@ where
             .zip(layout.children())
         {
             child.as_widget_mut().update(
-                state,
-                &event,
-                c_layout,
-                cursor,
-                renderer,
-                clipboard,
-                shell,
-                viewport,
+                state, event, c_layout, cursor, renderer, clipboard, shell, viewport,
             );
         }
     }
@@ -279,13 +271,9 @@ where
             .zip(&tree.children)
             .zip(layout.children())
             .map(|((child, state), c_layout)| {
-                child.as_widget().mouse_interaction(
-                    state,
-                    c_layout,
-                    cursor,
-                    viewport,
-                    renderer,
-                )
+                child
+                    .as_widget()
+                    .mouse_interaction(state, c_layout, cursor, viewport, renderer)
             })
             .max()
             .unwrap_or_default()
@@ -325,15 +313,9 @@ where
                 } else {
                     None
                 });
-                child.as_widget().draw(
-                    state,
-                    renderer,
-                    &t,
-                    style,
-                    c_layout,
-                    cursor,
-                    viewport,
-                );
+                child
+                    .as_widget()
+                    .draw(state, renderer, &t, style, c_layout, cursor, viewport);
             }
         }
     }
@@ -355,7 +337,6 @@ where
             translation,
         )
     }
-
 }
 
 impl<'a, Message, Renderer> From<MenuColumn<'a, Message, Renderer>>

@@ -16,7 +16,8 @@ pub(super) struct Overlay<'a, 'b, Message> {
     pub(super) width: f32,
 }
 
-impl<Message> overlay::Overlay<Message, crate::ui::Theme, iced::Renderer> for Overlay<'_, '_, Message>
+impl<Message> overlay::Overlay<Message, crate::ui::Theme, iced::Renderer>
+    for Overlay<'_, '_, Message>
 where
     Message: Clone,
 {
@@ -71,10 +72,11 @@ where
                     shell.capture_event();
                 }
             }
-            Event::Touch(e) if !matches!(e, touch::Event::FingerLost { .. }) => {
-                if cursor.is_over(layout.bounds()) {
-                    shell.capture_event();
-                }
+            Event::Touch(e)
+                if !matches!(e, touch::Event::FingerLost { .. })
+                    && cursor.is_over(layout.bounds()) =>
+            {
+                shell.capture_event();
             }
             _ => {}
         }

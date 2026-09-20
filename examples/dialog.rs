@@ -1,11 +1,11 @@
-use earth_files::ui::app::Task;
-use earth_files::ui::iced::{Subscription, window};
-use earth_files::ui::shell::{self as app, Application, Core, Settings};
-use earth_files::ui::{Element, widget};
 use earth_files::dialog::{
     Dialog, DialogChoice, DialogChoiceOption, DialogFilter, DialogFilterPattern, DialogKind,
     DialogMessage, DialogResult, DialogSettings,
 };
+use earth_files::ui::app::Task;
+use earth_files::ui::iced::{Subscription, window};
+use earth_files::ui::shell::{self as app, Application, Core, Settings};
+use earth_files::ui::{Element, widget};
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 

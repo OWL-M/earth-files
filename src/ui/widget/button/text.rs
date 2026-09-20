@@ -4,17 +4,17 @@
 //! Vendored from pop-os/libcosmic, src/widget/button/text.rs
 
 use super::{Builder, ButtonClass};
-use crate::ui::widget::tooltip;
 use crate::ui::widget::icon;
+use crate::ui::widget::tooltip;
 use apply::Apply;
 
 use crate::ui::Element;
+use crate::ui::convert::{PushMaybe, ToPixels};
 use iced_core::font::Weight;
 use iced_core::text::LineHeight;
 use iced_core::widget::Id;
 use iced_core::{Alignment, Length, Padding};
 use std::borrow::Cow;
-use crate::ui::convert::{PushMaybe, ToPixels};
 
 pub type Button<'a, Message> = Builder<'a, Message, Text>;
 

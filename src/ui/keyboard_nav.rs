@@ -5,8 +5,8 @@
 //!
 //! Subscribe to common application keyboard shortcuts.
 
-use iced::{Event, Subscription, event, keyboard};
 use iced::event::listen_raw;
+use iced::{Event, Subscription, event, keyboard};
 use iced_core::keyboard::key::Named;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]

@@ -1,24 +1,24 @@
 // Copyright 2023 System76 <info@system76.com>
 // SPDX-License-Identifier: GPL-3.0-only
 
+use crate::ui::Element;
 use crate::ui::app::Task;
-use crate::ui::shell::context_drawer;
-use crate::ui::iced_core::SmolStr;
-use crate::ui::iced_core::widget::operation;
 use crate::ui::iced::futures::{self, SinkExt};
 use crate::ui::iced::keyboard::key::{Named, Physical};
 use crate::ui::iced::keyboard::{Event as KeyEvent, Key, Modifiers};
-use crate::ui::widget::scrollable;
-use crate::ui::widget::scrollable::AbsoluteOffset;
 use crate::ui::iced::{
     self, Alignment, Event, Length, Size, Subscription, event, mouse, stream, window,
 };
+use crate::ui::iced_core::SmolStr;
+use crate::ui::iced_core::widget::Operation;
+use crate::ui::iced_core::widget::operation;
+use crate::ui::shell::context_drawer;
+use crate::ui::shell::{Application, Core, Shell};
 use crate::ui::widget::menu::key_bind::Modifier;
 use crate::ui::widget::menu::{Action as MenuAction, KeyBind};
-use crate::ui::iced_core::widget::Operation;
+use crate::ui::widget::scrollable;
+use crate::ui::widget::scrollable::AbsoluteOffset;
 use crate::ui::widget::{self, segmented_button};
-use crate::ui::shell::{Application, Core, Shell};
-use crate::ui::Element;
 use mime_guess::{Mime, mime};
 use notify_debouncer_full::notify::{self, RecommendedWatcher};
 use notify_debouncer_full::{DebouncedEvent, Debouncer, RecommendedCache, new_debouncer};
@@ -38,10 +38,10 @@ use crate::key_bind::key_binds;
 use crate::localize::LANGUAGE_SORTER;
 use crate::mounter::{MOUNTERS, MounterItem, MounterItems, MounterKey, MounterMessage};
 use crate::tab::{self, ItemMetadata, Location, SearchLocation, Tab};
+use crate::ui::convert::{ToLength, ToPixels};
+use crate::ui::theme::{Container, Layer, Spacing, spacing};
 use crate::zoom::{zoom_in_view, zoom_out_view, zoom_to_default};
 use crate::{fl, home_dir, menu, mime_icon};
-use crate::ui::theme::{Container, Layer, Spacing, spacing};
-use crate::ui::convert::{ToLength, ToPixels};
 
 #[derive(Clone, Debug)]
 pub struct DialogMessage(crate::ui::Action<Message>);
@@ -687,7 +687,7 @@ impl App {
         col = col.push(row);
 
         widget::layer_container(col)
-            .layer(Layer::Primary.into())
+            .layer(Layer::Primary)
             .padding([8, space_xs])
             .into()
     }
@@ -879,9 +879,7 @@ impl App {
         if self.flags.config.show_recents {
             nav_model = nav_model.insert(|b| {
                 b.text(fl!("recents"))
-                    .icon(widget::icon::from_name(
-                        "document-open-recent-symbolic",
-                    ))
+                    .icon(widget::icon::from_name("document-open-recent-symbolic"))
                     .data(Location::Recents)
             });
         }
@@ -928,10 +926,7 @@ impl App {
                     b = b.data(Location::Path(path));
                 }
                 if let Some(icon_path) = item.icon_path(true) {
-                    b = b.icon(
-                        widget::icon::icon(widget::icon::from_path(icon_path))
-                            .size(16),
-                    );
+                    b = b.icon(widget::icon::icon(widget::icon::from_path(icon_path)).size(16));
                 }
                 if item.is_mounted() {
                     b = b.closable();

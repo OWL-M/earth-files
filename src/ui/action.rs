@@ -17,11 +17,10 @@
 //! takes three lines. The macro's `popup_open` and `base_window_open` helpers
 //! combine `IcedId::unique()` with `Task::done`; [`exwl`] reproduces them.
 
-use iced_exwlshell::actions::{
-    ExwlShellCustomAction, ExwlShellCustomActionWithId, IcedNewPopupSettings,
-    IcedXdgWindowSettings,
-};
 use iced_core::window;
+use iced_exwlshell::actions::{
+    ExwlShellCustomAction, ExwlShellCustomActionWithId, IcedNewPopupSettings, IcedXdgWindowSettings,
+};
 
 use crate::ui::{app, surface};
 
@@ -63,7 +62,6 @@ pub enum Action<M> {
 
 impl<M: 'static> Action<M> {
     /// Map the application message inside, leaving the shell's own variants untouched.
-    #[must_use]
     pub fn map<N: 'static>(self, f: impl Fn(M) -> N + Clone + Send + Sync + 'static) -> Action<N> {
         match self {
             Action::App(message) => Action::App(f(message)),
@@ -78,7 +76,6 @@ impl<M: 'static> Action<M> {
 impl<M: 'static> Action<Action<M>> {
     /// Collapse a doubly wrapped action, as produced by widgets whose message
     /// type is already an [`Action`], into a single one.
-    #[must_use]
     pub fn flatten(self) -> Action<M> {
         match self {
             Action::App(action) => action,
@@ -124,7 +121,6 @@ pub mod exwl {
     };
 
     /// Open the application's base `xdg_toplevel`.
-    #[must_use]
     pub fn base_window<M>(id: window::Id, settings: IcedXdgWindowSettings) -> Action<M> {
         Action::Exwl(ExwlShellCustomActionWithId::new(
             None,
@@ -133,7 +129,6 @@ pub mod exwl {
     }
 
     /// Open a popup on `settings.parent`.
-    #[must_use]
     pub fn popup<M>(id: window::Id, settings: IcedNewPopupSettings) -> Action<M> {
         Action::Exwl(ExwlShellCustomActionWithId::new(
             None,
@@ -151,7 +146,6 @@ pub mod exwl {
     /// click and dismisses the popup first, so the reposition would arrive for
     /// a surface that no longer exists. Drive it from inside the popup, or from
     /// state that is not pointer-derived.
-    #[must_use]
     pub fn reposition_popup<M>(id: window::Id, settings: IcedNewPopupSettings) -> Action<M> {
         Action::Exwl(ExwlShellCustomActionWithId::new(
             Some(id),
@@ -160,7 +154,6 @@ pub mod exwl {
     }
 
     /// Destroy a surface.
-    #[must_use]
     pub fn remove_window<M>(id: window::Id) -> Action<M> {
         Action::Exwl(ExwlShellCustomActionWithId::new(
             Some(id),

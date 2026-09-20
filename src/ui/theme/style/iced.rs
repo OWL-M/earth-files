@@ -9,7 +9,6 @@
 //! [`crate::ui::theme::icon_color`] and [`header_bar_colors`] for the
 //! [`Container::HeaderBar`] override.
 
-use iced_core::{Background, Border, Color, Shadow, Vector};
 use iced::overlay::menu;
 use iced::theme::Base;
 use iced::widget::scrollable::AutoScroll;
@@ -17,6 +16,7 @@ use iced::widget::{
     button as iced_button, checkbox as iced_checkbox, container as iced_container, pick_list,
     progress_bar, radio, rule, scrollable, svg, text_editor, text_input,
 };
+use iced_core::{Background, Border, Color, Shadow, Vector};
 // `toggler`'s `Style`/`Catalog` are this crate's vendored ones, not iced's.
 use crate::ui::widget::toggler;
 use palette::WithAlpha;
@@ -24,10 +24,14 @@ use std::rc::Rc;
 
 use crate::ui::theme::palette::TRANSPARENT_COMPONENT;
 use crate::ui::theme::{Component, Layer, Palette, Theme, over};
+
 use crate::ui::convert::{ToBackground, ToColor, ToRadius};
 
+/// A button style from the theme and the button's status
+type ButtonStyleFn = Box<dyn Fn(&Theme, iced_button::Status) -> iced_button::Style>;
+
 pub mod application {
-    use crate::ui::convert::{ToColor};
+    use crate::ui::convert::ToColor;
     use iced::theme::Style as Appearance;
 
     use crate::ui::theme::Theme;
@@ -69,7 +73,7 @@ pub enum Button {
     LinkActive,
     Transparent,
     Card,
-    Custom(Box<dyn Fn(&Theme, iced_button::Status) -> iced_button::Style>),
+    Custom(ButtonStyleFn),
 }
 
 impl iced_button::Catalog for Theme {
@@ -172,18 +176,13 @@ impl Button {
 /*
  * Checkbox
  */
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Checkbox {
+    #[default]
     Primary,
     Secondary,
     Success,
     Danger,
-}
-
-impl Default for Checkbox {
-    fn default() -> Self {
-        Self::Primary
-    }
 }
 
 impl iced_checkbox::Catalog for Theme {
@@ -230,7 +229,11 @@ impl iced_checkbox::Catalog for Theme {
                     },
                     Checkbox::Secondary => iced_checkbox::Style {
                         background: Background::Color(if is_checked {
-                            cosmic.background(self.transparent).component.base.to_color()
+                            cosmic
+                                .background(self.transparent)
+                                .component
+                                .base
+                                .to_color()
                         } else {
                             self.current_container().small_widget.to_color()
                         }),
@@ -617,7 +620,9 @@ impl iced_container::Catalog for Theme {
 
             Container::Dropdown => iced_container::Style {
                 text_color: None,
-                background: Some(iced::Background::Color(cosmic.bg_component_color().to_color())),
+                background: Some(iced::Background::Color(
+                    cosmic.bg_component_color().to_color(),
+                )),
                 border: Border {
                     color: cosmic.bg_component_divider().to_color(),
                     width: 1.0,
@@ -643,9 +648,15 @@ impl iced_container::Catalog for Theme {
 
                 match self.layer {
                     Layer::Background => iced_container::Style {
-                        text_color: Some(cosmic.background(self.transparent).component.on.to_color()),
+                        text_color: Some(
+                            cosmic.background(self.transparent).component.on.to_color(),
+                        ),
                         background: Some(iced::Background::Color(
-                            cosmic.background(self.transparent).component.base.to_color(),
+                            cosmic
+                                .background(self.transparent)
+                                .component
+                                .base
+                                .to_color(),
                         )),
                         border: Border {
                             radius: cosmic.corner_radii.radius_s.to_radius(),
@@ -667,7 +678,9 @@ impl iced_container::Catalog for Theme {
                         snap: true,
                     },
                     Layer::Secondary => iced_container::Style {
-                        text_color: Some(cosmic.secondary(self.transparent).component.on.to_color()),
+                        text_color: Some(
+                            cosmic.secondary(self.transparent).component.on.to_color(),
+                        ),
                         background: Some(iced::Background::Color(
                             cosmic.secondary(self.transparent).component.base.to_color(),
                         )),
@@ -684,7 +697,10 @@ impl iced_container::Catalog for Theme {
             Container::Dialog(is_overlay) => iced_container::Style {
                 text_color: Some(cosmic.primary(self.transparent).on.to_color()),
                 background: Some(iced::Background::Color(
-                    cosmic.primary(self.transparent && !is_overlay).base.to_color(),
+                    cosmic
+                        .primary(self.transparent && !is_overlay)
+                        .base
+                        .to_color(),
                 )),
                 border: Border {
                     color: cosmic
@@ -722,7 +738,11 @@ impl menu::Catalog for Theme {
             },
             selected_text_color: cosmic.accent_text_color().to_color(),
             selected_background: Background::Color(
-                cosmic.background(self.transparent).component.hover.to_color(),
+                cosmic
+                    .background(self.transparent)
+                    .component
+                    .hover
+                    .to_color(),
             ),
             shadow: Default::default(),
         }
@@ -1082,7 +1102,7 @@ impl scrollable::Catalog for Theme {
                         background: Color::TRANSPARENT.into(),
                         border: Border::default(),
                         shadow: Shadow::default(),
-                        icon: Color::TRANSPARENT.into(),
+                        icon: Color::TRANSPARENT,
                     },
                 };
                 let small_widget_container = self.current_container().small_widget.with_alpha(0.7);
@@ -1156,7 +1176,7 @@ impl scrollable::Catalog for Theme {
                         background: Color::TRANSPARENT.into(),
                         border: Border::default(),
                         shadow: Shadow::default(),
-                        icon: Color::TRANSPARENT.into(),
+                        icon: Color::TRANSPARENT,
                     },
                 };
 

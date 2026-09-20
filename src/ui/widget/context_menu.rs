@@ -94,7 +94,9 @@ impl<Message: Clone + 'static> ContextMenu<'_, Message> {
         viewport: &iced::Rectangle,
         my_state: &mut LocalState,
     ) {
-        if self.window_id != crate::ui::window::none() && self.on_surface_action.is_some() {
+        if self.window_id != crate::ui::window::none()
+            && let Some(surface_action) = self.on_surface_action.clone()
+        {
             use crate::ui::surface::action::destroy_popup;
             use crate::ui::surface::{PopupSettings, Positioner};
             use crate::ui::widget::menu::Menu;
@@ -109,7 +111,7 @@ impl<Message: Clone + 'static> ContextMenu<'_, Message> {
                     state.menu_states.clear();
                     state.active_root.clear();
 
-                    shell.publish(self.on_surface_action.as_ref().unwrap()(destroy_popup(id)));
+                    shell.publish(surface_action(destroy_popup(id)));
                     state.view_cursor = view_cursor;
                 }
                 // A fresh id per popup, so the old popup's Done cannot be mistaken for the new one's
@@ -161,25 +163,37 @@ impl<Message: Clone + 'static> ContextMenu<'_, Message> {
                 use iced::Rectangle;
 
                 state.popup_id.insert(self.window_id, id);
-                ({
-                    let pos = view_cursor.position().unwrap_or_default();
-                    Rectangle {
-                        x: pos.x as i32,
-                        y: pos.y as i32,
-                        width: 1,
-                        height: 1,
-                    }
-                },
-                match (state.horizontal_direction, state.vertical_direction) {
-                    (Direction::Positive, Direction::Positive) => crate::ui::surface::PopupGravity::BottomRight,
-                    (Direction::Positive, Direction::Negative) => crate::ui::surface::PopupGravity::TopRight,
-                    (Direction::Negative, Direction::Positive) => crate::ui::surface::PopupGravity::BottomLeft,
-                    (Direction::Negative, Direction::Negative) => crate::ui::surface::PopupGravity::TopLeft,
-                })
+                (
+                    {
+                        let pos = view_cursor.position().unwrap_or_default();
+                        Rectangle {
+                            x: pos.x as i32,
+                            y: pos.y as i32,
+                            width: 1,
+                            height: 1,
+                        }
+                    },
+                    match (state.horizontal_direction, state.vertical_direction) {
+                        (Direction::Positive, Direction::Positive) => {
+                            crate::ui::surface::PopupGravity::BottomRight
+                        }
+                        (Direction::Positive, Direction::Negative) => {
+                            crate::ui::surface::PopupGravity::TopRight
+                        }
+                        (Direction::Negative, Direction::Positive) => {
+                            crate::ui::surface::PopupGravity::BottomLeft
+                        }
+                        (Direction::Negative, Direction::Negative) => {
+                            crate::ui::surface::PopupGravity::TopLeft
+                        }
+                    },
+                )
             });
 
-            let menu_node =
-                popup_menu.layout(renderer, iced_core::layout::Limits::NONE.min_width(1.).min_height(1.));
+            let menu_node = popup_menu.layout(
+                renderer,
+                iced_core::layout::Limits::NONE.min_width(1.).min_height(1.),
+            );
             let popup_size = menu_node.size();
             let positioner = Positioner {
                 size: Some((
@@ -192,21 +206,19 @@ impl<Message: Clone + 'static> ContextMenu<'_, Message> {
                 ..Default::default()
             };
             let parent = self.window_id;
-            shell.publish((self.on_surface_action.as_ref().unwrap())(
-                crate::ui::surface::action::simple_popup(
-                    move || PopupSettings {
-                        parent,
-                        id,
-                        positioner,
-                    },
-                    Some(move || {
-                        (crate::ui::Element::from(
-                            crate::ui::widget::container(popup_menu.clone()).center(Length::Fill),
-                        ))
-                        .map(crate::ui::action::app)
-                    }),
-                ),
-            ));
+            shell.publish(surface_action(crate::ui::surface::action::simple_popup(
+                move || PopupSettings {
+                    parent,
+                    id,
+                    positioner,
+                },
+                Some(move || {
+                    (crate::ui::Element::from(
+                        crate::ui::widget::container(popup_menu.clone()).center(Length::Fill),
+                    ))
+                    .map(crate::ui::action::app)
+                }),
+            )));
         }
     }
 
@@ -393,8 +405,7 @@ impl<Message: 'static + Clone> Widget<Message, crate::ui::Theme, iced::Renderer>
         // carrying the dismissed popup's id, so the shell records it and we
         // claim it here; see `ui::surface::dismissal`.
         state.menu_bar_state.inner.with_data_mut(|d| {
-            if d
-                .popup_id
+            if d.popup_id
                 .get(&self.window_id)
                 .copied()
                 .is_some_and(crate::ui::surface::dismissal::claim)
@@ -416,7 +427,9 @@ impl<Message: 'static + Clone> Widget<Message, crate::ui::Theme, iced::Renderer>
                 && let Some(popup_id) = state.popup_id.get(&self.window_id).copied()
                 && let Some(handler) = self.on_surface_action.as_ref()
             {
-                shell.publish((handler)(crate::ui::surface::Action::DestroyPopup(popup_id)));
+                shell.publish((handler)(crate::ui::surface::Action::DestroyPopup(
+                    popup_id,
+                )));
                 state.reset();
             }
             state.open
@@ -449,7 +462,9 @@ impl<Message: 'static + Clone> Widget<Message, crate::ui::Theme, iced::Renderer>
                 {
                     {
                         let surface_action = self.on_surface_action.as_ref().unwrap();
-                        shell.publish(surface_action(crate::ui::surface::action::destroy_popup(id)));
+                        shell.publish(surface_action(crate::ui::surface::action::destroy_popup(
+                            id,
+                        )));
                     }
                     state.view_cursor = cursor;
                 }
@@ -505,8 +520,9 @@ impl<Message: 'static + Clone> Widget<Message, crate::ui::Theme, iced::Renderer>
                     {
                         {
                             let surface_action = self.on_surface_action.as_ref().unwrap();
-                            shell
-                                .publish(surface_action(crate::ui::surface::action::destroy_popup(id)));
+                            shell.publish(surface_action(
+                                crate::ui::surface::action::destroy_popup(id),
+                            ));
                         }
                         state.view_cursor = cursor;
                     }
@@ -593,10 +609,11 @@ impl<Message: 'static + Clone> Widget<Message, crate::ui::Theme, iced::Renderer>
             None => menu,
         })
     }
-
 }
 
-impl<'a, Message: Clone + 'static> From<ContextMenu<'a, Message>> for crate::ui::Element<'a, Message> {
+impl<'a, Message: Clone + 'static> From<ContextMenu<'a, Message>>
+    for crate::ui::Element<'a, Message>
+{
     fn from(widget: ContextMenu<'a, Message>) -> Self {
         Self::new(widget)
     }

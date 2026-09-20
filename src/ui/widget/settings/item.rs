@@ -5,18 +5,18 @@
 
 use std::borrow::Cow;
 
+use crate::ui::convert::ToPixels;
+use crate::ui::theme;
 use crate::ui::widget::flex_row::{FlexRow, flex_row};
 use crate::ui::widget::list;
 use crate::ui::widget::text;
-use iced::widget::{Row, container};
 use crate::ui::{Element, Theme};
-use crate::ui::theme;
 use derive_setters::Setters;
+use iced::widget::space;
+use iced::widget::{Row, container};
 use iced_core::Length;
 use iced_core::text::Wrapping;
-use iced::widget::space;
 use taffy::AlignContent;
-use crate::ui::convert::{ToPixels};
 
 /// A settings item aligned in a row
 #[must_use]

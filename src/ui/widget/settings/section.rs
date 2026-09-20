@@ -4,11 +4,11 @@
 //! Vendored from pop-os/libcosmic, src/widget/settings/section.rs
 
 use crate::ui::Element;
+use crate::ui::convert::PushMaybe;
 use crate::ui::widget::list::list_column::IntoListItem;
 use crate::ui::widget::list::{ListColumn, list_column};
 use crate::ui::widget::text;
 use std::borrow::Cow;
-use crate::ui::convert::PushMaybe;
 
 /// A section within a settings view column.
 pub fn section<'a, Message: Clone + 'static>() -> Section<'a, Message> {

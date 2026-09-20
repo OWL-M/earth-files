@@ -8,22 +8,22 @@
 use std::borrow::Cow;
 use std::cell::{Cell, LazyCell};
 
-
+use super::StyleSheet;
 use super::cursor;
 pub use super::cursor::Cursor;
 use super::editor::Editor;
-use super::StyleSheet;
 pub use super::value::Value;
 
+use crate::ui::convert::{ToColor, ToRadius};
 use apply::Apply;
-use iced_core::layout::Limits;
+use cosmic_text::Affinity;
 use iced_core::event::Event;
 use iced_core::input_method::{self, InputMethod, Preedit};
+use iced_core::layout::Limits;
 use iced_core::mouse::{self, click};
 use iced_core::overlay::Group;
 use iced_core::renderer::{self, Renderer as CoreRenderer};
 use iced_core::text::{self, Paragraph, Renderer, Text};
-use cosmic_text::Affinity;
 use iced_core::time::{Duration, Instant};
 use iced_core::widget::Id;
 use iced_core::widget::operation::{self, Operation};
@@ -34,7 +34,6 @@ use iced_core::{
     window,
 };
 use iced_runtime::{Action, Task, task};
-use crate::ui::convert::{ToColor, ToRadius};
 
 pub(crate) trait ColorExt {
     /// Combines color with background to create appearance of transparency.
@@ -53,9 +52,8 @@ impl ColorExt for iced::Color {
     }
 }
 
-pub(crate) type Plain = iced_core::text::paragraph::Plain<
-    <iced::Renderer as iced_core::text::Renderer>::Paragraph,
->;
+pub(crate) type Plain =
+    iced_core::text::paragraph::Plain<<iced::Renderer as iced_core::text::Renderer>::Paragraph>;
 
 thread_local! {
     // Prevents two inputs from being focused at the same time.
@@ -435,10 +433,7 @@ where
     ///
     /// [`Font`]: text::Renderer::Font
     #[inline]
-    pub const fn font(
-        mut self,
-        font: <iced::Renderer as iced_core::text::Renderer>::Font,
-    ) -> Self {
+    pub const fn font(mut self, font: <iced::Renderer as iced_core::text::Renderer>::Font) -> Self {
         self.font = Some(font);
         self
     }
@@ -664,16 +659,15 @@ where
         // value/read-only through locals instead.
         let state = tree.state.downcast_mut::<State>();
 
-        let value = if !self.manage_value
-            || !self.value.is_empty() && state.tracked_value != self.value
-        {
-            state.tracked_value = self.value.clone();
-            self.value.clone()
-        } else if self.value.is_empty() {
-            state.tracked_value.clone()
-        } else {
-            self.value.clone()
-        };
+        let value =
+            if !self.manage_value || !self.value.is_empty() && state.tracked_value != self.value {
+                state.tracked_value = self.value.clone();
+                self.value.clone()
+            } else if self.value.is_empty() {
+                state.tracked_value.clone()
+            } else {
+                self.value.clone()
+            };
         state.double_click_select_delimiter = self.double_click_select_delimiter;
         // Unfocus text input if it becomes disabled
         if self.on_input.is_none() && !self.manage_value {
@@ -733,17 +727,16 @@ where
         let old_value = Value::new(&old_value);
         if state.is_focused()
             && let cursor::State::Index(index) = state.cursor.state(&old_value)
+            && index == old_value.len()
         {
-            if index == old_value.len() {
-                state.cursor.move_to(value.len());
-            }
+            state.cursor.move_to(value.len());
         }
 
-        if let Some(f) = state.is_focused.as_ref().filter(|f| f.focused) {
-            if f.updated_at != LAST_FOCUS_UPDATE.with(|f| f.get()) {
-                state.unfocus();
-                state.emit_unfocus = true;
-            }
+        if let Some(f) = state.is_focused.as_ref().filter(|f| f.focused)
+            && f.updated_at != LAST_FOCUS_UPDATE.with(|f| f.get())
+        {
+            state.unfocus();
+            state.emit_unfocus = true;
         }
 
         if self.is_editable_variant && !state.is_focused() {
@@ -961,17 +954,17 @@ where
         let line_height = self.line_height;
 
         // Disables editing of the editable variant when clicking outside of, or for tab focus changes.
-        if self.is_editable_variant {
-            if let Some(ref on_edit) = self.on_toggle_edit {
-                let state = tree.state.downcast_mut::<State>();
-                if !state.is_read_only && state.is_focused.is_some_and(|f| !f.focused) {
-                    state.is_read_only = true;
-                    shell.publish((on_edit)(false));
-                } else if let Some(f) = state.is_focused.as_mut().filter(|f| f.needs_update) {
-                    f.needs_update = false;
-                    state.is_read_only = true;
-                    shell.publish((on_edit)(f.focused));
-                }
+        if self.is_editable_variant
+            && let Some(ref on_edit) = self.on_toggle_edit
+        {
+            let state = tree.state.downcast_mut::<State>();
+            if !state.is_read_only && state.is_focused.is_some_and(|f| !f.focused) {
+                state.is_read_only = true;
+                shell.publish((on_edit)(false));
+            } else if let Some(f) = state.is_focused.as_mut().filter(|f| f.needs_update) {
+                f.needs_update = false;
+                state.is_read_only = true;
+                shell.publish((on_edit)(f.focused));
             }
         }
 
@@ -984,22 +977,22 @@ where
                 trailing_icon_layout = Some(text_layout.children().last().unwrap());
 
                 // Enable custom buttons defined on the trailing icon position to be handled.
-                if !self.is_editable_variant {
-                    if let Some(trailing_layout) = trailing_icon_layout {
-                        let res = trailing_icon.as_widget_mut().update(
-                            tree,
-                            event,
-                            trailing_layout,
-                            cursor_position,
-                            renderer,
-                            clipboard,
-                            shell,
-                            viewport,
-                        );
+                if !self.is_editable_variant
+                    && let Some(trailing_layout) = trailing_icon_layout
+                {
+                    trailing_icon.as_widget_mut().update(
+                        tree,
+                        event,
+                        trailing_layout,
+                        cursor_position,
+                        renderer,
+                        clipboard,
+                        shell,
+                        viewport,
+                    );
 
-                        if shell.is_event_captured() {
-                            return;
-                        }
+                    if shell.is_event_captured() {
+                        return;
                     }
                 }
             }
@@ -1024,11 +1017,11 @@ where
 
         let state = tree.state.downcast_mut::<State>();
 
-        if let Some(on_unfocus) = self.on_unfocus.as_ref() {
-            if state.emit_unfocus {
-                state.emit_unfocus = false;
-                shell.publish(on_unfocus.clone());
-            }
+        if let Some(on_unfocus) = self.on_unfocus.as_ref()
+            && state.emit_unfocus
+        {
+            state.emit_unfocus = false;
+            shell.publish(on_unfocus.clone());
         }
 
         let id = Some(self.id.clone());
@@ -1066,7 +1059,7 @@ where
             Some(crate::ui::shell::runner::WindowingSystem::Wayland)
         ) {
             let state = tree.state.downcast_ref::<State>();
-            if state.context_menu_position.is_some() {
+            if let Some(click_position) = state.context_menu_position {
                 let selected_text = state
                     .cursor()
                     .selection(&state.tracked_value)
@@ -1074,7 +1067,6 @@ where
                 let has_selection = selected_text.is_some();
                 let has_text = !state.tracked_value.is_empty();
                 let clipboard_has_text = state.clipboard_has_text;
-                let click_position = state.context_menu_position.unwrap();
                 let menu_bar_state = state.menu_bar_state.clone();
                 let pending_action = state.pending_action.clone();
 
@@ -1245,7 +1237,6 @@ where
             self.on_input.is_none() && !self.manage_value,
         )
     }
-
 }
 
 impl<'a, Message> From<TextInput<'a, Message>>
@@ -1594,7 +1585,6 @@ pub fn update<'a, Message: Clone + 'static>(
                 state.context_menu_position = Some(pos);
                 state.clipboard_has_text = crate::ui::widget::text::clipboard_has_text(clipboard);
                 shell.capture_event();
-                return;
             }
         }
 
@@ -1791,10 +1781,10 @@ pub fn update<'a, Message: Clone + 'static>(
                 if matches!(state.dragging_state, None | Some(DraggingState::Selection))
                     && (!state.is_focused() || (is_editable_variant && state.is_read_only))
                 {
-                    if !state.is_focused() {
-                        if let Some(on_focus) = on_focus {
-                            shell.publish(on_focus.clone());
-                        }
+                    if !state.is_focused()
+                        && let Some(on_focus) = on_focus
+                    {
+                        shell.publish(on_focus.clone());
                     }
 
                     if state.is_read_only {
@@ -1821,7 +1811,6 @@ pub fn update<'a, Message: Clone + 'static>(
 
                 shell.request_redraw();
                 shell.capture_event();
-                return;
             } else {
                 state.unfocus();
 
@@ -1855,7 +1844,6 @@ pub fn update<'a, Message: Clone + 'static>(
             if cursor.is_over(layout.bounds()) {
                 shell.capture_event();
             }
-            return;
         }
         Event::Mouse(mouse::Event::CursorMoved { position })
         | Event::Touch(touch::Event::FingerMoved { position, .. }) => {
@@ -1884,7 +1872,6 @@ pub fn update<'a, Message: Clone + 'static>(
 
                 shell.request_redraw();
                 shell.capture_event();
-                return;
             }
             // Dragging a selection out of the input is not implemented;
             // `PrepareDnd` only keeps a click on a selection behaving as before
@@ -1924,13 +1911,12 @@ pub fn update<'a, Message: Clone + 'static>(
                 {
                     match clip_key {
                         Some('c') => {
-                            if !is_secure {
-                                if let Some((start, end)) = state.cursor.selection(value) {
-                                    clipboard.write(
-                                        iced_core::clipboard::Kind::Standard,
-                                        value.select(start, end).to_string(),
-                                    );
-                                }
+                            if !is_secure && let Some((start, end)) = state.cursor.selection(value)
+                            {
+                                clipboard.write(
+                                    iced_core::clipboard::Kind::Standard,
+                                    value.select(start, end).to_string(),
+                                );
                             }
                         }
                         // XXX if we want to allow cutting of secure text, we need to
@@ -2116,7 +2102,8 @@ pub fn update<'a, Message: Clone + 'static>(
                         update_cache(state, &value);
                     }
                     keyboard::Key::Named(keyboard::key::Named::ArrowLeft) => {
-                        let rtl = crate::ui::widget::paragraph::is_rtl(state.value.raw(), 0).unwrap_or(false);
+                        let rtl = crate::ui::widget::paragraph::is_rtl(state.value.raw(), 0)
+                            .unwrap_or(false);
                         let by_words = platform::is_jump_modifier_pressed(modifiers) && !is_secure;
 
                         if modifiers.shift() {
@@ -2126,7 +2113,8 @@ pub fn update<'a, Message: Clone + 'static>(
                         }
                     }
                     keyboard::Key::Named(keyboard::key::Named::ArrowRight) => {
-                        let rtl = crate::ui::widget::paragraph::is_rtl(state.value.raw(), 0).unwrap_or(false);
+                        let rtl = crate::ui::widget::paragraph::is_rtl(state.value.raw(), 0)
+                            .unwrap_or(false);
                         let by_words = platform::is_jump_modifier_pressed(modifiers) && !is_secure;
 
                         if modifiers.shift() {
@@ -2187,7 +2175,6 @@ pub fn update<'a, Message: Clone + 'static>(
 
                 shell.request_redraw();
                 shell.capture_event();
-                return;
             }
         }
         Event::Keyboard(keyboard::Event::KeyReleased { key, .. }) => {
@@ -2208,7 +2195,6 @@ pub fn update<'a, Message: Clone + 'static>(
                 }
 
                 shell.capture_event();
-                return;
             }
         }
         Event::Keyboard(keyboard::Event::ModifiersChanged(modifiers)) => {
@@ -2219,7 +2205,6 @@ pub fn update<'a, Message: Clone + 'static>(
                 state.preedit =
                     matches!(event, input_method::Event::Opened).then(input_method::Preedit::new);
                 shell.capture_event();
-                return;
             }
             input_method::Event::Preedit(content, selection) => {
                 if state.is_focused() {
@@ -2229,7 +2214,6 @@ pub fn update<'a, Message: Clone + 'static>(
                         text_size: Some(size.into()),
                     });
                     shell.capture_event();
-                    return;
                 }
             }
             input_method::Event::Commit(text) => {
@@ -2247,7 +2231,7 @@ pub fn update<'a, Message: Clone + 'static>(
                 LAST_FOCUS_UPDATE.with(|x| x.set(focus.updated_at));
 
                 let mut editor = Editor::new(unsecured_value, &mut state.cursor);
-                editor.paste(Value::new(&text));
+                editor.paste(Value::new(text));
 
                 let contents = editor.contents();
                 let unsecured_value = Value::new(&contents);
@@ -2267,7 +2251,6 @@ pub fn update<'a, Message: Clone + 'static>(
 
                 update_cache(state, &value);
                 shell.capture_event();
-                return;
             }
         },
         Event::Window(window::Event::RedrawRequested(now)) => {
@@ -2532,7 +2515,11 @@ pub fn draw<'a, Message>(
     let text_width = state.value.min_width();
     let actual_width = text_width.max(text_bounds.width);
 
-    let radius_0 = crate::ui::theme::active().cosmic().corner_radii.radius_0.to_radius();
+    let radius_0 = crate::ui::theme::active()
+        .cosmic()
+        .corner_radii
+        .radius_0
+        .to_radius();
     // Drop offers are not tracked, so no caret is drawn for a hovering drop.
     let handling_dnd_offer = false;
     let (cursors, offset, is_selecting) = if let Some(focus) =
@@ -3030,8 +3017,8 @@ impl State {
     }
 
     pub(super) fn setting_selection(&mut self, value: &Value, bounds: Rectangle<f32>, target: f32) {
-        let (position, affinity) = find_cursor_position(bounds, value, self, target)
-            .unwrap_or((0, Affinity::Before));
+        let (position, affinity) =
+            find_cursor_position(bounds, value, self, target).unwrap_or((0, Affinity::Before));
 
         self.cursor.set_affinity(affinity);
         self.cursor.move_to(position);
@@ -3105,8 +3092,9 @@ fn measure_cursor_and_scroll_offset(
     current_offset: f32,
 ) -> (f32, f32) {
     let byte_index = value.byte_index_at_grapheme(cursor_index);
-    let position = crate::ui::widget::paragraph::cursor_position(paragraph, 0, byte_index, affinity)
-        .unwrap_or(Point::ORIGIN);
+    let position =
+        crate::ui::widget::paragraph::cursor_position(paragraph, 0, byte_index, affinity)
+            .unwrap_or(Point::ORIGIN);
 
     // The visible window in paragraph coordinates is:
     //   [current_offset, current_offset + text_bounds.width]
@@ -3249,7 +3237,9 @@ fn alignment_offset(
 }
 
 #[inline(never)]
-fn effective_alignment(paragraph: &crate::ui::widget::paragraph::Paragraph) -> alignment::Horizontal {
+fn effective_alignment(
+    paragraph: &crate::ui::widget::paragraph::Paragraph,
+) -> alignment::Horizontal {
     if crate::ui::widget::paragraph::is_rtl(paragraph, 0).unwrap_or(false) {
         alignment::Horizontal::Right
     } else {

@@ -38,8 +38,8 @@ use iced_core::widget::tree::{self, Tree};
 use iced_core::Renderer as _;
 use iced_core::text::Renderer as _;
 use iced_core::{
-    Clipboard, Color, Element, Event, Layout, Length, Pixels, Point, Rectangle, Shell, Size, Widget,
-    keyboard, touch,
+    Clipboard, Color, Element, Event, Layout, Length, Pixels, Point, Rectangle, Shell, Size,
+    Widget, keyboard, touch,
 };
 
 use unicode_segmentation::UnicodeSegmentation;
@@ -117,10 +117,7 @@ where
     /// Sets the [`Font`] of the [`Text`], if `Some`.
     ///
     /// [`Font`]: crate::text::Renderer::Font
-    pub fn font_maybe(
-        mut self,
-        font: Option<impl Into<Renderer::Font>>,
-    ) -> Self {
+    pub fn font_maybe(mut self, font: Option<impl Into<Renderer::Font>>) -> Self {
         self.format.font = font.map(Into::into);
         self
     }
@@ -150,10 +147,7 @@ where
     }
 
     /// Sets the [`alignment::Vertical`] of the [`Text`].
-    pub fn align_y(
-        mut self,
-        alignment: impl Into<alignment::Vertical>,
-    ) -> Self {
+    pub fn align_y(mut self, alignment: impl Into<alignment::Vertical>) -> Self {
         self.format.align_y = alignment.into();
         self
     }
@@ -426,10 +420,8 @@ where
             .filter(|sel| sel.anchor != sel.end)
             .map(|sel| {
                 let content: &str = self.fragment.as_ref();
-                let lo_byte =
-                    grapheme_to_byte(content, sel.anchor.min(sel.end));
-                let hi_byte =
-                    grapheme_to_byte(content, sel.anchor.max(sel.end));
+                let lo_byte = grapheme_to_byte(content, sel.anchor.min(sel.end));
+                let hi_byte = grapheme_to_byte(content, sel.anchor.max(sel.end));
 
                 crate::ui::widget::paragraph::highlight(
                     paragraph,
@@ -438,13 +430,13 @@ where
                     (hi_byte, Affinity::Before),
                 )
                 .into_iter()
-                    .map(|r| Rectangle {
-                        x: anchor.x + r.x,
-                        y: anchor.y + r.y,
-                        width: r.width,
-                        height: r.height,
-                    })
-                    .collect()
+                .map(|r| Rectangle {
+                    x: anchor.x + r.x,
+                    y: anchor.y + r.y,
+                    width: r.width,
+                    height: r.height,
+                })
+                .collect()
             })
             .unwrap_or_default();
 
@@ -468,8 +460,7 @@ where
             fill_selection(renderer);
             for r in &rects {
                 renderer.with_layer(*r, |renderer| {
-                    renderer
-                        .fill_paragraph(paragraph, anchor, color, *viewport);
+                    renderer.fill_paragraph(paragraph, anchor, color, *viewport);
                 });
             }
         }
@@ -501,24 +492,23 @@ where
             event,
             Event::Mouse(mouse::Event::ButtonPressed(_))
                 | Event::Touch(touch::Event::FingerPressed { .. })
-        ) {
-            if cursor.position_over(bounds).is_none() {
-                let was_visible = state.focused
-                    || state.keyboard_focused
-                    || state
-                        .selection
-                        .as_ref()
-                        .is_some_and(|sel| sel.anchor != sel.end);
+        ) && cursor.position_over(bounds).is_none()
+        {
+            let was_visible = state.focused
+                || state.keyboard_focused
+                || state
+                    .selection
+                    .as_ref()
+                    .is_some_and(|sel| sel.anchor != sel.end);
 
-                state.focused = false;
-                state.keyboard_focused = false;
-                if let Some(sel) = &mut state.selection {
-                    sel.clear();
-                }
+            state.focused = false;
+            state.keyboard_focused = false;
+            if let Some(sel) = &mut state.selection {
+                sel.clear();
+            }
 
-                if was_visible {
-                    shell.request_redraw();
-                }
+            if was_visible {
+                shell.request_redraw();
             }
         }
 
@@ -531,26 +521,21 @@ where
                 }
 
                 if let Some(pos) = cursor.position_over(bounds) {
-                    let sel = state.selection.get_or_insert_with(|| {
-                        Box::new(SelectionState::default())
-                    });
+                    let sel = state
+                        .selection
+                        .get_or_insert_with(|| Box::new(SelectionState::default()));
 
                     let anchor = bounds.anchor(
                         paragraph.min_bounds(),
                         paragraph.align_x(),
                         paragraph.align_y(),
                     );
-                    let relative =
-                        Point::new(pos.x - anchor.x, pos.y - anchor.y);
+                    let relative = Point::new(pos.x - anchor.x, pos.y - anchor.y);
 
-                    let grapheme_pos =
-                        hit_to_grapheme(paragraph, relative, content);
+                    let grapheme_pos = hit_to_grapheme(paragraph, relative, content);
 
-                    let new_click = click::Click::new(
-                        pos,
-                        mouse::Button::Left,
-                        sel.last_click.take(),
-                    );
+                    let new_click =
+                        click::Click::new(pos, mouse::Button::Left, sel.last_click.take());
 
                     match new_click.kind() {
                         click::Kind::Single => {
@@ -563,8 +548,7 @@ where
                             sel.dragging = true;
                         }
                         click::Kind::Double => {
-                            sel.anchor =
-                                previous_start_of_word(content, grapheme_pos);
+                            sel.anchor = previous_start_of_word(content, grapheme_pos);
                             sel.end = next_end_of_word(content, grapheme_pos);
                             sel.dragging = true;
                         }
@@ -603,29 +587,26 @@ where
 
             Event::Mouse(mouse::Event::CursorMoved { position })
             | Event::Touch(touch::Event::FingerMoved { position, .. }) => {
-                if let Some(sel) = &mut state.selection {
-                    if sel.dragging {
-                        let anchor = bounds.anchor(
-                            paragraph.min_bounds(),
-                            paragraph.align_x(),
-                            paragraph.align_y(),
-                        );
-                        let relative = Point::new(
-                            position.x - anchor.x,
-                            position.y - anchor.y,
-                        );
+                if let Some(sel) = &mut state.selection
+                    && sel.dragging
+                {
+                    let anchor = bounds.anchor(
+                        paragraph.min_bounds(),
+                        paragraph.align_x(),
+                        paragraph.align_y(),
+                    );
+                    let relative = Point::new(position.x - anchor.x, position.y - anchor.y);
 
-                        let end = hit_to_grapheme(paragraph, relative, content);
+                    let end = hit_to_grapheme(paragraph, relative, content);
 
-                        // Only the drag reaching a new grapheme changes what
-                        // is drawn; plain motion inside one does not.
-                        if end != sel.end {
-                            sel.end = end;
-                            shell.request_redraw();
-                        }
-
-                        shell.capture_event();
+                    // Only the drag reaching a new grapheme changes what
+                    // is drawn; plain motion inside one does not.
+                    if end != sel.end {
+                        sel.end = end;
+                        shell.request_redraw();
                     }
+
+                    shell.capture_event();
                 }
             }
 
@@ -633,7 +614,6 @@ where
                 key,
                 modifiers,
                 physical_key,
-                text: _,
                 ..
             }) => {
                 if !state.focused {
@@ -654,10 +634,7 @@ where
                                     .skip(left)
                                     .take(right - left)
                                     .collect();
-                                clipboard.write(
-                                    iced_core::clipboard::Kind::Standard,
-                                    selected,
-                                );
+                                clipboard.write(iced_core::clipboard::Kind::Standard, selected);
                             }
                             shell.capture_event();
                             return;
@@ -779,7 +756,6 @@ where
             operation.focusable(None, layout.bounds(), state);
         }
     }
-
 }
 
 /// The format of some [`Text`].
@@ -883,7 +859,6 @@ where
     }
 }
 
-
 impl<'a, Theme, Renderer> From<&'a str> for Text<'a, Theme, Renderer>
 where
     Theme: Catalog + 'a,
@@ -955,11 +930,7 @@ pub(super) fn grapheme_to_byte(content: &str, grapheme_index: usize) -> usize {
         .sum()
 }
 
-fn hit_to_grapheme<P: Paragraph>(
-    paragraph: &P,
-    point: Point,
-    content: &str,
-) -> usize {
+fn hit_to_grapheme<P: Paragraph>(paragraph: &P, point: Point, content: &str) -> usize {
     match paragraph.hit_test(point) {
         Some(hit) => {
             let byte_offset = hit.cursor().min(content.len());
@@ -975,8 +946,7 @@ fn previous_start_of_word(content: &str, grapheme_index: usize) -> usize {
     let before: String = graphemes[..clamped].concat();
 
     UnicodeSegmentation::split_word_bound_indices(&*before)
-        .filter(|(_, word)| !word.trim_start().is_empty())
-        .next_back()
+        .rfind(|(_, word)| !word.trim_start().is_empty())
         .map_or(0, |(i, prev_word)| {
             clamped
                 - prev_word.graphemes(true).count()
@@ -992,9 +962,7 @@ fn next_end_of_word(content: &str, grapheme_index: usize) -> usize {
     UnicodeSegmentation::split_word_bound_indices(&*after)
         .find(|(_, word)| !word.trim_start().is_empty())
         .map_or(graphemes.len(), |(i, next_word)| {
-            clamped
-                + next_word.graphemes(true).count()
-                + after[..i].graphemes(true).count()
+            clamped + next_word.graphemes(true).count() + after[..i].graphemes(true).count()
         })
 }
 

@@ -13,12 +13,12 @@
 //! never-rendered strings shipped to Weblate for translation.
 
 use crate::fl;
+use crate::ui::convert::ToPadding;
+use crate::ui::convert::{PushMaybe, ToColor, ToPixels};
 use crate::ui::iced::{Alignment, ContentFit, Length};
 use crate::ui::widget::{self, list};
 use crate::ui::{Apply, Element};
 use std::rc::Rc;
-use crate::ui::convert::{PushMaybe, ToColor, ToPixels};
-use crate::ui::convert::{ToPadding};
 
 #[derive(Debug, Default, Clone, derive_setters::Setters)]
 #[setters(into, strip_option)]

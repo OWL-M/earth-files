@@ -5,6 +5,7 @@
 
 use super::{Builder, ButtonClass};
 use crate::ui::Element;
+use crate::ui::convert::ToPixels;
 use crate::ui::widget::icon::Handle;
 use crate::ui::widget::tooltip;
 use apply::Apply;
@@ -13,7 +14,6 @@ use iced_core::text::LineHeight;
 use iced_core::widget::Id;
 use iced_core::{Alignment, Length, Padding};
 use std::borrow::Cow;
-use crate::ui::convert::{ToPixels};
 
 pub type Button<'a, Message> = Builder<'a, Message, Icon>;
 

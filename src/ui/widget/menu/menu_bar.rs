@@ -13,12 +13,13 @@ use super::menu_inner::{
     CloseCondition, Direction, ItemHeight, ItemWidth, Menu, MenuState, PathHighlight,
 };
 use super::menu_tree::MenuTree;
-use iced::Renderer;
 use crate::ui::shell::runner::{WindowingSystem, windowing_system};
 use crate::ui::theme::menu_bar::StyleSheet;
 use crate::ui::widget::RcWrapper;
 use crate::ui::widget::menu::menu_inner::init_root_menu;
+use iced::Renderer;
 
+use crate::ui::convert::ToRadius;
 use iced::{Point, Shadow, Vector, window};
 use iced_core::Border;
 use iced_core::layout::{Limits, Node};
@@ -29,7 +30,6 @@ use iced_core::{
     Alignment, Clipboard, Element, Layout, Length, Padding, Rectangle, Shell, Widget, event,
     overlay, touch,
 };
-use crate::ui::convert::ToRadius;
 
 /// A `MenuBar` collects `MenuTree`s and handles all the layout, event processing, and drawing.
 pub fn menu_bar<Message>(menu_roots: Vec<MenuTree<Message>>) -> MenuBar<Message>
@@ -307,10 +307,7 @@ where
         self
     }
 
-    pub fn with_positioner(
-        mut self,
-        positioner: crate::ui::surface::Positioner,
-    ) -> Self {
+    pub fn with_positioner(mut self, positioner: crate::ui::surface::Positioner) -> Self {
         self.positioner = positioner;
         self
     }
@@ -348,11 +345,12 @@ where
         viewport: &Rectangle,
         my_state: &mut MenuBarState,
     ) {
-        if self.window_id != crate::ui::window::none() && self.on_surface_action.is_some() {
+        if self.window_id != crate::ui::window::none()
+            && let Some(surface_action) = self.on_surface_action.clone()
+        {
             use crate::ui::surface::action::destroy_popup;
             use crate::ui::surface::{PopupSettings, Positioner};
 
-            let surface_action = self.on_surface_action.as_ref().unwrap();
             let old_active_root = my_state
                 .inner
                 .with_data(|state| state.active_root.first().copied());
@@ -397,7 +395,7 @@ where
                 cross_offset: self.cross_offset,
                 root_bounds_list: root_list,
                 path_highlight: self.path_highlight,
-                style: std::borrow::Cow::Owned(self.style.clone()),
+                style: std::borrow::Cow::Owned(self.style),
                 position: Point::new(0., 0.),
                 is_overlay: false,
                 window_id: id,
@@ -417,33 +415,44 @@ where
             );
             let (anchor_rect, gravity) = my_state.inner.with_data_mut(|state| {
                 state.popup_id.insert(self.window_id, id);
-                (state
-                    .menu_states
-                    .iter()
-                    .find(|s| s.index.is_none())
-                    .map(|s| s.menu_bounds.parent_bounds)
-                    .map_or_else(
-                        || {
-                            let bounds = layout.bounds();
-                            Rectangle {
-                                x: bounds.x as i32,
-                                y: bounds.y as i32,
-                                width: bounds.width as i32,
-                                height: bounds.height as i32,
-                            }
-                        },
-                        |r| Rectangle {
-                            x: r.x as i32,
-                            y: r.y as i32,
-                            width: r.width as i32,
-                            height: r.height as i32,
-                        },
-                    ), match (state.horizontal_direction, state.vertical_direction) {
-                        (Direction::Positive, Direction::Positive) => crate::ui::surface::PopupGravity::BottomRight,
-                        (Direction::Positive, Direction::Negative) => crate::ui::surface::PopupGravity::TopRight,
-                        (Direction::Negative, Direction::Positive) => crate::ui::surface::PopupGravity::BottomLeft,
-                        (Direction::Negative, Direction::Negative) => crate::ui::surface::PopupGravity::TopLeft,
-                    })
+                (
+                    state
+                        .menu_states
+                        .iter()
+                        .find(|s| s.index.is_none())
+                        .map(|s| s.menu_bounds.parent_bounds)
+                        .map_or_else(
+                            || {
+                                let bounds = layout.bounds();
+                                Rectangle {
+                                    x: bounds.x as i32,
+                                    y: bounds.y as i32,
+                                    width: bounds.width as i32,
+                                    height: bounds.height as i32,
+                                }
+                            },
+                            |r| Rectangle {
+                                x: r.x as i32,
+                                y: r.y as i32,
+                                width: r.width as i32,
+                                height: r.height as i32,
+                            },
+                        ),
+                    match (state.horizontal_direction, state.vertical_direction) {
+                        (Direction::Positive, Direction::Positive) => {
+                            crate::ui::surface::PopupGravity::BottomRight
+                        }
+                        (Direction::Positive, Direction::Negative) => {
+                            crate::ui::surface::PopupGravity::TopRight
+                        }
+                        (Direction::Negative, Direction::Positive) => {
+                            crate::ui::surface::PopupGravity::BottomLeft
+                        }
+                        (Direction::Negative, Direction::Negative) => {
+                            crate::ui::surface::PopupGravity::TopLeft
+                        }
+                    },
+                )
             });
 
             let menu_node = popup_menu.layout(renderer, Limits::NONE.min_width(1.).min_height(1.));
@@ -454,8 +463,7 @@ where
                     popup_size.height.ceil() as u32 + 2,
                 )),
                 anchor_rect,
-                anchor:
-                    crate::ui::surface::PopupAnchor::BottomLeft,
+                anchor: crate::ui::surface::PopupAnchor::BottomLeft,
                 gravity,
                 ..Default::default()
             };
@@ -567,8 +575,7 @@ where
         // carrying the dismissed popup's id, so the shell records it and we
         // claim it here; see `ui::surface::dismissal`.
         my_state.inner.with_data_mut(|d| {
-            if d
-                .popup_id
+            if d.popup_id
                 .get(&self.window_id)
                 .copied()
                 .is_some_and(crate::ui::surface::dismissal::claim)
@@ -586,13 +593,14 @@ where
                 .with_data(|d| !d.open && !d.active_root.is_empty());
 
         let open = my_state.inner.with_data_mut(|state| {
-            if reset {
-                if let Some(popup_id) = state.popup_id.get(&self.window_id).copied() {
-                    if let Some(handler) = self.on_surface_action.as_ref() {
-                        shell.publish((handler)(crate::ui::surface::Action::DestroyPopup(popup_id)));
-                        state.reset();
-                    }
-                }
+            if reset
+                && let Some(popup_id) = state.popup_id.get(&self.window_id).copied()
+                && let Some(handler) = self.on_surface_action.as_ref()
+            {
+                shell.publish((handler)(crate::ui::surface::Action::DestroyPopup(
+                    popup_id,
+                )));
+                state.reset();
             }
             state.open
         });
@@ -619,9 +627,9 @@ where
                             let surface_action = self.on_surface_action.as_ref().unwrap();
                             shell.capture_event();
 
-                            shell.publish(surface_action(crate::ui::surface::action::destroy_popup(
-                                _id,
-                            )));
+                            shell.publish(surface_action(
+                                crate::ui::surface::action::destroy_popup(_id),
+                            ));
                         }
                         state.view_cursor = view_cursor;
                     }

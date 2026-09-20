@@ -2,26 +2,26 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 use crate::ui::app::{self, Task};
-use crate::ui::shell::context_drawer;
-use crate::ui::shell::Core;
-use crate::ui::iced_core::SmolStr;
-use crate::ui::iced_core::widget::operation::focusable::unfocus;
+use crate::ui::clipboard;
 use crate::ui::iced::futures::{self, SinkExt};
 use crate::ui::iced::keyboard::key::Physical;
 use crate::ui::iced::keyboard::{Event as KeyEvent, Key, Modifiers};
-use crate::ui::clipboard;
-use crate::ui::iced_runtime::task;
-use crate::ui::widget::button::focus;
-use crate::ui::widget::scrollable;
-use crate::ui::widget::scrollable::AbsoluteOffset;
 use crate::ui::iced::window::{self, Event as WindowEvent, Id as WindowId};
 use crate::ui::iced::{self, Alignment, Event, Length, Size, Subscription, event, mouse, stream};
+use crate::ui::iced_core::SmolStr;
+use crate::ui::iced_core::widget::operation::focusable::unfocus;
+use crate::ui::iced_runtime::task;
+use crate::ui::shell::Application;
+use crate::ui::shell::Core;
+use crate::ui::shell::context_drawer;
 use crate::ui::widget::about::About;
+use crate::ui::widget::button::focus;
 use crate::ui::widget::menu::action::MenuAction;
 use crate::ui::widget::menu::key_bind::KeyBind;
+use crate::ui::widget::scrollable;
+use crate::ui::widget::scrollable::AbsoluteOffset;
 use crate::ui::widget::segmented_button::{self, Entity, ReorderEvent};
 use crate::ui::widget::{self, icon, settings};
-use crate::ui::shell::Application;
 use crate::ui::{Element, surface};
 use mime_guess::Mime;
 use notify_debouncer_full::notify::{self, RecommendedWatcher};
@@ -58,14 +58,13 @@ use crate::operation::{
 };
 use crate::spawn_detached::spawn_detached;
 use crate::tab::{
-    self, HeadingOptions, ItemMetadata, Location, SORT_OPTION_FALLBACK,
-    SearchLocation, Tab,
+    self, HeadingOptions, ItemMetadata, Location, SORT_OPTION_FALLBACK, SearchLocation, Tab,
 };
 use crate::trash::{Trash, TrashExt};
+use crate::ui::convert::{ToColor, ToLength, ToPadding, ToPixels};
+use crate::ui::theme::{Button, Container, Layer, Spacing, spacing};
 use crate::zoom::{zoom_in_view, zoom_out_view, zoom_to_default};
 use crate::{batch_rename, context_action, fl, home_dir, menu, mime_icon};
-use crate::ui::theme::{Button, Container, Layer, Spacing, spacing};
-use crate::ui::convert::{ToColor, ToLength, ToPadding, ToPixels};
 
 static PERMANENT_DELETE_BUTTON_ID: LazyLock<widget::Id> =
     LazyLock::new(|| widget::Id::new("permanent-delete-button"));
@@ -1194,20 +1193,18 @@ impl App {
     /// as paste. This handler chooses whether to move or copy, independently of the
     /// drag source.
     fn drop_files(to: PathBuf, copy: bool) -> Task<Message> {
-        clipboard::read_drop_data::<ClipboardPaste>().map(move |contents_opt| {
-            match contents_opt {
-                Some(mut contents) => {
-                    contents.kind = if copy {
-                        ClipboardKind::Copy
-                    } else {
-                        ClipboardKind::Cut
-                    };
-                    crate::ui::action::app(Message::PasteContents(to.clone(), contents))
-                }
-                None => {
-                    log::warn!("a file drop carried nothing readable");
-                    crate::ui::action::app(Message::None)
-                }
+        clipboard::read_drop_data::<ClipboardPaste>().map(move |contents_opt| match contents_opt {
+            Some(mut contents) => {
+                contents.kind = if copy {
+                    ClipboardKind::Copy
+                } else {
+                    ClipboardKind::Cut
+                };
+                crate::ui::action::app(Message::PasteContents(to.clone(), contents))
+            }
+            None => {
+                log::warn!("a file drop carried nothing readable");
+                crate::ui::action::app(Message::None)
             }
         })
     }
@@ -1259,28 +1256,31 @@ impl App {
             .insert(id, (operation.clone(), controller.clone()));
 
         // Use a task to send operations to the compio runtime thread.
-        crate::ui::Task::stream(crate::ui::iced::stream::channel(4, move |msg_tx| async move {
-            let (tx, rx) = tokio::sync::oneshot::channel();
+        crate::ui::Task::stream(crate::ui::iced::stream::channel(
+            4,
+            move |msg_tx| async move {
+                let (tx, rx) = tokio::sync::oneshot::channel();
 
-            let msg_tx = Arc::new(tokio::sync::Mutex::new(msg_tx));
+                let msg_tx = Arc::new(tokio::sync::Mutex::new(msg_tx));
 
-            let msg_tx_clone = msg_tx.clone();
+                let msg_tx_clone = msg_tx.clone();
 
-            _ = compio_tx
-                .send(Box::pin(async move {
-                    let msg = match operation.perform(&msg_tx_clone, controller).await {
-                        Ok(result_paths) => Message::PendingComplete(id, result_paths),
-                        Err(err) => Message::PendingError(id, err),
-                    };
+                _ = compio_tx
+                    .send(Box::pin(async move {
+                        let msg = match operation.perform(&msg_tx_clone, controller).await {
+                            Ok(result_paths) => Message::PendingComplete(id, result_paths),
+                            Err(err) => Message::PendingError(id, err),
+                        };
 
-                    _ = tx.send(msg);
-                }))
-                .await;
+                        _ = tx.send(msg);
+                    }))
+                    .await;
 
-            if let Ok(msg) = rx.await {
-                let _ = msg_tx.lock().await.send(msg).await;
-            }
-        }))
+                if let Ok(msg) = rx.await {
+                    let _ = msg_tx.lock().await.send(msg).await;
+                }
+            },
+        ))
         .map(crate::ui::Action::App)
     }
 
@@ -1693,13 +1693,15 @@ impl App {
         // Tabs are collected first to placate the borrowck
         let tabs: Box<[_]> = self.tab_model.iter().collect();
         // Update main conf and each tab with the new config
-        let commands = std::iter::once(crate::ui::command::set_theme(self.config.app_theme.theme()))
-            .chain(tabs.into_iter().map(|entity| {
-                self.update(Message::TabMessage(
-                    Some(entity),
-                    tab::Message::Config(self.config.tab),
-                ))
-            }));
+        let commands = std::iter::once(crate::ui::command::set_theme(
+            self.config.app_theme.theme(),
+        ))
+        .chain(tabs.into_iter().map(|entity| {
+            self.update(Message::TabMessage(
+                Some(entity),
+                tab::Message::Config(self.config.tab),
+            ))
+        }));
         Task::batch(commands)
     }
 
@@ -2044,8 +2046,7 @@ impl App {
                 {
                     for item in items {
                         if item.location_opt.as_ref() == Some(location) {
-                            children
-                                .push(item.preview_view(Some(&self.mime_app_cache)));
+                            children.push(item.preview_view(Some(&self.mime_app_cache)));
                             // Only show one property view to avoid issues like hangs when generating
                             // preview images on thousands of files
                             break;
@@ -2087,11 +2088,14 @@ impl App {
             }
         }
         widget::Column::with_children(children)
-            .padding((if context_drawer {
-                [0, 0, 0, 0]
-            } else {
-                [0, space_l, space_l, space_l]
-            }).to_padding())
+            .padding(
+                (if context_drawer {
+                    [0, 0, 0, 0]
+                } else {
+                    [0, space_l, space_l, space_l]
+                })
+                .to_padding(),
+            )
             .into()
     }
 
@@ -2522,10 +2526,7 @@ impl Application for App {
             items
         });
 
-        Some(widget::menu::nav_context(
-            &HashMap::new(),
-            items.collect(),
-        ))
+        Some(widget::menu::nav_context(&HashMap::new(), items.collect()))
     }
 
     fn nav_model(&self) -> Option<&segmented_button::SingleSelectModel> {
@@ -2674,7 +2675,9 @@ impl Application for App {
         // of closing everything on one press
         if self.core.window.show_context {
             self.set_show_context(false);
-            return crate::ui::task::message(crate::ui::action::app(Message::SetShowDetails(false)));
+            return crate::ui::task::message(crate::ui::action::app(Message::SetShowDetails(
+                false,
+            )));
         }
         if let Some(tab) = self.tab_model.data_mut::<Tab>(entity) {
             if tab.edit_location.is_some() {
@@ -2854,10 +2857,8 @@ impl Application for App {
                     paths: paths.map(|p| p.to_path_buf()).collect(),
                     kind: ClipboardKind::Cut,
                 });
-                let contents = ClipboardCopy::new(
-                    ClipboardKind::Cut,
-                    self.selected_paths(entity_opt),
-                );
+                let contents =
+                    ClipboardCopy::new(ClipboardKind::Cut, self.selected_paths(entity_opt));
 
                 return clipboard::write_data(contents);
             }
@@ -2881,10 +2882,10 @@ impl Application for App {
                         if let Some(items) = tab.items_opt() {
                             let mut trash_items = Vec::new();
                             for item in items {
-                                if item.selected {
-                                    if let ItemMetadata::Trash { entry, .. } = &item.metadata {
-                                        trash_items.push(entry.clone());
-                                    }
+                                if item.selected
+                                    && let ItemMetadata::Trash { entry, .. } = &item.metadata
+                                {
+                                    trash_items.push(entry.clone());
                                 }
                             }
                             if !trash_items.is_empty() {
@@ -3697,9 +3698,9 @@ impl Application for App {
                                             Some(contents) => crate::ui::action::app(
                                                 Message::PasteContents(to.clone(), contents),
                                             ),
-                                            None => {
-                                                crate::ui::action::app(Message::PasteImage(to.clone()))
-                                            }
+                                            None => crate::ui::action::app(Message::PasteImage(
+                                                to.clone(),
+                                            )),
                                         },
                                     ),
                                 );
@@ -3724,10 +3725,9 @@ impl Application for App {
                             // (works when triggered from main window, e.g., Ctrl+V)
                             return clipboard::read_data::<ClipboardPaste>().map(
                                 move |contents_opt| match contents_opt {
-                                    Some(contents) => crate::ui::action::app(Message::PasteContents(
-                                        to.clone(),
-                                        contents,
-                                    )),
+                                    Some(contents) => crate::ui::action::app(
+                                        Message::PasteContents(to.clone(), contents),
+                                    ),
                                     None => crate::ui::action::app(Message::PasteImage(to.clone())),
                                 },
                             );
@@ -3754,9 +3754,10 @@ impl Application for App {
             Message::PasteImage(to) => {
                 return clipboard::read_data::<ClipboardPasteImage>().map(move |contents_opt| {
                     match contents_opt {
-                        Some(contents) => {
-                            crate::ui::action::app(Message::PasteImageContents(to.clone(), contents))
-                        }
+                        Some(contents) => crate::ui::action::app(Message::PasteImageContents(
+                            to.clone(),
+                            contents,
+                        )),
                         // No image data in clipboard, try video data
                         None => crate::ui::action::app(Message::PasteVideo(to.clone())),
                     }
@@ -3789,9 +3790,10 @@ impl Application for App {
             Message::PasteVideo(to) => {
                 return clipboard::read_data::<ClipboardPasteVideo>().map(move |contents_opt| {
                     match contents_opt {
-                        Some(contents) => {
-                            crate::ui::action::app(Message::PasteVideoContents(to.clone(), contents))
-                        }
+                        Some(contents) => crate::ui::action::app(Message::PasteVideoContents(
+                            to.clone(),
+                            contents,
+                        )),
                         // No video data in clipboard, try text data
                         None => crate::ui::action::app(Message::PasteText(to.clone())),
                     }
@@ -4086,10 +4088,10 @@ impl Application for App {
                     && let Some(items) = tab.items_opt()
                 {
                     for item in items {
-                        if item.selected {
-                            if let ItemMetadata::Trash { entry, .. } = &item.metadata {
-                                trash_items.push(entry.clone());
-                            }
+                        if item.selected
+                            && let ItemMetadata::Trash { entry, .. } = &item.metadata
+                        {
+                            trash_items.push(entry.clone());
                         }
                     }
                 }
@@ -4521,9 +4523,9 @@ impl Application for App {
                 self.context_page = context_page;
                 // Preview status is preserved across restarts
                 if matches!(self.context_page, ContextPage::Preview(_, _)) {
-                    return crate::ui::task::message(crate::ui::action::app(Message::SetShowDetails(
-                        self.core.window.show_context,
-                    )));
+                    return crate::ui::task::message(crate::ui::action::app(
+                        Message::SetShowDetails(self.core.window.show_context),
+                    ));
                 }
             }
             Message::Undo => {
@@ -4611,8 +4613,7 @@ impl Application for App {
                         self.tab_model.data::<Tab>(entity).map(|tab| &tab.location);
                     match active_tab_location {
                         Some(
-                            Location::Path(path)
-                            | Location::Search(SearchLocation::Path(path), ..),
+                            Location::Path(path) | Location::Search(SearchLocation::Path(path), ..),
                         ) => {
                             command.arg(path);
                         }
@@ -6017,7 +6018,7 @@ impl Application for App {
             .into(),
         ]))
         .padding([8, space_xs])
-        .layer(Layer::Primary.into());
+        .layer(Layer::Primary);
 
         Some(container.into())
     }
@@ -6119,7 +6120,9 @@ impl Application for App {
                                 })
                                 .collect();
                             move |entity| {
-                                droppable.contains(&entity).then(|| Message::TabDrop(entity))
+                                droppable
+                                    .contains(&entity)
+                                    .then(|| Message::TabDrop(entity))
                             }
                         })
                         .on_activate(Message::TabActivate)
@@ -6144,10 +6147,7 @@ impl Application for App {
         }
 
         // The toaster is added on top of an empty element to ensure that it does not override context menus
-        tab_column = tab_column.push(widget::toaster(
-            &self.toasts,
-            widget::space::horizontal(),
-        ));
+        tab_column = tab_column.push(widget::toaster(&self.toasts, widget::space::horizontal()));
 
         let content: Element<_> = tab_column.into();
 
@@ -6230,7 +6230,9 @@ impl Application for App {
                 Event::Window(WindowEvent::Resized(s)) => Some(Message::Size(window_id, s)),
                 _ => None,
             }),
-            self.config_handler.subscription::<Config>().map(Message::Config),
+            self.config_handler
+                .subscription::<Config>()
+                .map(Message::Config),
             Subscription::run_with(TypeId::of::<WatcherSubscription>(), |_| {
                 stream::channel(
                     100,
@@ -6818,32 +6820,6 @@ pub(crate) mod test_utils {
             "Tab's path is {} instead of being updated to {}",
             tab_path.display(),
             path.display()
-        );
-    }
-
-    /// Assert that tab's items are equal to a path's entries.
-    pub fn assert_eq_tab_path_contents(tab: &Tab, path: &Path) {
-        let Some(tab_path) = tab.location.path_opt() else {
-            panic!("Expected tab's location to be a path");
-        };
-
-        // Tab items are sorted so paths from read_dir must be too
-        let entries = read_dir_sorted(path).expect("should be able to read paths from temp dir");
-
-        // Check lengths.
-        // `items_opt` is optional and the directory at `path` may have zero entries
-        // Therefore, this doesn't panic if `items_opt` is None
-        let items_len = tab.items_opt().map(Vec::len).unwrap_or_default();
-        assert_eq!(entries.len(), items_len);
-
-        assert!(
-            entries
-                .into_iter()
-                .zip(tab.items_opt().map_or([].as_slice(), Vec::as_slice))
-                .all(|(a, b)| eq_path_item(&a, b)),
-            "Path ({}) and Tab path ({}) don't have equal contents",
-            path.display(),
-            tab_path.display()
         );
     }
 }

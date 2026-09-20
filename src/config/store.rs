@@ -172,7 +172,10 @@ mod tests {
     fn saved_value_round_trips() {
         let dir = tempfile::tempdir().expect("tempdir");
         let store = Store::at(dir.path().join("sample.ron"));
-        let sample = Sample { value: 7, name: "seven".to_string() };
+        let sample = Sample {
+            value: 7,
+            name: "seven".to_string(),
+        };
         store.save(&sample).expect("save");
         assert_eq!(store.load::<Sample>(), sample);
     }
@@ -189,8 +192,18 @@ mod tests {
     fn save_replaces_atomically_leaving_no_partial_file() {
         let dir = tempfile::tempdir().expect("tempdir");
         let store = Store::at(dir.path().join("sample.ron"));
-        store.save(&Sample { value: 1, name: "one".to_string() }).expect("first save");
-        store.save(&Sample { value: 2, name: "two".to_string() }).expect("second save");
+        store
+            .save(&Sample {
+                value: 1,
+                name: "one".to_string(),
+            })
+            .expect("first save");
+        store
+            .save(&Sample {
+                value: 2,
+                name: "two".to_string(),
+            })
+            .expect("second save");
 
         // The rename must leave exactly the target file behind, with no
         // leftover temporary alongside it.
@@ -199,7 +212,13 @@ mod tests {
             .map(|entry| entry.expect("entry").file_name())
             .collect();
         assert_eq!(entries, vec![std::ffi::OsString::from("sample.ron")]);
-        assert_eq!(store.load::<Sample>(), Sample { value: 2, name: "two".to_string() });
+        assert_eq!(
+            store.load::<Sample>(),
+            Sample {
+                value: 2,
+                name: "two".to_string()
+            }
+        );
     }
 
     #[test]
@@ -218,7 +237,11 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         let store = Store::at(dir.path().join("config.ron"));
 
-        let mut config = Config::default();
+        let mut config = Config {
+            show_details: true,
+            show_recents: false,
+            ..Config::default()
+        };
         config.favorites = vec![
             Favorite::Home,
             Favorite::Path(PathBuf::from("/some/dir")),
@@ -246,8 +269,6 @@ mod tests {
                 steps: vec!["sha256sum %F".to_string(), "echo done".to_string()],
             },
         ];
-        config.show_details = true;
-        config.show_recents = false;
 
         store.save(&config).expect("save");
         assert_eq!(store.load::<Config>(), config);
@@ -264,9 +285,15 @@ mod tests {
 
         let state = State {
             sort_names: FxOrderMap::from_iter([
-                ("/home/user/Downloads".to_string(), (HeadingOptions::Modified, false)),
+                (
+                    "/home/user/Downloads".to_string(),
+                    (HeadingOptions::Modified, false),
+                ),
                 ("/home/user/Music".to_string(), (HeadingOptions::Name, true)),
-                ("/home/user/Pictures".to_string(), (HeadingOptions::Size, false)),
+                (
+                    "/home/user/Pictures".to_string(),
+                    (HeadingOptions::Size, false),
+                ),
             ]),
         };
 

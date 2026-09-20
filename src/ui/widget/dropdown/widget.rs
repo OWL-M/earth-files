@@ -9,12 +9,13 @@ use super::menu::{self, Menu};
 // `Handle` is named only inside the `#[cfg(wayland_platform)]` popup block
 // below, which never compiles in this crate (see the `[lints.rust]` note in
 // Cargo.toml), hence the otherwise-unused import. `icon` itself is used.
+use crate::ui::surface;
 #[allow(unused_imports)]
 use crate::ui::widget::icon::{self, Handle};
-use crate::ui::surface;
 
 use crate::ui::Element;
 use derive_setters::Setters;
+use iced::widget::pick_list::{self, Catalog};
 use iced::window;
 use iced_core::event::Event;
 use iced_core::text::{self, Paragraph, Text};
@@ -23,7 +24,6 @@ use iced_core::{
     Clipboard, Layout, Length, Padding, Pixels, Rectangle, Shadow, Shell, Size, Vector, Widget,
     alignment, keyboard, layout, mouse, overlay, renderer, svg, touch,
 };
-use iced::widget::pick_list::{self, Catalog};
 use std::borrow::Cow;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -162,10 +162,7 @@ where
     }
 
     #[cfg(wayland_platform)]
-    pub fn with_positioner(
-        mut self,
-        positioner: crate::ui::surface::Positioner,
-    ) -> Self {
+    pub fn with_positioner(mut self, positioner: crate::ui::surface::Positioner) -> Self {
         self.positioner = positioner;
         self
     }
@@ -192,9 +189,10 @@ where
 
         let mut selections_changed = state.selections.len() != self.selections.len();
 
-        state
-            .selections
-            .resize_with(self.selections.len(), crate::ui::widget::dropdown::Plain::default);
+        state.selections.resize_with(
+            self.selections.len(),
+            crate::ui::widget::dropdown::Plain::default,
+        );
         state.hashes.resize(self.selections.len(), 0);
 
         for (i, selection) in self.selections.iter().enumerate() {
@@ -269,7 +267,7 @@ where
         _viewport: &Rectangle,
     ) {
         update::<S, Message, AppMessage>(
-            &event,
+            event,
             layout,
             cursor,
             shell,
@@ -461,7 +459,11 @@ pub fn layout(
 
     let max_width = match width {
         Length::Shrink => {
-            let measure = move |(label, paragraph): (_, Option<&mut crate::ui::widget::dropdown::Plain>)| -> f32 {
+            let measure = move |(label, paragraph): (
+                _,
+                Option<&mut crate::ui::widget::dropdown::Plain>,
+            )|
+                  -> f32 {
                 let paragraph = match paragraph {
                     Some(p) => {
                         let text = Text {
@@ -534,8 +536,7 @@ pub fn update<
     layout: Layout<'_>,
     cursor: mouse::Cursor,
     shell: &mut Shell<'_, Message>,
-    #[cfg(wayland_platform)]
-    positioner: crate::ui::surface::Positioner,
+    #[cfg(wayland_platform)] positioner: crate::ui::surface::Positioner,
     on_selected: Arc<dyn Fn(usize) -> Message + Send + Sync + 'static>,
     selected: Option<usize>,
     selections: &[S],
@@ -579,9 +580,9 @@ pub fn update<
                 height: bounds.height as i32,
             };
             let icon_width = if icons.is_empty() { 0.0 } else { 24.0 };
-            let measure = |_label: &str, selection_paragraph: &crate::ui::widget::dropdown::Paragraph| -> f32 {
-                selection_paragraph.min_width().round()
-            };
+            let measure = |_label: &str,
+                           selection_paragraph: &crate::ui::widget::dropdown::Paragraph|
+             -> f32 { selection_paragraph.min_width().round() };
             let pad_width = padding.x().mul_add(2.0, 16.0);
 
             let selections_width = selections
@@ -617,9 +618,8 @@ pub fn update<
                         anchor: crate::ui::surface::PopupAnchor::BottomLeft,
                         gravity: crate::ui::surface::PopupGravity::BottomRight,
                         // Was the raw `9` = SlideX | FlipY.
-                        constraint_adjustment:
-                            crate::ui::surface::PopupConstraintAdjustment::SlideX
-                                | crate::ui::surface::PopupConstraintAdjustment::FlipY,
+                        constraint_adjustment: crate::ui::surface::PopupConstraintAdjustment::SlideX
+                            | crate::ui::surface::PopupConstraintAdjustment::FlipY,
                     },
                 },
                 Some(Box::new(move || {
@@ -745,9 +745,9 @@ where
     [S]: std::borrow::ToOwned,
 {
     let icon_width = if icons.is_empty() { 0.0 } else { 24.0 };
-    let measure = |_label: &str, selection_paragraph: &crate::ui::widget::dropdown::Paragraph| -> f32 {
-        selection_paragraph.min_width().round()
-    };
+    let measure = |_label: &str,
+                   selection_paragraph: &crate::ui::widget::dropdown::Paragraph|
+     -> f32 { selection_paragraph.min_width().round() };
     let selections_width = selections
         .iter()
         .zip(state.selections.iter())
@@ -825,9 +825,9 @@ where
             close_on_selected,
         )
         .width({
-            let measure = |_label: &str, selection_paragraph: &crate::ui::widget::dropdown::Paragraph| -> f32 {
-                selection_paragraph.min_width().round()
-            };
+            let measure = |_label: &str,
+                           selection_paragraph: &crate::ui::widget::dropdown::Paragraph|
+             -> f32 { selection_paragraph.min_width().round() };
 
             let pad_width = padding.x().mul_add(2.0, 16.0);
 

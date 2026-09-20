@@ -216,8 +216,8 @@ mod tests {
             &replace("a", "taken"),
             &tags,
         );
-        assert_eq!(taken.rows[0].conflict, true);
-        assert_eq!(taken.rows[1].conflict, false);
+        assert!(taken.rows[0].conflict);
+        assert!(!taken.rows[1].conflict);
         let slash = preview(dir.path(), &names(&["a"]), &replace("a", "x/y"), &tags);
         assert!(slash.rows[0].conflict);
 

@@ -26,7 +26,6 @@ pub const ICON_SCALE_MAX: u16 = 5;
 pub const INTERFACE_FONT_DEFAULT: &str = "Open Sans";
 pub const MONOSPACE_FONT_DEFAULT: &str = "Noto Sans Mono";
 
-
 macro_rules! percent {
     ($perc:expr, $pixel:ident) => {
         (($perc.get() as f32 * $pixel as f32) / 100.).clamp(1., ($pixel * ICON_SCALE_MAX) as _)

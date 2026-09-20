@@ -22,7 +22,8 @@ pub fn responsive_container<'a, Message: 'static, Theme, E>(
 where
     E: Into<Element<'a, Message, Theme, crate::ui::Renderer>>,
     Theme: crate::ui::iced::widget::container::Catalog,
-    <Theme as crate::ui::iced::widget::container::Catalog>::Class<'a>: From<crate::ui::theme::Container<'a>>,
+    <Theme as crate::ui::iced::widget::container::Catalog>::Class<'a>:
+        From<crate::ui::theme::Container<'a>>,
 {
     ResponsiveContainer::new(content, id, on_action)
 }
@@ -161,10 +162,7 @@ where
         operation.traverse(&mut |operation| {
             self.content.as_widget_mut().operate(
                 &mut tree.children[0],
-                layout
-                    .children()
-                    .next()
-                    .unwrap(),
+                layout.children().next().unwrap(),
                 renderer,
                 operation,
             );
@@ -206,10 +204,7 @@ where
         self.content.as_widget_mut().update(
             &mut tree.children[0],
             event,
-            layout
-                .children()
-                .next()
-                .unwrap(),
+            layout.children().next().unwrap(),
             cursor_position,
             renderer,
             clipboard,
@@ -268,16 +263,12 @@ where
     ) -> Option<overlay::Element<'b, Message, Theme, Renderer>> {
         self.content.as_widget_mut().overlay(
             &mut tree.children[0],
-            layout
-                .children()
-                .next()
-                .unwrap(),
+            layout.children().next().unwrap(),
             renderer,
             viewport,
             translation,
         )
     }
-
 }
 
 impl<'a, Message, Theme, Renderer> From<ResponsiveContainer<'a, Message, Theme, Renderer>>

@@ -5,20 +5,25 @@
 
 use iced_core::{Background, Color};
 
+use crate::ui::convert::{ToColor, ToRadius};
 use crate::ui::theme::palette::TRANSPARENT_COMPONENT;
 use crate::ui::theme::{Component, Theme};
 use crate::ui::widget::button::{Catalog, Style};
-use crate::ui::convert::{ToColor, ToRadius};
+
+/// A button style from whether it is focused and the theme
+type StyleFn = Box<dyn Fn(bool, &Theme) -> Style>;
+/// A disabled button's style from the theme
+type DisabledStyleFn = Box<dyn Fn(&Theme) -> Style>;
 
 #[derive(Default)]
 pub enum Button {
     AppletIcon,
     AppletMenu,
     Custom {
-        active: Box<dyn Fn(bool, &Theme) -> Style>,
-        disabled: Box<dyn Fn(&Theme) -> Style>,
-        hovered: Box<dyn Fn(bool, &Theme) -> Style>,
-        pressed: Box<dyn Fn(bool, &Theme) -> Style>,
+        active: StyleFn,
+        disabled: DisabledStyleFn,
+        hovered: StyleFn,
+        pressed: StyleFn,
     },
     Destructive,
     HeaderBar,
@@ -82,7 +87,9 @@ pub fn appearance(
                 corner_radii = &cosmic.corner_radii.radius_m;
             }
             if selected && matches!(style, Button::Icon | Button::IconVertical) {
-                appearance.overlay = Some(Background::Color(cosmic.icon_button.selected_state_color().to_color()));
+                appearance.overlay = Some(Background::Color(
+                    cosmic.icon_button.selected_state_color().to_color(),
+                ));
             }
             if matches!(style, Button::NavToggle) {
                 corner_radii = &cosmic.corner_radii.radius_s;

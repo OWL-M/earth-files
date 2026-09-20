@@ -10,8 +10,8 @@ use iced::advanced::widget::tree::{self, Tree};
 use iced::advanced::{self, Clipboard, Layout, Shell, Widget, layout, renderer};
 use iced::{Border, Color, Element, Event, Length, Pixels, Rectangle, Size, mouse, window};
 
+use crate::ui::convert::ToRadius;
 use std::time::Duration;
-use crate::ui::convert::{ToRadius};
 
 const MIN_LENGTH: f32 = 0.15;
 const WRAP_LENGTH: f32 = 0.618; // avoids animation repetition

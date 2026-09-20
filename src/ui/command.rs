@@ -72,7 +72,9 @@ pub fn set_title<M>(id: window::Id, title: String) -> Task<Action<M>> {
 
 /// Sets the theme every window renders with.
 pub fn set_theme<M: Send + 'static>(theme: crate::ui::Theme) -> Task<Action<M>> {
-    Task::done(Action::Cosmic(crate::ui::app::Action::AppThemeChange(theme)))
+    Task::done(Action::Cosmic(crate::ui::app::Action::AppThemeChange(
+        theme,
+    )))
 }
 
 /// Sets the scaling factor.

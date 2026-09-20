@@ -75,7 +75,10 @@ impl<'a, Message, Renderer> Popover<'a, Message, Renderer> {
     }
 
     #[inline]
-    pub fn popup(mut self, popup: impl Into<Element<'a, Message, crate::ui::Theme, Renderer>>) -> Self {
+    pub fn popup(
+        mut self,
+        popup: impl Into<Element<'a, Message, crate::ui::Theme, Renderer>>,
+    ) -> Self {
         self.popup = Some(popup.into());
         self
     }
@@ -92,7 +95,6 @@ impl<Message: Clone, Renderer> Widget<Message, crate::ui::Theme, Renderer>
 where
     Renderer: iced_core::Renderer,
 {
-
     fn children(&self) -> Vec<Tree> {
         if let Some(popup) = &self.popup {
             vec![Tree::new(&self.content), Tree::new(popup)]
@@ -156,15 +158,15 @@ where
                     shell.capture_event();
                     return;
                 }
-            } else if let Some(on_close) = self.on_close.as_ref() {
-                if matches!(
+            } else if let Some(on_close) = self.on_close.as_ref()
+                && matches!(
                     event,
                     Event::Mouse(mouse::Event::ButtonPressed(_))
                         | Event::Touch(touch::Event::FingerPressed { .. })
-                ) && !cursor_position.is_over(layout.bounds())
-                {
-                    shell.publish(on_close.clone());
-                }
+                )
+                && !cursor_position.is_over(layout.bounds())
+            {
+                shell.publish(on_close.clone());
             }
         }
 
@@ -281,7 +283,6 @@ where
             )
         }
     }
-
 }
 
 impl<'a, Message, Renderer> From<Popover<'a, Message, Renderer>>

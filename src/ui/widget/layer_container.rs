@@ -5,13 +5,13 @@
 
 use crate::ui::Theme;
 use iced::widget::Container;
+pub use iced::widget::container::{Catalog, Style};
 use iced_core::event::Event;
 use iced_core::widget::Tree;
 use iced_core::{
     Alignment, Clipboard, Element, Layout, Length, Padding, Rectangle, Shell, Vector, Widget,
     layout, mouse, overlay, renderer,
 };
-pub use iced::widget::container::{Catalog, Style};
 
 pub fn layer_container<'a, Message: 'static, E>(
     content: E,
@@ -266,7 +266,6 @@ where
         self.container
             .overlay(tree, layout, renderer, viewport, translation)
     }
-
 }
 
 impl<'a, Message, Renderer> From<LayerContainer<'a, Message, Renderer>>

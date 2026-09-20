@@ -13,6 +13,7 @@ pub use widget::ContextDrawer;
 use crate::ui::Element;
 
 /// An overlayed widget that attaches a toggleable context drawer to the view.
+#[allow(clippy::too_many_arguments)]
 pub fn context_drawer<'a, Message: Clone + 'static, Content, Drawer>(
     title: Option<Cow<'a, str>>,
     actions: Option<Element<'a, Message>>,

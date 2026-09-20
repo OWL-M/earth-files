@@ -3,13 +3,13 @@
 
 use super::{Controller, OperationSelection, ReplaceResult, copy_unique_path};
 use crate::operation::{OperationError, sync_to_disk};
+use crate::ui::iced::futures;
 use anyhow::Context as AnyhowContext;
 use compio::BufResult;
 use compio::buf::{IntoInner, IoBuf};
 use compio::driver::ToSharedFd;
 use compio::driver::op::AsyncifyFd;
 use compio::io::{AsyncReadAt, AsyncWriteAt};
-use crate::ui::iced::futures;
 use futures::{FutureExt, StreamExt};
 use std::cell::Cell;
 use std::error::Error;

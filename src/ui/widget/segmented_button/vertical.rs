@@ -5,8 +5,8 @@
 //!
 //! Implementation details for the vertical layout of a segmented button.
 
-use super::model::{Model, Selectable};
 use super::StyleSheet;
+use super::model::{Model, Selectable};
 use super::widget::{ItemBounds, LocalState, SegmentedButton, SegmentedVariant};
 
 use iced::{Length, Rectangle, Size};

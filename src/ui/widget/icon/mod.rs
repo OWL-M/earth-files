@@ -15,12 +15,12 @@ mod handle;
 pub use handle::{Data, Handle, from_path, from_raster_bytes, from_raster_pixels, from_svg_bytes};
 
 use crate::ui::Element;
+use crate::ui::convert::ToRadius;
+use crate::ui::widget::svg::Svg;
 use derive_setters::Setters;
 use iced::widget::Image;
-use crate::ui::widget::svg::Svg;
 use iced::{ContentFit, Length, Radians, Rectangle};
 use iced_core::Rotation;
-use crate::ui::convert::{ToRadius};
 
 /// Create an [`Icon`] from a pre-existing [`Handle`]
 pub fn icon(handle: Handle) -> Icon {

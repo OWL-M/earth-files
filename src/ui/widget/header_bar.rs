@@ -9,16 +9,16 @@
 //! [`crate::ui::widget::ellipsize::Ellipsize`] widget, given the same size,
 //! line height and font as `text::heading`.
 
+use crate::ui::convert::{PushMaybe, ToPadding, ToPixels};
 use crate::ui::theme::{Density, Spacing};
-use crate::ui::widget::ellipsize::{Ellipsize, Mode as EllipsizeMode};
 use crate::ui::widget::Row;
+use crate::ui::widget::ellipsize::{Ellipsize, Mode as EllipsizeMode};
 use crate::ui::{Element, theme, widget};
 use apply::Apply;
 use derive_setters::Setters;
 use iced_core::widget::tree;
 use iced_core::{Length, Size, Vector, Widget, layout, text};
 use std::borrow::Cow;
-use crate::ui::convert::{PushMaybe, ToPadding, ToPixels};
 
 #[must_use]
 pub fn header_bar<'a, Message>() -> HeaderBar<'a, Message> {
@@ -341,7 +341,8 @@ impl<'a, Message: Clone + 'static> Widget<Message, crate::ui::Theme, crate::ui::
         renderer: &crate::ui::Renderer,
         viewport: &iced_core::Rectangle,
         translation: Vector,
-    ) -> Option<iced_core::overlay::Element<'b, Message, crate::ui::Theme, crate::ui::Renderer>> {
+    ) -> Option<iced_core::overlay::Element<'b, Message, crate::ui::Theme, crate::ui::Renderer>>
+    {
         self.elems_mut()
             .zip(&mut state.children)
             .zip(layout.children())
@@ -350,7 +351,6 @@ impl<'a, Message: Clone + 'static> Widget<Message, crate::ui::Theme, crate::ui::
                     .overlay(s, l, renderer, viewport, translation)
             })
     }
-
 }
 
 impl<'a, Message: Clone + 'static> From<HeaderBarWidget<'a, Message>> for Element<'a, Message> {
@@ -423,7 +423,7 @@ impl<'a, Message: Clone + 'static> HeaderBar<'a, Message> {
             .class(theme::Container::HeaderBar {
                 focused: self.focused,
                 sharp_corners: self.sharp_corners,
-                transparent: if is_ssd { false } else { true },
+                transparent: !is_ssd,
             })
             .height(Length::Fixed(32.0 + padding[0] as f32 + padding[2] as f32))
             .padding(padding.to_padding())

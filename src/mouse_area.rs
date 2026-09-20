@@ -3,18 +3,18 @@
 use std::time::Instant;
 
 use crate::tab::DOUBLE_CLICK_DURATION;
+use crate::ui::convert::{ToColor, ToRadius};
 use crate::ui::iced_core::border::Border;
 use crate::ui::iced_core::event::Event;
 use crate::ui::iced_core::mouse::{self, click};
 use crate::ui::iced_core::renderer::{self, Quad, Renderer as _};
 use crate::ui::iced_core::widget::{Operation, Tree, tree};
 use crate::ui::iced_core::{
-    Clipboard, Layout, Length, Point, Rectangle, Shell, Size, Vector, Widget, layout,
-    overlay, touch,
+    Clipboard, Layout, Length, Point, Rectangle, Shell, Size, Vector, Widget, layout, overlay,
+    touch,
 };
 use crate::ui::widget::Id;
 use crate::ui::{Element, Renderer, Theme};
-use crate::ui::convert::{ToColor, ToRadius};
 
 /// Emit messages on mouse events.
 #[allow(missing_debug_implementations)]
@@ -540,7 +540,6 @@ where
             translation,
         )
     }
-
 }
 
 impl<'a, Message> From<MouseArea<'a, Message>> for Element<'a, Message>

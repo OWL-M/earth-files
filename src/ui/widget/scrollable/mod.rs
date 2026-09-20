@@ -3,6 +3,7 @@
 
 //! Vendored from pop-os/libcosmic, src/widget/scrollable/mod.rs
 
+#[allow(clippy::module_inception)]
 mod scrollable;
 
 pub use scrollable::{horizontal, scrollable, vertical};
@@ -17,10 +18,7 @@ use iced_runtime::Task;
 
 /// Produces a [`Task`] that scrolls the scrollable with the given [`Id`] to the
 /// provided [`AbsoluteOffset`].
-pub fn scroll_to<T: Send + 'static>(
-    id: Id,
-    offset: AbsoluteOffset<Option<f32>>,
-) -> Task<T> {
+pub fn scroll_to<T: Send + 'static>(id: Id, offset: AbsoluteOffset<Option<f32>>) -> Task<T> {
     iced_runtime::task::widget(op::scroll_to(id, offset))
 }
 
@@ -32,9 +30,6 @@ pub fn scroll_by<T: Send + 'static>(id: Id, offset: AbsoluteOffset) -> Task<T> {
 
 /// Produces a [`Task`] that snaps the scrollable with the given [`Id`] to the
 /// provided [`RelativeOffset`].
-pub fn snap_to<T: Send + 'static>(
-    id: Id,
-    offset: RelativeOffset<Option<f32>>,
-) -> Task<T> {
+pub fn snap_to<T: Send + 'static>(id: Id, offset: RelativeOffset<Option<f32>>) -> Task<T> {
     iced_runtime::task::widget(op::snap_to(id, offset))
 }

@@ -16,6 +16,9 @@
 
 use std::borrow::Cow;
 
+/// Reads one offer given the mime types on offer: the data and the mime type read
+type OfferReader = fn(&[String]) -> Option<(Vec<u8>, String)>;
+
 pub use iced_runtime::clipboard::*;
 
 /// Data that can be produced from a clipboard offer of one of its MIME types.
@@ -67,7 +70,7 @@ pub fn read_drop_data<T: AllowedMimeTypes>() -> iced_runtime::Task<Option<T>> {
 /// thread named `thread`, then convert.
 fn read_with<T: AllowedMimeTypes>(
     thread: &'static str,
-    read: fn(&[String]) -> Option<(Vec<u8>, String)>,
+    read: OfferReader,
 ) -> iced_runtime::Task<Option<T>> {
     let allowed = T::allowed().into_owned();
 

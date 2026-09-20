@@ -3,13 +3,13 @@
 
 //! Vendored from pop-os/libcosmic, src/widget/id_container.rs
 
+pub use iced::widget::container::{Catalog, Style};
 use iced_core::event::Event;
 use iced_core::widget::{Id, Operation, Tree};
 use iced_core::{
     Clipboard, Element, Layout, Length, Rectangle, Shell, Vector, Widget, layout, mouse, overlay,
     renderer,
 };
-pub use iced::widget::container::{Catalog, Style};
 
 pub fn id_container<'a, Message: 'static, Theme, E>(
     content: E,
@@ -93,10 +93,7 @@ where
         operation.traverse(&mut |operation| {
             self.content.as_widget_mut().operate(
                 &mut tree.children[0],
-                layout
-                    .children()
-                    .next()
-                    .unwrap(),
+                layout.children().next().unwrap(),
                 renderer,
                 operation,
             );
@@ -117,10 +114,7 @@ where
         self.content.as_widget_mut().update(
             &mut tree.children[0],
             event,
-            layout
-                .children()
-                .next()
-                .unwrap(),
+            layout.children().next().unwrap(),
             cursor_position,
             renderer,
             clipboard,
@@ -179,16 +173,12 @@ where
     ) -> Option<overlay::Element<'b, Message, Theme, Renderer>> {
         self.content.as_widget_mut().overlay(
             &mut tree.children[0],
-            layout
-                .children()
-                .next()
-                .unwrap(),
+            layout.children().next().unwrap(),
             renderer,
             viewport,
             translation,
         )
     }
-
 }
 
 impl<'a, Message, Theme, Renderer> From<IdContainer<'a, Message, Theme, Renderer>>

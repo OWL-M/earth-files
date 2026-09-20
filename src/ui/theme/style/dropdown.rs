@@ -3,9 +3,9 @@
 
 use iced::{Background, Color};
 
+use crate::ui::convert::{ToColor, ToRadius};
 use crate::ui::theme::Theme;
 use crate::ui::widget::dropdown;
-use crate::ui::convert::{ToColor, ToRadius};
 
 impl dropdown::menu::StyleSheet for Theme {
     type Style = ();
@@ -16,7 +16,11 @@ impl dropdown::menu::StyleSheet for Theme {
         dropdown::menu::Appearance {
             text_color: cosmic.on_bg_color().to_color(),
             background: Background::Color(
-                cosmic.background(self.transparent).component.base.to_color(),
+                cosmic
+                    .background(self.transparent)
+                    .component
+                    .base
+                    .to_color(),
             ),
             border_width: 0.0,
             border_radius: cosmic.corner_radii.radius_m.to_radius(),
