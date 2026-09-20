@@ -640,69 +640,74 @@ fn gvfs_dir_is_remote(dir: &Path) -> bool {
     remote
 }
 
+/// The mime every directory item carries.
+static DIRECTORY_MIME: LazyLock<Mime> = LazyLock::new(|| "inode/directory".parse().unwrap());
+
+/// Icons for a file item, using the launcher's own icon when `path` is a
+/// desktop entry. Returns whether it was one, so callers can also take the
+/// display name from the entry.
+fn file_icons(
+    path: &Path,
+    mime: &Mime,
+    sizes: IconSizes,
+) -> (
+    bool,
+    widget::icon::Handle,
+    widget::icon::Handle,
+    widget::icon::Handle,
+) {
+    let is_desktop = *mime == "application/x-desktop";
+    match is_desktop.then(|| get_desktop_file_icon(path)).flatten() {
+        Some(icon_name) => (
+            true,
+            desktop_icon_handle(&icon_name, sizes.grid()),
+            desktop_icon_handle(&icon_name, sizes.list()),
+            desktop_icon_handle(&icon_name, sizes.list_condensed()),
+        ),
+        None => (
+            is_desktop,
+            mime_icon(mime.clone(), sizes.grid()),
+            mime_icon(mime.clone(), sizes.list()),
+            mime_icon(mime.clone(), sizes.list_condensed()),
+        ),
+    }
+}
+
 #[cfg(feature = "gvfs")]
 pub fn item_from_gvfs_info(path: PathBuf, file_info: gio::FileInfo, sizes: IconSizes) -> Item {
     let file_name = file_info
         .attribute_as_string(gio::FILE_ATTRIBUTE_STANDARD_NAME)
         .unwrap_or_default();
     let mtime = file_info.attribute_uint64(gio::FILE_ATTRIBUTE_TIME_MODIFIED);
-    let mut is_desktop = false;
     let remote = path.parent().is_none_or(gvfs_dir_is_remote);
     let is_dir = matches!(file_info.file_type(), gio::FileType::Directory);
 
     let size_opt = (!is_dir).then_some(file_info.size() as u64);
 
-    let (mime, icon_handle_grid, icon_handle_list, icon_handle_list_condensed) = if is_dir {
-        (
-            //TODO: make this a static
-            "inode/directory".parse().unwrap(),
-            folder_icon(&path, sizes.grid()),
-            folder_icon(&path, sizes.list()),
-            folder_icon(&path, sizes.list_condensed()),
-        )
-    } else {
-        // ALWAYS assume we're remote for mime guessing here, since gvfs reading can be expensive
-        // @todo - expose this as a config option?
-        let mime = mime_for_path(&path, None, true);
-
-        //TODO: clean this up, implement for trash
-        let icon_name_opt = if mime == "application/x-desktop" {
-            is_desktop = true;
-            get_desktop_file_icon(&path)
+    let (is_desktop, mime, icon_handle_grid, icon_handle_list, icon_handle_list_condensed) =
+        if is_dir {
+            (
+                false,
+                DIRECTORY_MIME.clone(),
+                folder_icon(&path, sizes.grid()),
+                folder_icon(&path, sizes.list()),
+                folder_icon(&path, sizes.list_condensed()),
+            )
         } else {
-            None
+            // ALWAYS assume we're remote for mime guessing here, since gvfs reading can be expensive
+            // @todo - expose this as a config option?
+            let mime = mime_for_path(&path, None, true);
+            let (is_desktop, grid, list, condensed) = file_icons(&path, &mime, sizes);
+            (is_desktop, mime, grid, list, condensed)
         };
-        if let Some(icon_name) = icon_name_opt {
-            (
-                mime,
-                desktop_icon_handle(&icon_name, sizes.grid()),
-                desktop_icon_handle(&icon_name, sizes.list()),
-                desktop_icon_handle(&icon_name, sizes.list_condensed()),
-            )
-        } else {
-            (
-                mime.clone(),
-                mime_icon(mime.clone(), sizes.grid()),
-                mime_icon(mime.clone(), sizes.list()),
-                mime_icon(mime, sizes.list_condensed()),
-            )
-        }
-    };
 
-    let mut children_opt = None;
-    let mut dir_size = DirSize::NotDirectory;
-    if is_dir && !remote {
-        dir_size = DirSize::Calculating(Controller::default());
-        //TODO: calculate children in the background (and make it cancellable?)
-        match fs::read_dir(&path) {
-            Ok(entries) => {
-                children_opt = Some(entries.count());
-            }
-            Err(err) => {
-                log::warn!("failed to read directory {}: {}", path.display(), err);
-            }
-        }
-    }
+    // Children are counted in the background by the tab's subscription
+    let children_opt = None;
+    let dir_size = if is_dir && !remote {
+        DirSize::Calculating(Controller::default())
+    } else {
+        DirSize::NotDirectory
+    };
 
     let display_name = display_name_for_file(&path, &file_info.display_name(), false, is_desktop);
     let hidden = file_name.starts_with('.');
@@ -756,7 +761,6 @@ pub fn item_from_entry(
     metadata: fs::Metadata,
     sizes: IconSizes,
 ) -> Item {
-    let mut is_desktop = false;
     let mut is_gvfs = false;
 
     let hidden = name.starts_with('.');
@@ -779,55 +783,28 @@ pub fn item_from_entry(
         }
     };
 
-    let (mime, icon_handle_grid, icon_handle_list, icon_handle_list_condensed) =
+    let (is_desktop, mime, icon_handle_grid, icon_handle_list, icon_handle_list_condensed) =
         if metadata.is_dir() {
             (
-                //TODO: make this a static
-                "inode/directory".parse().unwrap(),
+                false,
+                DIRECTORY_MIME.clone(),
                 folder_icon(&path, sizes.grid()),
                 folder_icon(&path, sizes.list()),
                 folder_icon(&path, sizes.list_condensed()),
             )
         } else {
             let mime = mime_for_path(&path, Some(&metadata), remote);
-            //TODO: clean this up, implement for trash
-            let icon_name_opt = if mime == "application/x-desktop" {
-                is_desktop = true;
-                get_desktop_file_icon(&path)
-            } else {
-                None
-            };
-            if let Some(icon_name) = icon_name_opt {
-                (
-                    mime,
-                    desktop_icon_handle(&icon_name, sizes.grid()),
-                    desktop_icon_handle(&icon_name, sizes.list()),
-                    desktop_icon_handle(&icon_name, sizes.list_condensed()),
-                )
-            } else {
-                (
-                    mime.clone(),
-                    mime_icon(mime.clone(), sizes.grid()),
-                    mime_icon(mime.clone(), sizes.list()),
-                    mime_icon(mime, sizes.list_condensed()),
-                )
-            }
+            let (is_desktop, grid, list, condensed) = file_icons(&path, &mime, sizes);
+            (is_desktop, mime, grid, list, condensed)
         };
 
-    let mut children_opt = None;
-    let mut dir_size = DirSize::NotDirectory;
-    if metadata.is_dir() && !remote {
-        dir_size = DirSize::Calculating(Controller::default());
-        //TODO: calculate children in the background (and make it cancellable?)
-        match fs::read_dir(&path) {
-            Ok(entries) => {
-                children_opt = Some(entries.count());
-            }
-            Err(err) => {
-                log::warn!("failed to read directory {}: {}", path.display(), err);
-            }
-        }
-    }
+    // Children are counted in the background by the tab's subscription
+    let children_opt = None;
+    let dir_size = if metadata.is_dir() && !remote {
+        DirSize::Calculating(Controller::default())
+    } else {
+        DirSize::NotDirectory
+    };
 
     let display_name = display_name_for_file(&path, &name, is_gvfs, is_desktop);
 
@@ -868,13 +845,13 @@ pub fn item_from_trash_entry(
     let name = entry.name.to_string_lossy().into_owned();
     let display_name = Item::display_name(&name);
 
-    let location = crate::trash::trash_item_path(&entry).map(Location::Path);
+    let trash_path = crate::trash::trash_item_path(&entry);
+    let location = trash_path.clone().map(Location::Path);
 
     let (mime, icon_handle_grid, icon_handle_list, icon_handle_list_condensed) = match metadata.size
     {
         trash::TrashItemSize::Entries(_) => (
-            //TODO: make this a static
-            "inode/directory".parse().unwrap(),
+            DIRECTORY_MIME.clone(),
             folder_icon(&original_path, sizes.grid()),
             folder_icon(&original_path, sizes.list()),
             folder_icon(&original_path, sizes.list_condensed()),
@@ -882,12 +859,10 @@ pub fn item_from_trash_entry(
         trash::TrashItemSize::Bytes(_) => {
             // This passes remote = true so it does not read from the original path
             let mime = mime_for_path(&original_path, None, true);
-            (
-                mime.clone(),
-                mime_icon(mime.clone(), sizes.grid()),
-                mime_icon(mime.clone(), sizes.list()),
-                mime_icon(mime, sizes.list_condensed()),
-            )
+            // The launcher icon is read from the copy inside the trash
+            let icon_path = trash_path.as_deref().unwrap_or(&original_path);
+            let (_, grid, list, condensed) = file_icons(icon_path, &mime, sizes);
+            (mime, grid, list, condensed)
         }
     };
 
@@ -1124,7 +1099,6 @@ pub fn scan_search<F: Fn(SearchItem) -> bool + Sync>(
             ignore::WalkBuilder::new(tab_path)
                 .standard_filters(false)
                 .hidden(!show_hidden)
-                //TODO: only use this on supported targets
                 .same_file_system(true)
                 .build_parallel()
                 .run(|| {
@@ -1215,14 +1189,20 @@ pub fn scan_search<F: Fn(SearchItem) -> bool + Sync>(
 }
 
 fn uri_to_path(uri: String) -> Option<PathBuf> {
-    uri.parse::<url::Url>().ok().and_then(|url| {
-        //TODO support for external drive or cloud?
-        if url.scheme() == "file" {
-            url.to_file_path().ok()
-        } else {
-            None
-        }
-    })
+    let url = uri.parse::<url::Url>().ok()?;
+    if url.scheme() == "file" {
+        return url.to_file_path().ok();
+    }
+    // Anything else, such as a document on a share, is reachable through
+    // its GVFS mount when it has one
+    #[cfg(feature = "gvfs")]
+    {
+        gio::prelude::FileExt::path(&gio::File::for_uri(url.as_str()))
+    }
+    #[cfg(not(feature = "gvfs"))]
+    {
+        None
+    }
 }
 
 pub fn has_recents() -> bool {
@@ -1501,7 +1481,6 @@ impl Location {
                     None
                 }
             },
-            //TODO: support other locations?
             None => None,
         };
         (parent_item_opt, items)
@@ -1695,7 +1674,6 @@ pub enum Message {
     HighlightDeactivate(usize),
     HighlightActivate(usize),
     DirectorySize(PathBuf, DirSize),
-    #[cfg(feature = "gvfs")]
     DirectoryChildren(PathBuf, usize),
     Checksums(PathBuf, ChecksumState),
     CalculateChecksums(PathBuf),
@@ -4741,14 +4719,19 @@ impl Tab {
                     }
                 }
             }
-            #[cfg(feature = "gvfs")]
             Message::DirectoryChildren(path, children) => {
                 if let Some(ref mut items) = self.items_opt {
                     for item in items.iter_mut() {
                         if item.path_opt() == Some(&path) {
-                            if let ItemMetadata::GvfsPath { children_opt, .. } = &mut item.metadata
-                            {
-                                *children_opt = Some(children);
+                            match &mut item.metadata {
+                                ItemMetadata::Path { children_opt, .. } => {
+                                    *children_opt = Some(children);
+                                }
+                                #[cfg(feature = "gvfs")]
+                                ItemMetadata::GvfsPath { children_opt, .. } => {
+                                    *children_opt = Some(children);
+                                }
+                                _ => {}
                             }
                             break;
                         }
@@ -6561,16 +6544,23 @@ impl Tab {
 
             // Count the children of visible directories in the background. Doing it while
             // scanning costs one directory listing per entry, which stalls remote filesystems.
-            #[cfg(feature = "gvfs")]
             for item in items {
-                let ItemMetadata::GvfsPath {
-                    children_opt: None,
-                    is_dir: true,
-                    ..
-                } = &item.metadata
-                else {
-                    continue;
+                let uncounted_dir = match &item.metadata {
+                    ItemMetadata::Path {
+                        metadata,
+                        children_opt: None,
+                    } => metadata.is_dir(),
+                    #[cfg(feature = "gvfs")]
+                    ItemMetadata::GvfsPath {
+                        children_opt: None,
+                        is_dir: true,
+                        ..
+                    } => true,
+                    _ => false,
                 };
+                if !uncounted_dir {
+                    continue;
+                }
 
                 // Skip items that are not visible, or have no determined rect
                 match item.rect_opt.get() {
