@@ -2525,34 +2525,26 @@ impl Item {
         let mut column = widget::Column::with_capacity(3).spacing(space_xxxs.to_pixels());
         column = column.push(widget::text::heading(heading));
 
-        //TODO: translate!
-        //TODO: correct display of folder size?
-        if let ItemMetadata::Path {
-            metadata,
-            children_opt,
-        } = &self.metadata
-        {
+        if let Some(metadata) = self.file_metadata() {
             if metadata.is_dir() {
-                if let Some(children) = children_opt {
-                    column = column.push(widget::text::body(format!("Items: {children}")));
+                if let Some(children) = self.metadata.children_count() {
+                    column = column.push(widget::text::body(fl!("items", items = children)));
                 }
             } else {
-                column = column.push(widget::text::body(format!(
-                    "Size: {}",
-                    format_size(metadata.len())
+                column = column.push(widget::text::body(fl!(
+                    "item-size",
+                    size = format_size(metadata.len())
                 )));
             }
             if let Ok(time) = metadata.modified() {
                 let date_time_formatter = date_time_formatter();
                 let time_formatter = time_formatter();
 
-                column = column.push(widget::text::body(format!(
-                    "Last modified: {}",
-                    format_time(time, &date_time_formatter, &time_formatter)
+                column = column.push(widget::text::body(fl!(
+                    "item-modified",
+                    modified = format_time(time, &date_time_formatter, &time_formatter).to_string()
                 )));
             }
-        } else {
-            //TODO: other metadata
         }
 
         row = row.push(column);
@@ -2635,7 +2627,6 @@ impl fmt::Debug for SearchContextWrapper {
 }
 
 pub struct Tab {
-    //TODO: make more items private
     pub location: Location,
     pub location_ancestors: Vec<(Location, String)>,
     pub location_title: String,

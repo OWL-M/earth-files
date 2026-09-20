@@ -20,7 +20,6 @@ pub mod store;
 pub const ICON_SIZE_LIST: u16 = 32;
 pub const ICON_SIZE_LIST_CONDENSED: u16 = 48;
 pub const ICON_SIZE_GRID: u16 = 64;
-// TODO: 5 is an arbitrary number. Maybe there's a better icon size max
 pub const ICON_SCALE_MAX: u16 = 5;
 
 // Default font families.

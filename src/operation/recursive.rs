@@ -129,11 +129,12 @@ impl Context {
                     })?;
                     OpKind::Symlink { target }
                 } else {
-                    //TODO: present dialog and allow continue
-                    return Err(OperationError::from_err(
-                        format!("{} is not a known file type", from.display()),
-                        &self.controller,
-                    ));
+                    // Sockets, FIFOs and device nodes cannot be copied meaningfully
+                    log::warn!(
+                        "skipping {}: not a regular file, directory or symlink",
+                        from.display()
+                    );
+                    continue;
                 };
                 let to = if from == from_parent {
                     // When copying a file, from matches from_parent, and to_parent must be used
@@ -150,7 +151,6 @@ impl Context {
                             &self.controller,
                         )
                     })?;
-                    //TODO: ensure to is inside of to_parent?
                     to_parent.join(relative)
                 };
                 let op = Op {
@@ -329,7 +329,6 @@ impl Op {
         Some(Self {
             kind,
             from: self.from.clone(),
-            //TODO: it is strange to have `to` here
             to: self.to.clone(),
             skipped: self.skipped.clone(),
             is_cleanup: true,
@@ -576,7 +575,6 @@ impl Op {
             if let Ok(time) = metadata.accessed() {
                 times = times.set_accessed(time);
             }
-            //TODO: upstream set_times implementation to compio?
             let op = AsyncifyFd::new(to_file.to_shared_fd(), move |file: &std::fs::File| {
                 BufResult(file.set_times(times).map(|_| 0), ())
             });
@@ -599,7 +597,6 @@ impl Op {
 
     /// Fallback mechanism in the event that unsupported I/O error errors occur.
     /// Fixes unsupported errors when copying large files over MTP.
-    /// TODO: Find what Gio.File does to work around this.
     #[cfg(feature = "gvfs")]
     async fn gio_file_copy(
         &self,
