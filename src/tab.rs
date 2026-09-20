@@ -1653,6 +1653,8 @@ pub enum Message {
     Scroll(Viewport),
     ScrollTab(f32),
     ScrollToFocused,
+    /// Apply the scroll offset restored from history once the items are in
+    ScrollRestore,
     SearchContext(Location, SearchContextWrapper),
     SearchReady(bool),
     SelectAll,
@@ -2642,6 +2644,11 @@ pub struct Tab {
     pub edit_location_id: widget::Id,
     pub history_i: usize,
     pub history: Vec<Location>,
+    /// Scroll offset of each history entry when it was left, restored on
+    /// going back or forward
+    history_scroll: Vec<Option<AbsoluteOffset>>,
+    /// Offset to apply once the items of a restored history entry are in
+    pending_scroll: Option<AbsoluteOffset>,
     pub config: TabConfig,
     pub thumb_config: ThumbCfg,
     pub sort_name: HeadingOptions,
@@ -2686,7 +2693,6 @@ async fn calculate_dir_size(path: &Path, controller: Controller) -> Result<u64, 
             .await
             .map_err(|s| OperationError::from_state(s, &controller))?;
 
-        //TODO: report more errors?
         if let Ok(entry) = entry_res
             && let Ok(metadata) = entry.metadata()
             && metadata.is_file()
@@ -2804,6 +2810,8 @@ impl Tab {
             edit_location: None,
             edit_location_id: widget::Id::unique(),
             history_i: 0,
+            history_scroll: vec![None; history.len()],
+            pending_scroll: None,
             history,
             config,
             thumb_config,
@@ -2831,7 +2839,6 @@ impl Tab {
     }
 
     pub fn title(&self) -> String {
-        //TODO: is it possible to return a &str?
         self.location_title.clone()
     }
 
@@ -3218,23 +3225,44 @@ impl Tab {
         }
     }
 
+    /// The part of the item view currently on screen, for a view of `size`.
+    /// The scroll offset is clamped with the cached content height so a
+    /// stale offset after a resize does not point past the end.
+    fn visible_rect(&self, size: Size) -> Rectangle {
+        let max_scroll_y = self
+            .content_height_opt
+            .get()
+            .map(|ch| (ch - size.height).max(0.0))
+            .unwrap_or(f32::MAX);
+        let scroll_y = self
+            .scroll_opt
+            .map(|o| o.y.min(max_scroll_y).max(0.0))
+            .unwrap_or(0.0);
+        Rectangle::new(Point::new(0.0, scroll_y), size)
+    }
+
+    /// Position of the first item on screen, where keyboard navigation starts
+    /// when nothing is selected.
+    fn first_visible_pos_opt(&self) -> Option<(usize, usize)> {
+        let visible_rect = self.visible_rect(self.item_view_size_opt.get().unwrap_or_default());
+        self.items_opt
+            .as_ref()?
+            .iter()
+            .filter(|item| {
+                item.rect_opt
+                    .get()
+                    .is_some_and(|rect| rect.intersects(&visible_rect))
+            })
+            .filter_map(|item| item.pos_opt.get())
+            .min()
+    }
+
     pub(crate) fn select_focus_scroll(&mut self) -> Option<AbsoluteOffset> {
         let items = self.items_opt.as_ref()?;
         let item = items.get(self.select_focus?)?;
         let rect = item.rect_opt.get()?;
 
-        //TODO: move to function
-        let visible_rect = {
-            let point = match self.scroll_opt {
-                Some(offset) => Point::new(0.0, offset.y),
-                None => Point::new(0.0, 0.0),
-            };
-            let size = self
-                .item_view_size_opt
-                .get()
-                .unwrap_or_else(|| Size::new(0.0, 0.0));
-            Rectangle::new(point, size)
-        };
+        let visible_rect = self.visible_rect(self.item_view_size_opt.get().unwrap_or_default());
 
         if rect.y < visible_rect.y {
             // Scroll up to rect
@@ -3400,16 +3428,25 @@ impl Tab {
         self.location_title = self.location.title();
         self.edit_location = None;
         self.items_opt = None;
-        //TODO: remember scroll by location?
+        // Remember where this entry was scrolled to before leaving it
+        if let Some(saved) = self.history_scroll.get_mut(self.history_i) {
+            *saved = self.scroll_opt;
+        }
         self.scroll_opt = None;
+        self.pending_scroll = None;
         self.select_focus = None;
         self.search_context = None;
         if let Some(history_i) = history_i_opt {
             // Navigating in history
             self.history_i = history_i;
+            if let Some(offset) = self.history_scroll.get(history_i).copied().flatten() {
+                self.scroll_opt = Some(offset);
+                self.pending_scroll = Some(offset);
+            }
         } else {
             // Truncate history to remove next entries
             self.history.truncate(self.history_i + 1);
+            self.history_scroll.truncate(self.history_i + 1);
 
             // Compact consecutive matching paths
             {
@@ -3427,12 +3464,14 @@ impl Tab {
                 }
                 if remove {
                     self.history.pop();
+                    self.history_scroll.pop();
                 }
             }
 
             // Push to the front of history
             self.history_i = self.history.len();
             self.history.push(location.clone());
+            self.history_scroll.push(None);
         }
     }
 
@@ -3595,11 +3634,18 @@ impl Tab {
                         self.select_focus = click_i_opt;
                     }
                 } else {
-                    let dont_unset = mod_ctrl
-                        || self.column_sort().is_some_and(|l| {
-                            l.iter()
-                                .any(|&(e_i, e)| Some(e_i) == click_i_opt && e.selected)
-                        });
+                    // In a file chooser a folder replaces the selection, so that
+                    // Open enters it instead of being blocked by a mixed selection
+                    let clicked_folder_in_file_dialog = matches!(&self.mode, Mode::Dialog(dialog) if !dialog.is_dir())
+                        && click_i_opt
+                            .and_then(|i| self.items_opt.as_ref()?.get(i))
+                            .is_some_and(|item| item.metadata.is_dir());
+                    let dont_unset = !clicked_folder_in_file_dialog
+                        && (mod_ctrl
+                            || self.column_sort().is_some_and(|l| {
+                                l.iter()
+                                    .any(|&(e_i, e)| Some(e_i) == click_i_opt && e.selected)
+                            }));
                     if let Some(ref mut items) = self.items_opt {
                         for (i, item) in items.iter_mut().enumerate() {
                             if Some(i) == click_i_opt {
@@ -3609,7 +3655,6 @@ impl Tab {
                                     if item_is_dir != dialog.is_dir() {
                                         // Allow selecting folder if dialog is for files to make it
                                         // possible to double click
-                                        //TODO: clear any other selection when selecting a folder
                                         if !item_is_dir {
                                             continue;
                                         }
@@ -3659,7 +3704,6 @@ impl Tab {
             Message::RightClickBackground => {
                 self.edit_location = None;
 
-                //TODO: hack for clearing selecting when right clicking empty space
                 if self.last_right_click.take().is_none()
                     && let Some(ref mut items) = self.items_opt
                 {
@@ -3694,7 +3738,6 @@ impl Tab {
                     }
                     LocationMenuAction::Preview(ancestor_index) => {
                         if let Some(path) = path_for_index(ancestor_index) {
-                            //TODO: blocking code, run in command
                             match item_from_path(&path, IconSizes::default()) {
                                 Ok(item) => {
                                     commands.push(Command::Preview(PreviewKind::Custom(
@@ -3992,16 +4035,15 @@ impl Tab {
                             self.select_position(row, col, mod_shift);
                         }
 
-                        //TODO: Shift modifier should select items in between
                         // Try to select item in next row
                         if !self.select_position(row + 1, col, mod_shift) {
                             // Ensure current item is still selected if there are no other items
                             self.select_position(row, col, mod_shift);
                         }
                     } else {
-                        // Select first item
-                        //TODO: select first in scroll
-                        self.select_position(0, 0, mod_shift);
+                        // Select the first item on screen
+                        let (row, col) = self.first_visible_pos_opt().unwrap_or((0, 0));
+                        self.select_position(row, col, mod_shift);
                     }
                     if let Some(offset) = self.select_focus_scroll() {
                         commands.push(Command::Iced(
@@ -4145,9 +4187,9 @@ impl Tab {
                             }
                         }
                     } else {
-                        // Select first item
-                        //TODO: select first in scroll
-                        self.select_position(0, 0, mod_shift);
+                        // Select the first item on screen
+                        let (row, col) = self.first_visible_pos_opt().unwrap_or((0, 0));
+                        self.select_position(row, col, mod_shift);
                     }
                     if let Some(offset) = self.select_focus_scroll() {
                         commands.push(Command::Iced(
@@ -4187,9 +4229,9 @@ impl Tab {
                             }
                         }
                     } else {
-                        // Select first item
-                        //TODO: select first in scroll
-                        self.select_position(0, 0, mod_shift);
+                        // Select the first item on screen
+                        let (row, col) = self.first_visible_pos_opt().unwrap_or((0, 0));
+                        self.select_position(row, col, mod_shift);
                     }
                     if let Some(offset) = self.select_focus_scroll() {
                         commands.push(Command::Iced(
@@ -4223,7 +4265,6 @@ impl Tab {
                             self.select_position(row, col, mod_shift);
                         }
 
-                        //TODO: Shift modifier should select items in between
                         // Try to select item in last row
                         if !row
                             .checked_sub(1)
@@ -4233,9 +4274,9 @@ impl Tab {
                             self.select_position(row, col, mod_shift);
                         }
                     } else {
-                        // Select first item
-                        //TODO: select first in scroll
-                        self.select_position(0, 0, mod_shift);
+                        // Select the first item on screen
+                        let (row, col) = self.first_visible_pos_opt().unwrap_or((0, 0));
+                        self.select_position(row, col, mod_shift);
                     }
                     if let Some(offset) = self.select_focus_scroll() {
                         commands.push(Command::Iced(
@@ -4344,7 +4385,7 @@ impl Tab {
                                         commands.push(Command::OpenInNewTab(p))
                                     }
                                     ResolveResult::Cd(loc) => cd = Some(loc),
-                                    ResolveResult::OpenProperties => {} //TODO: open properties?
+                                    ResolveResult::OpenProperties => {}
                                     _ => {}
                                 }
                             }
@@ -4356,7 +4397,6 @@ impl Tab {
                 }
             }
             Message::Reload => {
-                //TODO: support keeping selected locations without paths
                 let selected_paths = self
                     .selected_locations()
                     .into_iter()
@@ -4383,7 +4423,6 @@ impl Tab {
                         item.selected = Some(i) == click_i_opt;
                     }
                 }
-                //TODO: hack for clearing selecting when right clicking empty space
                 self.last_right_click = click_i_opt;
             }
             Message::MiddleClick(click_i) => {
@@ -4461,6 +4500,20 @@ impl Tab {
                     .into(),
                 ));
             }
+            Message::ScrollRestore => {
+                if let Some(offset) = self.pending_scroll.take() {
+                    commands.push(Command::Iced(
+                        scrollable::scroll_to(
+                            self.scrollable_id.clone(),
+                            AbsoluteOffset {
+                                x: Some(offset.x),
+                                y: Some(offset.y),
+                            },
+                        )
+                        .into(),
+                    ));
+                }
+            }
             Message::ScrollToFocused => {
                 if let Some(offset) = self.select_focus_scroll() {
                     commands.push(Command::Iced(
@@ -4488,12 +4541,14 @@ impl Tab {
             }
             Message::SearchReady(finished) => {
                 let max_results = usize::from(self.config.max_search_results.get());
+                let sizes = self.config.icon_sizes;
                 if let Some(context) = &mut self.search_context {
                     if let Some(items) = &mut self.items_opt {
                         if finished || context.ready.swap(false, atomic::Ordering::SeqCst) {
                             let duration = Instant::now();
                             while let Ok(search_item) = context.results_rx.try_recv() {
-                                //TODO: combine this with column_sort logic, they must match!
+                                // Newest first, which is the sort order search locations are
+                                // pinned to in `sort_options`
                                 let index =
                                     if let SearchItem::Path(_, _, ref metadata) = search_item {
                                         let item_modified = metadata.modified().ok();
@@ -4508,9 +4563,7 @@ impl Tab {
                                     };
 
                                 if index < max_results {
-                                    //TODO: use correct IconSizes
-                                    let item =
-                                        item_from_search_item(search_item, IconSizes::default());
+                                    let item = item_from_search_item(search_item, sizes);
                                     items.insert(index, item);
                                 }
                                 // Ensure that updates make it to the GUI in a timely manner
@@ -4648,7 +4701,6 @@ impl Tab {
                                     symbolic: false,
                                     data: widget::icon::Data::Svg(handle.clone()),
                                 }),
-                                //TODO: text thumbnails?
                                 ItemThumbnail::Text(_text) => None,
                             };
                             if let Some(handle) = handle_opt {
@@ -4892,7 +4944,6 @@ impl Tab {
                     let (a_is_entry, a_size) = get_size(a.1);
                     let (b_is_entry, b_size) = get_size(b.1);
 
-                    //TODO: use folders_first?
                     match (a_is_entry, b_is_entry) {
                         (true, false) => Ordering::Less,
                         (false, true) => Ordering::Greater,
@@ -5613,22 +5664,7 @@ impl Tab {
             (cols, spacing as u16)
         };
 
-        //TODO: move to function
-        let visible_rect = {
-            // Use cached content height to clamp scroll offset after resize
-            let max_scroll_y = self
-                .content_height_opt
-                .get()
-                .map(|ch| (ch - height as f32).max(0.0))
-                .unwrap_or(f32::MAX);
-            let scroll_y = self
-                .scroll_opt
-                .map(|o| o.y.min(max_scroll_y).max(0.0))
-                .unwrap_or(0.0);
-            let point = Point::new(0.0, scroll_y);
-            let size = self.size_opt.get().unwrap_or_else(|| Size::new(0.0, 0.0));
-            Rectangle::new(point, size)
-        };
+        let visible_rect = self.visible_rect(self.size_opt.get().unwrap_or_default());
 
         let mut grid = widget::grid()
             .column_spacing(column_spacing)
@@ -5832,22 +5868,7 @@ impl Tab {
 
         let rule_padding = theme::active().cosmic().corner_radii.radius_xs[0] as u16;
 
-        //TODO: move to function
-        let visible_rect = {
-            // Use cached content height to clamp scroll offset after resize
-            let max_scroll_y = self
-                .content_height_opt
-                .get()
-                .map(|ch| (ch - size.height).max(0.0))
-                .unwrap_or(f32::MAX);
-            let scroll_y = self
-                .scroll_opt
-                .map(|o| o.y.min(max_scroll_y).max(0.0))
-                .unwrap_or(0.0);
-            let point = Point::new(0.0, scroll_y);
-            let size = self.size_opt.get().unwrap_or_else(|| Size::new(0.0, 0.0));
-            Rectangle::new(point, size)
-        };
+        let visible_rect = self.visible_rect(self.size_opt.get().unwrap_or_default());
 
         if let Some(items) = self.column_sort() {
             let mut count = 0;
@@ -6534,15 +6555,7 @@ impl Tab {
         let mut subscriptions = Vec::with_capacity(jobs + 3);
 
         if let Some(items) = &self.items_opt {
-            //TODO: move to function
-            let visible_rect = {
-                let point = match self.scroll_opt {
-                    Some(offset) => Point::new(0.0, offset.y),
-                    None => Point::new(0.0, 0.0),
-                };
-                let size = self.size_opt.get().unwrap_or_else(|| Size::new(0.0, 0.0));
-                Rectangle::new(point, size)
-            };
+            let visible_rect = self.visible_rect(self.size_opt.get().unwrap_or_default());
 
             // Count the children of visible directories in the background. Doing it while
             // scanning costs one directory listing per entry, which stalls remote filesystems.

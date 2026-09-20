@@ -4314,7 +4314,14 @@ impl Application for App {
                         tab.sort_name = sort.0;
                         tab.sort_direction = sort.1;
 
-                        let mut tasks = Vec::with_capacity(2);
+                        let mut tasks = Vec::with_capacity(3);
+
+                        // Apply a scroll offset restored from history, now that the
+                        // items exist
+                        tasks.push(Task::done(crate::ui::action::app(Message::TabMessage(
+                            Some(entity),
+                            tab::Message::ScrollRestore,
+                        ))));
 
                         if let Some(selection_paths) = selection_paths {
                             tab.select_paths(selection_paths);

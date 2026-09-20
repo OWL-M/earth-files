@@ -1854,6 +1854,9 @@ impl Application for App {
 
                     self.tab.parent_item_opt = parent_item_opt;
                     self.tab.set_items(items);
+                    // Apply a scroll offset restored from history, now that the items exist
+                    let restore_scroll =
+                        self.update(Message::TabMessage(tab::Message::ScrollRestore));
 
                     if let Some(mut selection_paths) = selection_paths {
                         if !self.flags.kind.multiple() {
@@ -1863,20 +1866,21 @@ impl Application for App {
                     }
 
                     // Reset focus on location change
-                    if self.search_get().is_some() {
-                        return widget::text_input::focus(self.search_id.clone());
-                    }
-                    if let DialogKind::SaveFile { filename } = &self.flags.kind {
-                        return Task::batch([
+                    let focus = if self.search_get().is_some() {
+                        widget::text_input::focus(self.search_id.clone())
+                    } else if let DialogKind::SaveFile { filename } = &self.flags.kind {
+                        Task::batch([
                             widget::text_input::focus(self.filename_id.clone()),
                             widget::text_input::select_until_last(
                                 self.filename_id.clone(),
                                 filename,
                                 '.',
                             ),
-                        ]);
-                    }
-                    return widget::text_input::focus(self.filename_id.clone());
+                        ])
+                    } else {
+                        widget::text_input::focus(self.filename_id.clone())
+                    };
+                    return Task::batch([restore_scroll, focus]);
                 }
             }
             Message::TabView(view) => {
