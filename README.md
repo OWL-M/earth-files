@@ -101,6 +101,12 @@ Every field is optional.
     // still moves every step a theme does not pin.
     spacing: (space_m: 20),           // or a preset: Compact
 
+    // The outline the window draws around itself, as a corner radius.
+    // Left out, it draws none: square, no border, no inset, opaque, so the
+    // compositor's own rounding and border are the only ones. Set it on a
+    // compositor that decorates nothing; 0.0 gives a square outline.
+    // window_outline: 12.0,
+
     // A standard button normally inherits the text colour of whatever it
     // sits on. Giving it a fill here makes it paint its own text instead.
     button: "#504945",

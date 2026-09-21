@@ -286,9 +286,11 @@ impl<App: Application> Shell<App> {
         if let Some(style) = self.app.style() {
             style
         } else {
-            // A maximized window would use the opaque application style here,
-            // but the shell is never told that it is maximized; see the note
-            // on configure states below.
+            // Every surface shares this, popups included, and a popup's
+            // rounded corners are drawn inside a square surface
+            // (`crate::ui::surface`), so it has to stay see-through. A window
+            // with no outline is filled by its own root container instead;
+            // see `view_main`.
             iced::theme::Style {
                 background_color: iced::Color::TRANSPARENT,
                 text_color: self.theme.cosmic().on_bg_color().to_color(),

@@ -170,10 +170,14 @@ where
 
         let core = self.core();
         let is_condensed = core.is_condensed();
+        // The outline this window draws around itself, if any. Drawing none
+        // is the default: a compositor that rounds clips these square corners
+        // cleanly, whereas rounding on top of that shows two curves that do
+        // not meet, and a border of our own beside the compositor's.
+        let outline = crate::ui::theme::custom::window_outline();
+        let sharp_corners = outline.is_none();
         // exwlshell reports no `xdg_toplevel` configure states, so the window
-        // does not know when it is maximized. Both stay false until that
-        // state is forwarded through the shell; see `src/ui/command.rs`.
-        let sharp_corners = false;
+        // never learns that it is maximized; see `src/ui/command.rs`.
         let maximized = false;
         let content_container = core.window.content_container;
         let show_context = core.window.show_context;
@@ -325,14 +329,10 @@ where
         };
 
         // Ensures visually aligned radii for content and window corners
-        let window_corner_radius = if sharp_corners {
-            crate::ui::theme::active().cosmic().radius_0()
-        } else {
-            crate::ui::theme::active()
-                .cosmic()
-                .radius_s()
-                .map(|x| if x < 4.0 { x } else { x + 4.0 })
-        };
+        let window_corner_radius = outline.map_or_else(
+            || crate::ui::theme::active().cosmic().radius_0(),
+            |radius| [radius; 4],
+        );
 
         let view_column = widget::Column::with_capacity(2)
             .push_maybe(if core.window.show_headerbar {
@@ -419,10 +419,16 @@ where
             // The content element contains every element beneath the header.
             .push(content)
             .apply(container)
-            .padding(if maximized { 0 } else { 1 })
+            // The inset exists to leave room for the outline, so without one
+            // the content reaches the window edge
+            .padding(if outline.is_some() { 1 } else { 0 })
             .class(crate::ui::theme::Container::custom(move |theme| {
                 container::Style {
-                    background: if content_container {
+                    // Painted here rather than as the surface background,
+                    // which every surface shares and popups need see-through.
+                    // Without an outline this is what fills the window, so it
+                    // paints whether or not the content is in a container.
+                    background: if content_container || outline.is_none() {
                         Some(crate::ui::iced::Background::Color(
                             theme.cosmic().background(theme.transparent).base.to_color(),
                         ))
@@ -431,7 +437,7 @@ where
                     },
                     border: crate::ui::iced::Border {
                         color: theme.cosmic().bg_divider().to_color(),
-                        width: if maximized { 0.0 } else { 1.0 },
+                        width: if outline.is_some() { 1.0 } else { 0.0 },
                         radius: window_corner_radius.to_radius(),
                     },
                     ..Default::default()

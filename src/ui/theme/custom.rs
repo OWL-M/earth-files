@@ -462,6 +462,22 @@ pub struct ThemeFile {
     pub corner_radii: Option<RadiiOverride>,
     pub spacing: Option<SpacingOverride>,
     pub is_high_contrast: Option<bool>,
+    /// The outline this window draws around itself, as a corner radius in
+    /// logical pixels.
+    ///
+    /// Left out, the window draws none: square, no border, no inset, and an
+    /// opaque surface, so the compositor's own rounding and border are the
+    /// only ones. That is the right default, because a compositor that
+    /// rounds will clip these square corners cleanly, while a window that
+    /// rounds itself on top of that shows two curves that do not meet.
+    ///
+    /// Set it on a compositor that decorates nothing and you want a soft
+    /// edge. `0.0` gives a square outline, which is a visible border with no
+    /// rounding.
+    ///
+    /// Unlike every other field here this does not override a built-in
+    /// value, because there is none: absent means no outline.
+    pub window_outline: Option<f32>,
 }
 
 /// The field names above, so a typo can be reported rather than ignored
@@ -484,6 +500,7 @@ const KNOWN_KEYS: &[&str] = &[
     "corner_radii",
     "spacing",
     "is_high_contrast",
+    "window_outline",
 ];
 
 impl ThemeFile {
@@ -674,6 +691,15 @@ static LIGHT_OVERRIDE: OnceLock<Option<&'static Palette>> = OnceLock::new();
 /// Spacing is not a colour, so it is not kept per mode: whichever file sets
 /// it wins, with the dark one asked first.
 static SPACING_OVERRIDE: OnceLock<Option<SpacingOverride>> = OnceLock::new();
+/// The window outline, for the same reason not kept per mode
+static WINDOW_OUTLINE: OnceLock<Option<f32>> = OnceLock::new();
+
+/// The corner radius of the outline this window draws around itself, or
+/// `None` to draw none and let the compositor shape the window.
+#[must_use]
+pub fn window_outline() -> Option<f32> {
+    WINDOW_OUTLINE.get().copied().flatten()
+}
 /// Whether a theme file set the standard button's colours, per mode. A
 /// standard button normally inherits its container's text colour, which only
 /// works while its fill stays a near-neutral close to that container.
@@ -749,6 +775,12 @@ fn load_once() {
         .and_then(|theme| theme.spacing.clone())
         .or_else(|| light.as_ref().and_then(|theme| theme.spacing.clone()));
     let _ = SPACING_OVERRIDE.set(spacing);
+
+    let outline = dark
+        .as_ref()
+        .and_then(|theme| theme.window_outline)
+        .or_else(|| light.as_ref().and_then(|theme| theme.window_outline));
+    let _ = WINDOW_OUTLINE.set(outline);
 
     let _ = DARK_BUTTON_IS_CUSTOM.set(dark.as_ref().is_some_and(|theme| theme.button.is_some()));
     let _ = LIGHT_BUTTON_IS_CUSTOM.set(light.as_ref().is_some_and(|theme| theme.button.is_some()));
@@ -1155,6 +1187,21 @@ mod tests {
             1,
             "the theme files must be read and leaked exactly once"
         );
+    }
+
+    #[test]
+    fn the_window_outline_is_off_unless_a_theme_asks_for_it() {
+        // Absent means no outline, not "keep the built-in", because there is
+        // no built-in: the compositor shapes the window unless told otherwise
+        assert_eq!(parse("()").window_outline, None);
+        assert_eq!(parse("(accent: \"#d65d0e\")").window_outline, None);
+
+        // A radius asks for a rounded outline, and zero for a square one
+        assert_eq!(parse("(window_outline: 12.0)").window_outline, Some(12.0));
+        assert_eq!(parse("(window_outline: 0.0)").window_outline, Some(0.0));
+
+        // It is not a colour, so it does not touch the palette
+        assert_eq!(parse("(window_outline: 12.0)").apply(&DARK), DARK.clone());
     }
 
     #[test]
