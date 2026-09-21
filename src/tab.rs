@@ -2047,7 +2047,7 @@ pub enum ItemThumbnail {
     NotImage,
     Image(widget::image::Handle, Option<(u32, u32)>),
     Svg(widget::svg::Handle),
-    Text(widget::text_editor::Content),
+    Text(widget::text_editor::Content<crate::ui::Renderer>),
 }
 
 impl Clone for ItemThumbnail {

@@ -31,7 +31,14 @@ pub use iced_core;
 pub use iced_runtime;
 
 /// The renderer every widget in this app draws through.
-pub type Renderer = iced::Renderer;
+///
+/// `iced_texture_cache`'s renderer rather than iced's own: it is
+/// `iced_renderer::fallback::Renderer` over a wgpu and a tiny-skia half,
+/// each delegating every renderer trait to iced's, so drawing is unchanged
+/// until a `Cached` widget appears in the tree. It is here that the app
+/// gains the ability to composite a recorded subtree with an animated
+/// transform and opacity, which iced 0.14 cannot express.
+pub type Renderer = iced_texture_cache::Renderer;
 
 /// The app's theme, used to style every widget. See [`theme`].
 pub use theme::Theme;

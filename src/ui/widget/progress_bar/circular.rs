@@ -98,7 +98,7 @@ where
 #[derive(Default)]
 struct State {
     animation: Animation,
-    cache: canvas::Cache,
+    cache: canvas::Cache<Renderer>,
     progress: Progress,
 }
 
@@ -193,7 +193,7 @@ where
                     .with_width(bar_height),
             );
 
-            let draw_bar = |frame: &mut canvas::Frame, start: f32, end: f32| {
+            let draw_bar = |frame: &mut canvas::Frame<Renderer>, start: f32, end: f32| {
                 let mut builder = canvas::path::Builder::new();
                 builder.arc(canvas::path::Arc {
                     center: frame.center(),

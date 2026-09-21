@@ -10,7 +10,7 @@ use crate::ui::theme;
 use crate::ui::widget::flex_row::{FlexRow, flex_row};
 use crate::ui::widget::list;
 use crate::ui::widget::text;
-use crate::ui::{Element, Theme};
+use crate::ui::{Element, Renderer, Theme};
 use derive_setters::Setters;
 use iced::widget::space;
 use iced::widget::{Row, container};
@@ -24,12 +24,12 @@ use taffy::AlignContent;
 pub fn item<'a, Message: 'static>(
     title: impl Into<Cow<'a, str>> + 'a,
     widget: impl Into<Element<'a, Message>> + 'a,
-) -> Row<'a, Message, Theme> {
+) -> Row<'a, Message, Theme, Renderer> {
     #[inline(never)]
     fn inner<'a, Message: 'static>(
         title: Cow<'a, str>,
         widget: Element<'a, Message>,
-    ) -> Row<'a, Message, Theme> {
+    ) -> Row<'a, Message, Theme, Renderer> {
         item_row(vec![
             text(title).wrapping(Wrapping::Word).into(),
             space::horizontal().into(),
@@ -43,7 +43,7 @@ pub fn item<'a, Message: 'static>(
 /// A settings item aligned in a row
 #[must_use]
 #[allow(clippy::module_name_repetitions)]
-pub fn item_row<Message>(children: Vec<Element<Message>>) -> Row<Message, Theme> {
+pub fn item_row<Message>(children: Vec<Element<Message>>) -> Row<Message, Theme, Renderer> {
     crate::ui::widget::Row::with_children(children)
         .spacing(theme::spacing().space_xs.to_pixels())
         .align_y(iced::Alignment::Center)
@@ -111,7 +111,10 @@ pub struct Item<'a, Message> {
 
 impl<'a, Message: Clone + 'static> Item<'a, Message> {
     /// Assigns a control to the item.
-    pub fn control(self, widget: impl Into<Element<'a, Message>>) -> Row<'a, Message, Theme> {
+    pub fn control(
+        self,
+        widget: impl Into<Element<'a, Message>>,
+    ) -> Row<'a, Message, Theme, Renderer> {
         item_row(self.control_(widget.into()))
     }
 
@@ -144,7 +147,10 @@ impl<'a, Message: Clone + 'static> Item<'a, Message> {
         contents
     }
 
-    fn control_start(self, widget: impl Into<Element<'a, Message>>) -> Row<'a, Message, Theme> {
+    fn control_start(
+        self,
+        widget: impl Into<Element<'a, Message>>,
+    ) -> Row<'a, Message, Theme, Renderer> {
         item_row(vec![widget.into(), self.label()])
     }
 

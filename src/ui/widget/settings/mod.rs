@@ -11,11 +11,13 @@ pub use self::section::{Section, section};
 
 use crate::ui::convert::ToPixels;
 use crate::ui::theme;
-use crate::ui::{Element, Theme};
+use crate::ui::{Element, Renderer, Theme};
 use iced::widget::Column;
 
 /// A column with a predefined style for creating a settings panel
 #[must_use]
-pub fn view_column<Message: 'static>(children: Vec<Element<Message>>) -> Column<Message, Theme> {
+pub fn view_column<Message: 'static>(
+    children: Vec<Element<Message>>,
+) -> Column<Message, Theme, Renderer> {
     crate::ui::widget::Column::with_children(children).spacing(theme::spacing().space_m.to_pixels())
 }
