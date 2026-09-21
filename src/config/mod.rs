@@ -193,6 +193,10 @@ pub struct Config {
     pub interface_font: String,
     /// Family of the monospace font, used by `ui::font`.
     pub monospace_font: String,
+    /// Width of the sidebar in logical pixels, as it was last dragged to.
+    /// `None` leaves it as wide as its entries need, which is also what a
+    /// width narrower than they need is treated as.
+    pub nav_bar_width: Option<u16>,
     pub show_details: bool,
     pub show_recents: bool,
     pub tab: TabConfig,
@@ -244,6 +248,7 @@ impl Default for Config {
             icon_theme: None,
             interface_font: INTERFACE_FONT_DEFAULT.to_string(),
             monospace_font: MONOSPACE_FONT_DEFAULT.to_string(),
+            nav_bar_width: None,
             show_details: false,
             show_recents: true,
             tab: TabConfig::default(),

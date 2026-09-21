@@ -35,6 +35,12 @@ pub enum Action {
     NavBar(nav_bar::Id),
     /// Activates a context menu for an item from the nav bar.
     NavBarContext(nav_bar::Id),
+    /// The pointer went down on the divider beside the nav bar.
+    NavBarResizeStart,
+    /// The pointer moved this far from where the nav bar drag started.
+    NavBarResizeDrag(f32),
+    /// The nav bar drag ended, one way or the other.
+    NavBarResizeEnd,
     /// A new window was opened.
     Opened(window::Id),
     /// Set scaling factor.

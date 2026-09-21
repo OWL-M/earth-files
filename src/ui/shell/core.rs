@@ -10,6 +10,10 @@ use crate::ui::iced_core::layout::Limits;
 use crate::ui::widget::nav_bar;
 use std::collections::HashMap;
 
+/// Room the main content keeps when the nav bar is dragged wider: its own
+/// 360px minimum plus the padding on either side of it.
+const CONTENT_RESERVE: f32 = 360.0 + 8.0 + 8.0;
+
 /// Status of the nav bar and its panels.
 #[derive(Clone)]
 pub struct NavBar {
@@ -17,6 +21,11 @@ pub struct NavBar {
     context_id: nav_bar::Id,
     toggled: bool,
     toggled_condensed: bool,
+    /// Width the panel has been dragged to, in logical pixels, or `None`
+    /// while it is left at the width its entries need.
+    width: Option<u16>,
+    /// Effective width when the drag in progress started, if there is one
+    resize_from: Option<u16>,
 }
 
 /// Window chrome settings.
@@ -91,6 +100,8 @@ impl Default for Core {
                 context_id: <nav_bar::Id as slotmap::Key>::null(),
                 toggled: true,
                 toggled_condensed: false,
+                width: None,
+                resize_from: None,
             },
             scale_factor: 1.0,
             focused_window: Vec::new(),
@@ -193,8 +204,9 @@ impl Core {
         // Content width (360px) + padding (8px)
         let mut reserved_width = 360.0 + 8.0;
         if has_nav {
-            // Navbar width (280px) + padding (8px)
-            reserved_width += 280.0 + 8.0;
+            // Navbar width (280px, or whatever it has been dragged to)
+            // + padding (8px)
+            reserved_width += self.nav_bar_effective_width(280.0) + 8.0;
         }
 
         #[allow(clippy::manual_clamp)]
@@ -265,6 +277,69 @@ impl Core {
                 self.nav_bar_update();
             }
         }
+    }
+
+    /// The width the nav bar has been dragged to, or `None` while it is left
+    /// at the width its entries need.
+    #[must_use]
+    #[inline]
+    pub const fn nav_bar_width(&self) -> Option<u16> {
+        self.nav_bar.width
+    }
+
+    /// Restore a width saved from an earlier session.
+    #[inline]
+    pub const fn set_nav_bar_width(&mut self, width: Option<u16>) {
+        self.nav_bar.width = width;
+    }
+
+    /// Where the panel is drawn to, for a nav bar whose entries need `min`
+    /// pixels (see [`crate::ui::widget::nav_bar::min_width`]).
+    ///
+    /// A saved width narrower than that loses to it: the panel is never
+    /// drawn clipping an entry, whatever is in the config file.
+    #[must_use]
+    pub fn nav_bar_effective_width(&self, min: f32) -> f32 {
+        self.nav_bar
+            .width
+            .map_or(0.0, f32::from)
+            .max(bounded_min(min))
+            .min(nav_bar::MAX_WIDTH)
+    }
+
+    /// Widest the panel may be dragged: where the panel itself stops
+    /// growing, or sooner if that is more than the window can spare while
+    /// the main content keeps [`CONTENT_RESERVE`].
+    fn nav_bar_max_width(&self) -> f32 {
+        (self.window.width / self.scale_factor - CONTENT_RESERVE).min(nav_bar::MAX_WIDTH)
+    }
+
+    /// The pointer went down on the divider beside the nav bar.
+    #[inline]
+    pub(crate) fn nav_bar_resize_start(&mut self, min: f32) {
+        self.nav_bar.resize_from = Some(width_to_px(self.nav_bar_effective_width(min)));
+    }
+
+    /// The pointer moved `delta` from where the drag started.
+    ///
+    /// The width follows it between what the entries need and whatever the
+    /// window can spare, so the divider stops where the panel does and
+    /// dragging back out moves it again straight away.
+    pub(crate) fn nav_bar_resize_drag(&mut self, delta: f32, min: f32) {
+        let Some(from) = self.nav_bar.resize_from else {
+            return;
+        };
+        let min = bounded_min(min);
+        let max = self.nav_bar_max_width().max(min);
+        self.nav_bar.width = Some(width_to_px((f32::from(from) + delta).clamp(min, max)));
+    }
+
+    /// The drag ended. Returns the new width when it actually changed, which
+    /// is what the application is asked to remember.
+    pub(crate) fn nav_bar_resize_end(&mut self) -> Option<u16> {
+        let from = self.nav_bar.resize_from.take()?;
+        let width = self.nav_bar.width?;
+        (width != from).then_some(width)
     }
 
     #[inline]
@@ -353,5 +428,138 @@ impl Core {
             return crate::ui::iced::Task::none();
         };
         crate::ui::command::toggle_maximize(id)
+    }
+}
+
+/// What the entries need, bounded by what the panel will actually draw.
+///
+/// Past [`nav_bar::MAX_WIDTH`] the panel stops growing, so reserving more
+/// would leave empty space pushing the file view along and carry the resize
+/// handle away from the visible edge. A label that does not fit inside the
+/// maximum is ellipsized, which is what that cap already meant.
+fn bounded_min(min: f32) -> f32 {
+    min.min(nav_bar::MAX_WIDTH)
+}
+
+/// A laid-out width as the whole logical pixels the config file stores
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+fn width_to_px(width: f32) -> u16 {
+    width.round().clamp(0.0, f32::from(u16::MAX)) as u16
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Core;
+
+    /// A nav bar whose entries need this much room, as
+    /// `crate::ui::widget::nav_bar::min_width` would report it
+    const MIN: f32 = 200.0;
+
+    /// A core in a window wide enough that the content reserve is never what
+    /// clamps a drag.
+    fn core() -> Core {
+        let mut core = Core::default();
+        core.set_window_width(1600.0);
+        core
+    }
+
+    #[test]
+    fn an_undragged_nav_bar_is_as_wide_as_its_entries() {
+        let core = core();
+        assert_eq!(core.nav_bar_width(), None);
+        assert!((core.nav_bar_effective_width(MIN) - MIN).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn a_drag_stops_at_the_widest_entry_and_moves_again_on_the_way_back() {
+        let mut core = core();
+        core.nav_bar_resize_start(MIN);
+
+        core.nav_bar_resize_drag(50.0, MIN);
+        assert_eq!(core.nav_bar_width(), Some(250));
+
+        // Dragging far past the entries leaves the width on them rather than
+        // letting it run on out of sight, so there is no distance to make up
+        // before the divider follows the pointer out again.
+        core.nav_bar_resize_drag(-500.0, MIN);
+        assert_eq!(core.nav_bar_width(), Some(200));
+        core.nav_bar_resize_drag(40.0, MIN);
+        assert_eq!(core.nav_bar_width(), Some(240));
+    }
+
+    /// Past this the panel stops growing, so the slot it sits in must stop
+    /// with it rather than pushing the file view along for nothing.
+    #[test]
+    fn a_drag_stops_where_the_panel_stops_growing() {
+        let mut core = core();
+        core.nav_bar_resize_start(MIN);
+        core.nav_bar_resize_drag(5000.0, MIN);
+        assert_eq!(core.nav_bar_width(), Some(280));
+    }
+
+    #[test]
+    fn a_narrow_window_stops_the_drag_sooner_still() {
+        let mut core = Core::default();
+        core.set_window_width(600.0);
+        core.nav_bar_resize_start(MIN);
+        core.nav_bar_resize_drag(5000.0, MIN);
+        assert_eq!(core.nav_bar_width(), Some(600 - 376));
+    }
+
+    #[test]
+    fn only_a_drag_that_moved_is_worth_saving() {
+        let mut core = core();
+
+        core.nav_bar_resize_start(MIN);
+        core.nav_bar_resize_drag(0.0, MIN);
+        assert_eq!(core.nav_bar_resize_end(), None);
+
+        core.nav_bar_resize_start(MIN);
+        core.nav_bar_resize_drag(60.0, MIN);
+        assert_eq!(core.nav_bar_resize_end(), Some(260));
+        // The release arrives after the drag ended, and must not save again
+        assert_eq!(core.nav_bar_resize_end(), None);
+    }
+
+    /// A bookmark whose label is wider than the panel will ever be drawn
+    /// must not reserve room for itself: the panel would stop at its
+    /// maximum and the rest would be empty space shoving the file view
+    /// along, with the resize handle stranded away from the visible edge.
+    #[test]
+    fn entries_too_wide_to_draw_do_not_reserve_room_for_themselves() {
+        let core = core();
+        assert!((core.nav_bar_effective_width(600.0) - 280.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn a_drag_against_an_oversized_minimum_still_stops_at_the_maximum() {
+        let mut core = core();
+        core.nav_bar_resize_start(600.0);
+        core.nav_bar_resize_drag(100.0, 600.0);
+        assert_eq!(core.nav_bar_width(), Some(280));
+    }
+
+    /// Nothing clamps a width typed into the config file by hand
+    #[test]
+    fn a_saved_width_past_the_maximum_is_ignored() {
+        let mut core = core();
+        core.set_nav_bar_width(Some(5000));
+        assert!((core.nav_bar_effective_width(MIN) - 280.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn a_saved_width_narrower_than_the_entries_loses_to_them() {
+        let mut core = core();
+        core.set_nav_bar_width(Some(120));
+        assert!((core.nav_bar_effective_width(240.0) - 240.0).abs() < f32::EPSILON);
+    }
+
+    /// An entry added or renamed changes what the entries need, and the
+    /// width follows it without anything having to be laid out first.
+    #[test]
+    fn a_wider_entry_widens_a_panel_already_at_its_minimum() {
+        let core = core();
+        assert!((core.nav_bar_effective_width(200.0) - 200.0).abs() < f32::EPSILON);
+        assert!((core.nav_bar_effective_width(260.0) - 260.0).abs() < f32::EPSILON);
     }
 }

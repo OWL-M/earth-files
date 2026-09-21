@@ -90,6 +90,9 @@ pub mod menu;
 pub mod nav_bar;
 pub use nav_bar::{NavBar, nav_bar};
 
+pub mod nav_bar_divider;
+pub use nav_bar_divider::{NavBarDivider, nav_bar_divider};
+
 // Not vendored: `Paragraph` queries (`cursor_position`, `highlight`, the
 // affinity-carrying `Hit`) that iced lacks.
 pub mod paragraph;

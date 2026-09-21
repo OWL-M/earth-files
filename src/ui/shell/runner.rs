@@ -517,6 +517,24 @@ impl<App: Application> Shell<App> {
                 return self.app.on_nav_context(key);
             }
 
+            Action::NavBarResizeStart => {
+                let min = self.app.nav_bar_min_width();
+                self.app.core_mut().nav_bar_resize_start(min);
+            }
+
+            Action::NavBarResizeDrag(delta_x) => {
+                let min = self.app.nav_bar_min_width();
+                self.app.core_mut().nav_bar_resize_drag(delta_x, min);
+            }
+
+            // Both the drag and the button release end it, so the app is only
+            // told once: the second one finds no drag in progress.
+            Action::NavBarResizeEnd => {
+                if let Some(width) = self.app.core_mut().nav_bar_resize_end() {
+                    return self.app.on_nav_bar_resized(width);
+                }
+            }
+
             Action::ToggleNavBar => {
                 self.app.core_mut().nav_bar_toggle();
             }

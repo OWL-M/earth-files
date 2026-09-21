@@ -8,8 +8,10 @@
 //! For details on the model, see the [`segmented_button`] module.
 
 use apply::Apply;
-use iced::{Background, Length, window};
-use iced_core::{Border, Color, Shadow};
+use iced::advanced::graphics::text::Paragraph as GraphicsParagraph;
+use iced::advanced::text::{Alignment, LineHeight, Paragraph as _, Shaping, Text, Wrapping};
+use iced::{Background, Length, Padding, Pixels, Size, window};
+use iced_core::{Border, Color, Shadow, alignment};
 
 use crate::ui::Theme;
 use crate::ui::convert::{ToColor, ToRadius};
@@ -17,6 +19,31 @@ use crate::ui::theme;
 use crate::ui::widget::Icon;
 use crate::ui::widget::{Container, container};
 use crate::ui::widget::{menu, scrollable, segmented_button};
+
+/// How far the scrollbar sits in from every edge of the panel
+const SCROLLBAR_MARGIN: f32 = 5.0;
+
+/// Size of the entry labels. Set on the widget below rather than left to its
+/// default, so that [`min_width`] measures what is drawn.
+const FONT_SIZE: f32 = 14.0;
+
+/// Size of the eject icon on a closable entry, as both callers set it
+const CLOSE_ICON_SIZE: f32 = 16.0;
+
+/// How far each level of nesting indents an entry. Set on the widget below
+/// rather than left to its default, for the same reason as [`FONT_SIZE`].
+const INDENT_SPACING: u16 = 16;
+
+/// Room the minimum width keeps beyond what the entries strictly need, in
+/// steps of `space_xxs`. At the minimum a label would otherwise sit right on
+/// the edge of being clipped, with the scrollbar over it: the bar overlays
+/// the entries rather than taking room of its own.
+const MIN_WIDTH_SLACK_STEPS: f32 = 8.0;
+
+/// Widest the panel is ever drawn, and so where a drag of it stops. Past
+/// this the panel would stay put while the slot it sits in kept growing,
+/// pushing the file view along with nothing to show for it.
+pub const MAX_WIDTH: f32 = 280.0;
 
 pub type Id = segmented_button::Entity;
 pub type Model = segmented_button::SingleSelectModel;
@@ -139,12 +166,30 @@ impl<'a, Message: Clone + 'static> From<NavBar<'a, Message>>
             .button_spacing(space_xxs)
             .spacing(space_xxs)
             .style(crate::ui::theme::SegmentedButton::NavBar)
+            .font_size(FONT_SIZE)
+            .indent_spacing(INDENT_SPACING)
             .apply(container)
-            .padding(space_xxs)
+            .padding(
+                Padding::ZERO
+                    .left(f32::from(space_xxs))
+                    .right(f32::from(space_xxs)),
+            )
             .apply(scrollable)
+            // Held clear of the panel's trailing edge, so the bar and the
+            // divider drawn on that edge are not on top of each other
+            .direction(iced::widget::scrollable::Direction::Vertical(
+                iced::widget::scrollable::Scrollbar::new()
+                    .width(8.0)
+                    .scroller_width(8.0)
+                    .margin(SCROLLBAR_MARGIN),
+            ))
             .class(crate::ui::theme::style::iced::Scrollable::Minimal)
             .height(Length::Fill)
             .apply(container)
+            // iced insets a scrollbar from the sides but not from the ends,
+            // so the scrollable is held off the top and bottom instead. The
+            // panel's background still reaches them: it is painted here.
+            .padding(Padding::ZERO.top(SCROLLBAR_MARGIN).bottom(SCROLLBAR_MARGIN))
             .height(Length::Fill)
             .class(theme::Container::custom(nav_bar_style))
     }
@@ -154,6 +199,68 @@ impl<'a, Message: Clone + 'static> From<NavBar<'a, Message>> for crate::ui::Elem
     fn from(this: NavBar<'a, Message>) -> Self {
         Container::from(this).into()
     }
+}
+
+/// The narrowest the panel can be drawn without clipping an entry.
+///
+/// Measured from the model rather than from a layout pass, so it is current
+/// the moment an entry is added, renamed or removed. It must agree with
+/// `segmented_button::widget::button_dimensions`, which lays the entries out;
+/// everything it accounts for is accounted for here.
+#[must_use]
+pub fn min_width(model: &segmented_button::SingleSelectModel) -> f32 {
+    let spacing = crate::ui::theme::spacing();
+    // The panel's own padding, and what `From<NavBar>` gives the buttons
+    let around = f32::from(spacing.space_xxs) * 2.0;
+    let button_padding = f32::from(spacing.space_s) * 2.0;
+    let button_spacing = f32::from(spacing.space_xxs);
+    let font = crate::ui::font::default();
+
+    let widest = model
+        .iter()
+        .map(|entity| {
+            let mut width = 0.0_f32;
+            let mut icon_spacing = 0.0;
+
+            if let Some(text) = model.text(entity).filter(|text| !text.is_empty()) {
+                icon_spacing = button_spacing;
+                width += label_width(text, font);
+            }
+
+            if let Some(indent) = model.indent(entity) {
+                width += f32::from(indent) * f32::from(INDENT_SPACING);
+            }
+
+            if let Some(icon) = model.icon(entity) {
+                width += f32::from(icon.size) + icon_spacing;
+            }
+
+            if model.is_closable(entity) {
+                width += CLOSE_ICON_SIZE + button_spacing;
+            }
+
+            width + button_padding
+        })
+        .fold(0.0_f32, f32::max);
+
+    widest + around + f32::from(spacing.space_xxs) * MIN_WIDTH_SLACK_STEPS
+}
+
+/// The width one entry's label takes, shaped the way the panel draws it
+fn label_width(label: &str, font: crate::ui::font::Font) -> f32 {
+    GraphicsParagraph::with_text(Text {
+        content: label,
+        bounds: Size::INFINITE,
+        size: Pixels(FONT_SIZE),
+        line_height: LineHeight::default(),
+        font,
+        align_x: Alignment::Left,
+        align_y: alignment::Vertical::Center,
+        shaping: Shaping::Advanced,
+        wrapping: Wrapping::default(),
+    })
+    .min_bounds()
+    .width
 }
 
 #[must_use]

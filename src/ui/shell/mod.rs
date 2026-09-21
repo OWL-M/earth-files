@@ -101,6 +101,13 @@ where
         None
     }
 
+    /// The narrowest the nav bar may be drawn, which the drag stops at.
+    /// Measured from the model, so it follows an entry being added, renamed
+    /// or removed with no frame's delay.
+    fn nav_bar_min_width(&self) -> f32 {
+        self.nav_model().map_or(0.0, nav_bar::min_width)
+    }
+
     /// Called before closing the application. Returning a message overrides closing windows.
     fn on_app_exit(&mut self) -> Option<Self::Message> {
         None
@@ -128,6 +135,12 @@ where
 
     /// Called when a context menu is requested for a navigation item.
     fn on_nav_context(&mut self, id: nav_bar::Id) -> Task<Self::Message> {
+        Task::none()
+    }
+
+    /// Called when the nav bar has been dragged to a new width, in logical
+    /// pixels. An application that remembers the width saves it here.
+    fn on_nav_bar_resized(&mut self, width: u16) -> Task<Self::Message> {
         Task::none()
     }
 
@@ -207,19 +220,72 @@ where
             // Insert nav bar onto the left side of the window.
             let has_nav = if let Some(nav) = self.nav_bar() {
                 let nav = id_container(nav, widget::Id::new("COSMIC_nav_bar"));
-                widgets.push(
+                // A fixed width pins the limits, which carry it down through
+                // the panel's own containers, so its entries grow with it.
+                // Condensed, the panel is sized by the window instead.
+                let nav = container(nav);
+                let nav = if is_condensed {
+                    nav
+                } else {
+                    nav.width(Length::Fixed(
+                        core.nav_bar_effective_width(self.nav_bar_min_width()),
+                    ))
+                };
+                // The gap to the content doubles as the outer half of the
+                // divider's grab zone, so it is padding on neither side.
+                let gap = if is_condensed { border_padding } else { 8 };
+                let panel = widget::Row::with_children(vec![
                     container(nav)
-                        .padding(
-                            ([
-                                0,
-                                if is_condensed { border_padding } else { 8 },
-                                border_padding,
-                                border_padding,
-                            ])
-                            .to_padding(),
-                        )
+                        .padding(([0, 0, border_padding, border_padding]).to_padding())
                         .into(),
-                );
+                    widget::space::horizontal()
+                        .width(Length::Fixed(f32::from(gap)))
+                        .into(),
+                ]);
+                if is_condensed {
+                    // The panel covers the window and has nothing to be
+                    // dragged against.
+                    widgets.push(panel.into());
+                } else {
+                    // Laid over the panel's trailing edge rather than beside
+                    // it, so what is grabbed is the boundary itself: the
+                    // handle reaches `GRAB` back over the panel and fills the
+                    // gap after it. The line and its delay are the divider's
+                    // own doing; see `widget::nav_bar_divider`.
+                    let handle = widget::nav_bar_divider(
+                        crate::mouse_area::MouseArea::new(
+                            widget::space::horizontal()
+                                .width(Length::Fixed(
+                                    widget::nav_bar_divider::GRAB + f32::from(gap),
+                                ))
+                                .height(Length::Fill),
+                        )
+                        .interaction(crate::ui::iced_core::mouse::Interaction::ResizingHorizontally)
+                        .on_press(|_| crate::ui::Action::Cosmic(Action::NavBarResizeStart))
+                        // A press that lands within the double-click interval
+                        // of the last one reaches `on_double_click` and
+                        // nowhere else, and would otherwise begin a drag the
+                        // core knows nothing about.
+                        .on_double_click(|_| crate::ui::Action::Cosmic(Action::NavBarResizeStart))
+                        .on_drag_delta(|delta| {
+                            crate::ui::Action::Cosmic(Action::NavBarResizeDrag(delta.x))
+                        })
+                        .on_drag_end(|_| crate::ui::Action::Cosmic(Action::NavBarResizeEnd))
+                        .on_release(|_| crate::ui::Action::Cosmic(Action::NavBarResizeEnd)),
+                    );
+                    widgets.push(
+                        widget::Stack::with_children(vec![
+                            panel.into(),
+                            widget::Row::with_children(vec![
+                                widget::space::horizontal().width(Length::Fill).into(),
+                                handle.into(),
+                            ])
+                            .height(Length::Fill)
+                            .into(),
+                        ])
+                        .into(),
+                    );
+                }
                 true
             } else {
                 false

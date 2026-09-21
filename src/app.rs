@@ -1797,6 +1797,7 @@ impl App {
 
     fn update_config(&mut self) -> Task<Message> {
         self.key_binds = key_binds(&tab::Mode::App, &self.config.key_binds);
+        self.core.set_nav_bar_width(self.config.nav_bar_width);
         crate::ui::theme::set_density(self.config.density);
         crate::ui::theme::set_header_size(self.config.header_size);
         self.update_nav_model();
@@ -2353,6 +2354,7 @@ impl Application for App {
     fn init(mut core: Core, flags: Self::Flags) -> (Self, Task<Self::Message>) {
         core.window.context_is_overlay = false;
         core.window.show_context = flags.config.show_details;
+        core.set_nav_bar_width(flags.config.nav_bar_width);
 
         let app_themes = vec![fl!("match-desktop"), fl!("dark"), fl!("light")];
 
@@ -2537,7 +2539,7 @@ impl Application for App {
         let mut nav = nav.into_container();
 
         if !self.core.is_condensed() {
-            nav = nav.max_width(280);
+            nav = nav.max_width(widget::nav_bar::MAX_WIDTH);
         }
 
         Some(Element::from(
@@ -2647,6 +2649,14 @@ impl Application for App {
 
     fn nav_model(&self) -> Option<&segmented_button::SingleSelectModel> {
         Some(&self.nav_model)
+    }
+
+    fn on_nav_bar_resized(&mut self, width: u16) -> Task<Self::Message> {
+        self.config.nav_bar_width = Some(width);
+        if let Err(err) = self.config_handler.save(&self.config) {
+            log::warn!("failed to save config \"nav_bar_width\": {err}");
+        }
+        Task::none()
     }
 
     fn on_nav_select(&mut self, entity: Entity) -> Task<Self::Message> {

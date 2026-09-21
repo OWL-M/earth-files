@@ -859,6 +859,7 @@ impl App {
     fn update_config(&mut self) -> Task<Message> {
         crate::ui::theme::set_density(self.flags.config.density);
         crate::ui::theme::set_header_size(self.flags.config.header_size);
+        self.core.set_nav_bar_width(self.flags.config.nav_bar_width);
         self.core.window.show_context = self.flags.config.dialog.show_details;
         let config = self.flags.config.dialog_tab();
         self.tab.config.view = config.view;
@@ -1297,7 +1298,7 @@ impl Application for App {
         .into_container();
 
         if !self.core().is_condensed() {
-            nav = nav.max_width(280);
+            nav = nav.max_width(widget::nav_bar::MAX_WIDTH);
         }
 
         Some(Element::from(
@@ -1312,6 +1313,15 @@ impl Application for App {
     fn on_app_exit(&mut self) -> Option<Message> {
         self.result_opt = Some(DialogResult::Cancel);
         None
+    }
+
+    /// The chooser shares the sidebar width with the main window
+    fn on_nav_bar_resized(&mut self, width: u16) -> Task<Message> {
+        self.flags.config.nav_bar_width = Some(width);
+        if let Err(err) = self.flags.config_handler.save(&self.flags.config) {
+            log::warn!("failed to save config \"nav_bar_width\": {err}");
+        }
+        Task::none()
     }
 
     fn on_nav_select(&mut self, entity: segmented_button::Entity) -> Task<Message> {
