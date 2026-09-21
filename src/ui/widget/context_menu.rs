@@ -202,7 +202,12 @@ impl<Message: Clone + 'static> ContextMenu<'_, Message> {
                 )),
                 anchor_rect,
                 anchor: crate::ui::surface::PopupAnchor::None,
-                gravity: crate::ui::surface::PopupGravity::BottomRight,
+                // The direction the menu laid itself out in, not a fixed
+                // guess: `init_root_menu` above decides which way there is
+                // room to open, and the surface has to be placed the same
+                // way. Requesting `BottomRight` regardless left the
+                // compositor's constraint adjustment to correct it.
+                gravity,
                 ..Default::default()
             };
             let parent = self.window_id;
