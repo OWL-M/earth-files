@@ -23,6 +23,7 @@ use std::sync::Arc;
 use iced_exwlshell::actions::IcedNewPopupSettings;
 use iced_exwlshell::reexport::{PixelSize, PopupPlacement};
 pub use iced_exwlshell::reexport::{PopupAnchor, PopupConstraintAdjustment, PopupGravity};
+use iced_texture_cache::Corner;
 
 /// Produces the content of a surface created from within a widget.
 ///
@@ -204,6 +205,29 @@ pub fn surface_task<M: Send + 'static>(action: Action<M>) -> iced::Task<crate::u
     iced::Task::done(crate::ui::Action::Surface(action))
 }
 
+/// The corner a popup with this gravity collapses back into.
+///
+/// Gravity says which way a popup grows from its anchor point, so the
+/// opposite corner is the anchor itself: a `BottomRight` popup hangs down
+/// and to the right, so the pointer is at its top-left.
+///
+/// `Gravity` is generated from the xdg-shell protocol and has edge and
+/// `None` variants as well as the four corners. No animated popup asks for
+/// one, and `TopLeft` is the sane answer if one ever does: it is the corner
+/// for the `BottomRight` gravity that every default uses.
+// Used from `shell::runner` once the popup genie is wired in.
+#[allow(dead_code)]
+#[must_use]
+pub(crate) fn collapse_corner(gravity: PopupGravity) -> Corner {
+    match gravity {
+        PopupGravity::BottomRight => Corner::TopLeft,
+        PopupGravity::BottomLeft => Corner::TopRight,
+        PopupGravity::TopRight => Corner::BottomLeft,
+        PopupGravity::TopLeft => Corner::BottomRight,
+        _ => Corner::TopLeft,
+    }
+}
+
 pub mod action {
     use super::{Action, PopupSettings, View};
     use crate::ui::Element;
@@ -281,5 +305,44 @@ pub(crate) mod dismissal {
                 false
             }
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_popup_collapses_toward_the_corner_its_gravity_grew_from() {
+        // A popup with `BottomRight` gravity extends down and to the right
+        // of its anchor point, so that point is its top-left corner, and
+        // that is where it has to collapse back into.
+        assert_eq!(collapse_corner(PopupGravity::BottomRight), Corner::TopLeft);
+        assert_eq!(collapse_corner(PopupGravity::BottomLeft), Corner::TopRight);
+        assert_eq!(collapse_corner(PopupGravity::TopRight), Corner::BottomLeft);
+        assert_eq!(collapse_corner(PopupGravity::TopLeft), Corner::BottomRight);
+    }
+
+    #[test]
+    fn the_four_corners_are_distinct() {
+        let corners = [
+            collapse_corner(PopupGravity::BottomRight),
+            collapse_corner(PopupGravity::BottomLeft),
+            collapse_corner(PopupGravity::TopRight),
+            collapse_corner(PopupGravity::TopLeft),
+        ];
+
+        for (i, a) in corners.iter().enumerate() {
+            for b in &corners[i + 1..] {
+                assert_ne!(a, b, "two gravities map to {a:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn a_gravity_without_a_corner_falls_back_to_the_usual_one() {
+        // `Gravity` is generated from the xdg-shell protocol and carries
+        // edge and `None` variants a context menu never asks for.
+        assert_eq!(collapse_corner(PopupGravity::None), Corner::TopLeft);
     }
 }
