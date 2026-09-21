@@ -100,6 +100,9 @@ pub mod paragraph;
 pub mod popover;
 pub use popover::{Popover, popover};
 
+pub mod popup_genie;
+pub use popup_genie::{PopupGenie, popup_genie};
+
 pub mod radio;
 
 pub mod progress_bar;
