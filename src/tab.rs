@@ -55,7 +55,7 @@ use crate::large_image::{
     should_use_tiling,
 };
 use crate::localize::{LANGUAGE_SORTER, LOCALE};
-use crate::mime_icon::{mime_for_path, mime_icon};
+use crate::mime_icon::mime_for_path;
 use crate::mounter::MOUNTERS;
 use crate::operation::{Controller, OperationError};
 use crate::thumbnail_cacher::{CachedThumbnail, ThumbnailCacher, ThumbnailSize};
@@ -315,17 +315,55 @@ pub fn folder_icon_name(path: &PathBuf) -> &'static str {
     SPECIAL_DIRS.get(path).map_or("folder", |x| *x)
 }
 
+/// Folder icons, kept by name and size.
+///
+/// Resolving one searches the icon theme on disk and costs tens of
+/// milliseconds. Without this a directory of a hundred folders pays that for
+/// every folder at every size, although they nearly all share the one name.
+/// Folder icon name, size, and whether the symbolic variant is wanted
+type FolderIconKey = (&'static str, u16, bool);
+
+static FOLDER_ICONS: LazyLock<Mutex<FxHashMap<FolderIconKey, widget::icon::Handle>>> =
+    LazyLock::new(|| Mutex::new(FxHashMap::default()));
+
+/// The folder icon for `name`, only if it is already resolved
+fn try_folder_icon(name: &'static str, icon_size: u16) -> Option<widget::icon::Handle> {
+    let cache = FOLDER_ICONS.lock().unwrap_or_else(|err| err.into_inner());
+    cache.get(&(name, icon_size, false)).cloned()
+}
+
+fn cached_folder_icon(name: &'static str, icon_size: u16, symbolic: bool) -> widget::icon::Handle {
+    let mut cache = FOLDER_ICONS.lock().unwrap_or_else(|err| err.into_inner());
+    cache
+        .entry((name, icon_size, symbolic))
+        .or_insert_with(|| {
+            if symbolic {
+                widget::icon::from_name(format!("{name}-symbolic"))
+                    .size(icon_size)
+                    .handle()
+            } else {
+                widget::icon::from_name(name)
+                    .prefer_svg(true)
+                    .size(icon_size)
+                    .handle()
+            }
+        })
+        .clone()
+}
+
 pub fn folder_icon(path: &PathBuf, icon_size: u16) -> widget::icon::Handle {
-    widget::icon::from_name(folder_icon_name(path))
-        .prefer_svg(true)
-        .size(icon_size)
-        .handle()
+    cached_folder_icon(folder_icon_name(path), icon_size, false)
+}
+
+/// The folder icon if it is cached, else the generic placeholder. Used while
+/// scanning, which must not wait on the icon theme.
+fn folder_icon_or_placeholder(path: &PathBuf, icon_size: u16) -> widget::icon::Handle {
+    try_folder_icon(folder_icon_name(path), icon_size)
+        .unwrap_or_else(|| crate::mime_icon::placeholder_icon(icon_size))
 }
 
 pub fn folder_icon_symbolic(path: &PathBuf, icon_size: u16) -> widget::icon::Handle {
-    widget::icon::from_name(format!("{}-symbolic", folder_icon_name(path)))
-        .size(icon_size)
-        .handle()
+    cached_folder_icon(folder_icon_name(path), icon_size, true)
 }
 
 fn has_trailing_sep(path: &Path) -> bool {
@@ -698,6 +736,114 @@ pub static DIRECTORY_MIME: LazyLock<Mime> = LazyLock::new(|| "inode/directory".p
 /// Icons for a file item, using the launcher's own icon when `path` is a
 /// desktop entry. Returns whether it was one, so callers can also take the
 /// display name from the entry.
+/// File types and folder names whose icons still need resolving
+#[derive(Clone, Debug, Default)]
+pub struct IconWarmup {
+    mimes: Vec<mime::Mime>,
+    folders: Vec<&'static str>,
+}
+
+impl IconWarmup {
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.mimes.is_empty() && self.folders.is_empty()
+    }
+}
+
+/// Take any icons the cache has learned since these items were built.
+///
+/// Cheap: cache lookups only, never resolution. Called wherever items are
+/// installed as well as when a worker reports back, because another tab may
+/// have warmed the same types in between, in which case there is nothing to
+/// warm and no report would arrive to swap the placeholders out.
+///
+/// Items showing a thumbnail or a desktop entry's own icon are left alone:
+/// theirs did not come from these caches.
+pub fn refresh_icons(items: &mut [Item], sizes: IconSizes) -> IconWarmup {
+    let mut mimes = std::collections::HashSet::new();
+    let mut folders = std::collections::HashSet::new();
+    for item in items {
+        if item.mime == "application/x-desktop"
+            || matches!(
+                item.thumbnail_opt,
+                Some(ItemThumbnail::Image(..) | ItemThumbnail::Svg(..))
+            )
+        {
+            continue;
+        }
+        // The same lookups decide both what to draw now and what still needs
+        // resolving. Asking twice would leave a gap in which another tab's
+        // worker fills the cache: the refresh would keep its placeholders and
+        // the second question would answer "nothing missing", so no report
+        // would ever come back to swap them out.
+        let sizes_wanted = [sizes.grid(), sizes.list(), sizes.list_condensed()];
+        if item.metadata.is_dir() {
+            let Some(path) = item.path_opt() else {
+                continue;
+            };
+            let name = folder_icon_name(path);
+            let found = sizes_wanted.map(|size| try_folder_icon(name, size));
+            if found.iter().any(Option::is_none) {
+                folders.insert(name);
+            }
+            let [grid, list, condensed] = found;
+            if let Some(handle) = grid {
+                item.icon_handle_grid = handle;
+            }
+            if let Some(handle) = list {
+                item.icon_handle_list = handle;
+            }
+            if let Some(handle) = condensed {
+                item.icon_handle_list_condensed = handle;
+            }
+        } else {
+            // One look per size answers both questions, so the cache cannot
+            // change between them and strand this item with a placeholder
+            // nobody will come back to replace
+            let found =
+                sizes_wanted.map(|size| crate::mime_icon::lookup_mime_icon(&item.mime, size));
+            if found
+                .iter()
+                .any(|state| matches!(state, crate::mime_icon::CachedIcon::Unknown))
+            {
+                mimes.insert(item.mime.clone());
+            }
+            let [grid, list, condensed] = found;
+            if let crate::mime_icon::CachedIcon::Found(handle) = grid {
+                item.icon_handle_grid = handle;
+            }
+            if let crate::mime_icon::CachedIcon::Found(handle) = list {
+                item.icon_handle_list = handle;
+            }
+            if let crate::mime_icon::CachedIcon::Found(handle) = condensed {
+                item.icon_handle_list_condensed = handle;
+            }
+        }
+    }
+    IconWarmup {
+        mimes: mimes.into_iter().collect(),
+        folders: folders.into_iter().collect(),
+    }
+}
+
+/// Resolve everything in `warmup` into the icon caches. Each lookup searches
+/// the icon theme on disk, so this belongs on a worker.
+pub fn warm_icons(warmup: &IconWarmup, sizes: IconSizes) {
+    let all = [sizes.grid(), sizes.list(), sizes.list_condensed()];
+    crate::mime_icon::warm_mime_icons(&warmup.mimes, &all);
+    for name in &warmup.folders {
+        for size in all {
+            let _ = cached_folder_icon(name, size, false);
+        }
+    }
+}
+
+/// The icon for `mime`, or the generic one when it has not been resolved yet
+fn cached_or_placeholder(mime: &Mime, size: u16) -> widget::icon::Handle {
+    crate::mime_icon::try_mime_icon(mime, size)
+        .unwrap_or_else(|| crate::mime_icon::placeholder_icon(size))
+}
+
 fn file_icons(
     path: &Path,
     mime: &Mime,
@@ -716,11 +862,16 @@ fn file_icons(
             desktop_icon_handle(&icon_name, sizes.list()),
             desktop_icon_handle(&icon_name, sizes.list_condensed()),
         ),
+        // Only what is already cached. Resolving an icon searches the icon
+        // theme on disk and costs tens of milliseconds, and a directory of a
+        // hundred files holds enough distinct types to add seconds to the
+        // scan before anything can be drawn. The placeholder stands in until
+        // `Message::IconsReady` swaps in the real one.
         None => (
             is_desktop,
-            mime_icon(mime.clone(), sizes.grid()),
-            mime_icon(mime.clone(), sizes.list()),
-            mime_icon(mime.clone(), sizes.list_condensed()),
+            cached_or_placeholder(mime, sizes.grid()),
+            cached_or_placeholder(mime, sizes.list()),
+            cached_or_placeholder(mime, sizes.list_condensed()),
         ),
     }
 }
@@ -762,9 +913,9 @@ pub fn item_from_gvfs_info(path: PathBuf, file_info: gio::FileInfo, sizes: IconS
             (
                 false,
                 DIRECTORY_MIME.clone(),
-                folder_icon(&path, sizes.grid()),
-                folder_icon(&path, sizes.list()),
-                folder_icon(&path, sizes.list_condensed()),
+                folder_icon_or_placeholder(&path, sizes.grid()),
+                folder_icon_or_placeholder(&path, sizes.list()),
+                folder_icon_or_placeholder(&path, sizes.list_condensed()),
             )
         } else {
             // ALWAYS assume we're remote for mime guessing here, since gvfs reading can be expensive
@@ -866,9 +1017,9 @@ pub fn item_from_entry(
             (
                 false,
                 DIRECTORY_MIME.clone(),
-                folder_icon(&path, sizes.grid()),
-                folder_icon(&path, sizes.list()),
-                folder_icon(&path, sizes.list_condensed()),
+                folder_icon_or_placeholder(&path, sizes.grid()),
+                folder_icon_or_placeholder(&path, sizes.list()),
+                folder_icon_or_placeholder(&path, sizes.list_condensed()),
             )
         } else {
             let mime = mime_for_path(&path, Some(&metadata), remote);
@@ -930,9 +1081,9 @@ pub fn item_from_trash_entry(
     {
         trash::TrashItemSize::Entries(_) => (
             DIRECTORY_MIME.clone(),
-            folder_icon(&original_path, sizes.grid()),
-            folder_icon(&original_path, sizes.list()),
-            folder_icon(&original_path, sizes.list_condensed()),
+            folder_icon_or_placeholder(&original_path, sizes.grid()),
+            folder_icon_or_placeholder(&original_path, sizes.list()),
+            folder_icon_or_placeholder(&original_path, sizes.list_condensed()),
         ),
         trash::TrashItemSize::Bytes(_) => {
             // This passes remote = true so it does not read from the original path
@@ -1656,6 +1807,10 @@ impl fmt::Debug for TaskWrapper {
 #[derive(Debug)]
 pub enum Command {
     Action(Action),
+    /// Resolve these icons on a worker, then send [`Message::IconsReady`].
+    /// Scanning and search both leave placeholders rather than waiting on the
+    /// icon theme, which costs tens of milliseconds per icon.
+    WarmIcons(IconWarmup, IconSizes),
     Surface(crate::ui::surface::Action<Message>),
     AddNetworkDrive,
     AddToSidebar(PathBuf),
@@ -1686,6 +1841,8 @@ pub enum Command {
 #[derive(Clone, Debug)]
 pub enum Message {
     AddNetworkDrive,
+    /// The icon cache has been filled, so placeholders can be replaced
+    IconsReady,
     AutoScroll(Option<f32>),
     Click(Option<usize>),
     DoubleClick(Option<usize>),
@@ -3011,6 +3168,17 @@ impl Tab {
 
     pub const fn items_opt_mut(&mut self) -> Option<&mut Vec<Item>> {
         self.items_opt.as_mut()
+    }
+
+    /// Take any icons the cache has learned, and report what it still lacks.
+    ///
+    /// See [`refresh_icons`]; this is the form the hosts use, which keeps the
+    /// borrow of the item list inside the tab.
+    pub fn refresh_icons(&mut self, sizes: IconSizes) -> IconWarmup {
+        self.items_opt
+            .as_deref_mut()
+            .map(|items| refresh_icons(items, sizes))
+            .unwrap_or_default()
     }
 
     pub fn set_items(&mut self, mut items: Vec<Item>) {
@@ -4789,6 +4957,14 @@ impl Tab {
                 if finished {
                     self.search_context = None;
                 }
+                // Results arrive item by item rather than through a scan, so
+                // their icons need asking for separately or they stay generic
+                if let Some(items) = self.items_opt.as_deref_mut() {
+                    let warmup = refresh_icons(items, sizes);
+                    if !warmup.is_empty() {
+                        commands.push(Command::WarmIcons(warmup, sizes));
+                    }
+                }
             }
             Message::SelectAll => {
                 self.select_all();
@@ -4886,6 +5062,14 @@ impl Tab {
                     commands.push(Command::Iced(
                         widget::text_input::focus(self.edit_location_id.clone()).into(),
                     ));
+                }
+            }
+            Message::IconsReady => {
+                let sizes = self.config.icon_sizes;
+                if let Some(ref mut items) = self.items_opt {
+                    // Refresh only. Asking for more work here could never
+                    // settle for a type the icon theme has nothing for.
+                    let _ = refresh_icons(items, sizes);
                 }
             }
             Message::Thumbnail(path, thumbnail) => {
@@ -7602,6 +7786,46 @@ mod tests {
     fn tab_click_ctrl_selects_multiple() -> io::Result<()> {
         // Select the first and second directory by holding down ctrl
         tab_selects_item(&[0, 1], Modifiers::CTRL, &[true, true])
+    }
+
+    /// Scanning must not resolve icons. Each one searches the icon theme on
+    /// disk for tens of milliseconds, and a directory holds enough distinct
+    /// types that doing it inline delays the listing by seconds.
+    #[test]
+    fn scanning_leaves_icons_for_the_worker() -> io::Result<()> {
+        let fs = empty_fs()?;
+        let path = fs.path();
+        fs::write(path.join("notes.txt"), b"x")?;
+        fs::create_dir(path.join("sub"))?;
+        let sizes = IconSizes::default();
+
+        let mut items = super::scan_path(&path.to_path_buf(), sizes);
+        // One pass both takes what the cache knows and reports what it lacks,
+        // so there is no window in which another tab's worker can fill the
+        // cache between the two and leave these placeholders stranded
+        let warmup = super::refresh_icons(&mut items, sizes);
+        assert!(
+            !warmup.is_empty(),
+            "the scan should have left the icons to be resolved"
+        );
+
+        // What the worker does, then the tab takes the results
+        super::warm_icons(&warmup, sizes);
+        assert!(
+            super::refresh_icons(&mut items, sizes).is_empty(),
+            "warming should satisfy everything the scan left"
+        );
+
+        // A second visit to the same types asks for nothing
+        let mut again = super::scan_path(&path.to_path_buf(), sizes);
+        assert!(super::refresh_icons(&mut again, sizes).is_empty());
+
+        // And a type the icon theme has nothing for is not asked for twice
+        assert!(
+            super::refresh_icons(&mut again, sizes).is_empty(),
+            "a type with no icon must not be requeued on every pass"
+        );
+        Ok(())
     }
 
     /// Dimensions come from the scan, never from drawing. A scanned image

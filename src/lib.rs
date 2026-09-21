@@ -34,6 +34,7 @@ pub mod mime_icon;
 mod mounter;
 mod mouse_area;
 pub mod operation;
+pub mod portal;
 mod spawn_detached;
 pub mod tab;
 mod thumbnail_cacher;
@@ -75,8 +76,17 @@ pub fn home_dir() -> PathBuf {
 }
 
 /// Runs application with these settings
+/// Set up logging, once, however the process was started.
+///
+/// Both the file manager and the portal backend go through this, so they
+/// report the same way and the default filter is stated in one place.
+pub fn init_logging() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(install_logging);
+}
+
 #[rustfmt::skip]
-pub fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn install_logging() {
     let log_format = tracing_subscriber::fmt::format()
         .pretty()
         .with_line_number(true)
@@ -111,6 +121,11 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
         })
         .with(log_layer)
         .init();
+}
+
+#[rustfmt::skip]
+pub fn main() -> Result<(), Box<dyn std::error::Error>> {
+    init_logging();
 
     localize::localize();
 

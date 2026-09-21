@@ -13,7 +13,8 @@
 //! tables are.
 
 use std::path::{Path, PathBuf};
-use std::sync::OnceLock;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Once, OnceLock};
 
 use palette::Srgba;
 use serde::Deserialize;
@@ -702,6 +703,20 @@ pub fn themes_dir() -> PathBuf {
 /// the file belongs to the user, who will want to correct it in place, so it
 /// is never moved aside the way a malformed config is.
 pub fn load() {
+    // Genuinely once. Every host that builds a chooser calls this, including
+    // one that already called it at startup, and the body reads both files,
+    // builds palettes and leaks them: repeating it would leak another pair
+    // per call and then throw the result away, because the locks below only
+    // accept their first value.
+    static LOADED: Once = Once::new();
+    LOADED.call_once(load_once);
+}
+
+/// How many times the work below has actually run. Only the test reads it.
+static LOAD_RUNS: AtomicUsize = AtomicUsize::new(0);
+
+fn load_once() {
+    LOAD_RUNS.fetch_add(1, Ordering::Relaxed);
     let dir = themes_dir();
     let dark = read_file(&dir.join("dark.ron"));
     let light = read_file(&dir.join("light.ron"));
@@ -1072,6 +1087,21 @@ mod tests {
         )
         .apply(&DARK);
         assert_eq!(solid.accent.on, color("#000000"));
+    }
+
+    #[test]
+    fn loading_repeatedly_does_the_work_once() {
+        // Every chooser calls `load`, and the body leaks the palettes it
+        // builds. Running it again would leak a second pair and discard them,
+        // because the locks keep their first value.
+        for _ in 0..5 {
+            load();
+        }
+        assert_eq!(
+            LOAD_RUNS.load(Ordering::Relaxed),
+            1,
+            "the theme files must be read and leaked exactly once"
+        );
     }
 
     #[test]

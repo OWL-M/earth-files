@@ -25,6 +25,7 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use std::any::TypeId;
 use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::{self, Instant};
 use std::{env, fmt, fs};
 
@@ -236,23 +237,32 @@ impl Default for DialogSettings {
     }
 }
 
+/// Wraps a chooser's own messages for the host that owns it.
+///
+/// A closure rather than a function pointer so a host running several
+/// choosers at once, as a portal backend does, can capture which one a
+/// message belongs to.
+pub type DialogMapper<M> = Arc<dyn Fn(DialogMessage) -> M + Send + Sync>;
+
 pub struct Dialog<M> {
     shell: Shell<App>,
-    mapper: fn(DialogMessage) -> M,
+    mapper: DialogMapper<M>,
     on_result: Box<dyn Fn(DialogResult) -> M>,
 }
 
 impl<M: Send + 'static> Dialog<M> {
     pub fn new(
         dialog_settings: DialogSettings,
-        mapper: fn(DialogMessage) -> M,
+        mapper: impl Fn(DialogMessage) -> M + Send + Sync + 'static,
         on_result: impl Fn(DialogResult) -> M + 'static,
     ) -> (Self, Task<M>) {
         crate::localize::localize();
 
         let (config_handler, config) = Config::load();
-        // See the same call in `lib.rs`: the dialog can be built by a host that
-        // never went through `crate::main`.
+        // See the same calls in `lib.rs`: the dialog can be built by a host that
+        // never went through `crate::main`, such as the file chooser a portal
+        // backend puts on screen. Each of these is idempotent.
+        crate::ui::theme::custom::load();
         crate::ui::font::set_families(&config);
         crate::ui::icon_theme::set_from_config(&config);
 
@@ -289,6 +299,12 @@ impl<M: Send + 'static> Dialog<M> {
 
         let mut core = Core::default();
         core.set_main_window_id(Some(window_id));
+        // This shell is embedded in a host's daemon, and its "main window" is
+        // just this chooser. Left at the default, the host would call
+        // `iced::exit` when the compositor closed the chooser, taking the
+        // whole process with it: the file manager, or a portal backend along
+        // with every other request it was serving.
+        core.exit_on_main_window_closed = false;
         let flags = Flags {
             kind: dialog_settings.kind,
             path_opt: dialog_settings.path_opt.as_ref().and_then(|path| {
@@ -309,6 +325,8 @@ impl<M: Send + 'static> Dialog<M> {
         // its own `theme()`/`style()` are never called; the theme it is handed
         // here is only what its config watchers update.
         let (shell, shell_command) = Shell::<App>::init(core, flags, crate::ui::theme::active());
+        let mapper: DialogMapper<M> = Arc::new(mapper);
+        let for_command = Arc::clone(&mapper);
         (
             Self {
                 shell,
@@ -319,13 +337,13 @@ impl<M: Send + 'static> Dialog<M> {
                 window_command,
                 shell_command
                     .map(DialogMessage)
-                    .map(move |message| crate::ui::action::app(mapper(message))),
+                    .map(move |message| crate::ui::action::app(for_command(message))),
             ]),
         )
     }
 
     pub fn set_title(&mut self, title: impl Into<String>) -> Task<M> {
-        let mapper = self.mapper;
+        let mapper = Arc::clone(&self.mapper);
         self.shell.app.title = title.into();
         self.shell
             .app
@@ -355,7 +373,7 @@ impl<M: Send + 'static> Dialog<M> {
         filters: impl Into<Vec<DialogFilter>>,
         filter_selected: Option<usize>,
     ) -> Task<M> {
-        let mapper = self.mapper;
+        let mapper = Arc::clone(&self.mapper);
         self.shell.app.filters = filters.into();
         self.shell.app.filter_selected = filter_selected;
         self.shell
@@ -365,16 +383,18 @@ impl<M: Send + 'static> Dialog<M> {
             .map(move |message| crate::ui::action::app(mapper(message)))
     }
 
-    pub fn subscription(&self) -> Subscription<M> {
-        self.shell
-            .subscription()
-            .map(DialogMessage)
-            .with(self.mapper)
-            .map(|(mapper, message)| mapper(message))
+    /// The chooser's own events, for the host to wrap.
+    ///
+    /// Left untagged because a subscription is identified by a hash of what
+    /// it carries, and a closure cannot be hashed. A host running several
+    /// choosers tags these itself with something that can be, such as the
+    /// request they belong to.
+    pub fn subscription(&self) -> Subscription<DialogMessage> {
+        self.shell.subscription().map(DialogMessage)
     }
 
     pub fn update(&mut self, message: DialogMessage) -> Task<M> {
-        let mapper = self.mapper;
+        let mapper = Arc::clone(&self.mapper);
         let command = self
             .shell
             .update(message.0)
@@ -410,10 +430,11 @@ impl<M: Send + 'static> Dialog<M> {
     }
 
     pub fn view(&self, window_id: window::Id) -> Element<'_, M> {
+        let mapper = Arc::clone(&self.mapper);
         self.shell
             .view(window_id)
             .map(DialogMessage)
-            .map(self.mapper)
+            .map(move |message| mapper(message))
     }
 
     pub const fn window_id(&self) -> window::Id {
@@ -1609,6 +1630,27 @@ impl Application for App {
                     if contains_change {
                         return self.rescan_tab(None);
                     }
+                    // A refreshed item may now be a type whose icon has never
+                    // been resolved, and a refresh is not a scan
+                    let sizes = self.tab.config.icon_sizes;
+                    {
+                        let warmup = self.tab.refresh_icons(sizes);
+                        if !warmup.is_empty() {
+                            return Task::future(async move {
+                                if tokio::task::spawn_blocking(move || {
+                                    tab::warm_icons(&warmup, sizes);
+                                })
+                                .await
+                                .is_err()
+                                {
+                                    return crate::ui::action::none();
+                                }
+                                crate::ui::action::app(Message::TabMessage(
+                                    tab::Message::IconsReady,
+                                ))
+                            });
+                        }
+                    }
                 }
             }
             Message::NotifyWatcher(mut watcher_wrapper) => match watcher_wrapper.watcher_opt.take()
@@ -1743,6 +1785,21 @@ impl Application for App {
                 let mut commands = Vec::new();
                 for tab_command in tab_commands {
                     match tab_command {
+                        tab::Command::WarmIcons(warmup, sizes) => {
+                            commands.push(Task::future(async move {
+                                if tokio::task::spawn_blocking(move || {
+                                    tab::warm_icons(&warmup, sizes);
+                                })
+                                .await
+                                .is_err()
+                                {
+                                    return crate::ui::action::none();
+                                }
+                                crate::ui::action::app(Message::TabMessage(
+                                    tab::Message::IconsReady,
+                                ))
+                            }));
+                        }
                         tab::Command::Action(action) => {
                             commands.push(self.update(Message::from(action.message())));
                         }
@@ -1853,6 +1910,26 @@ impl Application for App {
                     let restore_scroll =
                         self.update(Message::TabMessage(tab::Message::ScrollRestore));
 
+                    // Resolve this listing's icons on a worker. The listing is
+                    // already drawn with placeholders; the real icons replace
+                    // them when they arrive, so opening a folder never waits
+                    // on the icon theme.
+                    let sizes = self.tab.config.icon_sizes;
+                    let wanted = self.tab.refresh_icons(sizes);
+                    let warm_icons = if wanted.is_empty() {
+                        Task::none()
+                    } else {
+                        Task::future(async move {
+                            if tokio::task::spawn_blocking(move || tab::warm_icons(&wanted, sizes))
+                                .await
+                                .is_err()
+                            {
+                                return crate::ui::action::none();
+                            }
+                            crate::ui::action::app(Message::TabMessage(tab::Message::IconsReady))
+                        })
+                    };
+
                     if let Some(mut selection_paths) = selection_paths {
                         if !self.flags.kind.multiple() {
                             selection_paths.truncate(1);
@@ -1875,7 +1952,7 @@ impl Application for App {
                     } else {
                         widget::text_input::focus(self.filename_id.clone())
                     };
-                    return Task::batch([restore_scroll, focus]);
+                    return Task::batch([restore_scroll, warm_icons, focus]);
                 }
             }
             Message::TabView(view) => {

@@ -1,7 +1,4 @@
-{
-  self,
-  isHome ? false,
-}:
+{ self }:
 {
   config,
   lib,
@@ -20,16 +17,31 @@ in
       defaultText = lib.literalExpression "inputs.earth-files.packages.\${pkgs.stdenv.hostPlatform.system}.earth-files";
       description = "Earth Files package to install.";
     };
+    portal = {
+      enable = lib.mkEnableOption ''
+        the Earth Files file chooser backend for xdg-desktop-portal.
+
+        Registers the backend and hands it
+        `org.freedesktop.impl.portal.FileChooser` under `common`, forced so
+        another module's default cannot quietly undo it.
+      '';
+    };
   };
 
   config = lib.mkIf cfg.enable (
-    if isHome then
-      {
-        home.packages = [ cfg.package ];
-      }
-    else
-      {
-        environment.systemPackages = [ cfg.package ];
-      }
+    lib.mkMerge [
+      { environment.systemPackages = [ cfg.package ]; }
+      (lib.mkIf cfg.portal.enable {
+        xdg.portal = {
+          enable = true;
+          extraPortals = [ cfg.package ];
+          config = {
+            common."org.freedesktop.impl.portal.FileChooser" = lib.mkForce [
+              "earthfiles"
+            ];
+          };
+        };
+      })
+    ]
   );
 }

@@ -1,6 +1,8 @@
 [package]
 name = "earth-files"
 version = "1.9.0"
+# Two binaries: `cargo run` needs to know which one is the application
+default-run = "earth-files"
 authors = ["Jeremy Soller <jeremy@system76.com>"]
 edition = "2024"
 license = "GPL-3.0-only"
@@ -173,6 +175,17 @@ required-features = ["gvfs"]
 [[example]]
 name = "gvfs"
 required-features = ["gvfs"]
+
+[[bin]]
+name = "earth-files"
+path = "src/main.rs"
+
+# The xdg-desktop-portal file chooser backend. A second binary rather than a
+# flag on the first: it is a D-Bus service with its own lifetime, started by
+# activation and kept for the session.
+[[bin]]
+name = "earth-files-portal"
+path = "src/bin/earth-files-portal.rs"
 
 [features]
 # Not enabled anywhere; declared only so vendored widgets carrying

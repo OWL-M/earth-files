@@ -126,6 +126,93 @@ pub fn mime_for_path(
     }
 }
 
+/// The icon for `mime` at `size`, but only if it has already been resolved.
+///
+/// Resolving one costs tens of milliseconds, because it searches the icon
+/// theme on disk. Callers that run where a person is waiting ask for this,
+/// draw [`placeholder_icon`] when it answers `None`, and let
+/// [`warm_mime_icons`] fill the cache from a worker.
+pub fn try_mime_icon(mime: &Mime, size: u16) -> Option<icon::Handle> {
+    let cache = MIME_ICON_CACHE.lock().unwrap();
+    cache
+        .cache
+        .get(&MimeIconKey {
+            mime: mime.clone(),
+            size,
+        })
+        .cloned()
+        .flatten()
+}
+
+/// What the cache knows about one icon.
+///
+/// The three cases have to be told apart, and told apart in one look. A type
+/// the icon theme has nothing for is remembered as such, so asking again
+/// would only search the disk to learn the same thing. And asking twice,
+/// once for the handle and once for whether it is known, leaves a gap in
+/// which another thread fills the cache: the first answer says "no handle",
+/// the second says "already known", and the caller neither draws the icon
+/// nor asks anyone to resolve it.
+#[derive(Clone, Debug)]
+pub enum CachedIcon {
+    /// Never looked up
+    Unknown,
+    /// Looked up, and the icon theme has nothing for it
+    Missing,
+    Found(icon::Handle),
+}
+
+/// What the cache knows about `mime` at `size`, in one look
+pub fn lookup_mime_icon(mime: &Mime, size: u16) -> CachedIcon {
+    let cache = MIME_ICON_CACHE.lock().unwrap();
+    match cache.cache.get(&MimeIconKey {
+        mime: mime.clone(),
+        size,
+    }) {
+        None => CachedIcon::Unknown,
+        Some(None) => CachedIcon::Missing,
+        Some(Some(handle)) => CachedIcon::Found(handle.clone()),
+    }
+}
+
+/// The generic icon drawn until the real one has been resolved.
+///
+/// Resolved once and kept, so standing in for an unresolved icon costs
+/// nothing after the first time.
+pub fn placeholder_icon(size: u16) -> icon::Handle {
+    static PLACEHOLDERS: LazyLock<Mutex<FxHashMap<u16, icon::Handle>>> =
+        LazyLock::new(|| Mutex::new(FxHashMap::default()));
+    let mut placeholders = PLACEHOLDERS.lock().unwrap();
+    placeholders
+        .entry(size)
+        .or_insert_with(|| {
+            icon::from_name(FALLBACK_MIME_ICON)
+                .prefer_svg(true)
+                .size(size)
+                .handle()
+        })
+        .clone()
+}
+
+/// Resolve every one of `mimes` at every one of `sizes` into the cache.
+///
+/// Slow by nature, so it belongs on a worker. Afterwards `try_mime_icon`
+/// answers for all of them without touching the disk.
+pub fn warm_mime_icons(mimes: &[Mime], sizes: &[u16]) {
+    for mime in mimes {
+        for size in sizes {
+            // Taken and released per icon: the view asks for cached icons on
+            // the same mutex, and holding it across the whole batch would
+            // stall drawing for as long as the batch takes
+            let mut cache = MIME_ICON_CACHE.lock().unwrap();
+            let _ = cache.get(MimeIconKey {
+                mime: mime.clone(),
+                size: *size,
+            });
+        }
+    }
+}
+
 pub fn mime_icon(mime: Mime, size: u16) -> icon::Handle {
     let mut mime_icon_cache = MIME_ICON_CACHE.lock().unwrap();
     match mime_icon_cache.get(MimeIconKey { mime, size }) {

@@ -35,6 +35,9 @@
         earth-files = final.callPackage ./nix/package.nix { };
       };
 
+      nixosModules.earth-files = import ./nix/module.nix { inherit self; };
+      nixosModules.default = self.nixosModules.earth-files;
+
       devShells = eachSystem (system: {
         default = nixpkgs.legacyPackages.${system}.callPackage ./nix/shell.nix {
           inherit (self.packages.${system}) earth-files;

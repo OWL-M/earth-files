@@ -3584,6 +3584,7 @@ impl Application for App {
                 log::debug!("{events:?}");
 
                 let mut needs_reload = Vec::new();
+                let mut warm: Vec<(Entity, tab::IconWarmup, crate::config::IconSizes)> = Vec::new();
                 let entities: Box<[_]> = self.tab_model.iter().collect();
                 for entity in entities {
                     if let Some(tab) = self.tab_model.data_mut::<Tab>(entity)
@@ -3624,15 +3625,38 @@ impl Application for App {
                                 }
                             }
                         }
+                        // A refreshed item may now be a type whose icon has
+                        // never been resolved, and a refresh is not a scan,
+                        // so ask for those separately
+                        let sizes = tab.config.icon_sizes;
+                        let warmup = tab.refresh_icons(sizes);
+                        if !warmup.is_empty() {
+                            warm.push((entity, warmup, sizes));
+                        }
                         if contains_change {
                             needs_reload.push((entity, tab.location.clone()));
                         }
                     }
                 }
 
-                let commands = needs_reload
+                let mut commands: Vec<Task<Message>> = needs_reload
                     .into_iter()
-                    .map(|(entity, location)| self.update_tab(entity, location, None));
+                    .map(|(entity, location)| self.update_tab(entity, location, None))
+                    .collect();
+                for (entity, warmup, sizes) in warm {
+                    commands.push(Task::future(async move {
+                        if tokio::task::spawn_blocking(move || tab::warm_icons(&warmup, sizes))
+                            .await
+                            .is_err()
+                        {
+                            return crate::ui::action::none();
+                        }
+                        crate::ui::action::app(Message::TabMessage(
+                            Some(entity),
+                            tab::Message::IconsReady,
+                        ))
+                    }));
+                }
                 return Task::batch(commands);
             }
             Message::NotifyWatcher(mut watcher_wrapper) => match watcher_wrapper.watcher_opt.take()
@@ -4361,6 +4385,22 @@ impl Application for App {
                 }
                 for tab_command in tab_commands {
                     match tab_command {
+                        tab::Command::WarmIcons(warmup, sizes) => {
+                            commands.push(Task::future(async move {
+                                if tokio::task::spawn_blocking(move || {
+                                    tab::warm_icons(&warmup, sizes);
+                                })
+                                .await
+                                .is_err()
+                                {
+                                    return crate::ui::action::none();
+                                }
+                                crate::ui::action::app(Message::TabMessage(
+                                    Some(entity),
+                                    tab::Message::IconsReady,
+                                ))
+                            }));
+                        }
                         tab::Command::Action(action) => {
                             commands.push(self.update(action.message(Some(entity))));
                         }
@@ -4565,7 +4605,28 @@ impl Application for App {
                         tab.sort_name = sort.0;
                         tab.sort_direction = sort.1;
 
-                        let mut tasks = Vec::with_capacity(3);
+                        let mut tasks = Vec::with_capacity(4);
+
+                        // Resolve the icons this listing needs on a worker.
+                        // The listing is already on screen with placeholders;
+                        // this swaps in the real icons when they are ready.
+                        let sizes = tab.config.icon_sizes;
+                        let wanted = tab.refresh_icons(sizes);
+                        if !wanted.is_empty() {
+                            tasks.push(Task::future(async move {
+                                let warmed = tokio::task::spawn_blocking(move || {
+                                    tab::warm_icons(&wanted, sizes);
+                                })
+                                .await;
+                                if warmed.is_err() {
+                                    return crate::ui::action::none();
+                                }
+                                crate::ui::action::app(Message::TabMessage(
+                                    Some(entity),
+                                    tab::Message::IconsReady,
+                                ))
+                            }));
+                        }
 
                         // Apply a scroll offset restored from history, now that the
                         // items exist
@@ -6608,7 +6669,7 @@ impl Application for App {
         // drives it: without this it gets no key handling, no Escape, and no
         // watcher or config updates
         if let Some(dialog) = &self.file_dialog_opt {
-            subscriptions.push(dialog.subscription());
+            subscriptions.push(dialog.subscription().map(Message::FileDialogMessage));
         }
 
         if !self.pending_operations.is_empty() {

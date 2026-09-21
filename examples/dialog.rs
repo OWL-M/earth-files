@@ -223,7 +223,7 @@ impl Application for App {
 
     fn subscription(&self) -> Subscription<Message> {
         match &self.dialog_opt {
-            Some(dialog) => dialog.subscription(),
+            Some(dialog) => dialog.subscription().map(Message::DialogMessage),
             None => Subscription::none(),
         }
     }
