@@ -1554,6 +1554,7 @@ dependencies = [
  "iced_core",
  "iced_exwlshell",
  "iced_runtime",
+ "iced_texture_cache",
  "icu",
  "ignore",
  "image",
@@ -2688,6 +2689,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "iced_animate"
+version = "0.1.0"
+dependencies = [
+ "iced_core",
+ "log",
+]
+
+[[package]]
 name = "iced_core"
 version = "0.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2850,6 +2859,22 @@ dependencies = [
  "iced_futures",
  "raw-window-handle",
  "thiserror 2.0.20",
+]
+
+[[package]]
+name = "iced_texture_cache"
+version = "0.1.0"
+dependencies = [
+ "bytemuck",
+ "iced_animate",
+ "iced_core",
+ "iced_graphics",
+ "iced_renderer",
+ "iced_tiny_skia",
+ "iced_wgpu",
+ "log",
+ "tiny-skia",
+ "wgpu",
 ]
 
 [[package]]

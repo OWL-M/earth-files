@@ -164,6 +164,39 @@ version = "0.20.1"
 [dependencies.cosmic-text]
 version = "0.15"
 
+# The compositor tier of the animation engine. `Cached` records a widget
+# subtree into a texture and composites it with an animated transform and
+# opacity — which iced 0.14 cannot do at all: `iced_core::Renderer` offers
+# `start_layer` and `start_transformation` only, and `opacity` exists on
+# `image` and `svg` alone.
+#
+# Its `Renderer` is `iced_renderer::fallback::Renderer<WgpuRenderer,
+# TinySkiaRenderer>`, where each half delegates every renderer trait to
+# iced's own, so with no `Cached` in the widget tree nothing changes.
+#
+# A path dependency rather than a git one: the genie warp is being written
+# locally on luminate's `jinn` branch. `nix build` cannot see a path outside
+# this repository and stays broken until this becomes a git reference.
+[dependencies.iced_texture_cache]
+path = "../luminate/texture_cache"
+default-features = false
+# Mirrors the `iced` feature list above. `image` is the same switch as our
+# `iced/image-without-codecs`: both reach `iced_renderer/image`, and the
+# codec-free half of that name is an `iced` facade concern about the `image`
+# crate's decoders, untouched here.
+#
+# `web-colors` is excluded for the reason given in the `iced` block: it sets
+# `GAMMA_CORRECTION = false` and costs us an sRGB surface on a 10-bit
+# display. `x11` is excluded because this application is Wayland only.
+features = [
+    "tiny-skia",
+    "crisp",
+    "wayland",
+    "svg",
+    "canvas",
+    "image",
+]
+
 [[example]]
 name = "gio-list"
 required-features = ["gvfs"]
@@ -205,7 +238,7 @@ gvfs = ["dep:gio", "dep:glib"]
 io-uring = ["compio/io-uring"]
 jemalloc = ["dep:tikv-jemallocator"]
 notify = ["dep:notify-rust"]
-wgpu = ["iced/wgpu"]
+wgpu = ["iced/wgpu", "iced_texture_cache/wgpu"]
 
 [profile.dev]
 opt-level = 1
