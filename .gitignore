@@ -10,3 +10,6 @@
 /result
 /result-*
 .direnv
+
+# Design specs and plans are working notes, not part of the source tree.
+/docs/
