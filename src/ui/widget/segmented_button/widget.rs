@@ -1123,6 +1123,7 @@ where
                     parent,
                     id,
                     positioner,
+                    animate: false,
                 },
                 Some(move || {
                     Element::from(

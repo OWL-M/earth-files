@@ -606,6 +606,7 @@ pub(crate) fn create_text_context_popup(
         parent: window_id,
         id,
         positioner,
+        animate: false,
     };
 
     PENDING_POPUP_REQUESTS.with(|q| {

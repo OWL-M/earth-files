@@ -216,6 +216,7 @@ impl<Message: Clone + 'static> ContextMenu<'_, Message> {
                     parent,
                     id,
                     positioner,
+                    animate: true,
                 },
                 Some(move || {
                     (crate::ui::Element::from(

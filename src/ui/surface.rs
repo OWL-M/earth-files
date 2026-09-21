@@ -87,6 +87,13 @@ pub struct PopupSettings {
     pub parent: window::Id,
     /// Where it sits relative to that parent.
     pub positioner: Positioner,
+    /// Whether this popup collapses into its anchor as it opens and closes.
+    ///
+    /// The shell cannot tell which widget built a popup, and only a context
+    /// menu wants the genie: a dropdown being drawn into a corner is a
+    /// different design question. Not forwarded by
+    /// [`Self::to_exwlshell`] — it never reaches Wayland.
+    pub animate: bool,
 }
 
 impl PopupSettings {

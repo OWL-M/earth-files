@@ -1125,6 +1125,7 @@ impl<Message: std::clone::Clone + 'static> Widget<Message, crate::ui::Theme, cra
                         parent,
                         id: popup_id,
                         positioner,
+                        animate: false,
                     },
                     Some(move || {
                         (crate::ui::Element::from(

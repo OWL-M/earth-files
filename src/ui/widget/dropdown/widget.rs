@@ -621,6 +621,7 @@ pub fn update<
                         constraint_adjustment: crate::ui::surface::PopupConstraintAdjustment::SlideX
                             | crate::ui::surface::PopupConstraintAdjustment::FlipY,
                     },
+                    animate: false,
                 },
                 Some(Box::new(move || {
                     let action_map = action_map.clone();
