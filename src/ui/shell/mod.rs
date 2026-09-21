@@ -14,6 +14,7 @@ pub mod context_drawer;
 pub mod core;
 #[cfg(all(target_env = "gnu", not(target_os = "windows")))]
 pub mod malloc;
+pub(crate) mod popup_genie;
 pub mod runner;
 pub mod settings;
 
