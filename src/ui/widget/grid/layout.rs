@@ -4,7 +4,7 @@
 //! Vendored from pop-os/libcosmic, src/widget/grid/layout.rs
 
 use super::widget::Assignment;
-use iced::Renderer;
+use crate::ui::Renderer;
 
 use crate::ui::Element;
 use iced_core::layout::{Limits, Node};

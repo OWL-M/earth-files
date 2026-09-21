@@ -101,7 +101,7 @@ where
         self,
         position: Point,
         target_height: f32,
-    ) -> overlay::Element<'a, Message, crate::ui::Theme, iced::Renderer> {
+    ) -> overlay::Element<'a, Message, crate::ui::Theme, crate::ui::Renderer> {
         overlay::Element::new(Box::new(Overlay::new(self, target_height, position)))
     }
 }
@@ -130,7 +130,7 @@ impl Default for State {
 
 struct Overlay<'a, Message> {
     state: &'a mut Tree,
-    container: Container<'a, Message, crate::ui::Theme, iced::Renderer>,
+    container: Container<'a, Message, crate::ui::Theme, crate::ui::Renderer>,
     width: f32,
     target_height: f32,
     style: (),
@@ -185,10 +185,10 @@ impl<'a, Message: 'a> Overlay<'a, Message> {
     }
 }
 
-impl<Message> iced_core::Overlay<Message, crate::ui::Theme, iced::Renderer>
+impl<Message> iced_core::Overlay<Message, crate::ui::Theme, crate::ui::Renderer>
     for Overlay<'_, Message>
 {
-    fn layout(&mut self, renderer: &iced::Renderer, bounds: Size) -> layout::Node {
+    fn layout(&mut self, renderer: &crate::ui::Renderer, bounds: Size) -> layout::Node {
         let position = self.position;
         let space_below = bounds.height - (position.y + self.target_height);
         let space_above = position.y;
@@ -221,7 +221,7 @@ impl<Message> iced_core::Overlay<Message, crate::ui::Theme, iced::Renderer>
         event: &Event,
         layout: Layout<'_>,
         cursor: mouse::Cursor,
-        renderer: &iced::Renderer,
+        renderer: &crate::ui::Renderer,
         clipboard: &mut dyn Clipboard,
         shell: &mut Shell<'_, Message>,
     ) {
@@ -236,7 +236,7 @@ impl<Message> iced_core::Overlay<Message, crate::ui::Theme, iced::Renderer>
         &self,
         layout: Layout<'_>,
         cursor: mouse::Cursor,
-        renderer: &iced::Renderer,
+        renderer: &crate::ui::Renderer,
     ) -> mouse::Interaction {
         self.container
             .mouse_interaction(self.state, layout, cursor, &layout.bounds(), renderer)
@@ -244,7 +244,7 @@ impl<Message> iced_core::Overlay<Message, crate::ui::Theme, iced::Renderer>
 
     fn draw(
         &self,
-        renderer: &mut iced::Renderer,
+        renderer: &mut crate::ui::Renderer,
         theme: &crate::ui::Theme,
         style: &renderer::Style,
         layout: Layout<'_>,
@@ -283,7 +283,7 @@ struct InnerList<'a, S, Item, Message> {
     text_line_height: text::LineHeight,
 }
 
-impl<S, Item, Message> Widget<Message, crate::ui::Theme, iced::Renderer>
+impl<S, Item, Message> Widget<Message, crate::ui::Theme, crate::ui::Renderer>
     for InnerList<'_, S, Item, Message>
 where
     S: AsRef<str>,
@@ -296,7 +296,7 @@ where
     fn layout(
         &mut self,
         _tree: &mut Tree,
-        renderer: &iced::Renderer,
+        renderer: &crate::ui::Renderer,
         limits: &layout::Limits,
     ) -> layout::Node {
         use std::f32;
@@ -341,7 +341,7 @@ where
         event: &Event,
         layout: Layout<'_>,
         cursor: mouse::Cursor,
-        renderer: &iced::Renderer,
+        renderer: &crate::ui::Renderer,
         _clipboard: &mut dyn Clipboard,
         shell: &mut Shell<'_, Message>,
         _viewport: &Rectangle,
@@ -469,7 +469,7 @@ where
         layout: Layout<'_>,
         cursor: mouse::Cursor,
         _viewport: &Rectangle,
-        _renderer: &iced::Renderer,
+        _renderer: &crate::ui::Renderer,
     ) -> mouse::Interaction {
         let is_mouse_over = cursor.is_over(layout.bounds());
 
@@ -484,7 +484,7 @@ where
     fn draw(
         &self,
         _state: &Tree,
-        renderer: &mut iced::Renderer,
+        renderer: &mut crate::ui::Renderer,
         theme: &crate::ui::Theme,
         style: &renderer::Style,
         layout: Layout<'_>,
@@ -624,7 +624,7 @@ where
                         y: bounds.y + (self.padding.y() / 2.0) - 4.0,
                     });
 
-                    Widget::<Message, crate::ui::Theme, iced::Renderer>::draw(
+                    Widget::<Message, crate::ui::Theme, crate::ui::Renderer>::draw(
                         crate::ui::Element::<Message>::from(divider).as_widget(),
                         &Tree::empty(),
                         renderer,
@@ -666,7 +666,7 @@ where
 }
 
 impl<'a, S, Item, Message: 'a> From<InnerList<'a, S, Item, Message>>
-    for Element<'a, Message, crate::ui::Theme, iced::Renderer>
+    for Element<'a, Message, crate::ui::Theme, crate::ui::Renderer>
 where
     S: AsRef<str>,
     Item: Clone + PartialEq,

@@ -5,6 +5,7 @@
 
 use super::model::{Entity, Model, Selectable};
 use super::{InsertPosition, ReorderEvent};
+use crate::ui::Renderer;
 use crate::ui::shell::runner::{WindowingSystem, windowing_system};
 use crate::ui::theme::SegmentedButton as Style;
 use crate::ui::widget::menu::{
@@ -12,7 +13,6 @@ use crate::ui::widget::menu::{
     menu_roots_diff,
 };
 use crate::ui::widget::{Icon, icon};
-use iced::Renderer;
 
 use crate::ui::Element;
 use derive_setters::Setters;
@@ -45,8 +45,9 @@ use crate::ui::convert::{ToColor, ToRadius};
 /// a file drop, or `None` when nothing is hovered
 type OnDropHint<Message> = Box<dyn Fn(Option<(Entity, bool)>) -> Message + 'static>;
 
-type Plain =
-    iced_core::text::paragraph::Plain<<iced::Renderer as iced_core::text::Renderer>::Paragraph>;
+type Plain = iced_core::text::paragraph::Plain<
+    <crate::ui::Renderer as iced_core::text::Renderer>::Paragraph,
+>;
 
 thread_local! {
     // Prevents two segmented buttons from being focused at the same time.
@@ -108,7 +109,7 @@ pub trait SegmentedVariant {
     fn variant_layout(
         &self,
         state: &mut LocalState,
-        renderer: &iced::Renderer,
+        renderer: &crate::ui::Renderer,
         limits: &layout::Limits,
     ) -> Size;
 }
@@ -2530,7 +2531,7 @@ mod tests {
         fn variant_layout(
             &self,
             _state: &mut LocalState,
-            _renderer: &iced::Renderer,
+            _renderer: &crate::ui::Renderer,
             _limits: &layout::Limits,
         ) -> Size {
             Size::ZERO

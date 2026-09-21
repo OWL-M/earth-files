@@ -231,7 +231,7 @@ where
 #[allow(clippy::too_many_arguments)]
 pub fn resolve_wrapper<Message>(
     axis: &Axis,
-    renderer: &iced::Renderer,
+    renderer: &crate::ui::Renderer,
     limits: &Limits,
     padding: Padding,
     spacing: f32,

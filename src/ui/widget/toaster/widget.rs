@@ -168,7 +168,7 @@ where
     }
 }
 
-struct ToasterOverlay<'a, 'b, Message, Theme = iced::Theme, Renderer = iced::Renderer> {
+struct ToasterOverlay<'a, 'b, Message, Theme = iced::Theme, Renderer = crate::ui::Renderer> {
     state: &'b mut Tree,
     element: &'b mut Element<'a, Message, Theme, Renderer>,
 }

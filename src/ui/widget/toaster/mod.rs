@@ -25,8 +25,8 @@ mod widget;
 /// Create a new Toaster widget.
 pub fn toaster<'a, Message: Clone + 'static>(
     toasts: &'a Toasts<Message>,
-    content: impl Into<Element<'a, Message, crate::ui::Theme, iced::Renderer>>,
-) -> Element<'a, Message, crate::ui::Theme, iced::Renderer> {
+    content: impl Into<Element<'a, Message, crate::ui::Theme, crate::ui::Renderer>>,
+) -> Element<'a, Message, crate::ui::Theme, crate::ui::Renderer> {
     let Spacing {
         space_xxxs,
         space_xxs,

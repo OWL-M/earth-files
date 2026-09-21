@@ -64,7 +64,7 @@ impl<'a, S: AsRef<str>, Message, Item: Clone + PartialEq + 'static> Dropdown<'a,
 }
 
 impl<'a, S: AsRef<str>, Message: 'a, Item: Clone + PartialEq + 'static>
-    Widget<Message, crate::ui::Theme, iced::Renderer> for Dropdown<'a, S, Message, Item>
+    Widget<Message, crate::ui::Theme, crate::ui::Renderer> for Dropdown<'a, S, Message, Item>
 {
     fn tag(&self) -> tree::Tag {
         tree::Tag::of::<State<Item>>()
@@ -81,7 +81,7 @@ impl<'a, S: AsRef<str>, Message: 'a, Item: Clone + PartialEq + 'static>
     fn layout(
         &mut self,
         tree: &mut Tree,
-        renderer: &iced::Renderer,
+        renderer: &crate::ui::Renderer,
         limits: &layout::Limits,
     ) -> layout::Node {
         layout(
@@ -124,7 +124,7 @@ impl<'a, S: AsRef<str>, Message: 'a, Item: Clone + PartialEq + 'static>
         event: &Event,
         layout: Layout<'_>,
         cursor: mouse::Cursor,
-        _renderer: &iced::Renderer,
+        _renderer: &crate::ui::Renderer,
         _clipboard: &mut dyn Clipboard,
         shell: &mut Shell<'_, Message>,
         _viewport: &Rectangle,
@@ -146,7 +146,7 @@ impl<'a, S: AsRef<str>, Message: 'a, Item: Clone + PartialEq + 'static>
         layout: Layout<'_>,
         cursor: mouse::Cursor,
         _viewport: &Rectangle,
-        _renderer: &iced::Renderer,
+        _renderer: &crate::ui::Renderer,
     ) -> mouse::Interaction {
         mouse_interaction(layout, cursor)
     }
@@ -154,7 +154,7 @@ impl<'a, S: AsRef<str>, Message: 'a, Item: Clone + PartialEq + 'static>
     fn draw(
         &self,
         tree: &Tree,
-        renderer: &mut iced::Renderer,
+        renderer: &mut crate::ui::Renderer,
         theme: &crate::ui::Theme,
         _style: &iced_core::renderer::Style,
         layout: Layout<'_>,
@@ -186,10 +186,10 @@ impl<'a, S: AsRef<str>, Message: 'a, Item: Clone + PartialEq + 'static>
         &'b mut self,
         tree: &'b mut Tree,
         layout: Layout<'b>,
-        renderer: &iced::Renderer,
+        renderer: &crate::ui::Renderer,
         _viewport: &Rectangle,
         translation: Vector,
-    ) -> Option<overlay::Element<'b, Message, crate::ui::Theme, iced::Renderer>> {
+    ) -> Option<overlay::Element<'b, Message, crate::ui::Theme, crate::ui::Renderer>> {
         let state = tree.state.downcast_mut::<State<Item>>();
 
         overlay(
@@ -255,7 +255,7 @@ impl<Item: Clone + PartialEq + 'static> Default for State<Item> {
 /// Computes the layout of a [`Dropdown`].
 #[allow(clippy::too_many_arguments)]
 pub fn layout(
-    renderer: &iced::Renderer,
+    renderer: &crate::ui::Renderer,
     limits: &layout::Limits,
     width: Length,
     gap: f32,
@@ -378,7 +378,7 @@ pub fn mouse_interaction(layout: Layout<'_>, cursor: mouse::Cursor) -> mouse::In
 #[allow(clippy::too_many_arguments)]
 pub fn overlay<'a, S: AsRef<str>, Message: 'a, Item: Clone + PartialEq + 'static>(
     layout: Layout<'_>,
-    renderer: &iced::Renderer,
+    renderer: &crate::ui::Renderer,
     state: &'a mut State<Item>,
     gap: f32,
     padding: Padding,
@@ -388,7 +388,7 @@ pub fn overlay<'a, S: AsRef<str>, Message: 'a, Item: Clone + PartialEq + 'static
     selections: &'a super::Model<S, Item>,
     on_selected: &'a dyn Fn(Item) -> Message,
     translation: Vector,
-) -> Option<overlay::Element<'a, Message, crate::ui::Theme, iced::Renderer>> {
+) -> Option<overlay::Element<'a, Message, crate::ui::Theme, crate::ui::Renderer>> {
     if state.is_open {
         let description_line_height = text::LineHeight::Absolute(Pixels(
             text_line_height.to_absolute(Pixels(text_size)).0 + 4.0,
@@ -487,7 +487,7 @@ pub fn overlay<'a, S: AsRef<str>, Message: 'a, Item: Clone + PartialEq + 'static
 /// Draws a [`Dropdown`].
 #[allow(clippy::too_many_arguments)]
 pub fn draw<'a, S, Item: Clone + PartialEq + 'static>(
-    renderer: &mut iced::Renderer,
+    renderer: &mut crate::ui::Renderer,
     theme: &crate::ui::Theme,
     layout: Layout<'_>,
     cursor: mouse::Cursor,

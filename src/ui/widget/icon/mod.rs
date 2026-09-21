@@ -132,7 +132,7 @@ impl<'a, Message: 'a> From<Icon> for Element<'a, Message> {
 }
 
 /// Draw an icon in the given bounds via the runtime's renderer.
-pub fn draw(renderer: &mut iced::Renderer, handle: &Handle, icon_bounds: Rectangle) {
+pub fn draw(renderer: &mut crate::ui::Renderer, handle: &Handle, icon_bounds: Rectangle) {
     match handle.clone().data {
         Data::Svg(handle) => iced_core::svg::Renderer::draw_svg(
             renderer,

@@ -89,7 +89,7 @@ impl<Message: Clone + 'static> ContextMenu<'_, Message> {
         &mut self,
         layout: iced_core::Layout<'_>,
         view_cursor: iced_core::mouse::Cursor,
-        renderer: &iced::Renderer,
+        renderer: &crate::ui::Renderer,
         shell: &mut iced_core::Shell<'_, Message>,
         viewport: &iced::Rectangle,
         my_state: &mut LocalState,
@@ -231,7 +231,7 @@ impl<Message: Clone + 'static> ContextMenu<'_, Message> {
     }
 }
 
-impl<Message: 'static + Clone> Widget<Message, crate::ui::Theme, iced::Renderer>
+impl<Message: 'static + Clone> Widget<Message, crate::ui::Theme, crate::ui::Renderer>
     for ContextMenu<'_, Message>
 {
     fn tag(&self) -> tree::Tag {
@@ -327,7 +327,7 @@ impl<Message: 'static + Clone> Widget<Message, crate::ui::Theme, iced::Renderer>
     fn layout(
         &mut self,
         tree: &mut Tree,
-        renderer: &iced::Renderer,
+        renderer: &crate::ui::Renderer,
         limits: &iced_core::layout::Limits,
     ) -> iced_core::layout::Node {
         self.content
@@ -338,7 +338,7 @@ impl<Message: 'static + Clone> Widget<Message, crate::ui::Theme, iced::Renderer>
     fn draw(
         &self,
         tree: &Tree,
-        renderer: &mut iced::Renderer,
+        renderer: &mut crate::ui::Renderer,
         theme: &crate::ui::Theme,
         style: &iced_core::renderer::Style,
         layout: iced_core::Layout<'_>,
@@ -362,7 +362,7 @@ impl<Message: 'static + Clone> Widget<Message, crate::ui::Theme, iced::Renderer>
         layout: iced_core::Layout<'_>,
         cursor: iced_core::mouse::Cursor,
         viewport: &iced::Rectangle,
-        renderer: &iced::Renderer,
+        renderer: &crate::ui::Renderer,
     ) -> mouse::Interaction {
         self.content.as_widget().mouse_interaction(
             &tree.children[0],
@@ -377,7 +377,7 @@ impl<Message: 'static + Clone> Widget<Message, crate::ui::Theme, iced::Renderer>
         &mut self,
         tree: &mut Tree,
         layout: iced_core::Layout<'_>,
-        renderer: &iced::Renderer,
+        renderer: &crate::ui::Renderer,
         operation: &mut dyn iced_core::widget::Operation<()>,
     ) {
         self.content
@@ -392,7 +392,7 @@ impl<Message: 'static + Clone> Widget<Message, crate::ui::Theme, iced::Renderer>
         event: &iced::Event,
         layout: iced_core::Layout<'_>,
         cursor: iced_core::mouse::Cursor,
-        renderer: &iced::Renderer,
+        renderer: &crate::ui::Renderer,
         clipboard: &mut dyn iced_core::Clipboard,
         shell: &mut iced_core::Shell<'_, Message>,
         viewport: &iced::Rectangle,
@@ -546,10 +546,11 @@ impl<Message: 'static + Clone> Widget<Message, crate::ui::Theme, iced::Renderer>
         &'b mut self,
         tree: &'b mut Tree,
         layout: iced_core::Layout<'b>,
-        renderer: &iced::Renderer,
+        renderer: &crate::ui::Renderer,
         viewport: &iced::Rectangle,
         translation: Vector,
-    ) -> Option<iced_core::overlay::Element<'b, Message, crate::ui::Theme, iced::Renderer>> {
+    ) -> Option<iced_core::overlay::Element<'b, Message, crate::ui::Theme, crate::ui::Renderer>>
+    {
         // The wrapped content's overlays (tooltips, dropdowns, ...) always pass through
         let content = self.content.as_widget_mut().overlay(
             &mut tree.children[0],

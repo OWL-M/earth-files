@@ -253,7 +253,7 @@ impl MenuBounds {
     #[allow(clippy::too_many_arguments)]
     fn new<Message>(
         menu_tree: &MenuTree<Message>,
-        renderer: &iced::Renderer,
+        renderer: &crate::ui::Renderer,
         item_width: ItemWidth,
         item_height: ItemHeight,
         viewport_size: Size,
@@ -315,7 +315,7 @@ impl MenuState {
         &mut self,
         overlay_offset: Vector,
         slice: MenuSlice,
-        renderer: &iced::Renderer,
+        renderer: &crate::ui::Renderer,
         menu_tree: &[MenuTree<Message>],
         tree: &mut [Tree],
     ) -> Node {
@@ -365,7 +365,7 @@ impl MenuState {
         &self,
         overlay_offset: Vector,
         index: usize,
-        renderer: &iced::Renderer,
+        renderer: &crate::ui::Renderer,
         menu_tree: &mut MenuTree<Message>,
         tree: &mut Tree,
     ) -> Node {
@@ -463,11 +463,13 @@ pub(crate) struct Menu<'b, Message: std::clone::Clone> {
         Option<Arc<dyn Fn(crate::ui::surface::Action<Message>) -> Message + Send + Sync + 'static>>,
 }
 impl<'b, Message: Clone + 'static> Menu<'b, Message> {
-    pub(crate) fn overlay(self) -> overlay::Element<'b, Message, crate::ui::Theme, iced::Renderer> {
+    pub(crate) fn overlay(
+        self,
+    ) -> overlay::Element<'b, Message, crate::ui::Theme, crate::ui::Renderer> {
         overlay::Element::new(Box::new(self))
     }
 
-    pub(crate) fn layout(&self, renderer: &iced::Renderer, limits: Limits) -> Node {
+    pub(crate) fn layout(&self, renderer: &crate::ui::Renderer, limits: Limits) -> Node {
         // layout children;
         let position = self.position;
         let mut intrinsic_size = Size::ZERO;
@@ -557,7 +559,7 @@ impl<'b, Message: Clone + 'static> Menu<'b, Message> {
         event: &event::Event,
         layout: Layout<'_>,
         view_cursor: Cursor,
-        renderer: &iced::Renderer,
+        renderer: &crate::ui::Renderer,
         clipboard: &mut dyn Clipboard,
         shell: &mut Shell<'_, Message>,
     ) -> Option<(usize, MenuState)> {
@@ -719,7 +721,7 @@ impl<'b, Message: Clone + 'static> Menu<'b, Message> {
     #[allow(unused_results, clippy::too_many_lines)]
     fn draw(
         &self,
-        renderer: &mut iced::Renderer,
+        renderer: &mut crate::ui::Renderer,
         theme: &crate::ui::Theme,
         style: &renderer::Style,
         layout: Layout<'_>,
@@ -781,7 +783,7 @@ impl<'b, Message: Clone + 'static> Menu<'b, Message> {
                             Cursor::Available([-1.0; 2].into())
                         };
 
-                        let draw_menu = |r: &mut iced::Renderer| {
+                        let draw_menu = |r: &mut crate::ui::Renderer| {
                             // calc slice
                             let slice = ms.slice(viewport_size, overlay_offset, self.item_height);
                             let start_index = slice.start_index;
@@ -889,10 +891,10 @@ impl<'b, Message: Clone + 'static> Menu<'b, Message> {
         });
     }
 }
-impl<Message: Clone + 'static> overlay::Overlay<Message, crate::ui::Theme, iced::Renderer>
+impl<Message: Clone + 'static> overlay::Overlay<Message, crate::ui::Theme, crate::ui::Renderer>
     for Menu<'_, Message>
 {
-    fn layout(&mut self, renderer: &iced::Renderer, bounds: Size) -> iced_core::layout::Node {
+    fn layout(&mut self, renderer: &crate::ui::Renderer, bounds: Size) -> iced_core::layout::Node {
         Menu::layout(
             self,
             renderer,
@@ -909,7 +911,7 @@ impl<Message: Clone + 'static> overlay::Overlay<Message, crate::ui::Theme, iced:
         event: &iced::Event,
         layout: Layout<'_>,
         cursor: mouse::Cursor,
-        renderer: &iced::Renderer,
+        renderer: &crate::ui::Renderer,
         clipboard: &mut dyn Clipboard,
         shell: &mut Shell<'_, Message>,
     ) {
@@ -918,7 +920,7 @@ impl<Message: Clone + 'static> overlay::Overlay<Message, crate::ui::Theme, iced:
 
     fn draw(
         &self,
-        renderer: &mut iced::Renderer,
+        renderer: &mut crate::ui::Renderer,
         theme: &crate::ui::Theme,
         style: &renderer::Style,
         layout: Layout<'_>,
@@ -931,7 +933,7 @@ impl<Message: Clone + 'static> overlay::Overlay<Message, crate::ui::Theme, iced:
         &self,
         layout: Layout<'_>,
         cursor: mouse::Cursor,
-        _renderer: &iced::Renderer,
+        _renderer: &crate::ui::Renderer,
     ) -> mouse::Interaction {
         if cursor.is_over(layout.bounds()) {
             mouse::Interaction::Idle
@@ -941,7 +943,7 @@ impl<Message: Clone + 'static> overlay::Overlay<Message, crate::ui::Theme, iced:
     }
 }
 
-impl<Message: std::clone::Clone + 'static> Widget<Message, crate::ui::Theme, iced::Renderer>
+impl<Message: std::clone::Clone + 'static> Widget<Message, crate::ui::Theme, crate::ui::Renderer>
     for Menu<'_, Message>
 {
     fn size(&self) -> Size<Length> {
@@ -954,7 +956,7 @@ impl<Message: std::clone::Clone + 'static> Widget<Message, crate::ui::Theme, ice
     fn layout(
         &mut self,
         _tree: &mut Tree,
-        renderer: &iced::Renderer,
+        renderer: &crate::ui::Renderer,
         limits: &iced_core::layout::Limits,
     ) -> iced_core::layout::Node {
         Menu::layout(self, renderer, *limits)
@@ -963,7 +965,7 @@ impl<Message: std::clone::Clone + 'static> Widget<Message, crate::ui::Theme, ice
     fn draw(
         &self,
         _tree: &Tree,
-        renderer: &mut iced::Renderer,
+        renderer: &mut crate::ui::Renderer,
         theme: &crate::ui::Theme,
         style: &renderer::Style,
         layout: Layout<'_>,
@@ -980,7 +982,7 @@ impl<Message: std::clone::Clone + 'static> Widget<Message, crate::ui::Theme, ice
         event: &iced::Event,
         layout: Layout<'_>,
         cursor: mouse::Cursor,
-        renderer: &iced::Renderer,
+        renderer: &crate::ui::Renderer,
         clipboard: &mut dyn Clipboard,
         shell: &mut Shell<'_, Message>,
         viewport: &Rectangle,
@@ -1141,7 +1143,7 @@ impl<Message: std::clone::Clone + 'static> Widget<Message, crate::ui::Theme, ice
         layout: Layout<'_>,
         cursor: mouse::Cursor,
         _viewport: &Rectangle,
-        _renderer: &iced::Renderer,
+        _renderer: &crate::ui::Renderer,
     ) -> mouse::Interaction {
         if cursor.is_over(layout.bounds()) {
             mouse::Interaction::Idle
@@ -1152,7 +1154,7 @@ impl<Message: std::clone::Clone + 'static> Widget<Message, crate::ui::Theme, ice
 }
 
 impl<'a, Message> From<Menu<'a, Message>>
-    for iced::Element<'a, Message, crate::ui::Theme, iced::Renderer>
+    for iced::Element<'a, Message, crate::ui::Theme, crate::ui::Renderer>
 where
     Message: std::clone::Clone + 'static,
 {
@@ -1173,7 +1175,7 @@ fn pad_rectangle(rect: Rectangle, padding: Padding) -> Rectangle {
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn init_root_menu<Message: Clone>(
     menu: &mut Menu<'_, Message>,
-    renderer: &iced::Renderer,
+    renderer: &crate::ui::Renderer,
     shell: &mut Shell<'_, Message>,
     overlay_cursor: Point,
     viewport_size: Size,
@@ -1252,7 +1254,7 @@ pub(crate) fn init_root_menu<Message: Clone>(
 #[allow(clippy::too_many_arguments)]
 pub(super) fn init_root_popup_menu<Message>(
     menu: &mut Menu<'_, Message>,
-    renderer: &iced::Renderer,
+    renderer: &crate::ui::Renderer,
     shell: &mut Shell<'_, Message>,
     overlay_cursor: Point,
     viewport_size: Size,
@@ -1331,7 +1333,7 @@ fn process_menu_events<Message: std::clone::Clone>(
     menu: &mut Menu<Message>,
     event: &event::Event,
     view_cursor: Cursor,
-    renderer: &iced::Renderer,
+    renderer: &crate::ui::Renderer,
     clipboard: &mut dyn Clipboard,
     shell: &mut Shell<'_, Message>,
     overlay_offset: Vector,
@@ -1390,7 +1392,7 @@ fn process_menu_events<Message: std::clone::Clone>(
 #[allow(unused_results, clippy::too_many_lines, clippy::too_many_arguments)]
 fn process_overlay_events<Message>(
     menu: &mut Menu<Message>,
-    renderer: &iced::Renderer,
+    renderer: &crate::ui::Renderer,
     viewport_size: Size,
     overlay_offset: Vector,
     view_cursor: Cursor,
@@ -1697,7 +1699,7 @@ fn process_scroll_events<Message>(
 /// Returns (children_size, child_positions, child_sizes)
 fn get_children_layout<Message>(
     menu_tree: &MenuTree<Message>,
-    renderer: &iced::Renderer,
+    renderer: &crate::ui::Renderer,
     item_width: ItemWidth,
     item_height: ItemHeight,
     tree: &mut [Tree],

@@ -114,7 +114,7 @@ where
         self,
         position: Point,
         target_height: f32,
-    ) -> overlay::Element<'a, Message, crate::ui::Theme, iced::Renderer> {
+    ) -> overlay::Element<'a, Message, crate::ui::Theme, crate::ui::Renderer> {
         overlay::Element::new(Box::new(Overlay::new(self, target_height, position)))
     }
 
@@ -154,7 +154,7 @@ impl Default for State {
 
 struct Overlay<'a, Message> {
     state: RcWrapper<Tree>,
-    container: Container<'a, Message, crate::ui::Theme, iced::Renderer>,
+    container: Container<'a, Message, crate::ui::Theme, crate::ui::Renderer>,
     width: f32,
     target_height: f32,
     style: (),
@@ -217,7 +217,7 @@ impl<'a, Message: Clone + 'a> Overlay<'a, Message> {
         }
     }
 
-    fn _layout(&mut self, renderer: &iced::Renderer, bounds: Size) -> layout::Node {
+    fn _layout(&mut self, renderer: &crate::ui::Renderer, bounds: Size) -> layout::Node {
         let space_below = bounds.height - (self.position.y + self.target_height);
         let space_above = self.position.y;
 
@@ -251,7 +251,7 @@ impl<'a, Message: Clone + 'a> Overlay<'a, Message> {
         event: &Event,
         layout: Layout<'_>,
         cursor: mouse::Cursor,
-        renderer: &iced::Renderer,
+        renderer: &crate::ui::Renderer,
         clipboard: &mut dyn Clipboard,
         shell: &mut Shell<'_, Message>,
     ) {
@@ -269,7 +269,7 @@ impl<'a, Message: Clone + 'a> Overlay<'a, Message> {
         layout: Layout<'_>,
         cursor: mouse::Cursor,
         viewport: &Rectangle,
-        renderer: &iced::Renderer,
+        renderer: &crate::ui::Renderer,
     ) -> mouse::Interaction {
         self.state.with_data(|tree| {
             self.container
@@ -279,7 +279,7 @@ impl<'a, Message: Clone + 'a> Overlay<'a, Message> {
 
     fn _draw(
         &self,
-        renderer: &mut iced::Renderer,
+        renderer: &mut crate::ui::Renderer,
         theme: &crate::ui::Theme,
         style: &renderer::Style,
         layout: Layout<'_>,
@@ -309,10 +309,10 @@ impl<'a, Message: Clone + 'a> Overlay<'a, Message> {
     }
 }
 
-impl<'a, Message: Clone + 'a> iced_core::Overlay<Message, crate::ui::Theme, iced::Renderer>
+impl<'a, Message: Clone + 'a> iced_core::Overlay<Message, crate::ui::Theme, crate::ui::Renderer>
     for Overlay<'a, Message>
 {
-    fn layout(&mut self, renderer: &iced::Renderer, bounds: Size) -> layout::Node {
+    fn layout(&mut self, renderer: &crate::ui::Renderer, bounds: Size) -> layout::Node {
         self._layout(renderer, bounds)
     }
 
@@ -321,7 +321,7 @@ impl<'a, Message: Clone + 'a> iced_core::Overlay<Message, crate::ui::Theme, iced
         event: &Event,
         layout: Layout<'_>,
         cursor: mouse::Cursor,
-        renderer: &iced::Renderer,
+        renderer: &crate::ui::Renderer,
         clipboard: &mut dyn Clipboard,
         shell: &mut Shell<'_, Message>,
     ) {
@@ -332,14 +332,14 @@ impl<'a, Message: Clone + 'a> iced_core::Overlay<Message, crate::ui::Theme, iced
         &self,
         layout: Layout<'_>,
         cursor: mouse::Cursor,
-        renderer: &iced::Renderer,
+        renderer: &crate::ui::Renderer,
     ) -> mouse::Interaction {
         self._mouse_interaction(layout, cursor, &layout.bounds(), renderer)
     }
 
     fn draw(
         &self,
-        renderer: &mut iced::Renderer,
+        renderer: &mut crate::ui::Renderer,
         theme: &crate::ui::Theme,
         style: &renderer::Style,
         layout: Layout<'_>,
@@ -349,7 +349,7 @@ impl<'a, Message: Clone + 'a> iced_core::Overlay<Message, crate::ui::Theme, iced
     }
 }
 
-impl<'a, Message: Clone + 'a> iced_core::Widget<Message, crate::ui::Theme, iced::Renderer>
+impl<'a, Message: Clone + 'a> iced_core::Widget<Message, crate::ui::Theme, crate::ui::Renderer>
     for Overlay<'a, Message>
 {
     fn size(&self) -> Size<Length> {
@@ -359,7 +359,7 @@ impl<'a, Message: Clone + 'a> iced_core::Widget<Message, crate::ui::Theme, iced:
     fn layout(
         &mut self,
         _tree: &mut iced_core::widget::Tree,
-        renderer: &iced::Renderer,
+        renderer: &crate::ui::Renderer,
         limits: &iced_core::layout::Limits,
     ) -> layout::Node {
         let limits = limits.width(self.width);
@@ -374,7 +374,7 @@ impl<'a, Message: Clone + 'a> iced_core::Widget<Message, crate::ui::Theme, iced:
         layout: Layout<'_>,
         cursor: mouse::Cursor,
         viewport: &Rectangle,
-        renderer: &iced::Renderer,
+        renderer: &crate::ui::Renderer,
     ) -> mouse::Interaction {
         self._mouse_interaction(layout, cursor, viewport, renderer)
     }
@@ -385,7 +385,7 @@ impl<'a, Message: Clone + 'a> iced_core::Widget<Message, crate::ui::Theme, iced:
         event: &Event,
         layout: Layout<'_>,
         cursor: mouse::Cursor,
-        renderer: &iced::Renderer,
+        renderer: &crate::ui::Renderer,
         clipboard: &mut dyn Clipboard,
         shell: &mut Shell<'_, Message>,
         _viewport: &Rectangle,
@@ -396,7 +396,7 @@ impl<'a, Message: Clone + 'a> iced_core::Widget<Message, crate::ui::Theme, iced:
     fn draw(
         &self,
         tree: &Tree,
-        renderer: &mut iced::Renderer,
+        renderer: &mut crate::ui::Renderer,
         theme: &crate::ui::Theme,
         style: &renderer::Style,
         layout: Layout<'_>,
@@ -429,7 +429,7 @@ where
     text_line_height: text::LineHeight,
 }
 
-impl<S: AsRef<str>, Message> Widget<Message, crate::ui::Theme, iced::Renderer>
+impl<S: AsRef<str>, Message> Widget<Message, crate::ui::Theme, crate::ui::Renderer>
     for List<'_, S, Message>
 where
     [S]: std::borrow::ToOwned,
@@ -442,7 +442,7 @@ where
     fn layout(
         &mut self,
         _tree: &mut Tree,
-        renderer: &iced::Renderer,
+        renderer: &crate::ui::Renderer,
         limits: &layout::Limits,
     ) -> layout::Node {
         use std::f32;
@@ -472,7 +472,7 @@ where
         event: &Event,
         layout: Layout<'_>,
         cursor: mouse::Cursor,
-        renderer: &iced::Renderer,
+        renderer: &crate::ui::Renderer,
         _clipboard: &mut dyn Clipboard,
         shell: &mut Shell<'_, Message>,
         _viewport: &Rectangle,
@@ -561,7 +561,7 @@ where
         layout: Layout<'_>,
         cursor: mouse::Cursor,
         _viewport: &Rectangle,
-        _renderer: &iced::Renderer,
+        _renderer: &crate::ui::Renderer,
     ) -> mouse::Interaction {
         let is_mouse_over = cursor.is_over(layout.bounds());
 
@@ -575,7 +575,7 @@ where
     fn draw(
         &self,
         state: &Tree,
-        renderer: &mut iced::Renderer,
+        renderer: &mut crate::ui::Renderer,
         theme: &crate::ui::Theme,
         style: &renderer::Style,
         layout: Layout<'_>,
@@ -710,7 +710,7 @@ where
 }
 
 impl<'a, S: AsRef<str>, Message: 'a> From<List<'a, S, Message>>
-    for Element<'a, Message, crate::ui::Theme, iced::Renderer>
+    for Element<'a, Message, crate::ui::Theme, crate::ui::Renderer>
 where
     [S]: std::borrow::ToOwned,
     Message: Clone,

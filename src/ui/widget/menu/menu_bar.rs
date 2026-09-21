@@ -13,11 +13,11 @@ use super::menu_inner::{
     CloseCondition, Direction, ItemHeight, ItemWidth, Menu, MenuState, PathHighlight,
 };
 use super::menu_tree::MenuTree;
+use crate::ui::Renderer;
 use crate::ui::shell::runner::{WindowingSystem, windowing_system};
 use crate::ui::theme::menu_bar::StyleSheet;
 use crate::ui::widget::RcWrapper;
 use crate::ui::widget::menu::menu_inner::init_root_menu;
-use iced::Renderer;
 
 use crate::ui::convert::ToRadius;
 use iced::{Point, Shadow, Vector, window};

@@ -13,7 +13,7 @@
 //! timestamp.
 //!
 //!   * The `Widget` impl, and everything that constructs one, is concrete in
-//!     `iced::Renderer`: the selection highlight needs `Paragraph::highlight`,
+//!     `crate::ui::Renderer`: the selection highlight needs `Paragraph::highlight`,
 //!     which [`crate::ui::widget::paragraph`] provides as a free function over
 //!     the concrete `iced_graphics::text::Paragraph`.
 //!   * There is no `ellipsize` here; this crate ellipsizes with the standalone
@@ -212,7 +212,7 @@ where
 
 /// The internal state of a [`Text`] widget.
 // The default type parameter is this crate's addition: the `Widget` impl is
-// concrete in `iced::Renderer`, so the tree state always has this paragraph,
+// concrete in `crate::ui::Renderer`, so the tree state always has this paragraph,
 // and the parent module can then name it as plain `widget::State`.
 pub struct State<P: Paragraph = crate::ui::widget::paragraph::Paragraph> {
     /// The cached paragraph layout.
@@ -352,11 +352,11 @@ impl<P: Paragraph> iced_core::widget::operation::Focusable for State<P> {
     }
 }
 
-// Concrete in `iced::Renderer`: the selection highlight needs
+// Concrete in `crate::ui::Renderer`: the selection highlight needs
 // `Paragraph::highlight`, which the `text::Paragraph` trait does not have, so
 // it is reached on the concrete paragraph type through
 // `crate::ui::widget::paragraph`.
-type Renderer = iced::Renderer;
+type Renderer = crate::ui::Renderer;
 
 impl<Message, Theme> Widget<Message, Theme, Renderer> for Text<'_, Theme, Renderer>
 where

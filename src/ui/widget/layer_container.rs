@@ -15,9 +15,9 @@ use iced_core::{
 
 pub fn layer_container<'a, Message: 'static, E>(
     content: E,
-) -> LayerContainer<'a, Message, iced::Renderer>
+) -> LayerContainer<'a, Message, crate::ui::Renderer>
 where
-    E: Into<Element<'a, Message, Theme, iced::Renderer>>,
+    E: Into<Element<'a, Message, Theme, crate::ui::Renderer>>,
 {
     LayerContainer::new(content)
 }

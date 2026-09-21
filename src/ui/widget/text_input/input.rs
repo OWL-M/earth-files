@@ -52,8 +52,9 @@ impl ColorExt for iced::Color {
     }
 }
 
-pub(crate) type Plain =
-    iced_core::text::paragraph::Plain<<iced::Renderer as iced_core::text::Renderer>::Paragraph>;
+pub(crate) type Plain = iced_core::text::paragraph::Plain<
+    <crate::ui::Renderer as iced_core::text::Renderer>::Paragraph,
+>;
 
 thread_local! {
     // Prevents two inputs from being focused at the same time.
@@ -208,7 +209,7 @@ pub struct TextInput<'a, Message> {
     is_read_only: bool,
     select_on_focus: bool,
     double_click_select_delimiter: Option<char>,
-    font: Option<<iced::Renderer as iced_core::text::Renderer>::Font>,
+    font: Option<<crate::ui::Renderer as iced_core::text::Renderer>::Font>,
     width: Length,
     padding: Padding,
     size: Option<f32>,
@@ -223,8 +224,8 @@ pub struct TextInput<'a, Message> {
     on_tab: Option<Message>,
     on_submit: Option<Box<dyn Fn(String) -> Message + 'a>>,
     on_toggle_edit: Option<Box<dyn Fn(bool) -> Message + 'a>>,
-    leading_icon: Option<Element<'a, Message, crate::ui::Theme, iced::Renderer>>,
-    trailing_icon: Option<Element<'a, Message, crate::ui::Theme, iced::Renderer>>,
+    leading_icon: Option<Element<'a, Message, crate::ui::Theme, crate::ui::Renderer>>,
+    trailing_icon: Option<Element<'a, Message, crate::ui::Theme, crate::ui::Renderer>>,
     style: <crate::ui::Theme as StyleSheet>::Style,
     surface_ids: Option<(window::Id, window::Id)>,
     dnd_icon: bool,
@@ -433,7 +434,10 @@ where
     ///
     /// [`Font`]: text::Renderer::Font
     #[inline]
-    pub const fn font(mut self, font: <iced::Renderer as iced_core::text::Renderer>::Font) -> Self {
+    pub const fn font(
+        mut self,
+        font: <crate::ui::Renderer as iced_core::text::Renderer>::Font,
+    ) -> Self {
         self.font = Some(font);
         self
     }
@@ -442,7 +446,7 @@ where
     #[inline]
     pub fn leading_icon(
         mut self,
-        icon: Element<'a, Message, crate::ui::Theme, iced::Renderer>,
+        icon: Element<'a, Message, crate::ui::Theme, crate::ui::Renderer>,
     ) -> Self {
         self.leading_icon = Some(icon);
         self
@@ -452,7 +456,7 @@ where
     #[inline]
     pub fn trailing_icon(
         mut self,
-        icon: Element<'a, Message, crate::ui::Theme, iced::Renderer>,
+        icon: Element<'a, Message, crate::ui::Theme, crate::ui::Renderer>,
     ) -> Self {
         self.trailing_icon = Some(icon);
         self
@@ -498,7 +502,7 @@ where
     pub fn draw(
         &self,
         tree: &Tree,
-        renderer: &mut iced::Renderer,
+        renderer: &mut crate::ui::Renderer,
         theme: &crate::ui::Theme,
         layout: Layout<'_>,
         cursor_position: mouse::Cursor,
@@ -633,7 +637,7 @@ where
     }
 }
 
-impl<Message> Widget<Message, crate::ui::Theme, iced::Renderer> for TextInput<'_, Message>
+impl<Message> Widget<Message, crate::ui::Theme, crate::ui::Renderer> for TextInput<'_, Message>
 where
     Message: Clone + 'static,
 {
@@ -779,7 +783,7 @@ where
     fn layout(
         &mut self,
         tree: &mut Tree,
-        renderer: &iced::Renderer,
+        renderer: &crate::ui::Renderer,
         limits: &layout::Limits,
     ) -> layout::Node {
         self.sync_from_state(tree);
@@ -861,7 +865,7 @@ where
         &mut self,
         tree: &mut Tree,
         layout: Layout<'_>,
-        renderer: &iced::Renderer,
+        renderer: &crate::ui::Renderer,
         operation: &mut dyn Operation,
     ) {
         operation.container(Some(&self.id), layout.bounds());
@@ -875,10 +879,10 @@ where
         &'b mut self,
         tree: &'b mut Tree,
         layout: Layout<'b>,
-        renderer: &iced::Renderer,
+        renderer: &crate::ui::Renderer,
         viewport: &Rectangle,
         translation: Vector,
-    ) -> Option<overlay::Element<'b, Message, crate::ui::Theme, iced::Renderer>> {
+    ) -> Option<overlay::Element<'b, Message, crate::ui::Theme, crate::ui::Renderer>> {
         if !self.uses_popup_context_menu() {
             let has_context_menu = tree
                 .state
@@ -911,18 +915,18 @@ where
             }
             layout_.push(children.next().unwrap());
         };
-        let children: Vec<overlay::Element<'_, Message, crate::ui::Theme, iced::Renderer>> = self
-            .leading_icon
-            .iter_mut()
-            .chain(self.trailing_icon.iter_mut())
-            .zip(&mut tree.children)
-            .zip(layout_)
-            .filter_map(|((child, state), layout)| {
-                child
-                    .as_widget_mut()
-                    .overlay(state, layout, renderer, viewport, translation)
-            })
-            .collect();
+        let children: Vec<overlay::Element<'_, Message, crate::ui::Theme, crate::ui::Renderer>> =
+            self.leading_icon
+                .iter_mut()
+                .chain(self.trailing_icon.iter_mut())
+                .zip(&mut tree.children)
+                .zip(layout_)
+                .filter_map(|((child, state), layout)| {
+                    child
+                        .as_widget_mut()
+                        .overlay(state, layout, renderer, viewport, translation)
+                })
+                .collect();
 
         (!children.is_empty()).then(|| Group::with_children(children).overlay())
     }
@@ -933,7 +937,7 @@ where
         event: &Event,
         layout: Layout<'_>,
         cursor_position: mouse::Cursor,
-        renderer: &iced::Renderer,
+        renderer: &crate::ui::Renderer,
         clipboard: &mut dyn Clipboard,
         shell: &mut Shell<'_, Message>,
         viewport: &Rectangle,
@@ -1139,7 +1143,7 @@ where
     fn draw(
         &self,
         tree: &Tree,
-        renderer: &mut iced::Renderer,
+        renderer: &mut crate::ui::Renderer,
         theme: &crate::ui::Theme,
         style: &renderer::Style,
         layout: Layout<'_>,
@@ -1181,7 +1185,7 @@ where
         layout: Layout<'_>,
         cursor_position: mouse::Cursor,
         viewport: &Rectangle,
-        renderer: &iced::Renderer,
+        renderer: &crate::ui::Renderer,
     ) -> mouse::Interaction {
         let layout = self.text_layout(layout);
         let mut index = 0;
@@ -1240,13 +1244,13 @@ where
 }
 
 impl<'a, Message> From<TextInput<'a, Message>>
-    for Element<'a, Message, crate::ui::Theme, iced::Renderer>
+    for Element<'a, Message, crate::ui::Theme, crate::ui::Renderer>
 where
     Message: 'static + Clone,
 {
     fn from(
         text_input: TextInput<'a, Message>,
-    ) -> Element<'a, Message, crate::ui::Theme, iced::Renderer> {
+    ) -> Element<'a, Message, crate::ui::Theme, crate::ui::Renderer> {
         Element::new(text_input)
     }
 }
@@ -1306,13 +1310,13 @@ pub fn select_until_last<Message: 'static>(id: Id, value: &str, ch: char) -> Tas
 #[allow(clippy::too_many_arguments)]
 #[allow(clippy::too_many_lines)]
 pub fn layout<Message>(
-    renderer: &iced::Renderer,
+    renderer: &crate::ui::Renderer,
     limits: &layout::Limits,
     width: Length,
     padding: Padding,
     size: Option<f32>,
-    leading_icon: Option<&mut Element<'_, Message, crate::ui::Theme, iced::Renderer>>,
-    trailing_icon: Option<&mut Element<'_, Message, crate::ui::Theme, iced::Renderer>>,
+    leading_icon: Option<&mut Element<'_, Message, crate::ui::Theme, crate::ui::Renderer>>,
+    trailing_icon: Option<&mut Element<'_, Message, crate::ui::Theme, crate::ui::Renderer>>,
     line_height: text::LineHeight,
     label: Option<&str>,
     helper_text: Option<&str>,
@@ -1514,7 +1518,7 @@ pub fn update<'a, Message: Clone + 'static>(
     shell: &mut Shell<'_, Message>,
     value: &mut Value,
     size: f32,
-    font: <iced::Renderer as iced_core::text::Renderer>::Font,
+    font: <crate::ui::Renderer as iced_core::text::Renderer>::Font,
     is_editable_variant: bool,
     is_secure: bool,
     on_focus: Option<&Message>,
@@ -2318,7 +2322,7 @@ fn input_method<'b>(
 #[allow(clippy::too_many_lines)]
 #[allow(clippy::missing_panics_doc)]
 pub fn draw<'a, Message>(
-    renderer: &mut iced::Renderer,
+    renderer: &mut crate::ui::Renderer,
     theme: &crate::ui::Theme,
     layout: Layout<'_>,
     text_layout: Layout<'_>,
@@ -2327,11 +2331,11 @@ pub fn draw<'a, Message>(
     value: &Value,
     placeholder: &str,
     size: Option<f32>,
-    font: Option<<iced::Renderer as iced_core::text::Renderer>::Font>,
+    font: Option<<crate::ui::Renderer as iced_core::text::Renderer>::Font>,
     is_disabled: bool,
     is_secure: bool,
-    icon: Option<&Element<'a, Message, crate::ui::Theme, iced::Renderer>>,
-    trailing_icon: Option<&Element<'a, Message, crate::ui::Theme, iced::Renderer>>,
+    icon: Option<&Element<'a, Message, crate::ui::Theme, crate::ui::Renderer>>,
+    trailing_icon: Option<&Element<'a, Message, crate::ui::Theme, crate::ui::Renderer>>,
     style: &<crate::ui::Theme as StyleSheet>::Style,
     dnd_icon: bool,
     line_height: text::LineHeight,
@@ -2645,7 +2649,7 @@ pub fn draw<'a, Message>(
         )
     };
 
-    let render = |renderer: &mut iced::Renderer| {
+    let render = |renderer: &mut crate::ui::Renderer| {
         let alignment_offset = alignment_offset(
             text_bounds.width,
             state.value.raw().min_width(),
@@ -2653,7 +2657,7 @@ pub fn draw<'a, Message>(
         );
 
         let shift = Vector::new(alignment_offset - offset, 0.0);
-        let fill_cursors = |renderer: &mut iced::Renderer| {
+        let fill_cursors = |renderer: &mut crate::ui::Renderer| {
             renderer.with_translation(shift, |renderer| {
                 for (quad, color) in &cursors {
                     renderer.fill_quad(*quad, *color);
@@ -3148,7 +3152,7 @@ fn replace_paragraph(
     state: &mut State,
     layout: Layout<'_>,
     value: &Value,
-    font: <iced::Renderer as iced_core::text::Renderer>::Font,
+    font: <crate::ui::Renderer as iced_core::text::Renderer>::Font,
     text_size: Pixels,
     line_height: text::LineHeight,
     limits: &layout::Limits,

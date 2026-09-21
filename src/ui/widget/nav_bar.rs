@@ -82,7 +82,7 @@ impl<'a, Message: Clone + 'static> NavBar<'a, Message> {
     /// Pre-convert this widget into the [`Container`] widget that it becomes.
     #[must_use]
     #[inline]
-    pub fn into_container(self) -> Container<'a, Message, crate::ui::Theme, iced::Renderer> {
+    pub fn into_container(self) -> Container<'a, Message, crate::ui::Theme, crate::ui::Renderer> {
         Container::from(self)
     }
 
@@ -153,7 +153,7 @@ impl<'a, Message: Clone + 'static> NavBar<'a, Message> {
 }
 
 impl<'a, Message: Clone + 'static> From<NavBar<'a, Message>>
-    for Container<'a, Message, crate::ui::Theme, iced::Renderer>
+    for Container<'a, Message, crate::ui::Theme, crate::ui::Renderer>
 {
     fn from(this: NavBar<'a, Message>) -> Self {
         let spacing = crate::ui::theme::spacing();

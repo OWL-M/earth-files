@@ -16,12 +16,12 @@ pub(super) struct Overlay<'a, 'b, Message> {
     pub(super) width: f32,
 }
 
-impl<Message> overlay::Overlay<Message, crate::ui::Theme, iced::Renderer>
+impl<Message> overlay::Overlay<Message, crate::ui::Theme, crate::ui::Renderer>
     for Overlay<'_, '_, Message>
 where
     Message: Clone,
 {
-    fn layout(&mut self, renderer: &iced::Renderer, bounds: Size) -> layout::Node {
+    fn layout(&mut self, renderer: &crate::ui::Renderer, bounds: Size) -> layout::Node {
         let position = self.position;
         let limits = layout::Limits::new(Size::ZERO, bounds)
             .width(self.width)
@@ -52,7 +52,7 @@ where
         event: &Event,
         layout: Layout<'_>,
         cursor: mouse::Cursor,
-        renderer: &iced::Renderer,
+        renderer: &crate::ui::Renderer,
         clipboard: &mut dyn Clipboard,
         shell: &mut Shell<'_, Message>,
     ) {
@@ -84,7 +84,7 @@ where
 
     fn draw(
         &self,
-        renderer: &mut iced::Renderer,
+        renderer: &mut crate::ui::Renderer,
         theme: &crate::ui::Theme,
         style: &renderer::Style,
         layout: Layout<'_>,
@@ -106,7 +106,7 @@ where
     fn operate(
         &mut self,
         layout: Layout<'_>,
-        renderer: &iced::Renderer,
+        renderer: &crate::ui::Renderer,
         operation: &mut dyn Operation<()>,
     ) {
         self.content
@@ -118,7 +118,7 @@ where
         &self,
         layout: Layout<'_>,
         cursor: mouse::Cursor,
-        renderer: &iced::Renderer,
+        renderer: &crate::ui::Renderer,
     ) -> mouse::Interaction {
         let viewport = &layout.bounds();
         let interaction = self
@@ -136,8 +136,8 @@ where
     fn overlay<'c>(
         &'c mut self,
         layout: Layout<'c>,
-        renderer: &iced::Renderer,
-    ) -> Option<overlay::Element<'c, Message, crate::ui::Theme, iced::Renderer>> {
+        renderer: &crate::ui::Renderer,
+    ) -> Option<overlay::Element<'c, Message, crate::ui::Theme, crate::ui::Renderer>> {
         let viewport = &layout.bounds();
 
         self.content.as_widget_mut().overlay(

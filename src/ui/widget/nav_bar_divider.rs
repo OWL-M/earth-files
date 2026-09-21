@@ -64,7 +64,9 @@ impl State {
     }
 }
 
-impl<Message> Widget<Message, crate::ui::Theme, iced::Renderer> for NavBarDivider<'_, Message> {
+impl<Message> Widget<Message, crate::ui::Theme, crate::ui::Renderer>
+    for NavBarDivider<'_, Message>
+{
     fn tag(&self) -> tree::Tag {
         tree::Tag::of::<State>()
     }
@@ -88,7 +90,7 @@ impl<Message> Widget<Message, crate::ui::Theme, iced::Renderer> for NavBarDivide
     fn layout(
         &mut self,
         tree: &mut Tree,
-        renderer: &iced::Renderer,
+        renderer: &crate::ui::Renderer,
         limits: &layout::Limits,
     ) -> layout::Node {
         let node = self
@@ -103,7 +105,7 @@ impl<Message> Widget<Message, crate::ui::Theme, iced::Renderer> for NavBarDivide
         &mut self,
         tree: &mut Tree,
         layout: Layout<'_>,
-        renderer: &iced::Renderer,
+        renderer: &crate::ui::Renderer,
         operation: &mut dyn Operation,
     ) {
         operation.traverse(&mut |operation| {
@@ -122,7 +124,7 @@ impl<Message> Widget<Message, crate::ui::Theme, iced::Renderer> for NavBarDivide
         event: &Event,
         layout: Layout<'_>,
         cursor_position: mouse::Cursor,
-        renderer: &iced::Renderer,
+        renderer: &crate::ui::Renderer,
         clipboard: &mut dyn Clipboard,
         shell: &mut Shell<'_, Message>,
         viewport: &Rectangle,
@@ -180,7 +182,7 @@ impl<Message> Widget<Message, crate::ui::Theme, iced::Renderer> for NavBarDivide
         layout: Layout<'_>,
         cursor_position: mouse::Cursor,
         viewport: &Rectangle,
-        renderer: &iced::Renderer,
+        renderer: &crate::ui::Renderer,
     ) -> mouse::Interaction {
         self.content.as_widget().mouse_interaction(
             &tree.children[0],
@@ -194,7 +196,7 @@ impl<Message> Widget<Message, crate::ui::Theme, iced::Renderer> for NavBarDivide
     fn draw(
         &self,
         tree: &Tree,
-        renderer: &mut iced::Renderer,
+        renderer: &mut crate::ui::Renderer,
         theme: &crate::ui::Theme,
         renderer_style: &renderer::Style,
         layout: Layout<'_>,
@@ -236,10 +238,10 @@ impl<Message> Widget<Message, crate::ui::Theme, iced::Renderer> for NavBarDivide
         &'b mut self,
         tree: &'b mut Tree,
         layout: Layout<'b>,
-        renderer: &iced::Renderer,
+        renderer: &crate::ui::Renderer,
         viewport: &Rectangle,
         translation: Vector,
-    ) -> Option<overlay::Element<'b, Message, crate::ui::Theme, iced::Renderer>> {
+    ) -> Option<overlay::Element<'b, Message, crate::ui::Theme, crate::ui::Renderer>> {
         self.content.as_widget_mut().overlay(
             &mut tree.children[0],
             layout.children().next().unwrap(),

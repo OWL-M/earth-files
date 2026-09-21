@@ -3,7 +3,7 @@
 
 //! Vendored from pop-os/libcosmic, src/widget/flex_row/layout.rs
 
-use iced::Renderer;
+use crate::ui::Renderer;
 
 use crate::ui::Element;
 use iced_core::layout::{Limits, Node};

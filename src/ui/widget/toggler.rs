@@ -197,7 +197,7 @@ impl<'a, Message> Toggler<'a, Message> {
     }
 }
 
-impl<'a, Message> Widget<Message, crate::ui::Theme, iced::Renderer> for Toggler<'a, Message> {
+impl<'a, Message> Widget<Message, crate::ui::Theme, crate::ui::Renderer> for Toggler<'a, Message> {
     fn size(&self) -> Size<Length> {
         Size::new(self.width, Length::Shrink)
     }
@@ -216,7 +216,7 @@ impl<'a, Message> Widget<Message, crate::ui::Theme, iced::Renderer> for Toggler<
     fn layout(
         &mut self,
         tree: &mut Tree,
-        renderer: &iced::Renderer,
+        renderer: &crate::ui::Renderer,
         limits: &layout::Limits,
     ) -> layout::Node {
         let limits = limits.width(self.width);
@@ -268,7 +268,7 @@ impl<'a, Message> Widget<Message, crate::ui::Theme, iced::Renderer> for Toggler<
         event: &Event,
         layout: Layout<'_>,
         cursor_position: mouse::Cursor,
-        _renderer: &iced::Renderer,
+        _renderer: &crate::ui::Renderer,
         _clipboard: &mut dyn Clipboard,
         shell: &mut Shell<'_, Message>,
         _viewport: &Rectangle,
@@ -324,7 +324,7 @@ impl<'a, Message> Widget<Message, crate::ui::Theme, iced::Renderer> for Toggler<
         layout: Layout<'_>,
         cursor_position: mouse::Cursor,
         _viewport: &Rectangle,
-        _renderer: &iced::Renderer,
+        _renderer: &crate::ui::Renderer,
     ) -> mouse::Interaction {
         if cursor_position.is_over(layout.bounds()) {
             mouse::Interaction::Pointer
@@ -336,7 +336,7 @@ impl<'a, Message> Widget<Message, crate::ui::Theme, iced::Renderer> for Toggler<
     fn draw(
         &self,
         tree: &Tree,
-        renderer: &mut iced::Renderer,
+        renderer: &mut crate::ui::Renderer,
         theme: &crate::ui::Theme,
         style: &renderer::Style,
         layout: Layout<'_>,
@@ -487,7 +487,7 @@ pub fn next_to_each_other(
 
 #[derive(Debug, Default)]
 pub struct State {
-    text: widget::text::State<<iced::Renderer as iced_core::text::Renderer>::Paragraph>,
+    text: widget::text::State<<crate::ui::Renderer as iced_core::text::Renderer>::Paragraph>,
     anim: anim::State,
     prev_toggled: bool,
     hovered: bool,

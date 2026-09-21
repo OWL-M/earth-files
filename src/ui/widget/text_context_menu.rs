@@ -200,7 +200,7 @@ pub(crate) fn context_menu_overlay<'a, W, Message>(
     on_input: Option<&'a dyn Fn(String) -> Message>,
     translation: Vector,
     menu_bar_state: MenuBarState,
-) -> Option<overlay::Element<'a, Message, crate::ui::Theme, iced::Renderer>>
+) -> Option<overlay::Element<'a, Message, crate::ui::Theme, crate::ui::Renderer>>
 where
     W: HasSelectableText + 'a,
     Message: Clone + 'static,
@@ -324,13 +324,13 @@ struct TextMenuOverlay<'a, W, Message: Clone + 'static> {
     on_input: Option<&'a dyn Fn(String) -> Message>,
 }
 
-impl<W, Message> overlay::Overlay<Message, crate::ui::Theme, iced::Renderer>
+impl<W, Message> overlay::Overlay<Message, crate::ui::Theme, crate::ui::Renderer>
     for TextMenuOverlay<'_, W, Message>
 where
     W: HasSelectableText,
     Message: Clone + 'static,
 {
-    fn layout(&mut self, renderer: &iced::Renderer, bounds: Size) -> iced_core::layout::Node {
+    fn layout(&mut self, renderer: &crate::ui::Renderer, bounds: Size) -> iced_core::layout::Node {
         // Initialise the menu before the first draw so it appears at the click
         // position immediately
         let needs_init = self
@@ -371,7 +371,7 @@ where
 
     fn draw(
         &self,
-        renderer: &mut iced::Renderer,
+        renderer: &mut crate::ui::Renderer,
         theme: &crate::ui::Theme,
         style: &renderer::Style,
         layout: Layout<'_>,
@@ -385,7 +385,7 @@ where
         event: &event::Event,
         layout: Layout<'_>,
         cursor: mouse::Cursor,
-        renderer: &iced::Renderer,
+        renderer: &crate::ui::Renderer,
         clipboard: &mut dyn Clipboard,
         shell: &mut Shell<'_, Message>,
     ) {
@@ -470,7 +470,7 @@ where
         &self,
         layout: Layout<'_>,
         cursor: mouse::Cursor,
-        _renderer: &iced::Renderer,
+        _renderer: &crate::ui::Renderer,
     ) -> mouse::Interaction {
         if cursor.is_over(layout.bounds()) {
             mouse::Interaction::Idle
@@ -495,7 +495,7 @@ pub(crate) fn create_text_context_popup(
     clipboard_has_text: bool,
     menu_bar_state: &MenuBarState,
     pending_action: &PendingAction,
-    renderer: &iced::Renderer,
+    renderer: &crate::ui::Renderer,
     viewport: &Rectangle,
     cursor: mouse::Cursor,
     window_id: window::Id,
@@ -661,42 +661,43 @@ struct TextContextMenuPopup<Message: Clone + 'static> {
     _phantom: std::marker::PhantomData<Message>,
 }
 
-impl<Message: Clone + 'static> iced_core::widget::Widget<Message, crate::ui::Theme, iced::Renderer>
+impl<Message: Clone + 'static>
+    iced_core::widget::Widget<Message, crate::ui::Theme, crate::ui::Renderer>
     for TextContextMenuPopup<Message>
 {
     fn size(&self) -> Size<iced_core::Length> {
         use iced_core::widget::Widget;
-        Widget::<TextCtxAction, crate::ui::Theme, iced::Renderer>::size(&self.menu)
+        Widget::<TextCtxAction, crate::ui::Theme, crate::ui::Renderer>::size(&self.menu)
     }
 
     fn tag(&self) -> iced_core::widget::tree::Tag {
         use iced_core::widget::Widget;
-        Widget::<TextCtxAction, crate::ui::Theme, iced::Renderer>::tag(&self.menu)
+        Widget::<TextCtxAction, crate::ui::Theme, crate::ui::Renderer>::tag(&self.menu)
     }
 
     fn state(&self) -> iced_core::widget::tree::State {
         use iced_core::widget::Widget;
-        Widget::<TextCtxAction, crate::ui::Theme, iced::Renderer>::state(&self.menu)
+        Widget::<TextCtxAction, crate::ui::Theme, crate::ui::Renderer>::state(&self.menu)
     }
 
     fn children(&self) -> Vec<iced_core::widget::Tree> {
         use iced_core::widget::Widget;
-        Widget::<TextCtxAction, crate::ui::Theme, iced::Renderer>::children(&self.menu)
+        Widget::<TextCtxAction, crate::ui::Theme, crate::ui::Renderer>::children(&self.menu)
     }
 
     fn diff(&self, tree: &mut iced_core::widget::Tree) {
         use iced_core::widget::Widget;
-        Widget::<TextCtxAction, crate::ui::Theme, iced::Renderer>::diff(&self.menu, tree);
+        Widget::<TextCtxAction, crate::ui::Theme, crate::ui::Renderer>::diff(&self.menu, tree);
     }
 
     fn layout(
         &mut self,
         tree: &mut iced_core::widget::Tree,
-        renderer: &iced::Renderer,
+        renderer: &crate::ui::Renderer,
         limits: &iced_core::layout::Limits,
     ) -> iced_core::layout::Node {
         use iced_core::widget::Widget;
-        Widget::<TextCtxAction, crate::ui::Theme, iced::Renderer>::layout(
+        Widget::<TextCtxAction, crate::ui::Theme, crate::ui::Renderer>::layout(
             &mut self.menu,
             tree,
             renderer,
@@ -707,7 +708,7 @@ impl<Message: Clone + 'static> iced_core::widget::Widget<Message, crate::ui::The
     fn draw(
         &self,
         tree: &iced_core::widget::Tree,
-        renderer: &mut iced::Renderer,
+        renderer: &mut crate::ui::Renderer,
         theme: &crate::ui::Theme,
         style: &renderer::Style,
         layout: Layout<'_>,
@@ -715,7 +716,7 @@ impl<Message: Clone + 'static> iced_core::widget::Widget<Message, crate::ui::The
         viewport: &Rectangle,
     ) {
         use iced_core::widget::Widget;
-        Widget::<TextCtxAction, crate::ui::Theme, iced::Renderer>::draw(
+        Widget::<TextCtxAction, crate::ui::Theme, crate::ui::Renderer>::draw(
             &self.menu, tree, renderer, theme, style, layout, cursor, viewport,
         );
     }
@@ -726,7 +727,7 @@ impl<Message: Clone + 'static> iced_core::widget::Widget<Message, crate::ui::The
         event: &event::Event,
         layout: Layout<'_>,
         cursor: mouse::Cursor,
-        renderer: &iced::Renderer,
+        renderer: &crate::ui::Renderer,
         clipboard: &mut dyn Clipboard,
         shell: &mut Shell<'_, Message>,
         viewport: &Rectangle,
@@ -774,7 +775,7 @@ impl<Message: Clone + 'static> iced_core::widget::Widget<Message, crate::ui::The
 
         {
             use iced_core::widget::Widget;
-            Widget::<TextCtxAction, crate::ui::Theme, iced::Renderer>::update(
+            Widget::<TextCtxAction, crate::ui::Theme, crate::ui::Renderer>::update(
                 &mut self.menu,
                 tree,
                 event,
@@ -846,10 +847,10 @@ impl<Message: Clone + 'static> iced_core::widget::Widget<Message, crate::ui::The
         layout: Layout<'_>,
         cursor: mouse::Cursor,
         viewport: &Rectangle,
-        renderer: &iced::Renderer,
+        renderer: &crate::ui::Renderer,
     ) -> mouse::Interaction {
         use iced_core::widget::Widget;
-        Widget::<TextCtxAction, crate::ui::Theme, iced::Renderer>::mouse_interaction(
+        Widget::<TextCtxAction, crate::ui::Theme, crate::ui::Renderer>::mouse_interaction(
             &self.menu, tree, layout, cursor, viewport, renderer,
         )
     }

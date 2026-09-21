@@ -18,11 +18,11 @@ use iced::widget::radio as iced_radio;
 pub use iced::widget::radio::Catalog;
 
 pub fn radio<'a, Message: Clone, V, F>(
-    label: impl Into<Element<'a, Message, Theme, iced::Renderer>>,
+    label: impl Into<Element<'a, Message, Theme, crate::ui::Renderer>>,
     value: V,
     selected: Option<V>,
     f: F,
-) -> Radio<'a, Message, iced::Renderer>
+) -> Radio<'a, Message, crate::ui::Renderer>
 where
     V: Eq + Copy,
     F: FnOnce(V) -> Message,
@@ -91,7 +91,7 @@ where
 /// let content = column![a, b, c, all];
 /// ```
 #[allow(missing_debug_implementations)]
-pub struct Radio<'a, Message, Renderer = iced::Renderer>
+pub struct Radio<'a, Message, Renderer = crate::ui::Renderer>
 where
     Renderer: iced_core::Renderer,
 {

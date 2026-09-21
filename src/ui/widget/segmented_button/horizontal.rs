@@ -118,7 +118,7 @@ where
     fn variant_layout(
         &self,
         state: &mut LocalState,
-        renderer: &iced::Renderer,
+        renderer: &crate::ui::Renderer,
         limits: &layout::Limits,
     ) -> Size {
         state.internal_layout.clear();

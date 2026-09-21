@@ -172,7 +172,7 @@ impl<
     S: AsRef<str> + Send + Sync + Clone + 'static,
     Message: 'static + Clone,
     AppMessage: 'static + Clone,
-> Widget<Message, crate::ui::Theme, iced::Renderer> for Dropdown<'_, S, Message, AppMessage>
+> Widget<Message, crate::ui::Theme, crate::ui::Renderer> for Dropdown<'_, S, Message, AppMessage>
 where
     [S]: std::borrow::ToOwned,
 {
@@ -232,7 +232,7 @@ where
     fn layout(
         &mut self,
         tree: &mut Tree,
-        renderer: &iced::Renderer,
+        renderer: &crate::ui::Renderer,
         limits: &layout::Limits,
     ) -> layout::Node {
         layout(
@@ -261,7 +261,7 @@ where
         event: &Event,
         layout: Layout<'_>,
         cursor: mouse::Cursor,
-        _renderer: &iced::Renderer,
+        _renderer: &crate::ui::Renderer,
         _clipboard: &mut dyn Clipboard,
         shell: &mut Shell<'_, Message>,
         _viewport: &Rectangle,
@@ -295,7 +295,7 @@ where
         layout: Layout<'_>,
         cursor: mouse::Cursor,
         _viewport: &Rectangle,
-        _renderer: &iced::Renderer,
+        _renderer: &crate::ui::Renderer,
     ) -> mouse::Interaction {
         mouse_interaction(layout, cursor)
     }
@@ -303,7 +303,7 @@ where
     fn draw(
         &self,
         tree: &Tree,
-        renderer: &mut iced::Renderer,
+        renderer: &mut crate::ui::Renderer,
         theme: &crate::ui::Theme,
         _style: &iced_core::renderer::Style,
         layout: Layout<'_>,
@@ -333,7 +333,7 @@ where
         &mut self,
         tree: &mut Tree,
         _layout: Layout<'_>,
-        _renderer: &iced::Renderer,
+        _renderer: &crate::ui::Renderer,
         operation: &mut dyn iced_core::widget::Operation,
     ) {
     }
@@ -342,10 +342,10 @@ where
         &'b mut self,
         tree: &'b mut Tree,
         layout: Layout<'b>,
-        renderer: &iced::Renderer,
+        renderer: &crate::ui::Renderer,
         viewport: &Rectangle,
         translation: Vector,
-    ) -> Option<overlay::Element<'b, Message, crate::ui::Theme, iced::Renderer>> {
+    ) -> Option<overlay::Element<'b, Message, crate::ui::Theme, crate::ui::Renderer>> {
         #[cfg(wayland_platform)]
         if self.window_id.is_some() || self.on_surface_action.is_some() {
             return None;
@@ -441,7 +441,7 @@ impl super::operation::Dropdown for State {
 /// Computes the layout of a [`Dropdown`].
 #[allow(clippy::too_many_arguments)]
 pub fn layout(
-    renderer: &iced::Renderer,
+    renderer: &crate::ui::Renderer,
     limits: &layout::Limits,
     width: Length,
     gap: f32,
@@ -790,7 +790,7 @@ where
 #[allow(clippy::too_many_arguments)]
 pub fn overlay<'a, S: AsRef<str> + Send + Sync + Clone + 'static, Message: std::clone::Clone + 'a>(
     layout: Layout<'_>,
-    _renderer: &iced::Renderer,
+    _renderer: &crate::ui::Renderer,
     state: &'a mut State,
     gap: f32,
     padding: Padding,
@@ -803,7 +803,7 @@ pub fn overlay<'a, S: AsRef<str> + Send + Sync + Clone + 'static, Message: std::
     on_selected: &'a dyn Fn(usize) -> Message,
     translation: Vector,
     close_on_selected: Option<Message>,
-) -> Option<overlay::Element<'a, Message, crate::ui::Theme, iced::Renderer>>
+) -> Option<overlay::Element<'a, Message, crate::ui::Theme, crate::ui::Renderer>>
 where
     [S]: std::borrow::ToOwned,
 {
@@ -858,7 +858,7 @@ where
 /// Draws a [`Dropdown`].
 #[allow(clippy::too_many_arguments)]
 pub fn draw<'a, S>(
-    renderer: &mut iced::Renderer,
+    renderer: &mut crate::ui::Renderer,
     theme: &crate::ui::Theme,
     layout: Layout<'_>,
     cursor: mouse::Cursor,

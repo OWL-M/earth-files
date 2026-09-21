@@ -14,7 +14,7 @@ use iced_core::{
 
 #[allow(missing_debug_implementations)]
 #[must_use]
-pub struct MenuColumn<'a, Message, Renderer = iced::Renderer> {
+pub struct MenuColumn<'a, Message, Renderer = crate::ui::Renderer> {
     spacing: f32,
     padding: Padding,
     width: Length,

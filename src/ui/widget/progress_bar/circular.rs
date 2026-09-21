@@ -6,10 +6,11 @@
 
 use super::animation::{Animation, Progress};
 use super::style::StyleSheet;
+use crate::ui::Renderer;
 use iced::advanced::widget::tree::{self, Tree};
 use iced::advanced::{self, Clipboard, Layout, Shell, Widget, layout, renderer};
 use iced::widget::canvas;
-use iced::{Element, Event, Length, Radians, Rectangle, Renderer, Size, Vector, mouse, window};
+use iced::{Element, Event, Length, Radians, Rectangle, Size, Vector, mouse, window};
 
 use std::f32::consts::PI;
 use std::time::Duration;

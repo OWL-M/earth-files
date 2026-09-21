@@ -9,7 +9,7 @@ use crate::ui::convert::ToPixels;
 pub use iced::widget::tooltip::Position;
 
 pub type Tooltip<'a, Message> =
-    iced::widget::Tooltip<'a, Message, crate::ui::Theme, iced::Renderer>;
+    iced::widget::Tooltip<'a, Message, crate::ui::Theme, crate::ui::Renderer>;
 
 pub fn tooltip<'a, Message>(
     content: impl Into<Element<'a, Message>>,

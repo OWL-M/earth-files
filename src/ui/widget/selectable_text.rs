@@ -5,8 +5,8 @@
 //!
 //! Vendored from pop-os/libcosmic, src/widget/selectable_text.rs
 
+use crate::ui::Renderer;
 use crate::ui::widget::menu::MenuBarState;
-use iced::Renderer;
 
 use crate::ui::convert::{ToColor, ToRadius};
 use crate::ui::widget::text::{Catalog, Style};

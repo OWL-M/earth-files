@@ -39,15 +39,20 @@ use iced_core::{
 };
 use std::rc::Rc;
 
-type InnerEditor<'a, Message> =
-    iced::widget::TextEditor<'a, highlighter::PlainText, Message, crate::ui::Theme, iced::Renderer>;
+type InnerEditor<'a, Message> = iced::widget::TextEditor<
+    'a,
+    highlighter::PlainText,
+    Message,
+    crate::ui::Theme,
+    crate::ui::Renderer,
+>;
 
 pub struct TextEditor<'a, Message> {
     inner: InnerEditor<'a, Message>,
     has_context_menu: bool,
     window_id: window::Id,
     // `selected_text`/`has_text` read the content directly.
-    content: &'a Content<iced::Renderer>,
+    content: &'a Content<crate::ui::Renderer>,
     // Kept alongside the copy handed to the inner editor so `update` can
     // dispatch a pending edit through it. `Rc` because `on_action` takes a
     // non-`Clone` `impl Fn`.
@@ -73,7 +78,7 @@ impl EditorWrapperState {
 
 impl<'a, Message: Clone + 'static> TextEditor<'a, Message> {
     /// Creates a new [`TextEditor`] from the given [`Content`].
-    pub fn new(content: &'a Content<iced::Renderer>) -> Self {
+    pub fn new(content: &'a Content<crate::ui::Renderer>) -> Self {
         Self {
             inner: iced::widget::text_editor(content),
             has_context_menu: true,
@@ -134,7 +139,7 @@ impl<'a, Message: Clone + 'static> TextEditor<'a, Message> {
 
     pub fn font(
         mut self,
-        font: impl Into<<iced::Renderer as iced_core::text::Renderer>::Font>,
+        font: impl Into<<crate::ui::Renderer as iced_core::text::Renderer>::Font>,
     ) -> Self {
         self.inner = self.inner.font(font);
         self
@@ -191,24 +196,24 @@ impl<'a, Message: Clone + 'static> TextEditor<'a, Message> {
 
 /// Creates a new [`TextEditor`] from the given [`Content`].
 pub fn text_editor<'a, Message: Clone + 'static>(
-    content: &'a Content<iced::Renderer>,
+    content: &'a Content<crate::ui::Renderer>,
 ) -> TextEditor<'a, Message> {
     TextEditor::new(content)
 }
 
 fn ew<'x, Message>(
     inner: &'x InnerEditor<'_, Message>,
-) -> &'x dyn Widget<Message, crate::ui::Theme, iced::Renderer> {
+) -> &'x dyn Widget<Message, crate::ui::Theme, crate::ui::Renderer> {
     inner
 }
 
 fn ew_mut<'x, Message>(
     inner: &'x mut InnerEditor<'_, Message>,
-) -> &'x mut dyn Widget<Message, crate::ui::Theme, iced::Renderer> {
+) -> &'x mut dyn Widget<Message, crate::ui::Theme, crate::ui::Renderer> {
     inner
 }
 
-impl<'a, Message: Clone + 'static> Widget<Message, crate::ui::Theme, iced::Renderer>
+impl<'a, Message: Clone + 'static> Widget<Message, crate::ui::Theme, crate::ui::Renderer>
     for TextEditor<'a, Message>
 {
     fn tag(&self) -> tree::Tag {
@@ -245,7 +250,9 @@ impl<'a, Message: Clone + 'static> Widget<Message, crate::ui::Theme, iced::Rende
     fn diff(&self, tree: &mut Tree) {
         if self.has_context_menu {
             if let Some(child) = tree.children.first_mut() {
-                child.diff(&self.inner as &dyn Widget<Message, crate::ui::Theme, iced::Renderer>);
+                child.diff(
+                    &self.inner as &dyn Widget<Message, crate::ui::Theme, crate::ui::Renderer>,
+                );
             }
         } else {
             ew::<Message>(&self.inner).diff(tree);
@@ -259,7 +266,7 @@ impl<'a, Message: Clone + 'static> Widget<Message, crate::ui::Theme, iced::Rende
     fn layout(
         &mut self,
         tree: &mut Tree,
-        renderer: &iced::Renderer,
+        renderer: &crate::ui::Renderer,
         limits: &iced_core::layout::Limits,
     ) -> iced_core::layout::Node {
         let inner_tree = if self.has_context_menu {
@@ -273,7 +280,7 @@ impl<'a, Message: Clone + 'static> Widget<Message, crate::ui::Theme, iced::Rende
     fn draw(
         &self,
         tree: &Tree,
-        renderer: &mut iced::Renderer,
+        renderer: &mut crate::ui::Renderer,
         theme: &crate::ui::Theme,
         defaults: &renderer::Style,
         layout: Layout<'_>,
@@ -296,7 +303,7 @@ impl<'a, Message: Clone + 'static> Widget<Message, crate::ui::Theme, iced::Rende
         event: &Event,
         layout: Layout<'_>,
         cursor: mouse::Cursor,
-        renderer: &iced::Renderer,
+        renderer: &crate::ui::Renderer,
         clipboard: &mut dyn Clipboard,
         shell: &mut Shell<'_, Message>,
         viewport: &Rectangle,
@@ -452,7 +459,7 @@ impl<'a, Message: Clone + 'static> Widget<Message, crate::ui::Theme, iced::Rende
         layout: Layout<'_>,
         cursor: mouse::Cursor,
         viewport: &Rectangle,
-        renderer: &iced::Renderer,
+        renderer: &crate::ui::Renderer,
     ) -> mouse::Interaction {
         let inner_tree = if self.has_context_menu {
             &tree.children[0]
@@ -466,10 +473,10 @@ impl<'a, Message: Clone + 'static> Widget<Message, crate::ui::Theme, iced::Rende
         &'b mut self,
         tree: &'b mut Tree,
         layout: Layout<'b>,
-        renderer: &iced::Renderer,
+        renderer: &crate::ui::Renderer,
         viewport: &Rectangle,
         translation: Vector,
-    ) -> Option<overlay::Element<'b, Message, crate::ui::Theme, iced::Renderer>> {
+    ) -> Option<overlay::Element<'b, Message, crate::ui::Theme, crate::ui::Renderer>> {
         if self.has_context_menu {
             if !self.uses_popup_context_menu() {
                 use crate::ui::widget::text::HasSelectableText;
@@ -513,7 +520,7 @@ impl<'a, Message: Clone + 'static> Widget<Message, crate::ui::Theme, iced::Rende
         &mut self,
         tree: &mut Tree,
         layout: Layout<'_>,
-        renderer: &iced::Renderer,
+        renderer: &crate::ui::Renderer,
         operation: &mut dyn iced_core::widget::Operation,
     ) {
         let inner_tree = if self.has_context_menu {

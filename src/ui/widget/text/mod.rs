@@ -6,7 +6,7 @@
 //! [`widget`] carries a selectable `Text`, not iced's. The typography presets
 //! below build that one, so `selectable_text` has a selectable widget to wrap.
 
-use iced::Renderer;
+use crate::ui::Renderer;
 use iced_core::text::LineHeight;
 
 pub mod widget;

@@ -12,7 +12,7 @@
 //! needs).
 //!
 //! They are free functions rather than a `Paragraph` trait, because the
-//! widgets that use them are already monomorphic in `iced::Renderer`, so its
+//! widgets that use them are already monomorphic in `crate::ui::Renderer`, so its
 //! associated `Paragraph` is the concrete `iced_graphics::text::Paragraph`,
 //! whose `buffer()` accessor is public and hands back the
 //! `cosmic_text::Buffer`.
@@ -30,8 +30,8 @@ use cosmic_text::Affinity;
 use iced_core::{Point, Rectangle};
 use unicode_segmentation::UnicodeSegmentation;
 
-/// The concrete paragraph behind `iced::Renderer`.
-pub type Paragraph = <iced::Renderer as iced_core::text::Renderer>::Paragraph;
+/// The concrete paragraph behind `crate::ui::Renderer`.
+pub type Paragraph = <crate::ui::Renderer as iced_core::text::Renderer>::Paragraph;
 
 /// Hit-tests `paragraph`, returning the byte index *and* the cursor affinity,
 /// which iced's `Hit` has nowhere to put.

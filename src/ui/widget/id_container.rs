@@ -14,9 +14,9 @@ use iced_core::{
 pub fn id_container<'a, Message: 'static, Theme, E>(
     content: E,
     id: Id,
-) -> IdContainer<'a, Message, Theme, iced::Renderer>
+) -> IdContainer<'a, Message, Theme, crate::ui::Renderer>
 where
-    E: Into<Element<'a, Message, Theme, iced::Renderer>>,
+    E: Into<Element<'a, Message, Theme, crate::ui::Renderer>>,
     Theme: iced::widget::container::Catalog,
     <Theme as iced::widget::container::Catalog>::Class<'a>: From<crate::ui::theme::Container<'a>>,
 {

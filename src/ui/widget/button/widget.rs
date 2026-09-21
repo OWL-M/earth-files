@@ -295,7 +295,7 @@ impl<'a, Message: Clone + 'a> Button<'a, Message> {
     }
 }
 
-impl<'a, Message: 'a + Clone> Widget<Message, crate::ui::Theme, iced::Renderer>
+impl<'a, Message: 'a + Clone> Widget<Message, crate::ui::Theme, crate::ui::Renderer>
     for Button<'a, Message>
 {
     fn tag(&self) -> tree::Tag {
@@ -321,7 +321,7 @@ impl<'a, Message: 'a + Clone> Widget<Message, crate::ui::Theme, iced::Renderer>
     fn layout(
         &mut self,
         tree: &mut Tree,
-        renderer: &iced::Renderer,
+        renderer: &crate::ui::Renderer,
         limits: &layout::Limits,
     ) -> layout::Node {
         layout(
@@ -342,7 +342,7 @@ impl<'a, Message: 'a + Clone> Widget<Message, crate::ui::Theme, iced::Renderer>
         &mut self,
         tree: &mut Tree,
         layout: Layout<'_>,
-        renderer: &iced::Renderer,
+        renderer: &crate::ui::Renderer,
         operation: &mut dyn Operation<()>,
     ) {
         operation.container(None, layout.bounds());
@@ -364,7 +364,7 @@ impl<'a, Message: 'a + Clone> Widget<Message, crate::ui::Theme, iced::Renderer>
         event: &Event,
         layout: Layout<'_>,
         cursor: mouse::Cursor,
-        renderer: &iced::Renderer,
+        renderer: &crate::ui::Renderer,
         clipboard: &mut dyn Clipboard,
         shell: &mut Shell<'_, Message>,
         viewport: &Rectangle,
@@ -420,7 +420,7 @@ impl<'a, Message: 'a + Clone> Widget<Message, crate::ui::Theme, iced::Renderer>
     fn draw(
         &self,
         tree: &Tree,
-        renderer: &mut iced::Renderer,
+        renderer: &mut crate::ui::Renderer,
         theme: &crate::ui::Theme,
         renderer_style: &renderer::Style,
         layout: Layout<'_>,
@@ -621,7 +621,7 @@ impl<'a, Message: 'a + Clone> Widget<Message, crate::ui::Theme, iced::Renderer>
         layout: Layout<'_>,
         cursor: mouse::Cursor,
         _viewport: &Rectangle,
-        _renderer: &iced::Renderer,
+        _renderer: &crate::ui::Renderer,
     ) -> mouse::Interaction {
         // Match `draw`: a force-enabled button is clickable for its parent
         mouse_interaction(
@@ -635,10 +635,10 @@ impl<'a, Message: 'a + Clone> Widget<Message, crate::ui::Theme, iced::Renderer>
         &'b mut self,
         tree: &'b mut Tree,
         layout: Layout<'b>,
-        renderer: &iced::Renderer,
+        renderer: &crate::ui::Renderer,
         viewport: &Rectangle,
         mut translation: Vector,
-    ) -> Option<overlay::Element<'b, Message, crate::ui::Theme, iced::Renderer>> {
+    ) -> Option<overlay::Element<'b, Message, crate::ui::Theme, crate::ui::Renderer>> {
         let position = layout.bounds().position();
         translation.x += position.x;
         translation.y += position.y;

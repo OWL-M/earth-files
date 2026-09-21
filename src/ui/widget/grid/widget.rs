@@ -3,7 +3,7 @@
 
 //! Vendored from pop-os/libcosmic, src/widget/grid/widget.rs
 
-use iced::Renderer;
+use crate::ui::Renderer;
 
 use crate::ui::Element;
 use derive_setters::Setters;
