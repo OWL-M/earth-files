@@ -214,6 +214,21 @@ fn tint_text(container: &mut Container, tint: Srgba) {
     container.component.divider = with_alpha(tint, DIVIDER_ALPHA);
 }
 
+/// Point a component's text at a new accent, leaving its fill alone.
+///
+/// A text or link button paints no fill: the colour a person sees is its
+/// text, and that text is the accent. Replacing the accent without this
+/// leaves those buttons in the built-in one, which is what kept the details
+/// pane's Close button the wrong colour. Alpha is preserved, because the
+/// disabled state is the same colour at lower opacity.
+fn retint_accent_text(component: &mut Component, accent: Srgba) {
+    let recoloured = |old: Srgba| Srgba::new(accent.red, accent.green, accent.blue, old.alpha);
+    component.on = recoloured(component.on);
+    component.selected_text = recoloured(component.selected_text);
+    component.focus = recoloured(component.focus);
+    component.on_disabled = recoloured(component.on_disabled);
+}
+
 /// A widget's colours: either one colour with the rest worked out, or the
 /// states spelled out individually.
 #[derive(Clone, Debug, Deserialize)]
@@ -575,6 +590,14 @@ impl ThemeFile {
             }
         }
 
+        // A text or link button carries the accent as its text rather than as
+        // a fill, so neither follows from replacing the accent component
+        if self.accent.is_some() {
+            let accent = palette.accent.base;
+            retint_accent_text(&mut palette.text_button, accent);
+            retint_accent_text(&mut palette.link_button, accent);
+        }
+
         if let Some(accent_text) = self.accent_text {
             palette.accent_text = Some(accent_text.0);
         }
@@ -862,6 +885,36 @@ mod tests {
         assert_eq!(applied.background, DARK.background);
         assert_eq!(applied.spacing, DARK.spacing);
         assert_eq!(applied.corner_radii, DARK.corner_radii);
+    }
+
+    #[test]
+    fn an_accent_reaches_the_buttons_that_are_only_text() {
+        // A text button paints no fill: its accent is the text. The details
+        // pane's Close button is one, and it kept the built-in colour until
+        // these followed the accent too.
+        let applied = parse("(accent: \"#d65d0e\")").apply(&DARK);
+        let accent = color("#d65d0e");
+        let rgb = |c: Srgba| (c.red, c.green, c.blue);
+
+        for (component, built_in) in [
+            (&applied.text_button, &DARK.text_button),
+            (&applied.link_button, &DARK.link_button),
+        ] {
+            assert_eq!(rgb(component.on), rgb(accent));
+            assert_eq!(rgb(component.selected_text), rgb(accent));
+            assert_eq!(rgb(component.focus), rgb(accent));
+            // Disabled is the same colour, kept at its own opacity
+            assert_eq!(rgb(component.on_disabled), rgb(accent));
+            assert_eq!(component.on_disabled.alpha, built_in.on_disabled.alpha);
+            // The fill is untouched: these paint none
+            assert_eq!(component.base, built_in.base);
+            assert_eq!(component.hover, built_in.hover);
+        }
+
+        // Nothing happens to them when the accent is left alone
+        let untouched = parse("(bg_color: \"#282828\")").apply(&DARK);
+        assert_eq!(untouched.text_button, DARK.text_button);
+        assert_eq!(untouched.link_button, DARK.link_button);
     }
 
     #[test]
