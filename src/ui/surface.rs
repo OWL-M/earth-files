@@ -215,8 +215,6 @@ pub fn surface_task<M: Send + 'static>(action: Action<M>) -> iced::Task<crate::u
 /// `None` variants as well as the four corners. No animated popup asks for
 /// one, and `TopLeft` is the sane answer if one ever does: it is the corner
 /// for the `BottomRight` gravity that every default uses.
-// Used from `shell::runner` once the popup genie is wired in.
-#[allow(dead_code)]
 #[must_use]
 pub(crate) fn collapse_corner(gravity: PopupGravity) -> Corner {
     match gravity {

@@ -255,6 +255,9 @@ pub struct Shell<App: Application> {
     /// (`drain_text_context_popups`). Counting open surfaces prevents that
     /// stale close from deleting the new popup's view.
     opened_surfaces: std::collections::HashMap<window::Id, u32>,
+    /// Animation state for the popups that asked for it, keyed the same way
+    /// as `popup_views`.
+    popup_genies: crate::ui::shell::popup_genie::PopupGenies,
 }
 
 impl<App: Application> Shell<App> {
@@ -269,6 +272,7 @@ impl<App: Application> Shell<App> {
             theme,
             popup_views: std::collections::HashMap::new(),
             opened_surfaces: std::collections::HashMap::new(),
+            popup_genies: crate::ui::shell::popup_genie::PopupGenies::new(),
         };
 
         (shell, task)
@@ -305,7 +309,24 @@ impl<App: Application> Shell<App> {
 
         // A popup surface renders the view its creator handed us, not the app.
         if let Some(view) = self.popup_views.get(&id) {
-            return view();
+            let content = view();
+            let Some(genie) = self.popup_genies.get(id) else {
+                return content;
+            };
+
+            // The genie composites the recorded menu; the wrapper reports
+            // when an exit has finished; the host is the clock that ticks
+            // the engine, and must be the outermost of the three.
+            let collapsing = iced_texture_cache::cached(genie.cache(), content)
+                .genie(genie.progress(), genie.shape());
+            let watched = crate::ui::widget::popup_genie(
+                genie.motion().clone(),
+                genie.key(),
+                crate::ui::Action::Cosmic(crate::ui::app::Action::PopupExitFinished(id)),
+                collapsing,
+            );
+
+            return genie.motion().host(watched).into();
         }
 
         if self
@@ -441,6 +462,13 @@ impl<App: Application> Shell<App> {
                 let settings = settings();
                 let id = settings.id;
 
+                if settings.animate {
+                    self.popup_genies.insert(
+                        id,
+                        crate::ui::surface::collapse_corner(settings.positioner.gravity),
+                    );
+                }
+
                 *self.opened_surfaces.entry(id).or_insert(0) += 1;
                 if let Some(view) = view {
                     self.popup_views.insert(id, Box::new(move || view()));
@@ -449,6 +477,13 @@ impl<App: Application> Shell<App> {
                 iced::Task::done(crate::ui::action::exwl::popup(id, settings.to_exwlshell()))
             }
             crate::ui::surface::Action::DestroyPopup(id) => {
+                // An animated popup keeps its surface until it has finished
+                // collapsing; `widget::popup_genie` publishes
+                // `PopupExitFinished` and the removal happens there instead.
+                if self.popup_genies.begin_exit(id) {
+                    return iced::Task::none();
+                }
+
                 // The view is dropped in `Action::SurfaceClosed`, once the
                 // surface is really gone. The
                 // popup keeps drawing between the two, and a popup without a
@@ -535,6 +570,12 @@ impl<App: Application> Shell<App> {
                 }
             }
 
+            Action::PopupExitFinished(id) => {
+                // The collapse is over; let the surface go. `SurfaceClosed`
+                // drops the view and the animation state.
+                return iced::Task::done(crate::ui::action::exwl::remove_window(id));
+            }
+
             Action::ToggleNavBar => {
                 self.app.core_mut().nav_bar_toggle();
             }
@@ -583,6 +624,7 @@ impl<App: Application> Shell<App> {
                 }) {
                     self.opened_surfaces.remove(&id);
                     self.popup_views.remove(&id);
+                    self.popup_genies.remove(id);
                 }
 
                 let mut ret = if let Some(msg) = self.app.on_close_requested(id) {

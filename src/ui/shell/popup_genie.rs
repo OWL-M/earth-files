@@ -6,9 +6,6 @@
 //! `popup_views` and consults it in `view`; the decisions live here rather
 //! than in `Shell` so they can be tested without an `Application`.
 
-// Wired into `shell::runner` in a later step; nothing reads it yet.
-#![allow(dead_code)]
-
 use std::collections::HashMap;
 use std::time::Duration;
 
@@ -60,11 +57,15 @@ impl PopupGenie {
     }
 
     /// The corner it collapses into.
+    // Read by the unit tests; `shape` reads the field directly.
+    #[allow(dead_code)]
     pub(crate) const fn anchor(&self) -> Corner {
         self.anchor
     }
 
     /// Whether it is on its way out.
+    // Read by the unit tests; `shape` reads the field directly.
+    #[allow(dead_code)]
     pub(crate) const fn exiting(&self) -> bool {
         self.exiting
     }

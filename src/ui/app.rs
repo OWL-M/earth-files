@@ -41,6 +41,8 @@ pub enum Action {
     NavBarResizeDrag(f32),
     /// The nav bar drag ended, one way or the other.
     NavBarResizeEnd,
+    /// A popup has finished collapsing and its surface can go.
+    PopupExitFinished(window::Id),
     /// A new window was opened.
     Opened(window::Id),
     /// Set scaling factor.
