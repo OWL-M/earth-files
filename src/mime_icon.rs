@@ -69,20 +69,60 @@ pub fn mime_for_path(
     let guess = gb.guess();
     let guessed_mime = guess.mime_type();
 
-    /// Checks if the `Mime` is a special variant returned by `xdg-mime`.
-    /// This includes directories, symlinks and zerosize files, which are returned as uncertain.
-    fn is_special_mime(mime: &Mime) -> bool {
-        *mime == "inode/directory" || *mime == "inode/symlink" || *mime == "application/x-zerosize"
+    /// The answers `xdg-mime` gives for a directory, a symbolic link and an
+    /// empty file. They are also what it gives for everything when no
+    /// shared-mime-info database is installed.
+    fn is_special(mime: &Mime) -> bool {
+        matches!(
+            mime.essence_str(),
+            "inode/directory" | "inode/symlink" | "application/x-zerosize"
+        )
     }
 
-    // `xdg-mime-rs` sets the guess to uncertain if it returns special mime types.
-    // The guess could also be uncertain on platforms without shared-mime-info.
-    // Try mime_guess, but only if it is not one of the special mime types.
-    if guess.uncertain() && (remote || !is_special_mime(guessed_mime)) {
-        // If uncertain, try mime_guess. This could happen on platforms without shared-mime-info
-        mime_guess::from_path(path).first_or_octet_stream()
+    /// Whether a special answer actually describes this file.
+    ///
+    /// With a database installed these answers are right and an extension
+    /// guess must not override them. With no database the library reports
+    /// `application/x-zerosize` for every file, and says it is certain, so
+    /// certainty cannot tell the two apart. Checking the answer against the
+    /// file can: without this, a system with no database sees every archive,
+    /// image and text file as an empty one, refuses to extract anything and
+    /// sorts everything into a single type.
+    fn special_fits(mime: &Mime, path: &Path, metadata_opt: Option<&fs::Metadata>) -> bool {
+        if mime.essence_str() == "inode/symlink" {
+            // Any metadata the caller holds followed the link, so ask again
+            return fs::symlink_metadata(path).is_ok_and(|m| m.file_type().is_symlink());
+        }
+        let owned;
+        let metadata = match metadata_opt {
+            Some(metadata) => metadata,
+            None => match fs::metadata(path) {
+                Ok(metadata) => {
+                    owned = metadata;
+                    &owned
+                }
+                Err(_) => return false,
+            },
+        };
+        match mime.essence_str() {
+            "inode/directory" => metadata.is_dir(),
+            _ => metadata.len() == 0,
+        }
+    }
+
+    let usable = if is_special(guessed_mime) {
+        // A remote guess sees only a name, and a name cannot show that
+        // something is a directory, a link or empty
+        !remote && special_fits(guessed_mime, path, metadata_opt)
     } else {
+        !guess.uncertain()
+    };
+
+    if usable {
         guessed_mime.clone()
+    } else {
+        // Nothing usable came back, so go by the name
+        mime_guess::from_path(path).first_or_octet_stream()
     }
 }
 
@@ -108,4 +148,34 @@ pub fn is_mime_subclass_of(mime_type: &Mime, base: &Mime) -> bool {
     mime_icon_cache
         .shared_mime_info
         .mime_type_subclass(mime_type, base)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A file with content and a known extension must never be reported as a
+    /// directory, a link or an empty file. Without a shared-mime-info
+    /// database the library answers `application/x-zerosize` for everything,
+    /// and says it is certain, which used to be taken at face value: archives
+    /// then refused to extract and every file sorted as the same type. This
+    /// holds whether or not a database is installed.
+    #[test]
+    fn a_file_with_content_is_never_guessed_as_empty() {
+        let dir = tempfile::tempdir().unwrap();
+        for (name, expected) in [
+            ("archive.zip", "application/zip"),
+            ("picture.png", "image/png"),
+            ("notes.txt", "text/plain"),
+        ] {
+            let path = dir.path().join(name);
+            fs::write(&path, b"some bytes that are not nothing").unwrap();
+            let mime = mime_for_path(&path, None, false);
+            assert_eq!(mime.essence_str(), expected, "for {name}");
+        }
+
+        // What an empty file reports depends on whether a database is
+        // installed, so it is not asserted here; what matters is that a file
+        // with content is never mistaken for one
+    }
 }
