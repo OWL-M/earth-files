@@ -17,6 +17,7 @@ use std::time::Duration;
 
 use iced::Alignment;
 
+pub mod custom;
 pub mod palette;
 pub mod style;
 
@@ -68,8 +69,8 @@ impl ThemeType {
     #[inline]
     pub fn cosmic(self) -> &'static Palette {
         match self {
-            Self::Dark => &palette::DARK,
-            Self::Light => &palette::LIGHT,
+            Self::Dark => custom::dark(),
+            Self::Light => custom::light(),
         }
     }
 }
@@ -373,9 +374,10 @@ pub fn density() -> Density {
     Density::from_u8(DENSITY.load(Ordering::Relaxed))
 }
 
-/// Spacing steps for the active density.
+/// Spacing steps widgets lay out with: those of the active density, with
+/// anything a theme file pinned applied on top.
 pub fn spacing() -> Spacing {
-    Spacing::from(density())
+    custom::spacing(Spacing::from(density()))
 }
 
 /// How long to wait for the desktop to report its colour scheme.

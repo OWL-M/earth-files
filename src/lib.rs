@@ -114,6 +114,10 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     localize::localize();
 
+    // Before the first palette is handed out: theme files are read once and
+    // the result is what `Theme::cosmic()` returns from then on.
+    crate::ui::theme::custom::load();
+
     let (config_handler, config) = Config::load();
     // Before any widget or window is built: `ui::font` is read argument-free
     // from every call site, so the configured families have to be in place

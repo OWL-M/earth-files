@@ -124,7 +124,7 @@ impl<'a, Message: Clone + 'static> From<Dialog<'a, Message>> for Element<'a, Mes
             space_s,
             space_xxs,
             ..
-        } = theme::active().cosmic().spacing;
+        } = theme::spacing();
 
         let mut content_col = widget::Column::with_capacity(3 + dialog.controls.len() * 2);
 

@@ -73,12 +73,22 @@ pub fn appearance(
 
             let (background, text, icon) = color(style_component);
             appearance.background = Some(Background::Color(background));
-            if !matches!(style, Button::Standard) {
+            if matches!(style, Button::Standard) {
+                // A standard button inherits the text colour of whatever it
+                // sits on, which reads well while its fill stays a neutral
+                // close to that surface. A theme that gives it a fill of its
+                // own breaks that, so then it paints its own text too.
+                if crate::ui::theme::custom::button_is_custom(cosmic.is_dark) {
+                    appearance.text_color = text;
+                    appearance.icon_color = icon;
+                }
+                if hc {
+                    appearance.border_color = style_component.border.to_color();
+                    appearance.border_width = 1.;
+                }
+            } else {
                 appearance.text_color = text;
                 appearance.icon_color = icon;
-            } else if hc {
-                appearance.border_color = style_component.border.to_color();
-                appearance.border_width = 1.;
             }
         }
 

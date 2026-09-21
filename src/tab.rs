@@ -741,7 +741,9 @@ pub fn fill_image_dimensions(item: &Item) {
     let Some(path) = item.path_opt() else {
         return;
     };
-    let _ = item.image_dimensions.set(image::image_dimensions(path).ok());
+    let _ = item
+        .image_dimensions
+        .set(image::image_dimensions(path).ok());
 }
 
 #[cfg(feature = "gvfs")]
@@ -7626,7 +7628,11 @@ mod tests {
             Some((7, 3))
         );
         assert_eq!(
-            by_name("plain.txt").image_dimensions.get().copied().flatten(),
+            by_name("plain.txt")
+                .image_dimensions
+                .get()
+                .copied()
+                .flatten(),
             None,
             "a file that is not an image is never opened for its size"
         );
