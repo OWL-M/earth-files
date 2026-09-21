@@ -317,8 +317,13 @@ impl<App: Application> Shell<App> {
             // The genie composites the recorded menu; the wrapper reports
             // when an exit has finished; the host is the clock that ticks
             // the engine, and must be the outermost of the three.
+            // The menu's own corner radius, read live so a theme change
+            // reaches an open popup. The genie keeps that radius on screen
+            // however far it squeezes; without it the recorded corner is
+            // squeezed with the texture and reads as a straight cut.
+            let corner_radius = self.theme.cosmic().radius_s()[0];
             let collapsing = iced_texture_cache::cached(genie.cache(), content)
-                .genie(genie.progress(), genie.shape());
+                .genie(genie.progress(), genie.shape(corner_radius));
             let watched = crate::ui::widget::popup_genie(
                 genie.motion().clone(),
                 genie.key(),
@@ -463,9 +468,18 @@ impl<App: Application> Shell<App> {
                 let id = settings.id;
 
                 if settings.animate {
+                    // The popup's own width decides how wide a band it
+                    // collapses into, so the band is a constant size on
+                    // screen rather than a constant fraction of the menu.
+                    let menu_width = settings
+                        .positioner
+                        .size
+                        .map_or(0.0, |(width, _)| width as f32);
+
                     self.popup_genies.insert(
                         id,
                         crate::ui::surface::collapse_corner(settings.positioner.gravity),
+                        menu_width,
                     );
                 }
 

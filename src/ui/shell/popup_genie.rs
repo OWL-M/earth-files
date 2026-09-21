@@ -36,6 +36,7 @@ pub(crate) struct PopupGenie {
     cache: TextureCache,
     key: MotionKey,
     anchor: Corner,
+    target_width: f32,
     exiting: bool,
 }
 
@@ -70,11 +71,15 @@ impl PopupGenie {
         self.exiting
     }
 
-    /// The shape it collapses with: the defaults settled against the
-    /// twelve-panel example, with only the corner varying per popup.
-    pub(crate) fn shape(&self) -> GenieShape {
+    /// The shape it collapses with.
+    ///
+    /// `corner_radius` is the menu's own, read from the live theme rather
+    /// than stored, so a theme change is picked up by an open popup.
+    pub(crate) fn shape(&self, corner_radius: f32) -> GenieShape {
         GenieShape {
             anchor: self.anchor,
+            target_width: self.target_width,
+            corner_radius,
             ..GenieShape::default()
         }
     }
@@ -94,6 +99,40 @@ impl PopupGenie {
     }
 }
 
+/// How wide a band a menu collapses into, as a fraction of its own width.
+///
+/// A fixed fraction gives a wider band to a wider menu, which is the wrong
+/// way round: what the eye measures it against is the pointer it is
+/// collapsing into, not the menu it came from. So the band is chosen in
+/// pixels — one and a half cursors — and then expressed as a fraction of
+/// whichever menu is actually collapsing.
+///
+/// The cursor's size is not something the Wayland runtime hands us:
+/// `exwlshellev` loads its own theme at a hardcoded 23. `XCURSOR_SIZE` is
+/// the conventional source, and 24 the conventional default, so a
+/// compositor that sets neither still lands within a pixel of what it draws.
+fn target_width(menu_width: f32) -> f32 {
+    /// How many cursors wide the band should be.
+    const CURSORS: f32 = 1.5;
+    /// The cursor size to assume when nothing says otherwise.
+    const ASSUMED_CURSOR: f32 = 24.0;
+    /// Used when the menu's width is not known, so the fraction cannot be
+    /// worked out at all.
+    const FALLBACK: f32 = 0.08;
+
+    if !menu_width.is_finite() || menu_width <= 0.0 {
+        return FALLBACK;
+    }
+
+    let cursor = std::env::var("XCURSOR_SIZE")
+        .ok()
+        .and_then(|size| size.parse::<f32>().ok())
+        .filter(|size| size.is_finite() && *size > 0.0)
+        .unwrap_or(ASSUMED_CURSOR);
+
+    (CURSORS * cursor / menu_width).clamp(0.0, 1.0)
+}
+
 /// Every animated popup the shell currently has open.
 #[derive(Default)]
 pub(crate) struct PopupGenies {
@@ -106,7 +145,10 @@ impl PopupGenies {
     }
 
     /// Starts animating the popup `id`, collapsing toward `anchor`.
-    pub(crate) fn insert(&mut self, id: window::Id, anchor: Corner) {
+    ///
+    /// `menu_width` is the popup's own width in logical pixels, which sets
+    /// how wide a band it collapses into; see [`target_width`].
+    pub(crate) fn insert(&mut self, id: window::Id, anchor: Corner, menu_width: f32) {
         self.entries.insert(
             id,
             PopupGenie {
@@ -116,6 +158,7 @@ impl PopupGenies {
                 // and never collides with another popup's.
                 key: MotionKey::unique(),
                 anchor,
+                target_width: target_width(menu_width),
                 exiting: false,
             },
         );
@@ -161,6 +204,34 @@ mod tests {
     }
 
     #[test]
+    fn the_band_is_sized_against_the_pointer_not_the_menu() {
+        // A wider menu gets a proportionally smaller fraction, so the band
+        // is the same width on screen either way.
+        let narrow = target_width(200.0);
+        let wide = target_width(400.0);
+
+        assert!(wide < narrow, "{wide} is not smaller than {narrow}");
+        assert!(
+            (narrow * 200.0 - wide * 400.0).abs() < 1e-3,
+            "the band is not the same width on screen: {} vs {}",
+            narrow * 200.0,
+            wide * 400.0
+        );
+    }
+
+    #[test]
+    fn an_unknown_menu_width_falls_back() {
+        assert!((target_width(0.0) - 0.08).abs() < f32::EPSILON);
+        assert!((target_width(-10.0) - 0.08).abs() < f32::EPSILON);
+        assert!((target_width(f32::NAN) - 0.08).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn a_menu_narrower_than_the_band_is_not_asked_to_exceed_itself() {
+        assert!(target_width(4.0) <= 1.0);
+    }
+
+    #[test]
     fn a_popup_that_did_not_ask_for_it_gets_no_animation() {
         let mut genies = PopupGenies::new();
         let plain = id(1);
@@ -174,7 +245,7 @@ mod tests {
     fn an_animated_popup_defers_its_teardown_once() {
         let mut genies = PopupGenies::new();
         let menu = id(1);
-        genies.insert(menu, Corner::TopLeft);
+        genies.insert(menu, Corner::TopLeft, 240.0);
 
         assert!(genies.get(menu).is_some());
         // The first teardown is withheld and starts the collapse...
@@ -189,7 +260,7 @@ mod tests {
     fn forgetting_a_popup_is_harmless_twice() {
         let mut genies = PopupGenies::new();
         let menu = id(1);
-        genies.insert(menu, Corner::TopLeft);
+        genies.insert(menu, Corner::TopLeft, 240.0);
 
         genies.remove(menu);
         assert!(genies.get(menu).is_none());
@@ -202,8 +273,8 @@ mod tests {
         let mut genies = PopupGenies::new();
         let first = id(1);
         let second = id(2);
-        genies.insert(first, Corner::TopLeft);
-        genies.insert(second, Corner::BottomRight);
+        genies.insert(first, Corner::TopLeft, 240.0);
+        genies.insert(second, Corner::BottomRight, 240.0);
 
         assert!(genies.begin_exit(first));
 
