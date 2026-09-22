@@ -34,10 +34,107 @@ pub enum GioCopyError {
     GLib(#[from] glib::Error),
 }
 
+#[derive(Clone, Copy)]
 pub enum Method {
     Copy,
     Move { cross_device_copy: bool },
 }
+
+/// One step of a planned copy or move, with nothing thread-local in it.
+///
+/// [`Op`] cannot cross threads: its `Rc<Skip>` is shared with the cleanup op
+/// beside it, and an `Rc` belongs to the thread that made it. The walk that
+/// works out what to do runs on a worker, so it produces these instead, and
+/// the operation thread turns them into `Op`s.
+struct PlannedOp {
+    kind: OpKind,
+    from: PathBuf,
+    to: PathBuf,
+}
+
+/// Work out every step of copying or moving `from_parent` to `to_parent`.
+///
+/// Blocking by nature: it reads the whole tree and stats every entry. Run it
+/// on a worker, never on the thread the operations themselves run on.
+fn plan_tree(
+    from_parent: &Path,
+    to_parent: &Path,
+    method: Method,
+    controller: &Controller,
+) -> Result<Vec<PlannedOp>, OperationError> {
+    let mut planned = Vec::new();
+    for entry in WalkDir::new(from_parent) {
+        // Checked here, inside the work: nothing outside can interrupt a
+        // blocking job, so a walk that is not watched from within would run to
+        // the end of the tree after the user cancelled it.
+        loop {
+            match controller.state() {
+                super::ControllerState::Running => break,
+                super::ControllerState::Paused => std::thread::sleep(PLAN_PAUSE_POLL),
+                state => return Err(OperationError::from_state(state, controller)),
+            }
+        }
+
+        let entry = entry.map_err(|err| {
+            OperationError::from_err(
+                format!(
+                    "failed to walk directory {}: {}",
+                    from_parent.display(),
+                    err
+                ),
+                controller,
+            )
+        })?;
+        let file_type = entry.file_type();
+        let from = entry.into_path();
+        let kind = if file_type.is_dir() {
+            OpKind::Mkdir
+        } else if file_type.is_file() {
+            match method {
+                Method::Copy => OpKind::Copy,
+                Method::Move { cross_device_copy } => OpKind::Move { cross_device_copy },
+            }
+        } else if file_type.is_symlink() {
+            let target = fs::read_link(&from).map_err(|err| {
+                OperationError::from_err(
+                    format!("failed to read link {}: {}", from_parent.display(), err),
+                    controller,
+                )
+            })?;
+            OpKind::Symlink { target }
+        } else {
+            // Sockets, FIFOs and device nodes cannot be copied meaningfully
+            log::warn!(
+                "skipping {}: not a regular file, directory or symlink",
+                from.display()
+            );
+            continue;
+        };
+        let to = if from == from_parent {
+            // When copying a file, from matches from_parent, and to_parent must be used
+            to_parent.to_path_buf()
+        } else {
+            let relative = from.strip_prefix(from_parent).map_err(|err| {
+                OperationError::from_err(
+                    format!(
+                        "failed to remove prefix {} from {}: {}",
+                        from_parent.display(),
+                        from.display(),
+                        err
+                    ),
+                    controller,
+                )
+            })?;
+            to_parent.join(relative)
+        };
+        planned.push(PlannedOp { kind, from, to });
+    }
+    Ok(planned)
+}
+
+/// How long a plan that finds its controller paused waits before looking
+/// again, mirroring what `Controller::check` does where it can be awaited.
+const PLAN_PAUSE_POLL: std::time::Duration = std::time::Duration::from_millis(50);
 
 pub struct Context {
     buf: Vec<u8>,
@@ -95,64 +192,26 @@ impl Context {
                 continue;
             }
 
-            for entry in WalkDir::new(&from_parent) {
-                self.controller
-                    .check()
-                    .await
-                    .map_err(|s| OperationError::from_state(s, &self.controller))?;
+            // Walked on a blocking worker. Reading a whole tree and stat-ing
+            // every entry is blocking work, and this runs on the one thread
+            // every file operation shares: done here, a large or slow tree
+            // stops every other copy, move and delete until it is finished.
+            //
+            // What comes back is plain data. The `Rc<Skip>` each op shares
+            // with its cleanup op belongs to this thread and cannot be made on
+            // another, so it is put on afterwards, below.
+            let planned = {
+                let from_parent = from_parent.clone();
+                let to_parent = to_parent.clone();
+                let controller = self.controller.clone();
+                compio::runtime::spawn_blocking(move || {
+                    plan_tree(&from_parent, &to_parent, method, &controller)
+                })
+                .await
+                .map_err(super::wrap_compio_spawn_error)??
+            };
 
-                let entry = entry.map_err(|err| {
-                    OperationError::from_err(
-                        format!(
-                            "failed to walk directory {}: {}",
-                            from_parent.display(),
-                            err
-                        ),
-                        &self.controller,
-                    )
-                })?;
-                let file_type = entry.file_type();
-                let from = entry.into_path();
-                let kind = if file_type.is_dir() {
-                    OpKind::Mkdir
-                } else if file_type.is_file() {
-                    match method {
-                        Method::Copy => OpKind::Copy,
-                        Method::Move { cross_device_copy } => OpKind::Move { cross_device_copy },
-                    }
-                } else if file_type.is_symlink() {
-                    let target = fs::read_link(&from).map_err(|err| {
-                        OperationError::from_err(
-                            format!("failed to read link {}: {}", from_parent.display(), err),
-                            &self.controller,
-                        )
-                    })?;
-                    OpKind::Symlink { target }
-                } else {
-                    // Sockets, FIFOs and device nodes cannot be copied meaningfully
-                    log::warn!(
-                        "skipping {}: not a regular file, directory or symlink",
-                        from.display()
-                    );
-                    continue;
-                };
-                let to = if from == from_parent {
-                    // When copying a file, from matches from_parent, and to_parent must be used
-                    to_parent.clone()
-                } else {
-                    let relative = from.strip_prefix(&from_parent).map_err(|err| {
-                        OperationError::from_err(
-                            format!(
-                                "failed to remove prefix {} from {}: {}",
-                                from_parent.display(),
-                                from.display(),
-                                err
-                            ),
-                            &self.controller,
-                        )
-                    })?;
-                    to_parent.join(relative)
-                };
+            for PlannedOp { kind, from, to } in planned {
                 let op = Op {
                     kind,
                     from,
@@ -181,16 +240,29 @@ impl Context {
         cleanup_ops.reverse();
         ops.append(&mut cleanup_ops);
 
-        // Count potential conflicts (files that would need replacement)
-        self.remaining_conflicts = ops
-            .iter()
-            .filter(|op| {
-                matches!(
-                    op.kind,
-                    OpKind::Copy | OpKind::Move { .. } | OpKind::Symlink { .. }
-                ) && op.to.is_file()
+        // Count potential conflicts (files that would need replacement).
+        // Another stat per op, and for the same reason as the walk it does not
+        // belong on this thread.
+        self.remaining_conflicts = {
+            let conflict_candidates: Vec<PathBuf> = ops
+                .iter()
+                .filter(|op| {
+                    matches!(
+                        op.kind,
+                        OpKind::Copy | OpKind::Move { .. } | OpKind::Symlink { .. }
+                    )
+                })
+                .map(|op| op.to.clone())
+                .collect();
+            compio::runtime::spawn_blocking(move || {
+                conflict_candidates
+                    .into_iter()
+                    .filter(|to| to.is_file())
+                    .count()
             })
-            .count();
+            .await
+            .map_err(super::wrap_compio_spawn_error)?
+        };
 
         let total_ops = ops.len();
         for (current_ops, mut op) in ops.into_iter().enumerate() {
@@ -272,7 +344,7 @@ impl Context {
         // one of them is reached through a symlinked parent, cannot be copied
         // onto each other: replacing would unlink the only copy and then fail
         // to read it back. Nothing to do, so skip it without asking.
-        if same_file(&op.from, &op.to) {
+        if same_file(&op.from, &op.to).await {
             log::info!(
                 "skipping {}: it is the same file as {}",
                 op.from.display(),
@@ -312,9 +384,12 @@ impl Context {
 }
 
 /// Whether two paths name the same file on disk, following symlinks
-fn same_file(a: &Path, b: &Path) -> bool {
+async fn same_file(a: &Path, b: &Path) -> bool {
     use std::os::unix::fs::MetadataExt;
-    match (std::fs::metadata(a), std::fs::metadata(b)) {
+    // Through the runtime rather than `std::fs`: this is asked once per
+    // conflict, and on a slow or remote filesystem two stats on the operation
+    // thread are two stalls nothing else can run through.
+    match (compio::fs::metadata(a).await, compio::fs::metadata(b).await) {
         (Ok(a), Ok(b)) => a.dev() == b.dev() && a.ino() == b.ino(),
         _ => false,
     }
@@ -394,7 +469,10 @@ impl Op {
                 }
 
                 // Remove `to` if overwriting and it is an existing file
-                if self.to.is_file() {
+                if compio::fs::metadata(&self.to)
+                    .await
+                    .is_ok_and(|metadata| metadata.is_file())
+                {
                     match ctx.replace(self).await? {
                         ControlFlow::Continue(to) => {
                             self.to = to;
@@ -445,7 +523,10 @@ impl Op {
             }
             OpKind::Symlink { ref target } => {
                 // Remove `to` if overwriting and it is an existing file
-                if self.to.is_file() {
+                if compio::fs::metadata(&self.to)
+                    .await
+                    .is_ok_and(|metadata| metadata.is_file())
+                {
                     match ctx.replace(self).await? {
                         ControlFlow::Continue(to) => {
                             self.to = to;
@@ -455,7 +536,12 @@ impl Op {
                         }
                     }
                 }
-                std::os::unix::fs::symlink(target, &self.to)?;
+                // Off the operation thread: creating a link is a directory
+                // write, and on a remote filesystem it is a round trip.
+                let (target, to) = (target.clone(), self.to.clone());
+                compio::runtime::spawn_blocking(move || std::os::unix::fs::symlink(target, to))
+                    .await
+                    .map_err(super::wrap_compio_spawn_error)??;
             }
         }
         Ok(true)
@@ -467,7 +553,10 @@ impl Op {
         mut progress: Progress,
     ) -> Result<bool, Box<dyn Error>> {
         // Remove `to` if overwriting and it is an existing file
-        if self.to.is_file() {
+        if compio::fs::metadata(&self.to)
+            .await
+            .is_ok_and(|metadata| metadata.is_file())
+        {
             match ctx.replace(self).await? {
                 ControlFlow::Continue(to) => {
                     self.to = to;
@@ -739,5 +828,76 @@ impl Op {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Method, OpKind, PlannedOp, plan_tree};
+    use crate::operation::{Controller, ControllerState};
+    use std::fs;
+
+    #[test]
+    fn a_plan_covers_the_whole_tree() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let from = dir.path().join("from");
+        let to = dir.path().join("to");
+        fs::create_dir(&from).expect("mkdir");
+        fs::create_dir(from.join("sub")).expect("mkdir");
+        fs::write(from.join("a.txt"), b"a").expect("write");
+        fs::write(from.join("sub").join("b.txt"), b"b").expect("write");
+        std::os::unix::fs::symlink("a.txt", from.join("link")).expect("symlink");
+
+        let planned =
+            plan_tree(&from, &to, Method::Copy, &Controller::default()).expect("planning");
+
+        let mut kinds: Vec<(String, &'static str)> = planned
+            .iter()
+            .map(|PlannedOp { kind, to, .. }| {
+                let name = to
+                    .strip_prefix(dir.path())
+                    .expect("under the temp dir")
+                    .to_string_lossy()
+                    .into_owned();
+                let kind = match kind {
+                    OpKind::Mkdir => "mkdir",
+                    OpKind::Copy => "copy",
+                    OpKind::Symlink { .. } => "symlink",
+                    _ => "other",
+                };
+                (name, kind)
+            })
+            .collect();
+        kinds.sort();
+
+        assert_eq!(
+            kinds,
+            vec![
+                ("to".to_owned(), "mkdir"),
+                ("to/a.txt".to_owned(), "copy"),
+                ("to/link".to_owned(), "symlink"),
+                ("to/sub".to_owned(), "mkdir"),
+                ("to/sub/b.txt".to_owned(), "copy"),
+            ],
+            "every entry is planned, at its place under the destination"
+        );
+    }
+
+    #[test]
+    fn a_cancelled_plan_stops_rather_than_walking_the_tree() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let from = dir.path().join("from");
+        fs::create_dir(&from).expect("mkdir");
+        fs::write(from.join("a.txt"), b"a").expect("write");
+
+        let controller = Controller::default();
+        controller.set_state(ControllerState::Cancelled);
+
+        let result = plan_tree(&from, &dir.path().join("to"), Method::Copy, &controller);
+
+        assert!(
+            result.is_err(),
+            "a cancelled plan returned a list of work to do"
+        );
     }
 }
