@@ -233,6 +233,7 @@ fn network_scan(uri: &str, sizes: IconSizes) -> Result<Vec<tab::Item>, String> {
             hidden,
             location_opt: Some(location),
             image_dimensions: OnceCell::new(),
+            file_metadata: OnceCell::new(),
             mime,
             icon_handle_grid,
             icon_handle_list,

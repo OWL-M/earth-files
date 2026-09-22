@@ -596,14 +596,17 @@ impl App {
     /// chooser. Mirrors the checks in the `Message::Open` handler.
     fn can_open(&self) -> bool {
         let want_dir = self.flags.kind.is_dir();
+        // From what the scan already read, not from the disk: this decides
+        // whether a button is enabled, so it is answered on every frame, and
+        // stat-ing each selected path that often makes the chooser as slow as
+        // the filesystem it is browsing.
         let selected_dirs: Vec<bool> = self
             .tab
             .items_opt()
             .into_iter()
             .flatten()
-            .filter(|item| item.selected)
-            .filter_map(|item| item.path_opt())
-            .map(|path| path.is_dir())
+            .filter(|item| item.selected && item.path_opt().is_some())
+            .map(|item| item.metadata.is_dir())
             .collect();
         if selected_dirs.is_empty() {
             return want_dir && matches!(self.tab.location, Location::Path(_));

@@ -34,6 +34,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
 use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, LazyLock, Mutex};
 use std::time::{self, Duration, Instant};
 use std::{env, fmt, io, process};
@@ -404,6 +405,11 @@ pub enum Message {
     /// Items re-read off the event loop after the filesystem changed beneath
     /// them, tagged with the location they were read from.
     RefreshedItems(Entity, Location, Vec<(PathBuf, Box<tab::Item>)>),
+    /// A batch rename preview with its destination conflicts filled in, and
+    /// the revision of the names it describes.
+    BatchRenamePreview(u64, batch_rename::Preview),
+    /// The result of looking at a path the user is typing towards.
+    NameChecked(NameCheck),
     ReloadMimeAppCache,
     /// A freshly built mime app cache, ready to replace the one in use.
     MimeAppCacheReloaded(MimeAppCacheWrapper),
@@ -762,6 +768,10 @@ pub struct App {
     /// The batch rename preview, recomputed when the dialog's settings change.
     /// It stats the filesystem, so it must not be built while rendering.
     batch_rename_preview: batch_rename::Preview,
+    /// Bumped every time the batch rename preview is rebuilt, so a background
+    /// conflict check that finishes after the next keystroke is discarded
+    /// rather than shown against names that have since changed.
+    batch_rename_revision: u64,
     key_binds: HashMap<KeyBind, Action>,
     mime_app_cache: MimeAppCache,
     modifiers: Modifiers,
@@ -794,6 +804,36 @@ pub struct App {
     auto_scroll_speed: Option<i16>,
     file_dialog_opt: Option<Dialog<Message>>,
     clipboard_cache: ClipboardCache,
+    /// What the last background check said about the name typed into the new
+    /// item or rename dialog.
+    name_check: Option<NameCheck>,
+    /// Bumped on every keystroke in that dialog. A check that finds the
+    /// counter has moved on since it was scheduled drops out before touching
+    /// the disk, so holding a key down costs one stat rather than one per
+    /// repeat.
+    name_check_revision: Arc<AtomicU64>,
+}
+
+/// How long a typed name must stand still before it is checked against the
+/// disk. Long enough that typing a name straight through checks it once,
+/// short enough that the warning still feels like a reaction to typing.
+const NAME_CHECK_DELAY: Duration = Duration::from_millis(150);
+
+/// What is already at a path the user is typing towards.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum NameTaken {
+    Folder,
+    File,
+}
+
+/// The answer to one name check, and the question it answers.
+#[derive(Clone, Debug)]
+pub struct NameCheck {
+    /// The path that was looked at. The typed name decides it, so this is
+    /// also the revision: an answer about any other path is an answer to a
+    /// question the user has since changed, and says nothing about this one.
+    path: PathBuf,
+    taken: Option<NameTaken>,
 }
 
 impl App {
@@ -832,17 +872,33 @@ impl App {
             None
         } else {
             let path = parent.join(name);
-            if from_opt != Some(path.as_path()) && path.exists() {
-                dialog = dialog.tertiary_action(widget::text::body(if path.is_dir() {
-                    fl!("folder-already-exists")
-                } else {
-                    fl!("file-already-exists")
+            // Read, not looked up: this runs on every frame the dialog is
+            // drawn, and asking the filesystem that often makes typing a name
+            // as slow as the folder being typed into. `check_name` answers in
+            // the background, and an answer about a different path is an
+            // answer to what was typed before this keystroke.
+            let taken = self
+                .name_check
+                .as_ref()
+                .filter(|check| check.path == path)
+                .and_then(|check| check.taken);
+            if from_opt != Some(path.as_path())
+                && let Some(taken) = taken
+            {
+                dialog = dialog.tertiary_action(widget::text::body(match taken {
+                    NameTaken::Folder => fl!("folder-already-exists"),
+                    NameTaken::File => fl!("file-already-exists"),
                 }));
                 None
             } else {
                 if name.starts_with('.') {
                     dialog = dialog.tertiary_action(widget::text::body(fl!("name-hidden")));
                 }
+                // Offered even while the check is still out. The warning is
+                // only ever a snapshot of a folder other programs also write
+                // to, so it is not what keeps anything safe: creating or
+                // renaming onto a name that is taken is refused by the
+                // operation itself, where the file is actually touched.
                 Some(Message::DialogComplete)
             }
         };
@@ -1349,27 +1405,98 @@ impl App {
         Task::batch(tasks)
     }
 
-    /// Rebuild the batch rename preview if that dialog is the one in front
-    fn refresh_batch_rename_preview(&mut self) {
+    /// Look at `path` in the background, and report what is there.
+    ///
+    /// The answer drives a warning under a name field, so it is worth being
+    /// right about but not worth waiting for: a name typed towards a slow or
+    /// remote folder would otherwise stall on every keystroke. What the
+    /// dialog does with a stale or missing answer is deliberately harmless,
+    /// because the operations themselves refuse to overwrite anything.
+    fn check_name(&mut self, path: PathBuf) -> Task<Message> {
+        let revision = self.name_check_revision.fetch_add(1, Ordering::Relaxed) + 1;
+        let shared = Arc::clone(&self.name_check_revision);
+        Task::future(async move {
+            tokio::time::sleep(NAME_CHECK_DELAY).await;
+            // Typing has moved on, and a later check is already scheduled for
+            // whatever is in the field now.
+            if shared.load(Ordering::Relaxed) != revision {
+                return crate::ui::action::none();
+            }
+
+            let checked = tokio::task::spawn_blocking(move || {
+                let taken = match std::fs::metadata(&path) {
+                    Ok(metadata) if metadata.is_dir() => Some(NameTaken::Folder),
+                    Ok(_) => Some(NameTaken::File),
+                    Err(_) => None,
+                };
+                NameCheck { path, taken }
+            })
+            .await;
+
+            match checked {
+                Ok(check) => crate::ui::action::app(Message::NameChecked(check)),
+                Err(err) => {
+                    log::warn!("failed to check a typed name: {err}");
+                    crate::ui::action::none()
+                }
+            }
+        })
+    }
+
+    /// Rebuild the batch rename preview if that dialog is the one in front.
+    ///
+    /// The names themselves are worked out here, because they are pure string
+    /// work and the list is redrawn with every keystroke. Whether each new
+    /// name is already taken on disk is not: that is one `stat` per changed
+    /// name, and a large selection makes typing into the dialog as slow as the
+    /// folder it is renaming in. It is answered on a worker and merged in when
+    /// it arrives, so the list never waits for the disk to show what it will
+    /// rename things to.
+    fn refresh_batch_rename_preview(&mut self) -> Task<Message> {
         let Some(DialogPage::BatchRename {
             parent,
             names,
             settings,
         }) = self.dialog_pages.front()
         else {
-            return;
+            return Task::none();
         };
+
+        let tags = batch_rename::Tags::localized();
+        self.batch_rename_preview = batch_rename::preview(parent, names, settings, &tags, false);
+
         // Checking every destination is only affordable on a local filesystem
-        let local = parent
-            .symlink_metadata()
-            .is_ok_and(|metadata| matches!(tab::fs_kind(&metadata), tab::FsKind::Local));
-        self.batch_rename_preview = batch_rename::preview(
-            parent,
-            names,
-            settings,
-            &batch_rename::Tags::localized(),
-            local,
-        );
+        let parent = parent.clone();
+        let names = names.clone();
+        let settings = settings.clone();
+        let revision = self.batch_rename_revision.wrapping_add(1);
+        self.batch_rename_revision = revision;
+
+        Task::future(async move {
+            let checked = tokio::task::spawn_blocking(move || {
+                let local = parent
+                    .symlink_metadata()
+                    .is_ok_and(|metadata| matches!(tab::fs_kind(&metadata), tab::FsKind::Local));
+                if !local {
+                    return None;
+                }
+                Some(batch_rename::preview(
+                    &parent, &names, &settings, &tags, true,
+                ))
+            })
+            .await;
+
+            match checked {
+                Ok(Some(preview)) => {
+                    crate::ui::action::app(Message::BatchRenamePreview(revision, preview))
+                }
+                Ok(None) => crate::ui::action::none(),
+                Err(err) => {
+                    log::warn!("failed to check batch rename destinations: {err}");
+                    crate::ui::action::none()
+                }
+            }
+        })
     }
 
     fn operation(&mut self, operation: Operation) -> Task<Message> {
@@ -2457,6 +2584,7 @@ impl Application for App {
             dialog_text_input: widget::Id::new("Dialog Text Input"),
             auth_password_visible: false,
             batch_rename_preview: batch_rename::Preview::default(),
+            batch_rename_revision: 0,
             key_binds,
             mime_app_cache: MimeAppCache::new(),
             modifiers: Modifiers::empty(),
@@ -2484,6 +2612,8 @@ impl Application for App {
             auto_scroll_speed: None,
             file_dialog_opt: None,
             clipboard_cache: ClipboardCache::Empty,
+            name_check: None,
+            name_check_revision: Arc::new(AtomicU64::new(0)),
         };
 
         let mut commands = vec![app.update_config(), app.update(Message::CheckClipboard)];
@@ -3292,10 +3422,31 @@ impl Application for App {
             }
             Message::DialogUpdate(dialog_page) => {
                 let batch_rename = matches!(dialog_page, DialogPage::BatchRename { .. });
+                let name_target = match &dialog_page {
+                    DialogPage::NewItem { parent, name, .. } if !name.is_empty() => {
+                        Some(parent.join(name))
+                    }
+                    DialogPage::RenameItem { parent, name, .. } if !name.is_empty() => {
+                        Some(parent.join(name))
+                    }
+                    _ => None,
+                };
                 self.dialog_pages.update_front(dialog_page);
                 if batch_rename {
-                    self.refresh_batch_rename_preview();
+                    return self.refresh_batch_rename_preview();
                 }
+                if let Some(path) = name_target {
+                    return self.check_name(path);
+                }
+            }
+            Message::BatchRenamePreview(revision, preview) => {
+                // Anything older describes names the user has moved on from.
+                if revision == self.batch_rename_revision {
+                    self.batch_rename_preview = preview;
+                }
+            }
+            Message::NameChecked(check) => {
+                self.name_check = Some(check);
             }
             Message::DialogUpdateComplete(dialog_page) => {
                 return Task::batch([
@@ -4281,8 +4432,8 @@ impl Application for App {
                             },
                             Some(self.dialog_text_input.clone()),
                         );
-                        self.refresh_batch_rename_preview();
-                        return task;
+                        let preview = self.refresh_batch_rename_preview();
+                        return Task::batch([task, preview]);
                     }
                     if !selected.is_empty() {
                         let mut last_name = String::new();

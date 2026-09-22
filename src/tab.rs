@@ -1070,6 +1070,7 @@ pub fn item_from_gvfs_info(path: PathBuf, file_info: gio::FileInfo, sizes: IconS
         // Only the gvfs listing builds these, and it runs on a worker.
         // Remote paths are left alone: reading content over the network to
         // learn a pixel size is what the remote guard exists to avoid.
+        file_metadata: OnceCell::new(),
         image_dimensions: OnceCell::from(
             (!remote && mime.type_() == mime::IMAGE)
                 .then(|| image::image_dimensions(&path).ok())
@@ -1167,6 +1168,7 @@ pub fn item_from_entry(
         },
         hidden,
         image_dimensions: OnceCell::new(),
+        file_metadata: OnceCell::new(),
         location_opt: Some(Location::Path(path)),
         mime,
         icon_handle_grid,
@@ -1223,6 +1225,7 @@ pub fn item_from_trash_entry(
         hidden: false,
         location_opt: location,
         image_dimensions: OnceCell::new(),
+        file_metadata: OnceCell::new(),
         mime,
         icon_handle_grid,
         icon_handle_list,
@@ -2545,6 +2548,12 @@ pub struct Item {
     /// would block the interface. Only the details pane fills it on demand,
     /// for the one item it is describing.
     pub image_dimensions: OnceCell<Option<(u32, u32)>>,
+    /// Metadata for an item whose own [`Self::metadata`] does not carry any,
+    /// read once when something first asks. Trashed and GVFS items are the
+    /// ones that need it, and the details pane asks on every frame it is
+    /// open, so reading it each time would stat a trashed file -- or a file on
+    /// a network mount -- sixty times a second.
+    pub file_metadata: OnceCell<Option<Metadata>>,
     pub icon_handle_grid: widget::icon::Handle,
     pub icon_handle_list: widget::icon::Handle,
     pub icon_handle_list_condensed: widget::icon::Handle,
@@ -2616,8 +2625,13 @@ impl Item {
     pub fn file_metadata(&self) -> Option<Metadata> {
         match &self.metadata {
             ItemMetadata::Path { metadata, .. } => Some(metadata.clone()),
-            // Trashed and GVFS items have a readable path of their own
-            _ => self.path_opt().and_then(|p| fs::metadata(p).ok()),
+            // Trashed and GVFS items have a readable path of their own. Read
+            // once: an item that changes on disk is rebuilt by
+            // [`Self::adopt`], which brings a fresh cell with it.
+            _ => self
+                .file_metadata
+                .get_or_init(|| self.path_opt().and_then(|p| fs::metadata(p).ok()))
+                .clone(),
         }
     }
 

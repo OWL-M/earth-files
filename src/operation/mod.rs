@@ -1458,7 +1458,15 @@ impl Operation {
                         .check()
                         .await
                         .map_err(|s| OperationError::from_state(s, &controller))?;
-                    compio::fs::File::create(&path)
+                    // `create_new`, not `create`: creating a new file must
+                    // never truncate one that is already there. The dialog
+                    // warns about a name that is taken, but that warning is a
+                    // snapshot of a directory anything else may write to, so
+                    // the refusal has to be here, where the file is made.
+                    compio::fs::OpenOptions::new()
+                        .write(true)
+                        .create_new(true)
+                        .open(&path)
                         .await
                         .map_err(|e| OperationError::from_err(e, &controller))?;
                     Result::<_, OperationError>::Ok(OperationSelection {
@@ -1585,9 +1593,20 @@ impl Operation {
                         .check()
                         .await
                         .map_err(|s| OperationError::from_state(s, &controller))?;
-                    compio::fs::rename(&from, &to)
-                        .await
-                        .map_err(|e| OperationError::from_err(e, &controller))?;
+                    // `rename_no_replace`, not `rename`: `rename(2)` replaces
+                    // the destination without a word, and a rename is a move
+                    // the user asked for by name, not permission to destroy
+                    // whatever already has that name. The dialog warns about a
+                    // taken name, but that warning is a snapshot of a folder
+                    // anything else may write to, so the refusal belongs here.
+                    // Restore and batch rename already work this way.
+                    compio::runtime::spawn_blocking({
+                        let (from, to) = (from.clone(), to.clone());
+                        move || rename_no_replace(&from, &to)
+                    })
+                    .await
+                    .map_err(wrap_compio_spawn_error)?
+                    .map_err(|e| OperationError::from_err(e, &controller))?;
                     Result::<_, OperationError>::Ok(OperationSelection {
                         ignored: vec![from],
                         selected: vec![to],
@@ -1964,6 +1983,70 @@ mod tests {
         assert!(result.is_err(), "renaming onto an existing file must fail");
         assert_eq!(fs::read(path.join("b.txt"))?, b"VICTIM");
         assert_eq!(fs::read(path.join("a.txt"))?, b"SOURCE");
+        Ok(())
+    }
+
+    #[test(compio::test)]
+    async fn creating_a_file_never_truncates_an_existing_one() -> io::Result<()> {
+        let fs_ = empty_fs()?;
+        let path = fs_.path().join("notes.txt");
+        fs::write(&path, b"work worth keeping")?;
+
+        let (tx, _rx) = mpsc::channel(1);
+        let result = Operation::NewFile { path: path.clone() }
+            .perform(&sync::Mutex::new(tx).into(), Controller::default())
+            .await;
+
+        assert!(
+            result.is_err(),
+            "creating a file over an existing one must fail"
+        );
+        assert_eq!(
+            fs::read(&path)?,
+            b"work worth keeping",
+            "the existing file was truncated"
+        );
+        Ok(())
+    }
+
+    #[test(compio::test)]
+    async fn renaming_onto_an_existing_file_leaves_it_alone() -> io::Result<()> {
+        let fs_ = empty_fs()?;
+        let path = fs_.path();
+        fs::write(path.join("a.txt"), b"SOURCE")?;
+        fs::write(path.join("b.txt"), b"VICTIM")?;
+
+        let (tx, _rx) = mpsc::channel(1);
+        let result = Operation::Rename {
+            from: path.join("a.txt"),
+            to: path.join("b.txt"),
+        }
+        .perform(&sync::Mutex::new(tx).into(), Controller::default())
+        .await;
+
+        assert!(result.is_err(), "renaming onto an existing file must fail");
+        assert_eq!(fs::read(path.join("b.txt"))?, b"VICTIM");
+        assert_eq!(fs::read(path.join("a.txt"))?, b"SOURCE");
+        Ok(())
+    }
+
+    #[test(compio::test)]
+    async fn renaming_to_a_free_name_still_works() -> io::Result<()> {
+        let fs_ = empty_fs()?;
+        let path = fs_.path();
+        fs::write(path.join("a.txt"), b"SOURCE")?;
+
+        let (tx, _rx) = mpsc::channel(1);
+        Operation::Rename {
+            from: path.join("a.txt"),
+            to: path.join("b.txt"),
+        }
+        .perform(&sync::Mutex::new(tx).into(), Controller::default())
+        .await
+        .expect("renaming to a free name should work");
+
+        assert_eq!(fs::read(path.join("b.txt"))?, b"SOURCE");
+        assert!(!path.join("a.txt").exists());
         Ok(())
     }
 
