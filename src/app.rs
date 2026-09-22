@@ -403,12 +403,14 @@ pub enum Message {
     PermanentlyDelete(Option<Entity>),
     Preview,
     /// Items re-read off the event loop after the filesystem changed beneath
-    /// them, tagged with the location they were read from and the number of
-    /// the batch that asked for them.
-    RefreshedItems(Entity, Location, u64, Vec<(PathBuf, Box<tab::Item>)>),
+    /// them, tagged with the location and listing they were read from and the
+    /// number of the batch that asked for them.
+    RefreshedItems(Entity, Location, u64, u64, Vec<(PathBuf, Box<tab::Item>)>),
     /// A batch rename preview with its destination conflicts filled in, and
     /// the revision of the names it describes.
     BatchRenamePreview(u64, batch_rename::Preview),
+    /// The default terminal, worked out on a worker at startup.
+    DefaultTerminal(Option<String>),
     /// The result of looking at a path the user is typing towards.
     NameChecked(NameCheck),
     ReloadMimeAppCache,
@@ -809,19 +811,10 @@ pub struct App {
     /// What the last background check said about the name typed into the new
     /// item or rename dialog.
     name_check: Option<NameCheck>,
-    /// The batch number given to the next set of items sent off to be re-read.
-    refresh_batch: u64,
     /// The number given to the next mime app cache rebuild, and the number of
     /// the newest one already installed.
     mime_app_rebuild: u64,
     mime_app_rebuild_applied: u64,
-    /// The newest batch whose result has been adopted, per path, so a batch
-    /// that finishes out of order cannot put back an older snapshot. Only
-    /// meaningful while batches are in flight, and emptied once none are, so
-    /// it does not grow with every file ever refreshed.
-    refreshed_at: FxHashMap<PathBuf, u64>,
-    /// Batches sent off to be re-read and not yet answered.
-    refresh_in_flight: usize,
     /// Bumped on every keystroke in that dialog. A check that finds the
     /// counter has moved on since it was scheduled drops out before touching
     /// the disk, so holding a key down costs one stat rather than one per
@@ -2628,15 +2621,29 @@ impl Application for App {
             file_dialog_opt: None,
             clipboard_cache: ClipboardCache::Empty,
             name_check: None,
-            refresh_batch: 0,
             mime_app_rebuild: 0,
             mime_app_rebuild_applied: 0,
-            refreshed_at: FxHashMap::default(),
-            refresh_in_flight: 0,
             name_check_revision: Arc::new(AtomicU64::new(0)),
         };
 
-        let mut commands = vec![app.update_config(), app.update(Message::CheckClipboard)];
+        let mut commands = vec![
+            app.update_config(),
+            app.update(Message::CheckClipboard),
+            // The cache built just above was built here, on the event loop,
+            // where asking `xdg-mime` for the default terminal would have
+            // added a whole process -- and its two second deadline -- to the
+            // time before the window appears. Asked on a worker instead, so
+            // the first menu that wants a terminal already has the answer.
+            Task::future(async move {
+                match tokio::task::spawn_blocking(MimeAppCache::query_default_terminal).await {
+                    Ok(id) => crate::ui::action::app(Message::DefaultTerminal(id)),
+                    Err(err) => {
+                        log::warn!("failed to look up the default terminal: {err}");
+                        crate::ui::action::none()
+                    }
+                }
+            }),
+        ];
 
         for location in flags.locations {
             if let Some(path) = location.path_opt()
@@ -2999,7 +3006,7 @@ impl Application for App {
         }
         if let Some(tab) = self.tab_model.data_mut::<Tab>(entity) {
             if tab.edit_location.is_some() {
-                tab.edit_location = None;
+                tab.dismiss_edit_location();
                 return Task::none();
             }
 
@@ -3465,6 +3472,9 @@ impl Application for App {
                     self.batch_rename_preview = preview;
                 }
             }
+            Message::DefaultTerminal(id) => {
+                self.mime_app_cache.adopt_terminal(id);
+            }
             Message::NameChecked(check) => {
                 self.name_check = Some(check);
             }
@@ -3879,9 +3889,13 @@ impl Application for App {
                     .map(|(entity, location)| self.update_tab(entity, location, None))
                     .collect();
                 for (entity, location, sizes, paths) in refresh {
-                    let batch = self.refresh_batch;
-                    self.refresh_batch = self.refresh_batch.wrapping_add(1);
-                    self.refresh_in_flight += 1;
+                    let Some((listing, batch)) = self
+                        .tab_model
+                        .data_mut::<Tab>(entity)
+                        .map(|tab| (tab.listing(), tab.next_refresh_batch()))
+                    else {
+                        continue;
+                    };
                     commands.push(Task::future(async move {
                         let rebuilt = tokio::task::spawn_blocking(move || {
                             paths
@@ -3904,7 +3918,7 @@ impl Application for App {
                             Vec::new()
                         });
                         crate::ui::action::app(Message::RefreshedItems(
-                            entity, location, batch, items,
+                            entity, location, listing, batch, items,
                         ))
                     }));
                 }
@@ -4367,40 +4381,38 @@ impl Application for App {
                 let paths: Box<[_]> = self.selected_paths(entity_opt).collect();
                 return self.operation(Operation::RemoveFromRecents { paths });
             }
-            Message::RefreshedItems(entity, location, batch, rebuilt) => {
-                self.refresh_in_flight = self.refresh_in_flight.saturating_sub(1);
+            Message::RefreshedItems(entity, location, listing, batch, rebuilt) => {
                 let mut warm = None;
                 if let Some(tab) = self.tab_model.data_mut::<Tab>(entity) {
-                    // The tab may have been sent somewhere else while these
-                    // were being read, in which case they describe files it is
-                    // no longer showing.
-                    if tab.location == location
-                        && let Some(items) = &mut tab.items_opt
-                    {
-                        let mut adopted = false;
+                    tab.refresh_answered();
+                    // The tab may have been sent somewhere else, or rescanned
+                    // from scratch, while these were being read; either way
+                    // they describe a listing it is no longer showing.
+                    if tab.location == location && tab.listing() == listing {
+                        let mut adopted = Vec::new();
                         for (path, fresh) in rebuilt {
                             // Batches overlap: two bursts naming the same file
                             // start two workers, and the older one can finish
                             // last. Whatever was read more recently for a path
                             // is what the tab keeps.
-                            let newer = self
-                                .refreshed_at
-                                .get(&path)
-                                .is_none_or(|seen| batch >= *seen);
-                            if !newer {
-                                continue;
-                            }
-                            self.refreshed_at.insert(path.clone(), batch);
-                            // One item per path in a listing, so the first match is
-                            // the only one.
-                            if let Some(item) =
-                                items.iter_mut().find(|item| item.path_opt() == Some(&path))
-                            {
-                                item.adopt(*fresh);
-                                adopted = true;
+                            if tab.accept_refresh(listing, batch, &path) {
+                                adopted.push((path, fresh));
                             }
                         }
-                        if adopted {
+                        let mut any = false;
+                        if let Some(items) = &mut tab.items_opt {
+                            for (path, fresh) in adopted {
+                                // One item per path in a listing, so the first
+                                // match is the only one.
+                                if let Some(item) =
+                                    items.iter_mut().find(|item| item.path_opt() == Some(&path))
+                                {
+                                    item.adopt(*fresh);
+                                    any = true;
+                                }
+                            }
+                        }
+                        if any {
                             // Asked for after adopting, not before: a refreshed
                             // item may now be a type whose icon has never been
                             // resolved, and until it is adopted the tab still
@@ -4412,11 +4424,6 @@ impl Application for App {
                             }
                         }
                     }
-                }
-                if self.refresh_in_flight == 0 {
-                    // Nothing is out, so nothing can arrive out of order any
-                    // more and these numbers say nothing about the next batch.
-                    self.refreshed_at.clear();
                 }
                 if let Some((warmup, sizes)) = warm {
                     return Task::future(async move {
@@ -4903,9 +4910,23 @@ impl Application for App {
                             self.set_show_context(true);
                         }
                         tab::Command::SetOpenWith(mime, id) => {
-                            if self.mime_app_cache.set_default(mime, id) {
-                                commands.push(self.update(Message::ReloadMimeAppCache));
-                            }
+                            // Written on a worker: it reads `mimeapps.list`,
+                            // edits it and writes it back, which is disk work
+                            // however small the file is.
+                            commands.push(Task::future(async move {
+                                match tokio::task::spawn_blocking(move || {
+                                    MimeAppCache::set_default(mime, id)
+                                })
+                                .await
+                                {
+                                    Ok(true) => crate::ui::action::app(Message::ReloadMimeAppCache),
+                                    Ok(false) => crate::ui::action::none(),
+                                    Err(err) => {
+                                        log::warn!("failed to set the default application: {err}");
+                                        crate::ui::action::none()
+                                    }
+                                }
+                            }));
                         }
                         tab::Command::SetPermissions(path, mode) => {
                             commands.push(self.operation(Operation::SetPermissions { path, mode }));
@@ -5253,7 +5274,7 @@ impl Application for App {
                 let tab_entity = self.tab_model.active();
                 if let Some(tab) = self.tab_model.data_mut::<Tab>(tab_entity) {
                     // Close location editing if enabled
-                    tab.edit_location = None;
+                    tab.dismiss_edit_location();
                 }
             }
             Message::NavMenuAction(action) => match action {

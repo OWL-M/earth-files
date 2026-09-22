@@ -3176,6 +3176,20 @@ pub struct Tab {
     /// is put away, so an answer that outlives the question it was asked for
     /// is dropped rather than dragging the tab back.
     resolving_network: Option<u64>,
+    /// Which listing this tab is showing.
+    ///
+    /// Bumped whenever the items are replaced wholesale -- a scan, a rescan, a
+    /// change of location. An item re-read in the background belongs to the
+    /// listing that asked for it, and applying it to a later one would put
+    /// back a snapshot the newer scan has already superseded.
+    listing: u64,
+    /// The batch number given to the next set of items sent off to be re-read
+    /// for this tab, and the newest batch already adopted per path. Per tab,
+    /// because two tabs can show the same folder and each has to see its own
+    /// results; emptied when no batch is outstanding.
+    refresh_batch: u64,
+    refreshed_at: FxHashMap<PathBuf, u64>,
+    refresh_in_flight: usize,
     /// The number given to the next network resolution this tab asks for.
     next_network_request: u64,
 }
@@ -3325,6 +3339,10 @@ impl Tab {
             location_title,
             location_context_menu_index: None,
             resolving_network: None,
+            listing: 0,
+            refresh_batch: 0,
+            refreshed_at: FxHashMap::default(),
+            refresh_in_flight: 0,
             next_network_request: 0,
             mode: Mode::App,
             scroll_opt: None,
@@ -3389,7 +3407,56 @@ impl Tab {
             .unwrap_or_default()
     }
 
+    /// Note a new set of items, and forget what was being re-read for the old
+    /// one: a scan reads everything fresh, so an older re-read of one file has
+    /// nothing left to say.
+    fn new_listing(&mut self) {
+        self.listing = self.listing.wrapping_add(1);
+        self.refreshed_at.clear();
+        self.refresh_in_flight = 0;
+    }
+
+    /// Which listing is on screen, for tagging background re-reads of it.
+    pub fn listing(&self) -> u64 {
+        self.listing
+    }
+
+    /// Take a batch number for a set of items about to be re-read.
+    pub fn next_refresh_batch(&mut self) -> u64 {
+        let batch = self.refresh_batch;
+        self.refresh_batch = self.refresh_batch.wrapping_add(1);
+        self.refresh_in_flight += 1;
+        batch
+    }
+
+    /// Whether a re-read of `path` from `listing`/`batch` is still the newest
+    /// thing known about it, recording it when it is.
+    pub fn accept_refresh(&mut self, listing: u64, batch: u64, path: &Path) -> bool {
+        if listing != self.listing {
+            return false;
+        }
+        if self
+            .refreshed_at
+            .get(path)
+            .is_some_and(|seen| batch < *seen)
+        {
+            return false;
+        }
+        self.refreshed_at.insert(path.to_path_buf(), batch);
+        true
+    }
+
+    /// Note that a batch has been answered, and forget the ordering once none
+    /// are left: with nothing outstanding, nothing can arrive out of order.
+    pub fn refresh_answered(&mut self) {
+        self.refresh_in_flight = self.refresh_in_flight.saturating_sub(1);
+        if self.refresh_in_flight == 0 {
+            self.refreshed_at.clear();
+        }
+    }
+
     pub fn set_items(&mut self, mut items: Vec<Item>) {
+        self.new_listing();
         let highlighted = self
             .items_opt
             .as_ref()
@@ -3991,15 +4058,26 @@ impl Tab {
         }
     }
 
+    /// Put the address field away, and withdraw whatever it was asking for.
+    ///
+    /// The two belong together. A network address being resolved is a question
+    /// the field asked, so every way of dismissing the field -- typing
+    /// elsewhere, clicking away, Escape, navigating -- has to withdraw it too,
+    /// or a slow answer arrives long after and takes the tab somewhere the
+    /// user has left. Clearing `edit_location` on its own is what let that
+    /// happen, so it is done here and nowhere else.
+    pub fn dismiss_edit_location(&mut self) {
+        self.edit_location = None;
+        self.resolving_network = None;
+    }
+
     pub fn change_location(&mut self, location: &Location, history_i_opt: Option<usize>) {
         self.location = location.normalize();
         self.location_ancestors = self.location.ancestors();
         self.location_title = self.location.title();
-        self.edit_location = None;
-        // Going somewhere answers the question the address field was asking,
-        // so a network resolution still in flight is no longer wanted: letting
-        // it land would take the tab back off wherever it has just gone.
-        self.resolving_network = None;
+        // Going somewhere answers the question the address field was asking.
+        self.dismiss_edit_location();
+        self.new_listing();
         self.items_opt = None;
         // Remember where this entry was scrolled to before leaving it
         if let Some(saved) = self.history_scroll.get_mut(self.history_i) {
@@ -4128,7 +4206,7 @@ impl Tab {
                 }
             }
             Message::Click(click_i_opt) => {
-                self.edit_location = None;
+                self.dismiss_edit_location();
                 if click_i_opt.is_none() {
                     self.clicked = click_i_opt;
                 }
@@ -4286,7 +4364,7 @@ impl Tab {
                 commands.push(Command::RunContextAction(action));
             }
             Message::RightClickBackground => {
-                self.edit_location = None;
+                self.dismiss_edit_location();
 
                 if self.last_right_click.take().is_none()
                     && let Some(ref mut items) = self.items_opt
@@ -4424,7 +4502,7 @@ impl Tab {
             Message::EditLocation(edit_location) => {
                 // Typing something else, or putting the field away, withdraws
                 // whatever it was last asked to resolve.
-                self.resolving_network = None;
+                self.dismiss_edit_location();
                 self.edit_location = edit_location;
                 if self.edit_location.is_some() {
                     commands.push(Command::Iced(
@@ -4508,8 +4586,7 @@ impl Tab {
                 // may have typed something else, or gone somewhere else
                 // entirely, while the server was being waited on.
                 if self.resolving_network == Some(request) {
-                    self.resolving_network = None;
-                    self.edit_location = None;
+                    self.dismiss_edit_location();
                     // Nothing came back, so go to the URI as typed and let the
                     // scan report what is wrong with it. That is what
                     // submitting an unresolvable URI has always done.
@@ -8352,6 +8429,63 @@ mod tests {
             tab.location, now,
             "a network answer from before the tab moved took it back"
         );
+        Ok(())
+    }
+
+    /// Every way of putting the address field away withdraws what it asked
+    /// for, not just the ones that go through `EditLocation`.
+    #[test]
+    fn dismissing_the_address_field_withdraws_its_request() -> io::Result<()> {
+        use crate::tab::Command;
+
+        for dismiss in ["click", "right click", "navigate"] {
+            let fs = empty_fs()?;
+            let start = Location::Path(fs.path().to_owned());
+            let mut tab = Tab::new(
+                start.clone(),
+                TabConfig::default(),
+                ThumbCfg::default(),
+                None,
+                std::borrow::Cow::Borrowed("Undefined"),
+                None,
+            );
+
+            let uri = "smb://example/share/".to_owned();
+            tab.edit_location = Some(Location::Network(uri.clone(), uri.clone(), None).into());
+            let request = tab
+                .update(Message::EditLocationSubmit, Modifiers::empty())
+                .iter()
+                .find_map(|command| match command {
+                    Command::ResolveNetwork(request, _) => Some(*request),
+                    _ => None,
+                })
+                .expect("should ask for resolution");
+
+            match dismiss {
+                "click" => {
+                    tab.update(Message::Click(None), Modifiers::empty());
+                }
+                "right click" => {
+                    tab.update(Message::RightClickBackground, Modifiers::empty());
+                }
+                _ => tab.change_location(&start, None),
+            }
+
+            let before = tab.location.clone();
+            tab.update(
+                Message::NetworkResolved(
+                    request,
+                    uri.clone(),
+                    Some(Location::Network(uri.clone(), uri, None)),
+                ),
+                Modifiers::empty(),
+            );
+
+            assert_eq!(
+                tab.location, before,
+                "dismissing by {dismiss} left the request live, and it navigated"
+            );
+        }
         Ok(())
     }
 

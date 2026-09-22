@@ -538,9 +538,29 @@ impl MimeAppCache {
         let _ = self.get_default_terminal();
     }
 
+    /// Run the `xdg-mime` query on its own, away from any cache.
+    ///
+    /// The cache built at startup is built on the event loop, where priming it
+    /// would add this query to the time before the window appears. Instead the
+    /// answer is worked out on a worker and handed to [`Self::adopt_terminal`].
+    pub fn query_default_terminal() -> Option<String> {
+        Self::run_terminal_query()
+    }
+
+    /// Take a default terminal worked out elsewhere, unless one is known.
+    pub fn adopt_terminal(&self, id: Option<String>) {
+        let _ = self.default_terminal.set(id);
+    }
+
     fn get_default_terminal(&self) -> Option<&str> {
         self.default_terminal
-            .get_or_init(|| {
+            .get_or_init(Self::run_terminal_query)
+            .as_deref()
+    }
+
+    fn run_terminal_query() -> Option<String> {
+        {
+            {
                 let mut child = process::Command::new("xdg-mime")
                     .args(["query", "default", "x-scheme-handler/terminal"])
                     .stdin(process::Stdio::null())
@@ -568,14 +588,10 @@ impl MimeAppCache {
                 }
 
                 let mut output = String::new();
-                child
-                    .stdout
-                    .as_mut()?
-                    .read_to_string(&mut output)
-                    .ok()?;
+                child.stdout.as_mut()?.read_to_string(&mut output).ok()?;
                 Some(output.trim().replace(".desktop", ""))
-            })
-            .as_deref()
+            }
+        }
     }
 
     /// The terminal to open folders in: the mimeapps default for
@@ -626,7 +642,7 @@ impl MimeAppCache {
     }
 
     #[cfg(not(feature = "desktop"))]
-    pub fn set_default(&mut self, mime: Mime, id: String) -> bool {
+    pub fn set_default(mime: Mime, id: String) -> bool {
         log::warn!(
             "failed to set default handler for {mime:?} to {id:?}: desktop feature not enabled"
         );
@@ -638,8 +654,12 @@ impl MimeAppCache {
     /// Returns whether the associations changed, in which case the caller
     /// reloads the cache. Reloading here would mean rebuilding it inline, and
     /// it is built by walking every desktop entry on the system.
+    ///
+    /// Reads and writes `mimeapps.list`, so it belongs on a worker. It takes
+    /// nothing from the cache, which is why it is an associated function: the
+    /// caller can hand it to a worker without the cache going with it.
     #[cfg(feature = "desktop")]
-    pub fn set_default(&mut self, mime: Mime, mut id: String) -> bool {
+    pub fn set_default(mime: Mime, mut id: String) -> bool {
         let Some(path) = cosmic_mime_apps::local_list_path() else {
             log::warn!("failed to find mimeapps.list path");
             return false;

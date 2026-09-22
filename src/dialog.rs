@@ -482,16 +482,17 @@ enum Message {
     MounterItems(MounterKey, MounterItems),
     NavBarClose(segmented_button::Entity),
     NewFolder,
-    /// A folder the chooser asked for now exists, so it can be entered.
-    NewFolderCreated(PathBuf),
+    /// A folder the chooser asked for now exists, tagged with the listing the
+    /// chooser was showing when it was asked for.
+    NewFolderCreated(u64, PathBuf),
     NotifyEvents(Vec<DebouncedEvent>),
     NotifyWatcher(WatcherWrapper),
     Open,
     Preview,
     /// Items re-read off the event loop after the filesystem changed beneath
-    /// them, tagged with the location they were read from and the number of
-    /// the batch that asked for them.
-    RefreshedItems(Location, u64, Vec<(PathBuf, Box<tab::Item>)>),
+    /// them, tagged with the location and listing they were read from and the
+    /// number of the batch that asked for them.
+    RefreshedItems(Location, u64, u64, Vec<(PathBuf, Box<tab::Item>)>),
     Save(bool),
     ScrollTab(i16),
     SearchActivate,
@@ -587,14 +588,6 @@ struct App {
         FxHashSet<PathBuf>,
     )>,
     auto_scroll_speed: Option<i16>,
-    /// The batch number given to the next set of items sent off to be re-read.
-    refresh_batch: u64,
-    /// The newest batch whose result has been adopted, per path, so a batch
-    /// that finishes out of order cannot put back an older snapshot. Emptied
-    /// once no batch is in flight.
-    refreshed_at: rustc_hash::FxHashMap<PathBuf, u64>,
-    /// Batches sent off to be re-read and not yet answered.
-    refresh_in_flight: usize,
     type_select_prefix: String,
     type_select_last_key: Option<Instant>,
 }
@@ -1089,9 +1082,6 @@ impl Application for App {
             core,
             flags,
             title,
-            refresh_batch: 0,
-            refreshed_at: rustc_hash::FxHashMap::default(),
-            refresh_in_flight: 0,
             accept_label: DialogLabel::from(accept_label),
             choices: Vec::new(),
             context_page: ContextPage::Preview(None, PreviewKind::Selected),
@@ -1377,7 +1367,7 @@ impl Application for App {
 
         if self.tab.edit_location.is_some() {
             // Close location editing if enabled
-            self.tab.edit_location = None;
+            self.tab.dismiss_edit_location();
             return Task::none();
         }
 
@@ -1449,6 +1439,7 @@ impl Application for App {
                             // only once it exists. On a slow or remote
                             // destination the `mkdir` alone can take long
                             // enough to be felt as the dialog hanging.
+                            let listing = self.tab.listing();
                             return Task::future(async move {
                                 let created = tokio::task::spawn_blocking({
                                     let path = path.clone();
@@ -1456,9 +1447,9 @@ impl Application for App {
                                 })
                                 .await;
                                 match created {
-                                    Ok(Ok(())) => {
-                                        crate::ui::action::app(Message::NewFolderCreated(path))
-                                    }
+                                    Ok(Ok(())) => crate::ui::action::app(
+                                        Message::NewFolderCreated(listing, path),
+                                    ),
                                     Ok(Err(err)) => {
                                         log::warn!("failed to create {}: {}", path.display(), err);
                                         crate::ui::action::none()
@@ -1637,10 +1628,20 @@ impl Application for App {
                     return widget::text_input::focus(self.dialog_text_input.clone());
                 }
             }
-            Message::NewFolderCreated(path) => {
-                return self.update(Message::TabMessage(tab::Message::Location(Location::Path(
-                    path,
-                ))));
+            Message::NewFolderCreated(listing, path) => {
+                // Created either way, but only entered if the chooser is still
+                // where it was when the folder was asked for. On slow storage
+                // the user can have navigated elsewhere in the meantime, and
+                // being taken back is not what they asked for.
+                if self.tab.listing() == listing {
+                    return self.update(Message::TabMessage(tab::Message::Location(
+                        Location::Path(path),
+                    )));
+                }
+                log::info!(
+                    "created {} after the chooser moved on; not entering it",
+                    path.display()
+                );
             }
             Message::NotifyEvents(events) => {
                 log::debug!("{events:?}");
@@ -1692,9 +1693,8 @@ impl Application for App {
 
                     if !changed.is_empty() {
                         let location = self.tab.location.clone();
-                        let batch = self.refresh_batch;
-                        self.refresh_batch = self.refresh_batch.wrapping_add(1);
-                        self.refresh_in_flight += 1;
+                        let listing = self.tab.listing();
+                        let batch = self.tab.next_refresh_batch();
                         tasks.push(Task::future(async move {
                             let rebuilt = tokio::task::spawn_blocking(move || {
                                 changed
@@ -1719,7 +1719,9 @@ impl Application for App {
                                 log::warn!("failed to reload changed items: {err}");
                                 Vec::new()
                             });
-                            crate::ui::action::app(Message::RefreshedItems(location, batch, items))
+                            crate::ui::action::app(Message::RefreshedItems(
+                                location, listing, batch, items,
+                            ))
                         }));
                     }
 
@@ -1747,42 +1749,35 @@ impl Application for App {
                     }
                 }
             }
-            Message::RefreshedItems(location, batch, rebuilt) => {
-                self.refresh_in_flight = self.refresh_in_flight.saturating_sub(1);
+            Message::RefreshedItems(location, listing, batch, rebuilt) => {
+                self.tab.refresh_answered();
                 let mut adopted = false;
-                // The chooser may have been sent somewhere else while these
-                // were being read, in which case they describe files it is no
-                // longer showing.
-                if self.tab.location == location
-                    && let Some(items) = &mut self.tab.items_opt
-                {
+                // The chooser may have been sent somewhere else, or rescanned
+                // from scratch, while these were being read; either way they
+                // describe a listing it is no longer showing.
+                if self.tab.location == location && self.tab.listing() == listing {
+                    let mut keep = Vec::new();
                     for (path, fresh) in rebuilt {
                         // Batches overlap: two bursts naming the same file
                         // start two workers, and the older one can finish
                         // last. Whatever was read more recently for a path is
                         // what the chooser keeps.
-                        if self
-                            .refreshed_at
-                            .get(&path)
-                            .is_some_and(|seen| batch < *seen)
-                        {
-                            continue;
-                        }
-                        self.refreshed_at.insert(path.clone(), batch);
-                        // One item per path in a listing, so the first match is
-                        // the only one.
-                        if let Some(item) =
-                            items.iter_mut().find(|item| item.path_opt() == Some(&path))
-                        {
-                            item.adopt(*fresh);
-                            adopted = true;
+                        if self.tab.accept_refresh(listing, batch, &path) {
+                            keep.push((path, fresh));
                         }
                     }
-                }
-                if self.refresh_in_flight == 0 {
-                    // Nothing is out, so nothing can arrive out of order any
-                    // more and these numbers say nothing about the next batch.
-                    self.refreshed_at.clear();
+                    if let Some(items) = &mut self.tab.items_opt {
+                        for (path, fresh) in keep {
+                            // One item per path in a listing, so the first
+                            // match is the only one.
+                            if let Some(item) =
+                                items.iter_mut().find(|item| item.path_opt() == Some(&path))
+                            {
+                                item.adopt(*fresh);
+                                adopted = true;
+                            }
+                        }
+                    }
                 }
                 if adopted {
                     // Asked for after adopting, not before: a refreshed item
