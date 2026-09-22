@@ -135,8 +135,34 @@ fn preview_text(text: &str) -> String {
 
 // Thumbnail generation semaphore - limits parallel thumbnail workers
 // Uses 4 workers for balanced throughput and memory usage
-pub static THUMB_SEMAPHORE: LazyLock<tokio::sync::Semaphore> =
-    LazyLock::new(|| tokio::sync::Semaphore::const_new(num_cpus::get().min(4)));
+pub static THUMB_SEMAPHORE: LazyLock<Arc<tokio::sync::Semaphore>> =
+    LazyLock::new(|| Arc::new(tokio::sync::Semaphore::new(num_cpus::get().min(4))));
+
+/// Runs `work` on a blocking thread, no more than `semaphore` allows at once.
+///
+/// The permit travels into the blocking task rather than being held by this
+/// future, because the two do not end together. Tokio cannot interrupt a
+/// blocking task, so when an item scrolls out of view and its subscription is
+/// dropped, the work carries on regardless. A permit held out here would be
+/// returned at that moment and the next item would start its own job beside
+/// the one still running, until a scroll through a directory of videos had
+/// every thumbnailer on the machine going at once.
+///
+/// Held inside, the bound is honest: a job cancelled before its turn never
+/// starts, and one already running keeps its place until it truly ends.
+async fn bounded_blocking<T, F>(semaphore: Arc<tokio::sync::Semaphore>, work: F) -> Option<T>
+where
+    T: Send + 'static,
+    F: FnOnce() -> T + Send + 'static,
+{
+    let permit = semaphore.acquire_owned().await.ok()?;
+    tokio::task::spawn_blocking(move || {
+        let _permit = permit;
+        work()
+    })
+    .await
+    .ok()
+}
 
 pub(crate) static SORT_OPTION_FALLBACK: LazyLock<FxHashMap<String, (HeadingOptions, bool)>> =
     LazyLock::new(|| {
@@ -7239,10 +7265,7 @@ impl Tab {
                                     let message = {
                                         let path = path.clone();
 
-                                        // Acquire semaphore permit
-                                        let _permit = THUMB_SEMAPHORE.acquire().await.unwrap();
-
-                                        tokio::task::spawn_blocking(move || {
+                                        bounded_blocking(Arc::clone(&THUMB_SEMAPHORE), move || {
                                             let start = Instant::now();
                                             let thumbnail = ItemThumbnail::new(
                                                 &path,
@@ -7261,7 +7284,12 @@ impl Tab {
                                             Message::Thumbnail(path, thumbnail)
                                         })
                                         .await
-                                        .unwrap()
+                                    };
+
+                                    // The job gave up its turn or the pool went
+                                    // away; either way nothing is coming.
+                                    let Some(message) = message else {
+                                        return std::future::pending().await;
                                     };
 
                                     match output.send(message).await {
@@ -7615,6 +7643,82 @@ fn text_editor_class(
 
 #[cfg(test)]
 mod tests {
+
+    #[tokio::test]
+    async fn a_cancelled_job_keeps_its_permit_until_the_work_really_ends() {
+        use std::sync::{Arc, mpsc};
+        use std::time::Duration;
+
+        let semaphore = Arc::new(tokio::sync::Semaphore::new(1));
+        let (started, work_began) = mpsc::channel();
+        let (finish, may_finish) = mpsc::channel::<()>();
+
+        let job = tokio::spawn(super::bounded_blocking(Arc::clone(&semaphore), move || {
+            started.send(()).unwrap();
+            may_finish.recv().unwrap();
+        }));
+
+        // The test runtime is single threaded: the job only reaches its
+        // blocking half when this task yields, so waiting for it must not
+        // block.
+        for _ in 0..500 {
+            if work_began.try_recv().is_ok() {
+                break;
+            }
+            tokio::task::yield_now().await;
+            std::thread::sleep(Duration::from_millis(10));
+        }
+
+        // The item scrolled out of view: its subscription goes away, but
+        // nothing can interrupt the work already running.
+        job.abort();
+        tokio::task::yield_now().await;
+
+        assert!(
+            semaphore.try_acquire().is_err(),
+            "permit was returned while the work it bounds was still running"
+        );
+
+        finish.send(()).unwrap();
+        drop(finish);
+        for _ in 0..500 {
+            if semaphore.try_acquire().is_ok() {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        panic!("permit was never returned");
+    }
+
+    #[tokio::test]
+    async fn a_job_cancelled_before_its_turn_never_runs() {
+        use std::sync::Arc;
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::time::Duration;
+
+        let semaphore = Arc::new(tokio::sync::Semaphore::new(1));
+        let held = Arc::clone(&semaphore).acquire_owned().await.unwrap();
+        let ran = Arc::new(AtomicBool::new(false));
+
+        let job = tokio::spawn(super::bounded_blocking(Arc::clone(&semaphore), {
+            let ran = Arc::clone(&ran);
+            move || ran.store(true, Ordering::Relaxed)
+        }));
+        tokio::task::yield_now().await;
+
+        job.abort();
+        tokio::task::yield_now().await;
+        drop(held);
+
+        for _ in 0..20 {
+            tokio::task::yield_now().await;
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert!(
+            !ran.load(Ordering::Relaxed),
+            "work ran for an item that had already gone"
+        );
+    }
 
     #[test]
     fn preview_text_keeps_only_what_the_pane_can_show() {
