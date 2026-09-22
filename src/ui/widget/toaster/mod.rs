@@ -182,12 +182,19 @@ impl<Message: Clone + Send + 'static> Toasts<Message> {
     /// Add a new [`Toast`] and say which one it is, for a caller that means
     /// to remove it before its time is up.
     pub fn push_with_id(&mut self, toast: Toast<Message>) -> (ToastId, Task<Message>) {
+        // Making room evicts the oldest. An evicted toast closes like any
+        // other, and its owner is told the same way, so a toast that was
+        // something's only control does not vanish without that something
+        // hearing of it.
+        let on_close = self.on_close;
+        let mut closed = Vec::new();
         while self.toasts.len() >= self.limit {
-            self.toasts.remove(
-                self.queue
-                    .pop_front()
-                    .expect("Queue must contain all toast ids"),
-            );
+            let evicted = self
+                .queue
+                .pop_front()
+                .expect("Queue must contain all toast ids");
+            self.toasts.remove(evicted);
+            closed.push(Task::done(on_close(evicted)));
         }
 
         let duration = toast.duration.duration();
@@ -195,12 +202,11 @@ impl<Message: Clone + Send + 'static> Toasts<Message> {
         let id = self.toasts.insert(toast);
         self.queue.push_back(id);
 
-        let on_close = self.on_close;
-        let expiry = Task::future(async move {
+        closed.push(Task::future(async move {
             tokio::time::sleep(duration).await;
             on_close(id)
-        });
-        (id, expiry)
+        }));
+        (id, Task::batch(closed))
     }
 
     /// Remove a [`Toast`]

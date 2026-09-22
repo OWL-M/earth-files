@@ -159,7 +159,10 @@ pub static THUMB_SEMAPHORE: LazyLock<Arc<tokio::sync::Semaphore>> =
 ///
 /// Held inside, the bound is honest: a job cancelled before its turn never
 /// starts, and one already running keeps its place until it truly ends.
-async fn bounded_blocking<T, F>(semaphore: Arc<tokio::sync::Semaphore>, work: F) -> Option<T>
+pub(crate) async fn bounded_blocking<T, F>(
+    semaphore: Arc<tokio::sync::Semaphore>,
+    work: F,
+) -> Option<T>
 where
     T: Send + 'static,
     F: FnOnce() -> T + Send + 'static,
@@ -199,8 +202,15 @@ impl Drop for CancelOnDrop {
 /// zero.
 #[derive(Clone, Debug)]
 pub enum MetadataState {
-    /// Nothing has come back. While the item is previewed, a request exists.
+    /// Nothing has been asked yet. While the item is previewed, a request is
+    /// made for it.
     Pending,
+    /// A read is on its way. Started once per incarnation and never again
+    /// while it runs, however the selection changes in the meantime: the
+    /// read holds one of the few permits, and a second read of the same item
+    /// would hold another. Its answer arrives by message whether or not the
+    /// item is still previewed by then.
+    Loading,
     Ready(Metadata),
     Failed(String),
 }
@@ -2013,9 +2023,12 @@ pub enum Message {
     /// What a mounter said a submitted network URI names, or `None` when it
     /// could not say, tagged with the request number it answers.
     NetworkResolved(u64, String, Option<Location>),
+    /// A previewed item has nothing from the disk yet: start reading it, once.
+    /// Tagged with the incarnation and listing it was asked for.
+    RequestDetails(PathBuf, u64, u64),
     /// What the disk said about a previewed item, tagged with the incarnation
-    /// of the item it was asked about.
-    ItemDetails(PathBuf, u64, Result<Metadata, String>),
+    /// and listing it was asked about.
+    ItemDetails(PathBuf, u64, u64, Result<Metadata, String>),
     /// The icon cache has been filled, so placeholders can be replaced
     IconsReady,
     AutoScroll(Option<f32>),
@@ -2692,18 +2705,6 @@ impl Item {
         }
     }
 
-    /// Metadata for an action the user has just asked for, read now if need
-    /// be.
-    ///
-    /// Unlike [`Self::file_metadata`] this may touch the disk: one `stat`, on
-    /// one explicit action, from an update handler. On a dead mount that is
-    /// one stalled call, which is a different thing from one per frame. Views
-    /// must never call this.
-    pub fn metadata_for_action(&self) -> Option<Metadata> {
-        self.file_metadata()
-            .or_else(|| self.path_opt().and_then(|path| fs::metadata(path).ok()))
-    }
-
     fn preview(&self) -> Element<'_, Message> {
         let spacing = spacing();
         // This loads the image only if thumbnailing worked
@@ -2833,7 +2834,7 @@ impl Item {
         // asked, or after it refused. Never a made-up value in either case.
         if !matches!(self.metadata, ItemMetadata::Path { .. }) {
             match &self.details {
-                MetadataState::Pending => {
+                MetadataState::Pending | MetadataState::Loading => {
                     details = details.push(widget::text::body(fl!("calculating")));
                 }
                 MetadataState::Failed(err) => {
@@ -3262,6 +3263,14 @@ pub struct Tab {
     /// results; forgotten only when the listing is replaced.
     refresh_batch: u64,
     refreshed_at: FxHashMap<PathBuf, u64>,
+    /// Detail reads out for this tab, by path, each with whether its answer is
+    /// still wanted. Kept here and not on the item, because the item can be
+    /// replaced -- by a rescan, or a rebuild -- while the read is still
+    /// running, and the replacement must not start a second read of the same
+    /// path while the first still holds a permit. An entry lives exactly as
+    /// long as the read; the flag goes false when its answer stopped
+    /// mattering, so a read that has not started yet declines to.
+    details_reads: FxHashMap<PathBuf, Arc<atomic::AtomicBool>>,
     /// The number given to the next network resolution this tab asks for.
     next_network_request: u64,
 }
@@ -3382,6 +3391,16 @@ pub fn parse_hidden_file(path: &PathBuf) -> Box<[String]> {
         .collect()
 }
 
+impl Drop for Tab {
+    fn drop(&mut self) {
+        // A closed tab's queued reads answer nobody. Those already running
+        // finish; those not yet started will not start.
+        for wanted in self.details_reads.values() {
+            wanted.store(false, atomic::Ordering::Relaxed);
+        }
+    }
+}
+
 impl Tab {
     pub fn new(
         location: Location,
@@ -3415,6 +3434,7 @@ impl Tab {
             navigation: 0,
             refresh_batch: 0,
             refreshed_at: FxHashMap::default(),
+            details_reads: FxHashMap::default(),
             next_network_request: 0,
             mode: Mode::App,
             scroll_opt: None,
@@ -3484,6 +3504,14 @@ impl Tab {
     /// nothing left to say.
     fn new_listing(&mut self) {
         self.listing = self.listing.wrapping_add(1);
+        // Reads out for the old listing answer questions nobody is asking any
+        // more. Those not yet started will not start; those running finish,
+        // and are declined on arrival. Either way each still holds its permit
+        // until it ends, which is why the entries stay: they are what stops a
+        // second read of the same path being started meanwhile.
+        for wanted in self.details_reads.values() {
+            wanted.store(false, atomic::Ordering::Relaxed);
+        }
         // The only place this is forgotten. Tying it to a count of
         // outstanding work instead would mean the last answer to arrive
         // cleared the record that rejects it -- and the last to arrive is the
@@ -3513,6 +3541,64 @@ impl Tab {
         let batch = self.refresh_batch;
         self.refresh_batch = self.refresh_batch.wrapping_add(1);
         batch
+    }
+
+    /// Start reading `path` from the disk for the item at it, unless a read of
+    /// that path is already out.
+    ///
+    /// One read per path at a time, however many incarnations of the item come
+    /// and go while it runs: the read holds one of the few permits, and a
+    /// second one for the same path would hold another, for the same answer.
+    /// An item that finds a read already out is marked as waiting on it, and
+    /// is read for itself once that read ends and its answer turns out not to
+    /// be for this incarnation.
+    fn start_details_read(&mut self, path: PathBuf, epoch: u64, listing: u64) -> Option<Command> {
+        let location = Location::Path(path.clone());
+        let mut found = false;
+        for item in self
+            .parent_item_opt
+            .iter_mut()
+            .map(|item| &mut **item)
+            .chain(self.items_opt.iter_mut().flatten())
+        {
+            if item.location_opt.as_ref() == Some(&location)
+                && item.details_epoch == epoch
+                && matches!(item.details, MetadataState::Pending)
+            {
+                item.details = MetadataState::Loading;
+                found = true;
+            }
+        }
+        if !found || self.details_reads.contains_key(&path) {
+            return None;
+        }
+
+        let wanted = Arc::new(atomic::AtomicBool::new(true));
+        self.details_reads.insert(path.clone(), Arc::clone(&wanted));
+        // A task, not part of the subscription that asked: it outlives the
+        // selection, so its answer lands whether or not the item is still
+        // previewed, and the permit it holds is released by the read ending
+        // -- nothing else.
+        Some(Command::Iced(
+            crate::ui::Task::future(async move {
+                let result = bounded_blocking(Arc::clone(&DETAILS_SEMAPHORE), {
+                    let path = path.clone();
+                    move || {
+                        // Obsolete before it began -- the listing moved on, or
+                        // the tab closed -- so it does not begin. The permit
+                        // goes straight back.
+                        if !wanted.load(atomic::Ordering::Relaxed) {
+                            return Err("no longer wanted".to_owned());
+                        }
+                        fs::metadata(&path).map_err(|err| err.to_string())
+                    }
+                })
+                .await
+                .unwrap_or_else(|| Err("the read was not run".to_owned()));
+                Message::ItemDetails(path, epoch, listing, result)
+            })
+            .into(),
+        ))
     }
 
     /// Whether a re-read of `path` from `listing`/`batch` is still the newest
@@ -5432,7 +5518,9 @@ impl Tab {
                     }) {
                         if let (Some(path), Some(mode)) = (
                             item.path_opt(),
-                            item.metadata_for_action().map(|metadata| metadata.mode()),
+                            // Never read here: the controls that send this are
+                            // not offered until every item's details are known.
+                            item.file_metadata().map(|metadata| metadata.mode()),
                         ) {
                             permissions.push((path.clone(), set_mode_part(mode, shift, bits)));
                         }
@@ -5593,26 +5681,66 @@ impl Tab {
             Message::ZoomOut => {
                 commands.push(Command::Action(Action::ZoomOut));
             }
-            Message::ItemDetails(path, epoch, result) => {
-                let location = Location::Path(path);
-                let state = match result {
-                    Ok(metadata) => MetadataState::Ready(metadata),
-                    Err(err) => MetadataState::Failed(err),
-                };
-                // Only the incarnation that asked. An item rebuilt since is a
-                // different one, with a request of its own on the way.
-                if let Some(ref mut item) = self.parent_item_opt
-                    && item.location_opt.as_ref() == Some(&location)
-                    && item.details_epoch == epoch
+            Message::RequestDetails(path, epoch, listing) => {
+                if listing == self.listing
+                    && let Some(command) = self.start_details_read(path, epoch, listing)
                 {
-                    item.details = state.clone();
+                    commands.push(command);
                 }
-                if let Some(ref mut items) = self.items_opt
-                    && let Some(item) = items.iter_mut().find(|item| {
-                        item.location_opt.as_ref() == Some(&location) && item.details_epoch == epoch
+            }
+            Message::ItemDetails(path, epoch, listing, result) => {
+                // The read is over, whatever it found: the path may be read
+                // again from here on
+                self.details_reads.remove(&path);
+
+                // Only the listing and incarnation that asked. A rescan gives
+                // every item a fresh incarnation at the same epoch, so the
+                // epoch alone would let an old answer land on a new item.
+                let location = Location::Path(path.clone());
+                let asked = |item: &Item| {
+                    item.location_opt.as_ref() == Some(&location)
+                        && item.details_epoch == epoch
+                        && matches!(
+                            item.details,
+                            MetadataState::Pending | MetadataState::Loading
+                        )
+                };
+                if listing == self.listing {
+                    let state = match result {
+                        Ok(metadata) => MetadataState::Ready(metadata),
+                        Err(err) => MetadataState::Failed(err),
+                    };
+                    if let Some(ref mut item) = self.parent_item_opt
+                        && asked(item)
+                    {
+                        item.details = state.clone();
+                    }
+                    if let Some(ref mut items) = self.items_opt
+                        && let Some(item) = items.iter_mut().find(|item| asked(item))
+                    {
+                        item.details = state;
+                    }
+                }
+
+                // Whatever now stands at that path and is still waiting -- a
+                // replacement that arrived while this read was out, and was
+                // told to wait its turn -- gets its own read now.
+                let waiting = self
+                    .parent_item_opt
+                    .iter()
+                    .map(|item| &**item)
+                    .chain(self.items_opt.iter().flatten())
+                    .find(|item| {
+                        item.location_opt.as_ref() == Some(&location)
+                            && !matches!(item.metadata, ItemMetadata::Path { .. })
+                            && matches!(item.details, MetadataState::Loading)
                     })
-                {
-                    item.details = state;
+                    .map(|item| item.details_epoch);
+                if let Some(epoch) = waiting {
+                    let listing = self.listing;
+                    if let Some(command) = self.start_details_read(path, epoch, listing) {
+                        commands.push(command);
+                    }
                 }
             }
             Message::DirectorySize(path, dir_size) => {
@@ -7213,6 +7341,12 @@ impl Tab {
         let mut mode_other: BTreeSet<u32> = BTreeSet::new();
         let mut calculating_dir_size = false;
         let mut dir_size_error: Option<String> = None;
+        // Whether every selected item's ownership is known. The permission
+        // controls act on all of them, and an item whose details are still
+        // out -- or could not be read -- has no mode to shift; offering the
+        // controls anyway would either skip it silently or have to read it
+        // here, on the event loop, which is the thing the preview avoids.
+        let mut permissions_known = true;
 
         for item in selected_items.iter() {
             *mime_type_counts.entry(item.mime.to_string()).or_insert(0) += 1;
@@ -7246,8 +7380,14 @@ impl Tab {
                     mode_group.insert(get_mode_part(mode, MODE_SHIFT_GROUP));
                     mode_other.insert(get_mode_part(mode, MODE_SHIFT_OTHER));
                 }
-                (None, MetadataState::Pending) => calculating_dir_size = true,
-                (None, MetadataState::Failed(err)) => dir_size_error = Some(err.clone()),
+                (None, MetadataState::Pending | MetadataState::Loading) => {
+                    calculating_dir_size = true;
+                    permissions_known = false;
+                }
+                (None, MetadataState::Failed(err)) => {
+                    dir_size_error = Some(err.clone());
+                    permissions_known = false;
+                }
                 (None, MetadataState::Ready(_)) => {}
             }
         }
@@ -7340,63 +7480,72 @@ impl Tab {
             title.join(", ")
         }
 
-        let mode_part_user = selected_mode_part(mode_user);
-        settings.push(
-            widget::settings::item::builder(join_set(user_name))
-                .description(fl!("owner"))
-                .control(
-                    widget::dropdown(
-                        Cow::Borrowed(MODE_NAMES.as_slice()),
-                        mode_part_user,
-                        move |selected| {
-                            Message::ShiftPermissions(
-                                None,
-                                MODE_SHIFT_USER,
-                                selected.try_into().unwrap(),
-                            )
-                        },
-                    )
-                    .placeholder(fl!("mixed")),
-                ),
-        );
-
-        let mode_part_group = selected_mode_part(mode_group);
-        settings.push(
-            widget::settings::item::builder(join_set(group_name))
-                .description(fl!("group"))
-                .control(
-                    widget::dropdown(
-                        Cow::Borrowed(MODE_NAMES.as_slice()),
-                        mode_part_group,
-                        move |selected| {
-                            Message::ShiftPermissions(
-                                None,
-                                MODE_SHIFT_GROUP,
-                                selected.try_into().unwrap(),
-                            )
-                        },
-                    )
-                    .placeholder(fl!("mixed")),
-                ),
-        );
-
-        let mode_part_other = selected_mode_part(mode_other);
-        settings.push(
-            widget::settings::item::builder(fl!("other")).control(
-                widget::dropdown(
-                    Cow::Borrowed(MODE_NAMES.as_slice()),
-                    mode_part_other,
-                    move |selected| {
-                        Message::ShiftPermissions(
-                            None,
-                            MODE_SHIFT_OTHER,
-                            selected.try_into().unwrap(),
+        if permissions_known {
+            let mode_part_user = selected_mode_part(mode_user);
+            settings.push(
+                widget::settings::item::builder(join_set(user_name))
+                    .description(fl!("owner"))
+                    .control(
+                        widget::dropdown(
+                            Cow::Borrowed(MODE_NAMES.as_slice()),
+                            mode_part_user,
+                            move |selected| {
+                                Message::ShiftPermissions(
+                                    None,
+                                    MODE_SHIFT_USER,
+                                    selected.try_into().unwrap(),
+                                )
+                            },
                         )
-                    },
-                )
-                .placeholder(fl!("mixed")),
-            ),
-        );
+                        .placeholder(fl!("mixed")),
+                    ),
+            );
+
+            let mode_part_group = selected_mode_part(mode_group);
+            settings.push(
+                widget::settings::item::builder(join_set(group_name))
+                    .description(fl!("group"))
+                    .control(
+                        widget::dropdown(
+                            Cow::Borrowed(MODE_NAMES.as_slice()),
+                            mode_part_group,
+                            move |selected| {
+                                Message::ShiftPermissions(
+                                    None,
+                                    MODE_SHIFT_GROUP,
+                                    selected.try_into().unwrap(),
+                                )
+                            },
+                        )
+                        .placeholder(fl!("mixed")),
+                    ),
+            );
+
+            let mode_part_other = selected_mode_part(mode_other);
+            settings.push(
+                widget::settings::item::builder(fl!("other")).control(
+                    widget::dropdown(
+                        Cow::Borrowed(MODE_NAMES.as_slice()),
+                        mode_part_other,
+                        move |selected| {
+                            Message::ShiftPermissions(
+                                None,
+                                MODE_SHIFT_OTHER,
+                                selected.try_into().unwrap(),
+                            )
+                        },
+                    )
+                    .placeholder(fl!("mixed")),
+                ),
+            );
+        } else {
+            // Not offered until they can act on every item. Drawn as what is
+            // happening rather than as a control that would do the wrong thing.
+            settings.push(
+                widget::settings::item::builder(fl!("owner"))
+                    .control(widget::text::body(fl!("calculating"))),
+            );
+        }
 
         if !settings.is_empty() {
             let mut section = widget::settings::section();
@@ -7673,45 +7822,40 @@ impl Tab {
                     // Item must have a path
                     if let Some(path) = item.path_opt().cloned() {
                         // Details the listing does not carry, for items that
-                        // have none of their own. Declared here, not started
-                        // from a view: this exists exactly while the item is
-                        // previewed and unanswered, and goes away with either.
-                        // Keyed on the incarnation as well as the path, so a
-                        // rebuilt item is asked about afresh.
+                        // have none of their own. This only asks: the read
+                        // itself is started by `update`, and answers by message
+                        // whether or not the item is still previewed by then.
+                        // Declared here, so the asking exists exactly while
+                        // the item is previewed with nothing asked yet; keyed
+                        // on the incarnation and the listing, so a rebuilt or
+                        // rescanned item is asked about afresh.
                         if !matches!(item.metadata, ItemMetadata::Path { .. })
                             && matches!(item.details, MetadataState::Pending)
                         {
                             struct DetailsKey {
                                 path: PathBuf,
                                 epoch: u64,
+                                listing: u64,
                             }
                             impl Hash for DetailsKey {
                                 fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
                                     self.path.hash(state);
                                     self.epoch.hash(state);
+                                    self.listing.hash(state);
                                 }
                             }
                             subscriptions.push(Subscription::run_with(
-                                DetailsKey { path: path.clone(), epoch: item.details_epoch },
-                                |DetailsKey { path, epoch }| {
-                                    let path = path.clone();
-                                    let epoch = *epoch;
+                                DetailsKey {
+                                    path: path.clone(),
+                                    epoch: item.details_epoch,
+                                    listing: self.listing,
+                                },
+                                |DetailsKey { path, epoch, listing }| {
+                                    let (path, epoch, listing) = (path.clone(), *epoch, *listing);
                                     stream::channel(1, move |mut output: futures::channel::mpsc::Sender<_>| async move {
-                                        // Bounded, and the permit travels with
-                                        // the work: a `stat` on a dead mount
-                                        // does not stop when the pane stops
-                                        // waiting for it. Dropped before its
-                                        // turn, it never starts.
-                                        let result = bounded_blocking(Arc::clone(&DETAILS_SEMAPHORE), {
-                                            let path = path.clone();
-                                            move || fs::metadata(&path).map_err(|err| err.to_string())
-                                        })
-                                        .await;
-                                        if let Some(result) = result {
-                                            let _ = output
-                                                .send(Message::ItemDetails(path, epoch, result))
-                                                .await;
-                                        }
+                                        let _ = output
+                                            .send(Message::RequestDetails(path, epoch, listing))
+                                            .await;
                                         std::future::pending().await
                                     })
                                 },
@@ -8590,7 +8734,8 @@ mod tests {
     /// and only that one. A rebuilt item is a new incarnation.
     #[test]
     fn details_answer_only_the_incarnation_that_asked() -> io::Result<()> {
-        use crate::tab::{Item, ItemMetadata, MetadataState};
+        use crate::tab::{Command, Item, ItemMetadata, MetadataState};
+        use crate::ui::widget::scrollable::AbsoluteOffset;
 
         let fs = empty_fs()?;
         fs::write(fs.path().join("a.txt"), b"x")?;
@@ -8624,27 +8769,93 @@ mod tests {
             first(&mut tab).file_metadata().is_none(),
             "nothing is known before the disk answers, and nothing is read here"
         );
-        assert!(
-            first(&mut tab).metadata_for_action().is_some(),
-            "an action may read it now"
+        let epoch = first(&mut tab).details_epoch;
+        let listing = tab.listing();
+        let metadata = fs::metadata(&path)?;
+
+        // The first update of a fresh tab also scrolls it to the top, which is
+        // a command like any other. Settle that first, so what a read costs
+        // can be counted exactly.
+        tab.scroll_opt = Some(AbsoluteOffset { x: 0.0, y: 0.0 });
+        let reads = |commands: Vec<Command>| {
+            commands
+                .into_iter()
+                .filter(|command| matches!(command, Command::Iced(_)))
+                .count()
+        };
+
+        // Asking starts one read, and asking again while it is out starts none
+        let started = reads(tab.update(
+            Message::RequestDetails(path.clone(), epoch, listing),
+            Modifiers::empty(),
+        ));
+        assert_eq!(started, 1, "asking should start exactly one read");
+        assert!(matches!(first(&mut tab).details, MetadataState::Loading));
+        let again = reads(tab.update(
+            Message::RequestDetails(path.clone(), epoch, listing),
+            Modifiers::empty(),
+        ));
+        assert_eq!(
+            again, 0,
+            "a second ask for a read already out started another"
         );
 
+        // Nor does a rescan that replaces the item: the path is still being
+        // read, and the replacement waits for that read rather than adding a
+        // second one that would hold a second permit
+        tab.set_items(Vec::new());
+        let replaced = super::item_from_path(&path, IconSizes::default()).expect("rebuild");
+        let mut replaced = replaced;
+        replaced.metadata = ItemMetadata::SimpleFile { size: 1 };
+        tab.set_items(vec![replaced]);
+        let listing = tab.listing();
         let epoch = first(&mut tab).details_epoch;
-        let metadata = fs::metadata(&path)?;
+        let after_rescan = reads(tab.update(
+            Message::RequestDetails(path.clone(), epoch, listing),
+            Modifiers::empty(),
+        ));
+        assert_eq!(
+            after_rescan, 0,
+            "a rescanned item started a second read of a path already being read"
+        );
+        assert!(
+            matches!(first(&mut tab).details, MetadataState::Loading),
+            "the replacement should be marked as waiting on the read"
+        );
 
         // An answer for another incarnation is ignored
         tab.update(
-            Message::ItemDetails(path.clone(), epoch.wrapping_add(1), Ok(metadata.clone())),
+            Message::ItemDetails(
+                path.clone(),
+                epoch.wrapping_add(1),
+                listing,
+                Ok(metadata.clone()),
+            ),
             Modifiers::empty(),
         );
         assert!(
-            matches!(first(&mut tab).details, MetadataState::Pending),
+            matches!(first(&mut tab).details, MetadataState::Loading),
             "an answer for a different incarnation was applied"
+        );
+        // And so is one for another listing, even at the same epoch: a rescan
+        // hands out fresh items at epoch zero, just like the ones before it
+        tab.update(
+            Message::ItemDetails(
+                path.clone(),
+                epoch,
+                listing.wrapping_add(1),
+                Ok(metadata.clone()),
+            ),
+            Modifiers::empty(),
+        );
+        assert!(
+            matches!(first(&mut tab).details, MetadataState::Loading),
+            "an answer for a different listing was applied"
         );
 
         // The answer for this one lands
         tab.update(
-            Message::ItemDetails(path.clone(), epoch, Ok(metadata)),
+            Message::ItemDetails(path.clone(), epoch, listing, Ok(metadata)),
             Modifiers::empty(),
         );
         assert!(

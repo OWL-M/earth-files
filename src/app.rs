@@ -34,7 +34,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
 use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, LazyLock, Mutex};
 use std::time::{self, Duration, Instant};
 use std::{env, fmt, io, process};
@@ -423,9 +423,12 @@ pub enum Message {
     CancelOpening(u64),
     /// Offer applications for this file, which was chosen when the user asked
     /// rather than when the cache was ready.
-    OpenWithFor(PathBuf, Mime),
-    /// What a worker found a sidebar entry's type to be, for its loading page.
-    OpenWithResolved(PathBuf, Result<Mime, String>),
+    /// With a request number it fills in that loading page and is dropped if
+    /// the page has gone; without one it is a fresh dialog.
+    OpenWithFor(PathBuf, Mime, Option<u64>),
+    /// What a worker found a sidebar entry's type to be, for the loading page
+    /// with this request number.
+    OpenWithResolved(u64, PathBuf, Result<Mime, String>),
     /// The same, for a terminal the user has already asked to open: take the
     /// answer and then open it.
     DefaultTerminalThenOpen(Option<String>, Box<[PathBuf]>),
@@ -578,8 +581,13 @@ pub enum DialogPage {
     /// "Open with" for a path whose type is still being worked out on a
     /// worker. Shown at once, so the click is seen to have landed and can be
     /// cancelled; replaced by [`Self::OpenWith`] when the answer arrives.
+    /// Numbered, so an answer -- or a wait queued behind the mime app cache
+    /// -- is for this page and no other; and the worker is told when the
+    /// page is dismissed, so it does not start a read nobody wants.
     OpenWithLoading {
         path: PathBuf,
+        request: u64,
+        cancelled: Arc<AtomicBool>,
     },
     PermanentlyDelete {
         paths: Box<[PathBuf]>,
@@ -674,6 +682,11 @@ impl DialogPages {
     #[must_use]
     pub fn pop_front(&mut self) -> Option<(DialogPage, Task<Message>)> {
         let page = self.pages.pop_front()?;
+        // However it was dismissed -- Cancel, Escape, completion -- a page
+        // still waiting on a worker tells that worker not to bother.
+        if let DialogPage::OpenWithLoading { cancelled, .. } = &page {
+            cancelled.store(true, Ordering::Relaxed);
+        }
         let task = if self.pages.is_empty() {
             Task::done(crate::ui::Action::App(Message::DesktopDialogs(false)))
         } else {
@@ -846,8 +859,12 @@ pub struct App {
     /// worker, by request number, with the toast shown for any that has taken
     /// long enough to need one. A request that is cancelled leaves the map,
     /// and its answer is thrown away when it arrives.
-    opening: FxHashMap<u64, Option<widget::toaster::ToastId>>,
+    opening: FxHashMap<u64, Opening>,
     next_open_request: u64,
+    /// Numbers a sidebar "open with" request, so its answer -- and a wait it
+    /// may have queued behind the mime app cache -- can be told apart from a
+    /// later request for the same path, and dropped once it is cancelled.
+    next_open_with_request: u64,
     /// Messages that arrived before the mime app cache had been built, to be
     /// handled again once it has. Bounded: past a handful the user is holding
     /// a key down, and replaying hundreds of them at once would be worse than
@@ -860,13 +877,33 @@ pub struct App {
     name_check_revision: Arc<AtomicU64>,
 }
 
+/// Reads that decide how to open something, allowed at once: the type of each
+/// file the user asked to open, and the type of a sidebar entry for "open
+/// with". Bounded for the same reason as every other read that can meet a
+/// dead mount: a worker stuck on one keeps its permit, and without a bound
+/// every retry against that mount would add another stuck worker.
+static OPEN_SEMAPHORE: LazyLock<Arc<tokio::sync::Semaphore>> =
+    LazyLock::new(|| Arc::new(tokio::sync::Semaphore::new(2)));
+
+/// An open request in flight.
+struct Opening {
+    /// The toast shown once it took long enough to need one.
+    toast: Option<widget::toaster::ToastId>,
+    /// Set when the request is cancelled. The worker looks at it before it
+    /// starts and between files, and stops; it cannot interrupt a read that
+    /// is already in the kernel, only decline to start the next one.
+    cancelled: Arc<AtomicBool>,
+}
+
 /// How long opening files may take before the user is told it is still
 /// happening. Working out a file's type is milliseconds locally, so in the
 /// ordinary case this never shows; it is for a slow or absent mount, where a
 /// click with no visible effect is its own kind of bug.
 const OPENING_ACK_DELAY: Duration = Duration::from_millis(400);
-/// A backstop for that toast. It is removed when the request ends, so this
-/// only matters if something goes wrong on the way there.
+/// How long that toast stays. It is the request's only Cancel, so when it
+/// goes -- by this expiring, or by being dismissed -- the request goes with
+/// it: a file that finally opens a minute after a click, on a mount that came
+/// back, is not what was asked for.
 const OPENING_TOAST_BACKSTOP: Duration = Duration::from_secs(60);
 
 /// How long a typed name must stand still before it is checked against the
@@ -1020,23 +1057,35 @@ impl App {
             .collect();
         let request = self.next_open_request;
         self.next_open_request = self.next_open_request.wrapping_add(1);
-        self.opening.insert(request, None);
+        let cancelled = Arc::new(AtomicBool::new(false));
+        self.opening.insert(
+            request,
+            Opening {
+                toast: None,
+                cancelled: Arc::clone(&cancelled),
+            },
+        );
         let resolve = Task::future(async move {
-            let resolved = tokio::task::spawn_blocking(move || {
-                paths
-                    .into_iter()
-                    .map(|path| (mime_icon::mime_for_path(&path, None, false), path))
-                    .collect::<Vec<_>>()
+            let resolved = tab::bounded_blocking(Arc::clone(&OPEN_SEMAPHORE), move || {
+                let mut resolved = Vec::with_capacity(paths.len());
+                for path in paths {
+                    // Before each file, not only before the first: a
+                    // selection of many files on a slow mount is cancelled
+                    // somewhere in the middle, and the rest need not be read.
+                    if cancelled.load(Ordering::Relaxed) {
+                        return None;
+                    }
+                    resolved.push((mime_icon::mime_for_path(&path, None, false), path));
+                }
+                Some(resolved)
             })
             .await;
             match resolved {
-                Ok(resolved) => {
+                Some(Some(resolved)) => {
                     crate::ui::action::app(Message::OpenFilesResolved(request, resolved))
                 }
-                Err(err) => {
-                    log::warn!("failed to work out what to open files with: {err}");
-                    crate::ui::action::app(Message::CancelOpening(request))
-                }
+                // Cancelled before it finished, or never run
+                _ => crate::ui::action::app(Message::CancelOpening(request)),
             }
         });
         // Acknowledged only if it takes long enough to be noticed
@@ -2768,6 +2817,7 @@ impl Application for App {
             deferred_mime_messages: Vec::new(),
             opening: FxHashMap::default(),
             next_open_request: 0,
+            next_open_with_request: 0,
             name_check_revision: Arc::new(AtomicU64::new(0)),
         };
 
@@ -3322,6 +3372,17 @@ impl Application for App {
                 return clipboard::write_data(contents);
             }
             Message::CloseToast(id) => {
+                // An opening toast is that request's only Cancel. Dismissed
+                // or expired, the request goes with it rather than lingering
+                // with no way to stop it.
+                let cancelled_open = self
+                    .opening
+                    .iter()
+                    .find(|(_, opening)| opening.toast == Some(id))
+                    .map(|(request, _)| *request);
+                if let Some(request) = cancelled_open {
+                    return self.update(Message::CancelOpening(request));
+                }
                 self.toasts.remove(id);
             }
             Message::CosmicSettings(arg) => {
@@ -4224,31 +4285,36 @@ impl Application for App {
             Message::OpenFilesResolved(request, resolved) => {
                 // A cancelled request has left the map, and its files stay
                 // closed however late its answer is.
-                let Some(toast) = self.opening.remove(&request) else {
+                let Some(opening) = self.opening.remove(&request) else {
                     return Task::none();
                 };
-                if let Some(id) = toast {
+                if let Some(id) = opening.toast {
                     self.toasts.remove(id);
                 }
                 return self.open_resolved(resolved);
             }
             Message::OpeningStillRunning(request) => {
-                if let Some(slot) = self.opening.get_mut(&request)
-                    && slot.is_none()
+                if let Some(opening) = self.opening.get_mut(&request)
+                    && opening.toast.is_none()
                 {
                     let toast = widget::toaster::Toast::new(fl!("opening-files"))
                         .action(fl!("cancel"), move |_| Message::CancelOpening(request))
                         .duration(widget::toaster::Duration::Custom(OPENING_TOAST_BACKSTOP));
                     let (id, expiry) = self.toasts.push_with_id(toast);
-                    *slot = Some(id);
+                    opening.toast = Some(id);
                     return expiry.map(crate::ui::action::app);
                 }
             }
             Message::CancelOpening(request) => {
-                // Discard, not interrupt: the worker finishes reading the
-                // types regardless, and what it finds is thrown away.
-                if let Some(Some(id)) = self.opening.remove(&request) {
-                    self.toasts.remove(id);
+                // Discard, and stop starting: the worker declines the next
+                // file once it sees this, and whatever it already found is
+                // thrown away when it arrives. A read already in the kernel
+                // is not interrupted; nothing can do that.
+                if let Some(opening) = self.opening.remove(&request) {
+                    opening.cancelled.store(true, Ordering::Relaxed);
+                    if let Some(id) = opening.toast {
+                        self.toasts.remove(id);
+                    }
                 }
             }
             Message::OpenWithDialog(entity_opt) => {
@@ -4268,21 +4334,24 @@ impl Application for App {
                         })
                     });
                 if let Some((path, mime)) = chosen {
-                    return self.update(Message::OpenWithFor(path, mime));
+                    return self.update(Message::OpenWithFor(path, mime, None));
                 }
             }
-            Message::OpenWithResolved(path, resolved) => {
-                // Only for a loading page still up for this path. Cancelled,
-                // or moved on from, and the answer is nobody's.
+            Message::OpenWithResolved(request, path, resolved) => {
+                // Only for the loading page this was asked for, if it is
+                // still up. Cancelled, or replaced by a later request for the
+                // same path, and the answer is nobody's.
                 let waiting = matches!(
                     self.dialog_pages.front(),
-                    Some(DialogPage::OpenWithLoading { path: shown }) if *shown == path
+                    Some(DialogPage::OpenWithLoading { request: shown, .. }) if *shown == request
                 );
                 if !waiting {
                     return Task::none();
                 }
                 match resolved {
-                    Ok(mime) => return self.update(Message::OpenWithFor(path, mime)),
+                    Ok(mime) => {
+                        return self.update(Message::OpenWithFor(path, mime, Some(request)));
+                    }
                     Err(err) => {
                         log::warn!("failed to get item for path {}: {}", path.display(), err);
                         if let Some((_, task)) = self.dialog_pages.pop_front() {
@@ -4291,8 +4360,12 @@ impl Application for App {
                     }
                 }
             }
-            Message::OpenWithFor(path, mime) => {
-                if self.defer_until_mime_apps(Message::OpenWithFor(path.clone(), mime.clone())) {
+            Message::OpenWithFor(path, mime, origin) => {
+                if self.defer_until_mime_apps(Message::OpenWithFor(
+                    path.clone(),
+                    mime.clone(),
+                    origin,
+                )) {
                     return Task::none();
                 }
                 let page = DialogPage::OpenWith {
@@ -4305,16 +4378,23 @@ impl Application for App {
                         .and_then(|mime| self.mime_app_cache.get(&mime).first().cloned()),
                     search_app_name: String::new(),
                 };
-                // A loading page for this path becomes the real one in place;
-                // otherwise this is a fresh dialog.
-                let shown = if matches!(
-                    self.dialog_pages.front(),
-                    Some(DialogPage::OpenWithLoading { path: shown }) if *shown == path
-                ) {
-                    self.dialog_pages.update_front(page);
-                    Task::none()
-                } else {
-                    self.push_dialog(page, Some(CONFIRM_OPEN_WITH_BUTTON_ID.clone()))
+                // From a loading page: fill that page in if it is still up,
+                // and otherwise do nothing at all -- it was cancelled while
+                // this waited, and a dialog reappearing after Cancel is worse
+                // than no dialog. Without one: a fresh dialog.
+                let shown = match origin {
+                    Some(request) => {
+                        if matches!(
+                            self.dialog_pages.front(),
+                            Some(DialogPage::OpenWithLoading { request: shown, .. }) if *shown == request
+                        ) {
+                            self.dialog_pages.update_front(page);
+                            Task::none()
+                        } else {
+                            return Task::none();
+                        }
+                    }
+                    None => self.push_dialog(page, Some(CONFIRM_OPEN_WITH_BUTTON_ID.clone())),
                 };
                 return Task::batch([
                     shown,
@@ -5557,19 +5637,39 @@ impl Application for App {
                         .and_then(Location::path_opt)
                         .cloned()
                     {
-                        let shown = self
-                            .push_dialog(DialogPage::OpenWithLoading { path: path.clone() }, None);
+                        let request = self.next_open_with_request;
+                        self.next_open_with_request = self.next_open_with_request.wrapping_add(1);
+                        let cancelled = Arc::new(AtomicBool::new(false));
+                        let shown = self.push_dialog(
+                            DialogPage::OpenWithLoading {
+                                path: path.clone(),
+                                request,
+                                cancelled: Arc::clone(&cancelled),
+                            },
+                            None,
+                        );
                         let resolve = Task::future(async move {
-                            let resolved = tokio::task::spawn_blocking({
+                            let resolved = tab::bounded_blocking(Arc::clone(&OPEN_SEMAPHORE), {
                                 let path = path.clone();
                                 move || {
-                                    tab::item_from_path(&path, IconSizes::default())
-                                        .map(|item| item.mime)
+                                    // Dismissed while this waited for its turn:
+                                    // do not start a read nobody wants
+                                    if cancelled.load(Ordering::Relaxed) {
+                                        return None;
+                                    }
+                                    Some(
+                                        tab::item_from_path(&path, IconSizes::default())
+                                            .map(|item| item.mime),
+                                    )
                                 }
                             })
-                            .await
-                            .unwrap_or_else(|err| Err(err.to_string()));
-                            crate::ui::action::app(Message::OpenWithResolved(path, resolved))
+                            .await;
+                            match resolved {
+                                Some(Some(resolved)) => crate::ui::action::app(
+                                    Message::OpenWithResolved(request, path, resolved),
+                                ),
+                                _ => crate::ui::action::none(),
+                            }
                         });
                         return Task::batch([shown, resolve]);
                     }
@@ -6239,7 +6339,7 @@ impl Application for App {
                         widget::button::standard(fl!("cancel")).on_press(Message::DialogCancel),
                     )
             }
-            DialogPage::OpenWithLoading { path } => {
+            DialogPage::OpenWithLoading { path, .. } => {
                 let name = match path.file_name() {
                     Some(file_name) => file_name.to_str(),
                     None => path.as_os_str().to_str(),
