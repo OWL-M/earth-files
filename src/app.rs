@@ -401,6 +401,9 @@ pub enum Message {
     PendingPauseAll(bool),
     PermanentlyDelete(Option<Entity>),
     Preview,
+    /// Items re-read off the event loop after the filesystem changed beneath
+    /// them, tagged with the location they were read from.
+    RefreshedItems(Entity, Location, Vec<(PathBuf, Box<tab::Item>)>),
     ReloadMimeAppCache,
     /// A freshly built mime app cache, ready to replace the one in use.
     MimeAppCacheReloaded(MimeAppCacheWrapper),
@@ -3633,12 +3636,19 @@ impl Application for App {
 
                 let mut needs_reload = Vec::new();
                 let mut warm: Vec<(Entity, tab::IconWarmup, crate::config::IconSizes)> = Vec::new();
+                // Paths to re-read, per tab, deduplicated. A burst -- an
+                // archive being unpacked, a program rewriting one file over
+                // and over -- names the same path many times, and re-reading
+                // it once per mention is work with nothing to show for it.
+                let mut refresh: Vec<(Entity, Location, crate::config::IconSizes, Vec<PathBuf>)> =
+                    Vec::new();
                 let entities: Box<[_]> = self.tab_model.iter().collect();
                 for entity in entities {
                     if let Some(tab) = self.tab_model.data_mut::<Tab>(entity)
                         && let Some(path) = tab.location.path_opt()
                     {
                         let mut contains_change = false;
+                        let mut changed: Vec<PathBuf> = Vec::new();
                         for event in &events {
                             for event_path in &event.paths {
                                 if event_path.starts_with(path) {
@@ -3647,23 +3657,21 @@ impl Application for App {
                                         | notify::event::ModifyKind::Data(_),
                                     ) = event.kind
                                     {
-                                        // If metadata or data changed, rebuild the matching item
-                                        let sizes = tab.config.icon_sizes;
-                                        if let Some(items) = &mut tab.items_opt {
-                                            for item in items.iter_mut() {
-                                                if item.path_opt() == Some(event_path)
+                                        // Metadata or data changed, so the
+                                        // matching item is out of date. Note
+                                        // it; re-reading it is disk work and
+                                        // happens on a worker.
+                                        let known = tab.items_opt.as_ref().is_some_and(|items| {
+                                            items.iter().any(|item| {
+                                                item.path_opt() == Some(event_path)
                                                     && matches!(
                                                         item.metadata,
                                                         ItemMetadata::Path { .. }
                                                     )
-                                                    && let Err(err) = item.refresh(sizes)
-                                                {
-                                                    log::warn!(
-                                                        "failed to reload {}: {err}",
-                                                        event_path.display()
-                                                    );
-                                                }
-                                            }
+                                            })
+                                        });
+                                        if known && !changed.contains(event_path) {
+                                            changed.push(event_path.clone());
                                         }
                                     } else {
                                         // Any other events reload the whole tab
@@ -3683,6 +3691,8 @@ impl Application for App {
                         }
                         if contains_change {
                             needs_reload.push((entity, tab.location.clone()));
+                        } else if !changed.is_empty() {
+                            refresh.push((entity, tab.location.clone(), sizes, changed));
                         }
                     }
                 }
@@ -3691,6 +3701,34 @@ impl Application for App {
                     .into_iter()
                     .map(|(entity, location)| self.update_tab(entity, location, None))
                     .collect();
+                for (entity, location, sizes, paths) in refresh {
+                    commands.push(Task::future(async move {
+                        let rebuilt = tokio::task::spawn_blocking(move || {
+                            paths
+                                .into_iter()
+                                .filter_map(|path| match tab::item_from_path(&path, sizes) {
+                                    Ok(item) => Some((path, Box::new(item))),
+                                    Err(err) => {
+                                        log::warn!("failed to reload {}: {err}", path.display());
+                                        None
+                                    }
+                                })
+                                .collect::<Vec<_>>()
+                        })
+                        .await;
+
+                        match rebuilt {
+                            Ok(items) if !items.is_empty() => crate::ui::action::app(
+                                Message::RefreshedItems(entity, location, items),
+                            ),
+                            Ok(_) => crate::ui::action::none(),
+                            Err(err) => {
+                                log::warn!("failed to reload changed items: {err}");
+                                crate::ui::action::none()
+                            }
+                        }
+                    }));
+                }
                 for (entity, warmup, sizes) in warm {
                     commands.push(Task::future(async move {
                         if tokio::task::spawn_blocking(move || tab::warm_icons(&warmup, sizes))
@@ -4149,6 +4187,26 @@ impl Application for App {
             Message::RemoveFromRecents(entity_opt) => {
                 let paths: Box<[_]> = self.selected_paths(entity_opt).collect();
                 return self.operation(Operation::RemoveFromRecents { paths });
+            }
+            Message::RefreshedItems(entity, location, rebuilt) => {
+                if let Some(tab) = self.tab_model.data_mut::<Tab>(entity) {
+                    // The tab may have been sent somewhere else while these
+                    // were being read, in which case they describe files it is
+                    // no longer showing.
+                    if tab.location == location
+                        && let Some(items) = &mut tab.items_opt
+                    {
+                        for (path, fresh) in rebuilt {
+                            // One item per path in a listing, so the first match is
+                            // the only one.
+                            if let Some(item) =
+                                items.iter_mut().find(|item| item.path_opt() == Some(&path))
+                            {
+                                item.adopt(*fresh);
+                            }
+                        }
+                    }
+                }
             }
             Message::ReloadMimeAppCache => {
                 // Rebuilt on a worker and swapped in when it is ready. Building

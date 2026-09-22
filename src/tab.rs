@@ -2561,12 +2561,16 @@ pub struct Item {
 }
 
 impl Item {
-    /// Rebuild this item from disk after its contents changed, so the mime,
-    /// icons and thumbnail follow the new data. Selection and layout state
-    /// the view relies on is kept.
-    pub fn refresh(&mut self, sizes: IconSizes) -> Result<(), String> {
-        let path = self.path_opt().ok_or("item has no path")?.clone();
-        let fresh = item_from_path(path, sizes)?;
+    /// Take on `fresh`, which was read from this item's path after its
+    /// contents changed, so the mime, icons and thumbnail follow the new data.
+    /// Selection and layout state the view relies on is kept.
+    ///
+    /// Reading `fresh` is the expensive half -- metadata, mime and icons -- and
+    /// it is deliberately not done here: a burst of filesystem notifications
+    /// names many paths at once, and doing that work between two frames is
+    /// what the burst would otherwise cost the interface. See
+    /// [`item_from_path`], which callers run on a worker.
+    pub fn adopt(&mut self, fresh: Item) {
         *self = Item {
             button_id: self.button_id.clone(),
             pos_opt: Cell::new(self.pos_opt.get()),
@@ -2577,7 +2581,6 @@ impl Item {
             overlaps_drag_rect: self.overlaps_drag_rect,
             ..fresh
         };
-        Ok(())
     }
 
     fn display_name(name: &str) -> String {

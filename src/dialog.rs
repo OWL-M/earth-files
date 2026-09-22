@@ -488,6 +488,9 @@ enum Message {
     NotifyWatcher(WatcherWrapper),
     Open,
     Preview,
+    /// Items re-read off the event loop after the filesystem changed beneath
+    /// them, tagged with the location they were read from.
+    RefreshedItems(Location, Vec<(PathBuf, Box<tab::Item>)>),
     Save(bool),
     ScrollTab(i16),
     SearchActivate,
@@ -1629,6 +1632,10 @@ impl Application for App {
 
                 if let Some(path) = self.tab.location.path_opt() {
                     let mut contains_change = false;
+                    // Deduplicated: a burst names the same path many times,
+                    // and re-reading it once per mention is work with nothing
+                    // to show for it.
+                    let mut changed: Vec<PathBuf> = Vec::new();
                     for event in &events {
                         for event_path in &event.paths {
                             if event_path.starts_with(path) {
@@ -1637,23 +1644,21 @@ impl Application for App {
                                     | notify::event::ModifyKind::Data(_),
                                 ) = event.kind
                                 {
-                                    // If metadata or data changed, rebuild the matching item
-                                    let sizes = self.tab.config.icon_sizes;
-                                    if let Some(items) = &mut self.tab.items_opt {
-                                        for item in items.iter_mut() {
-                                            if item.path_opt() == Some(event_path)
+                                    // Metadata or data changed, so the
+                                    // matching item is out of date. Note it;
+                                    // re-reading it is disk work and happens
+                                    // on a worker.
+                                    let known = self.tab.items_opt.as_ref().is_some_and(|items| {
+                                        items.iter().any(|item| {
+                                            item.path_opt() == Some(event_path)
                                                 && matches!(
                                                     item.metadata,
                                                     ItemMetadata::Path { .. }
                                                 )
-                                                && let Err(err) = item.refresh(sizes)
-                                            {
-                                                log::warn!(
-                                                    "failed to reload {}: {err}",
-                                                    event_path.display()
-                                                );
-                                            }
-                                        }
+                                        })
+                                    });
+                                    if known && !changed.contains(event_path) {
+                                        changed.push(event_path.clone());
                                     }
                                 } else {
                                     // Any other events reload the whole tab
@@ -1666,25 +1671,79 @@ impl Application for App {
                     if contains_change {
                         return self.rescan_tab(None);
                     }
+
+                    let sizes = self.tab.config.icon_sizes;
+                    let mut tasks = Vec::new();
+
+                    if !changed.is_empty() {
+                        let location = self.tab.location.clone();
+                        tasks.push(Task::future(async move {
+                            let rebuilt = tokio::task::spawn_blocking(move || {
+                                changed
+                                    .into_iter()
+                                    .filter_map(|path| match tab::item_from_path(&path, sizes) {
+                                        Ok(item) => Some((path, Box::new(item))),
+                                        Err(err) => {
+                                            log::warn!(
+                                                "failed to reload {}: {err}",
+                                                path.display()
+                                            );
+                                            None
+                                        }
+                                    })
+                                    .collect::<Vec<_>>()
+                            })
+                            .await;
+
+                            match rebuilt {
+                                Ok(items) if !items.is_empty() => {
+                                    crate::ui::action::app(Message::RefreshedItems(location, items))
+                                }
+                                Ok(_) => crate::ui::action::none(),
+                                Err(err) => {
+                                    log::warn!("failed to reload changed items: {err}");
+                                    crate::ui::action::none()
+                                }
+                            }
+                        }));
+                    }
+
                     // A refreshed item may now be a type whose icon has never
                     // been resolved, and a refresh is not a scan
-                    let sizes = self.tab.config.icon_sizes;
-                    {
-                        let warmup = self.tab.refresh_icons(sizes);
-                        if !warmup.is_empty() {
-                            return Task::future(async move {
-                                if tokio::task::spawn_blocking(move || {
-                                    tab::warm_icons(&warmup, sizes);
-                                })
-                                .await
-                                .is_err()
-                                {
-                                    return crate::ui::action::none();
-                                }
-                                crate::ui::action::app(Message::TabMessage(
-                                    tab::Message::IconsReady,
-                                ))
-                            });
+                    let warmup = self.tab.refresh_icons(sizes);
+                    if !warmup.is_empty() {
+                        tasks.push(Task::future(async move {
+                            if tokio::task::spawn_blocking(move || {
+                                tab::warm_icons(&warmup, sizes);
+                            })
+                            .await
+                            .is_err()
+                            {
+                                return crate::ui::action::none();
+                            }
+                            crate::ui::action::app(Message::TabMessage(tab::Message::IconsReady))
+                        }));
+                    }
+
+                    if !tasks.is_empty() {
+                        return Task::batch(tasks);
+                    }
+                }
+            }
+            Message::RefreshedItems(location, rebuilt) => {
+                // The chooser may have been sent somewhere else while these
+                // were being read, in which case they describe files it is no
+                // longer showing.
+                if self.tab.location == location
+                    && let Some(items) = &mut self.tab.items_opt
+                {
+                    for (path, fresh) in rebuilt {
+                        // One item per path in a listing, so the first match is
+                        // the only one.
+                        if let Some(item) =
+                            items.iter_mut().find(|item| item.path_opt() == Some(&path))
+                        {
+                            item.adopt(*fresh);
                         }
                     }
                 }
