@@ -2073,6 +2073,8 @@ pub enum Message {
     /// What a mounter said a submitted network URI names, or `None` when it
     /// could not say, tagged with the request number it answers.
     NetworkResolved(u64, String, Option<Location>),
+    /// Widen the running search to subfolders, or narrow it to this folder.
+    SetSearchRecursive(bool),
     /// A previewed item has nothing from the disk yet: start reading it, once.
     /// Tagged with the incarnation and listing it was asked for.
     RequestDetails(PathBuf, u64, u64),
@@ -3589,6 +3591,20 @@ impl Tab {
         }
     }
 
+    /// How a search should be run when the query is set from here.
+    ///
+    /// A search already running keeps its own scope: the user set it
+    /// deliberately, with the eye, and typing another letter is not a request
+    /// to change it -- nor is going Back to a search made under a setting
+    /// that has since changed. Only a search that is starting takes the
+    /// config's default.
+    pub fn search_options_for_query(&self) -> SearchOptions {
+        match &self.location {
+            Location::Search(_, _, options, _) => *options,
+            _ => self.search_options(),
+        }
+    }
+
     /// Which listing is on screen, for tagging background re-reads of it.
     pub fn listing(&self) -> u64 {
         self.listing
@@ -4569,28 +4585,34 @@ impl Tab {
             Message::Config(config) => {
                 // View is preserved for existing tabs
                 let view = self.config.view;
-                // What a search looks at, as the config now says it should.
-                let options = SearchOptions {
-                    show_hidden: config.show_hidden,
-                    recursive: config.search_recursive,
-                };
+                let show_hidden_changed = self.config.show_hidden != config.show_hidden;
+                let recursive_changed = self.config.search_recursive != config.search_recursive;
                 self.config = config;
                 self.config.view = view;
-                // Compared against the search that is actually running, not
-                // against the config as it was a moment ago. History restores
-                // a search with the options it was made with, so a restored
-                // search can disagree with the config without the config
-                // having changed at all -- and then it is the search that is
-                // out of date, and running it again is what fixes it.
-                if let Location::Search(path, term, current, ..) = &self.location
-                    && *current != options
+                // Only the setting that actually changed reaches a running
+                // search. A search carries the scope it was given, and the
+                // config is the default for the next one rather than a
+                // standing instruction to this one: without this, turning
+                // hidden files on would also quietly widen a search that had
+                // been deliberately narrowed.
+                if (show_hidden_changed || recursive_changed)
+                    && let Location::Search(path, term, current, ..) = &self.location
                 {
-                    cd = Some(Location::Search(
-                        path.clone(),
-                        term.clone(),
-                        options,
-                        Instant::now(),
-                    ));
+                    let mut options = *current;
+                    if show_hidden_changed {
+                        options.show_hidden = self.config.show_hidden;
+                    }
+                    if recursive_changed {
+                        options.recursive = self.config.search_recursive;
+                    }
+                    if options != *current {
+                        cd = Some(Location::Search(
+                            path.clone(),
+                            term.clone(),
+                            options,
+                            Instant::now(),
+                        ));
+                    }
                 }
                 // Unhighlight all items when config changes
                 if let Some(ref mut items) = self.items_opt {
@@ -4821,6 +4843,24 @@ impl Tab {
                             cd = Some(edit_location.location);
                         }
                     }
+                }
+            }
+            Message::SetSearchRecursive(recursive) => {
+                // Told to this search, not just written to the config. The
+                // config may already say this -- a search restored from
+                // history can disagree with a config that never changed --
+                // and then nothing else would carry the change across.
+                if let Location::Search(path, term, options, ..) = &self.location
+                    && options.recursive != recursive
+                {
+                    let mut options = *options;
+                    options.recursive = recursive;
+                    cd = Some(Location::Search(
+                        path.clone(),
+                        term.clone(),
+                        options,
+                        Instant::now(),
+                    ));
                 }
             }
             Message::NetworkResolved(request, uri, resolved) => {
@@ -8864,11 +8904,10 @@ mod tests {
         Ok(())
     }
 
-    /// A search restored from history carries the options it was made with,
-    /// which can disagree with a config that has changed since. The config is
-    /// what the eye offers, so the search is the one that has to give way.
+    /// Setting the query of a running search keeps that search's scope, even
+    /// when the config has since moved on -- the Back-then-type case.
     #[test]
-    fn a_restored_search_is_brought_up_to_date_with_the_config() -> io::Result<()> {
+    fn editing_a_query_keeps_the_searchs_scope() -> io::Result<()> {
         use crate::tab::{SearchLocation, SearchOptions};
         use std::time::Instant;
 
@@ -8882,34 +8921,98 @@ mod tests {
             None,
         );
 
-        // A search made while the eye was shut, as history would give back
+        // Not searching yet: a new search takes the config's default
+        tab.config.search_recursive = true;
+        assert!(
+            tab.search_options_for_query().recursive,
+            "a search starting fresh should take the config's default"
+        );
+
+        // A search restored from history, made while the eye was shut, with
+        // the config since moved on to wanting subfolders
+        tab.location = Location::Search(
+            SearchLocation::Path(fs.path().to_owned()),
+            "ter".to_owned(),
+            SearchOptions {
+                show_hidden: false,
+                recursive: false,
+            },
+            Instant::now(),
+        );
+        assert!(
+            !tab.search_options_for_query().recursive,
+            "typing into a restored search silently widened it"
+        );
+        Ok(())
+    }
+
+    /// A search carries the scope it was given. Editing its query is not a
+    /// request to change that scope, and neither is an unrelated setting.
+    #[test]
+    fn a_running_search_keeps_its_scope() -> io::Result<()> {
+        use crate::tab::{SearchLocation, SearchOptions};
+        use std::time::Instant;
+
+        let fs = empty_fs()?;
         let narrow = SearchOptions {
             show_hidden: false,
             recursive: false,
         };
-        tab.location = Location::Search(
-            SearchLocation::Path(fs.path().to_owned()),
-            "term".to_owned(),
-            narrow,
-            Instant::now(),
-        );
+        let searching = |tab: &Tab| match &tab.location {
+            Location::Search(_, term, options, _) => (term.clone(), *options),
+            other => panic!("expected a search location, got {other:?}"),
+        };
+        let restored = |tab: &mut Tab| {
+            // As history gives it back: made while the eye was shut, while
+            // the config has since moved on to wanting subfolders
+            tab.config.search_recursive = true;
+            tab.location = Location::Search(
+                SearchLocation::Path(fs.path().to_owned()),
+                "term".to_owned(),
+                narrow,
+                Instant::now(),
+            );
+        };
+        let new_tab = || {
+            Tab::new(
+                Location::Path(fs.path().to_owned()),
+                TabConfig::default(),
+                ThumbCfg::default(),
+                None,
+                std::borrow::Cow::Borrowed("Undefined"),
+                None,
+            )
+        };
 
-        // The config says subfolders are searched. Nothing about the config
-        // changed in this step -- it is the restored search that is behind.
+        // An unrelated setting changing leaves the scope alone
+        let mut tab = new_tab();
+        restored(&mut tab);
         let config = TabConfig {
+            show_hidden: true,
             search_recursive: true,
             ..TabConfig::default()
         };
-        tab.config.search_recursive = true;
         tab.update(Message::Config(config), Modifiers::empty());
+        let (_, options) = searching(&tab);
+        assert!(
+            !options.recursive,
+            "turning on hidden files widened a search that had been narrowed"
+        );
+        assert!(
+            options.show_hidden,
+            "the setting that did change was applied"
+        );
 
-        match &tab.location {
-            Location::Search(_, _, options, _) => assert!(
-                options.recursive,
-                "a restored search kept options the config had moved on from"
-            ),
-            other => panic!("expected a search location, got {other:?}"),
-        }
+        // The eye changes it, even though the config already says so and is
+        // therefore not changing
+        let mut tab = new_tab();
+        restored(&mut tab);
+        tab.update(Message::SetSearchRecursive(true), Modifiers::empty());
+        let (_, options) = searching(&tab);
+        assert!(
+            options.recursive,
+            "the eye did not reach a search whose config already agreed with it"
+        );
         Ok(())
     }
 

@@ -2155,7 +2155,7 @@ impl App {
                             Location::Search(
                                 search_location,
                                 term,
-                                tab.search_options(),
+                                tab.search_options_for_query(),
                                 Instant::now(),
                             ),
                             true,
@@ -5111,15 +5111,19 @@ impl Application for App {
                 return self.update(Message::TabConfig(config));
             }
             Message::SetSearchRecursive(recursive) => {
+                // The config remembers this for the next search; the search
+                // that is running is told directly, because it may already
+                // disagree with a config that is not changing here.
                 let mut config = self.config.tab;
                 config.search_recursive = recursive;
-                // Written and propagated rather than sent through
-                // `Message::TabConfig`, which does nothing when the config
-                // already holds this value. It can: a search restored from
-                // history may disagree with a config that never changed, and
-                // that search still has to be told.
                 config_set!(tab, config);
-                return self.update_config();
+                return Task::batch([
+                    self.update_config(),
+                    self.update(Message::TabMessage(
+                        None,
+                        tab::Message::SetSearchRecursive(recursive),
+                    )),
+                ]);
             }
             Message::ToggleShowHidden => {
                 let mut config = self.config.tab;

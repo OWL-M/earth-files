@@ -871,7 +871,7 @@ impl App {
                         Location::Search(
                             search_location,
                             term,
-                            self.tab.search_options(),
+                            self.tab.search_options_for_query(),
                             Instant::now(),
                         ),
                         true,
@@ -1961,7 +1961,12 @@ impl Application for App {
                 {
                     log::warn!("failed to save config \"search_recursive\": {err}");
                 }
-                return self.update_config();
+                return Task::batch([
+                    self.update_config(),
+                    self.update(Message::TabMessage(tab::Message::SetSearchRecursive(
+                        recursive,
+                    ))),
+                ]);
             }
             Message::SearchClear => {
                 return self.search_set(None);
