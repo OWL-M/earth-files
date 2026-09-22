@@ -3593,15 +3593,46 @@ impl Tab {
 
     /// How a search should be run when the query is set from here.
     ///
-    /// A search already running keeps its own scope: the user set it
-    /// deliberately, with the eye, and typing another letter is not a request
-    /// to change it -- nor is going Back to a search made under a setting
-    /// that has since changed. Only a search that is starting takes the
-    /// config's default.
+    /// Each option follows whatever shows it. The eye shows this search's own
+    /// scope, so a running search keeps it: the user set it deliberately, and
+    /// typing another letter is not a request to change it. Hidden files are
+    /// shown by a checkbox in the menu that describes the config rather than
+    /// any one search, so that answer comes from the config -- keeping a
+    /// restored search's own would leave the checkbox contradicting what is
+    /// on screen. A search that is starting takes both from the config.
     pub fn search_options_for_query(&self) -> SearchOptions {
         match &self.location {
-            Location::Search(_, _, options, _) => *options,
+            Location::Search(_, _, options, _) => SearchOptions {
+                show_hidden: self.config.show_hidden,
+                recursive: options.recursive,
+            },
             _ => self.search_options(),
+        }
+    }
+
+    /// A location on its way back from history, with anything it carries that
+    /// the config now answers for brought up to date.
+    ///
+    /// A search remembers the options it ran with, and its scope is its own to
+    /// keep. Whether hidden files are shown is not: that is the config's
+    /// answer, shown in the menu, and a restored search that disagreed with it
+    /// would contradict the checkbox before the user had typed anything.
+    fn restored(&self, location: &Location) -> Location {
+        match location {
+            Location::Search(search_location, term, options, time)
+                if options.show_hidden != self.config.show_hidden =>
+            {
+                Location::Search(
+                    search_location.clone(),
+                    term.clone(),
+                    SearchOptions {
+                        show_hidden: self.config.show_hidden,
+                        recursive: options.recursive,
+                    },
+                    *time,
+                )
+            }
+            other => other.clone(),
         }
     }
 
@@ -4979,7 +5010,7 @@ impl Tab {
                 if let Some(history_i) = self.history_i.checked_add(1)
                     && let Some(location) = self.history.get(history_i)
                 {
-                    cd = Some(location.clone());
+                    cd = Some(self.restored(location));
                     history_i_opt = Some(history_i);
                 }
             }
@@ -4987,7 +5018,7 @@ impl Tab {
                 if let Some(history_i) = self.history_i.checked_sub(1)
                     && let Some(location) = self.history.get(history_i)
                 {
-                    cd = Some(location.clone());
+                    cd = Some(self.restored(location));
                     history_i_opt = Some(history_i);
                 }
             }
@@ -8943,6 +8974,58 @@ mod tests {
             !tab.search_options_for_query().recursive,
             "typing into a restored search silently widened it"
         );
+        // Hidden files are the config's answer, not the search's: the menu
+        // checkbox describes the config, and the search must not contradict it
+        tab.config.show_hidden = true;
+        assert!(
+            tab.search_options_for_query().show_hidden,
+            "typing into a restored search kept hiding files the menu says to show"
+        );
+        Ok(())
+    }
+
+    /// Going Back to a search made under a different "show hidden" brings
+    /// that much up to date, while leaving the scope the user chose alone.
+    #[test]
+    fn a_restored_search_follows_the_hidden_files_setting() -> io::Result<()> {
+        use crate::tab::{SearchLocation, SearchOptions};
+        use std::time::Instant;
+
+        let fs = empty_fs()?;
+        let mut tab = Tab::new(
+            Location::Path(fs.path().to_owned()),
+            TabConfig::default(),
+            ThumbCfg::default(),
+            None,
+            std::borrow::Cow::Borrowed("Undefined"),
+            None,
+        );
+        tab.config.show_hidden = true;
+        tab.config.search_recursive = true;
+
+        let remembered = Location::Search(
+            SearchLocation::Path(fs.path().to_owned()),
+            "term".to_owned(),
+            SearchOptions {
+                show_hidden: false,
+                recursive: false,
+            },
+            Instant::now(),
+        );
+
+        match tab.restored(&remembered) {
+            Location::Search(_, _, options, _) => {
+                assert!(
+                    options.show_hidden,
+                    "a restored search contradicted the menu's hidden files checkbox"
+                );
+                assert!(
+                    !options.recursive,
+                    "a restored search lost the scope the eye had been set to"
+                );
+            }
+            other => panic!("expected a search location, got {other:?}"),
+        }
         Ok(())
     }
 
