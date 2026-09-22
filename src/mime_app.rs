@@ -12,7 +12,7 @@ use std::io::Read as _;
 use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
-use std::sync::{Arc, OnceLock, RwLock, atomic};
+use std::sync::{Arc, LazyLock, OnceLock, RwLock, atomic};
 use std::time::{self, Duration, Instant};
 use std::{fs, io, process};
 
@@ -231,6 +231,32 @@ impl AsRef<str> for MimeApp {
         &self.name
     }
 }
+
+/// The one thread that edits `mimeapps.list`.
+///
+/// It is read, changed and written back whole, so the changes have to be
+/// applied one at a time and in the order they were made.
+type AssociationJob = (Mime, String, std::sync::mpsc::SyncSender<bool>);
+
+static ASSOCIATION_WRITER: LazyLock<Option<std::sync::mpsc::Sender<AssociationJob>>> =
+    LazyLock::new(|| {
+        let (tx, rx) = std::sync::mpsc::channel::<AssociationJob>();
+        let spawned = std::thread::Builder::new()
+            .name("mime-associations".to_owned())
+            .spawn(move || {
+                // Ends when every sender is dropped, which is at exit.
+                for (mime, id, done) in rx {
+                    let _ = done.send(MimeAppCache::set_default(mime, id));
+                }
+            });
+        match spawned {
+            Ok(_) => Some(tx),
+            Err(err) => {
+                log::error!("failed to start the mime association writer: {err}");
+                None
+            }
+        }
+    });
 
 pub struct MimeAppCache {
     apps: Vec<Arc<MimeApp>>,
@@ -552,10 +578,21 @@ impl MimeAppCache {
         let _ = self.default_terminal.set(id);
     }
 
+    /// Whether the default terminal has been worked out yet.
+    ///
+    /// Callers that can wait ask this first and run
+    /// [`Self::query_default_terminal`] on a worker when it says no.
+    pub fn terminal_known(&self) -> bool {
+        self.default_terminal.get().is_some()
+    }
+
+    /// The default terminal, if it is already known.
+    ///
+    /// Never runs the query itself. It is a whole process with a two second
+    /// deadline, and this is reached from handlers a person is waiting on, so
+    /// asking here is the stall the background lookup exists to avoid.
     fn get_default_terminal(&self) -> Option<&str> {
-        self.default_terminal
-            .get_or_init(Self::run_terminal_query)
-            .as_deref()
+        self.default_terminal.get()?.as_deref()
     }
 
     fn run_terminal_query() -> Option<String> {
@@ -647,6 +684,26 @@ impl MimeAppCache {
             "failed to set default handler for {mime:?} to {id:?}: desktop feature not enabled"
         );
         false
+    }
+
+    /// Records `id` as the default application for `mime`, in order.
+    ///
+    /// Serialized through one worker because the write is a read-modify-write
+    /// of the whole `mimeapps.list`: two overlapping changes would each write
+    /// back a file that does not know about the other, and one of them would
+    /// be lost. In order, too, so that two choices for the same type end up
+    /// with the later one winning rather than whichever finished last.
+    pub fn set_default_ordered(mime: Mime, id: String) -> bool {
+        let Some(tx) = ASSOCIATION_WRITER.as_ref() else {
+            log::error!("the mime association writer is not running");
+            return false;
+        };
+        let (done_tx, done_rx) = std::sync::mpsc::sync_channel(0);
+        if tx.send((mime, id, done_tx)).is_err() {
+            log::warn!("the mime association writer stopped");
+            return false;
+        }
+        done_rx.recv().unwrap_or(false)
     }
 
     /// Records `id` as the default application for `mime`.

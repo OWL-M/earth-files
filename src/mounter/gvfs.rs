@@ -8,6 +8,7 @@ use std::cell::{Cell, OnceCell};
 use std::future::pending;
 use std::hash::Hash;
 use std::path::PathBuf;
+use std::rc::Rc;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 
@@ -504,6 +505,9 @@ impl Gvfs {
                 // prompt, and a burst of tabs opening at once should not open a
                 // burst of connections.
                 let requests = Arc::new(tokio::sync::Semaphore::new(GVFS_CONCURRENCY));
+                // Which mount list is the newest asked for. Everything here
+                // runs on this one thread, so a plain cell is enough.
+                let newest_rescan = Rc::new(std::cell::Cell::new(0u64));
                 let monitor = gio::VolumeMonitor::get();
                 {
                     let event_tx = event_tx.clone();
@@ -571,12 +575,23 @@ impl Gvfs {
                             // stall everything anyway.
                             let event_tx = event_tx.clone();
                             let requests = Arc::clone(&requests);
+                            let newest = Rc::clone(&newest_rescan);
+                            let rescan = newest.get() + 1;
+                            newest.set(rescan);
                             glib::MainContext::ref_thread_default().spawn_local(async move {
                                 let Ok(_permit) = requests.acquire_owned().await else {
                                     return;
                                 };
                                 let monitor = gio::VolumeMonitor::get();
                                 let listed = items(&monitor, IconSizes::default()).await;
+                                // A scan can hold a mount, wait on it, and come
+                                // back after a later scan has already reported
+                                // that mount gone. Publishing this now would put
+                                // it back in the sidebar.
+                                if newest.get() != rescan {
+                                    log::debug!("discarding mount list {rescan}: superseded");
+                                    return;
+                                }
                                 let Some(event_tx) = event_tx.upgrade() else {
                                     return;
                                 };

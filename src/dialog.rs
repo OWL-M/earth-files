@@ -482,8 +482,8 @@ enum Message {
     MounterItems(MounterKey, MounterItems),
     NavBarClose(segmented_button::Entity),
     NewFolder,
-    /// A folder the chooser asked for now exists, tagged with the listing the
-    /// chooser was showing when it was asked for.
+    /// A folder the chooser asked for now exists, tagged with where the
+    /// chooser had been sent when it was asked for.
     NewFolderCreated(u64, PathBuf),
     NotifyEvents(Vec<DebouncedEvent>),
     NotifyWatcher(WatcherWrapper),
@@ -1439,7 +1439,7 @@ impl Application for App {
                             // only once it exists. On a slow or remote
                             // destination the `mkdir` alone can take long
                             // enough to be felt as the dialog hanging.
-                            let listing = self.tab.listing();
+                            let navigation = self.tab.navigation();
                             return Task::future(async move {
                                 let created = tokio::task::spawn_blocking({
                                     let path = path.clone();
@@ -1448,7 +1448,7 @@ impl Application for App {
                                 .await;
                                 match created {
                                     Ok(Ok(())) => crate::ui::action::app(
-                                        Message::NewFolderCreated(listing, path),
+                                        Message::NewFolderCreated(navigation, path),
                                     ),
                                     Ok(Err(err)) => {
                                         log::warn!("failed to create {}: {}", path.display(), err);
@@ -1628,12 +1628,17 @@ impl Application for App {
                     return widget::text_input::focus(self.dialog_text_input.clone());
                 }
             }
-            Message::NewFolderCreated(listing, path) => {
-                // Created either way, but only entered if the chooser is still
-                // where it was when the folder was asked for. On slow storage
-                // the user can have navigated elsewhere in the meantime, and
-                // being taken back is not what they asked for.
-                if self.tab.listing() == listing {
+            Message::NewFolderCreated(navigation, path) => {
+                // Created either way, but only entered if the chooser has not
+                // been sent somewhere else since. On slow storage the user can
+                // navigate away while the folder is being made, and being
+                // taken back is not what they asked for.
+                //
+                // Against the navigation count, not the listing: making the
+                // folder is itself a change the watcher reports, so the
+                // listing is replaced as a matter of course here and testing
+                // it would refuse to enter the folder almost every time.
+                if self.tab.navigation() == navigation {
                     return self.update(Message::TabMessage(tab::Message::Location(
                         Location::Path(path),
                     )));
@@ -1750,7 +1755,6 @@ impl Application for App {
                 }
             }
             Message::RefreshedItems(location, listing, batch, rebuilt) => {
-                self.tab.refresh_answered();
                 let mut adopted = false;
                 // The chooser may have been sent somewhere else, or rescanned
                 // from scratch, while these were being read; either way they

@@ -411,6 +411,9 @@ pub enum Message {
     BatchRenamePreview(u64, batch_rename::Preview),
     /// The default terminal, worked out on a worker at startup.
     DefaultTerminal(Option<String>),
+    /// The same, for a terminal the user has already asked to open: take the
+    /// answer and then open it.
+    DefaultTerminalThenOpen(Option<String>, Option<Entity>),
     /// The result of looking at a path the user is typing towards.
     NameChecked(NameCheck),
     ReloadMimeAppCache,
@@ -3475,6 +3478,10 @@ impl Application for App {
             Message::DefaultTerminal(id) => {
                 self.mime_app_cache.adopt_terminal(id);
             }
+            Message::DefaultTerminalThenOpen(id, entity_opt) => {
+                self.mime_app_cache.adopt_terminal(id);
+                return self.update(Message::OpenTerminal(entity_opt));
+            }
             Message::NameChecked(check) => {
                 self.name_check = Some(check);
             }
@@ -3949,6 +3956,21 @@ impl Application for App {
                 }
             },
             Message::OpenTerminal(entity_opt) => {
+                if !self.mime_app_cache.terminal_known() {
+                    // The lookup started at startup has not come back yet.
+                    // Rather than run it here -- a whole process, with a two
+                    // second deadline, on the event loop -- ask for it and
+                    // come back to this once the answer is in.
+                    return Task::future(async move {
+                        let id = tokio::task::spawn_blocking(MimeAppCache::query_default_terminal)
+                            .await
+                            .unwrap_or_else(|err| {
+                                log::warn!("failed to look up the default terminal: {err}");
+                                None
+                            });
+                        crate::ui::action::app(Message::DefaultTerminalThenOpen(id, entity_opt))
+                    });
+                }
                 if let Some(terminal) = self.mime_app_cache.terminal() {
                     let mut paths = Box::from([]);
                     let entity = entity_opt.unwrap_or_else(|| self.tab_model.active());
@@ -4384,7 +4406,6 @@ impl Application for App {
             Message::RefreshedItems(entity, location, listing, batch, rebuilt) => {
                 let mut warm = None;
                 if let Some(tab) = self.tab_model.data_mut::<Tab>(entity) {
-                    tab.refresh_answered();
                     // The tab may have been sent somewhere else, or rescanned
                     // from scratch, while these were being read; either way
                     // they describe a listing it is no longer showing.
@@ -4915,7 +4936,7 @@ impl Application for App {
                             // however small the file is.
                             commands.push(Task::future(async move {
                                 match tokio::task::spawn_blocking(move || {
-                                    MimeAppCache::set_default(mime, id)
+                                    MimeAppCache::set_default_ordered(mime, id)
                                 })
                                 .await
                                 {

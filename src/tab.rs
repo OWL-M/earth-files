@@ -3183,13 +3183,15 @@ pub struct Tab {
     /// listing that asked for it, and applying it to a later one would put
     /// back a snapshot the newer scan has already superseded.
     listing: u64,
+    /// How many times this tab has been sent somewhere. See
+    /// [`Self::navigation`].
+    navigation: u64,
     /// The batch number given to the next set of items sent off to be re-read
     /// for this tab, and the newest batch already adopted per path. Per tab,
     /// because two tabs can show the same folder and each has to see its own
-    /// results; emptied when no batch is outstanding.
+    /// results; forgotten only when the listing is replaced.
     refresh_batch: u64,
     refreshed_at: FxHashMap<PathBuf, u64>,
-    refresh_in_flight: usize,
     /// The number given to the next network resolution this tab asks for.
     next_network_request: u64,
 }
@@ -3340,9 +3342,9 @@ impl Tab {
             location_context_menu_index: None,
             resolving_network: None,
             listing: 0,
+            navigation: 0,
             refresh_batch: 0,
             refreshed_at: FxHashMap::default(),
-            refresh_in_flight: 0,
             next_network_request: 0,
             mode: Mode::App,
             scroll_opt: None,
@@ -3412,8 +3414,23 @@ impl Tab {
     /// nothing left to say.
     fn new_listing(&mut self) {
         self.listing = self.listing.wrapping_add(1);
+        // The only place this is forgotten. Tying it to a count of
+        // outstanding work instead would mean the last answer to arrive
+        // cleared the record that rejects it -- and the last to arrive is the
+        // one most likely to be stale. Keyed by path within one listing, it is
+        // bounded by the size of the directory being shown.
         self.refreshed_at.clear();
-        self.refresh_in_flight = 0;
+    }
+
+    /// Where the tab has been sent, counted separately from what it is
+    /// showing.
+    ///
+    /// A rescan replaces the items without the user going anywhere, so
+    /// [`Self::listing`] moves far more often than this does. Anything asking
+    /// "did the user navigate away while I was working?" has to ask this;
+    /// asking the listing would answer yes to an ordinary refresh.
+    pub fn navigation(&self) -> u64 {
+        self.navigation
     }
 
     /// Which listing is on screen, for tagging background re-reads of it.
@@ -3425,7 +3442,6 @@ impl Tab {
     pub fn next_refresh_batch(&mut self) -> u64 {
         let batch = self.refresh_batch;
         self.refresh_batch = self.refresh_batch.wrapping_add(1);
-        self.refresh_in_flight += 1;
         batch
     }
 
@@ -3444,15 +3460,6 @@ impl Tab {
         }
         self.refreshed_at.insert(path.to_path_buf(), batch);
         true
-    }
-
-    /// Note that a batch has been answered, and forget the ordering once none
-    /// are left: with nothing outstanding, nothing can arrive out of order.
-    pub fn refresh_answered(&mut self) {
-        self.refresh_in_flight = self.refresh_in_flight.saturating_sub(1);
-        if self.refresh_in_flight == 0 {
-            self.refreshed_at.clear();
-        }
     }
 
     pub fn set_items(&mut self, mut items: Vec<Item>) {
@@ -4078,6 +4085,7 @@ impl Tab {
         // Going somewhere answers the question the address field was asking.
         self.dismiss_edit_location();
         self.new_listing();
+        self.navigation = self.navigation.wrapping_add(1);
         self.items_opt = None;
         // Remember where this entry was scrolled to before leaving it
         if let Some(saved) = self.history_scroll.get_mut(self.history_i) {
@@ -8428,6 +8436,75 @@ mod tests {
         assert_eq!(
             tab.location, now,
             "a network answer from before the tab moved took it back"
+        );
+        Ok(())
+    }
+
+    /// The last answer to arrive is the one most likely to be stale, so the
+    /// record that rejects it must outlive the check.
+    #[test]
+    fn the_last_answer_to_arrive_is_still_checked_against_the_others() -> io::Result<()> {
+        let fs = empty_fs()?;
+        let mut tab = Tab::new(
+            Location::Path(fs.path().to_owned()),
+            TabConfig::default(),
+            ThumbCfg::default(),
+            None,
+            std::borrow::Cow::Borrowed("Undefined"),
+            None,
+        );
+        tab.set_items(Vec::new());
+        let listing = tab.listing();
+
+        // Two batches out for the same file
+        let older = tab.next_refresh_batch();
+        let newer = tab.next_refresh_batch();
+        let path = fs.path().join("a.txt");
+
+        // The newer one comes back first and is taken
+        assert!(tab.accept_refresh(listing, newer, &path));
+
+        // The older one comes back last. It is still the older one, and
+        // nothing about being last may change that.
+        assert!(
+            !tab.accept_refresh(listing, older, &path),
+            "an older answer was taken because it happened to arrive last"
+        );
+        Ok(())
+    }
+
+    /// An answer belonging to a listing that has since been replaced is not
+    /// applied to the listing now on screen.
+    #[test]
+    fn an_old_listings_answer_is_rejected_by_the_new_one() -> io::Result<()> {
+        let fs = empty_fs()?;
+        let mut tab = Tab::new(
+            Location::Path(fs.path().to_owned()),
+            TabConfig::default(),
+            ThumbCfg::default(),
+            None,
+            std::borrow::Cow::Borrowed("Undefined"),
+            None,
+        );
+        tab.set_items(Vec::new());
+        let old_listing = tab.listing();
+        let stale = tab.next_refresh_batch();
+        let path = fs.path().join("a.txt");
+
+        // A rescan replaces the listing while that batch is still out
+        tab.set_items(Vec::new());
+        let listing = tab.listing();
+        assert_ne!(listing, old_listing, "a rescan is a new listing");
+
+        assert!(
+            !tab.accept_refresh(old_listing, stale, &path),
+            "an answer about a listing that has been replaced was applied to its replacement"
+        );
+        // And it left nothing behind that would reject the new listing's work
+        let fresh = tab.next_refresh_batch();
+        assert!(
+            tab.accept_refresh(listing, fresh, &path),
+            "a stale answer blocked the current listing's own work"
         );
         Ok(())
     }
