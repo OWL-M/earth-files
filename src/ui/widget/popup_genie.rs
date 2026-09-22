@@ -26,6 +26,7 @@ use crate::ui::Element;
 pub fn popup_genie<'a, Message>(
     motion: Motion,
     key: MotionKey,
+    exiting: bool,
     on_gone: Message,
     content: impl Into<Element<'a, Message>>,
 ) -> PopupGenie<'a, Message> {
@@ -33,6 +34,7 @@ pub fn popup_genie<'a, Message>(
         content: content.into(),
         motion,
         key,
+        exiting,
         on_gone,
     }
 }
@@ -42,13 +44,33 @@ pub struct PopupGenie<'a, Message> {
     content: Element<'a, Message>,
     motion: Motion,
     key: MotionKey,
+    /// Whether the shell has asked this popup to leave. Authoritative, and
+    /// the engine is not: see [`State::departing`].
+    exiting: bool,
     on_gone: Message,
 }
 
-/// Whether this tree has already reported.
 #[derive(Default)]
 struct State {
+    /// Whether this tree has already reported.
     reported: bool,
+    /// Whether the exit has been seen to start.
+    ///
+    /// [`Motion::presence`] answers `Gone` both for a track that has
+    /// finished leaving and for one it has never seen — including one the
+    /// engine has collected because a frame passed without the view
+    /// touching it. Taking any `Gone` as "finished" tears a popup down the
+    /// first frame its track happens to be absent: a new menu is destroyed
+    /// part way through its own entrance, and an old one goes before
+    /// `retire` is ever called, so it never animates out at all.
+    ///
+    /// So a `Gone` only counts once this popup is known to be leaving —
+    /// either because the engine has been seen to report `Exiting`, or
+    /// because the shell says so. The shell's flag is the backstop: without
+    /// it, a track that vanished before any frame observed it exiting would
+    /// leave the popup on screen for good, which is worse than losing the
+    /// animation.
+    departing: bool,
 }
 
 impl<Message: Clone> Widget<Message, crate::ui::Theme, crate::ui::Renderer>
@@ -134,7 +156,12 @@ impl<Message: Clone> Widget<Message, crate::ui::Theme, crate::ui::Renderer>
         }
 
         let state = tree.state.downcast_mut::<State>();
-        if state.reported || self.motion.presence(self.key) != Presence::Gone {
+        let presence = self.motion.presence(self.key);
+        if self.exiting || presence == Presence::Exiting {
+            state.departing = true;
+        }
+
+        if state.reported || !state.departing || presence != Presence::Gone {
             return;
         }
 

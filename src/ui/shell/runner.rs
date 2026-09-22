@@ -327,6 +327,7 @@ impl<App: Application> Shell<App> {
             let watched = crate::ui::widget::popup_genie(
                 genie.motion().clone(),
                 genie.key(),
+                genie.exiting(),
                 crate::ui::Action::Cosmic(crate::ui::app::Action::PopupExitFinished(id)),
                 collapsing,
             );
