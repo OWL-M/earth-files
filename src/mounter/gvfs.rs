@@ -31,6 +31,16 @@ standard::is-hidden,\
 standard::content-type,\
 time::modified";
 
+/// Entries fetched per round trip while listing a directory.
+///
+/// Each batch is one request to the server, so a larger batch means fewer
+/// round trips; between batches the listing yields, so a smaller one means the
+/// GLib thread comes back sooner to whatever else is waiting on it.
+const SCAN_BATCH: i32 = 128;
+
+/// Network requests allowed in flight at once on the GLib thread.
+const GVFS_CONCURRENCY: usize = 4;
+
 fn resolve_uri(uri: &str) -> (String, gio::File) {
     let file = gio::File::for_uri(uri);
     // Resolve the target-uri if it exists
@@ -117,149 +127,180 @@ fn items(monitor: &gio::VolumeMonitor, sizes: IconSizes) -> MounterItems {
     items
 }
 
-fn network_scan(uri: &str, sizes: IconSizes) -> Result<Vec<tab::Item>, String> {
+/// List `uri`, using GIO's asynchronous calls throughout.
+///
+/// Every query here can go to a server. Done synchronously they hold the GLib
+/// thread for as long as the server takes, and that thread is what dispatches
+/// every other network command and mount callback: one slow listing used to
+/// stop all of them. Awaited, the thread stays free to run the rest.
+async fn network_scan(uri: &str, sizes: IconSizes) -> Result<Vec<tab::Item>, String> {
     let force_dir = uri.starts_with("network:///");
     let (_, file) = resolve_uri(uri);
 
-    // Read .hidden file if present
-    let hidden_files: Box<[String]> = if let Some(path) = file.path() {
-        let hidden_file_path = path.join(".hidden");
-        if hidden_file_path.is_file() {
-            tab::parse_hidden_file(&hidden_file_path)
-        } else {
+    // Read .hidden file if present. This one is ordinary local I/O rather than
+    // GIO, and only for a URI that maps to a path, so it goes to a worker.
+    let hidden_files: Box<[String]> = match file.path() {
+        Some(path) => gio::spawn_blocking(move || {
+            let hidden_file_path = path.join(".hidden");
+            if hidden_file_path.is_file() {
+                tab::parse_hidden_file(&hidden_file_path)
+            } else {
+                Box::from([])
+            }
+        })
+        .await
+        .unwrap_or_else(|err| {
+            log::warn!("failed to read .hidden: {err:?}");
             Box::from([])
-        }
-    } else {
-        Box::from([])
+        }),
+        None => Box::from([]),
     };
 
     // `filesystem::remote` belongs to the filesystem namespace, which `enumerate_children`
     // never fills in, so it has to be queried once for the directory being listed.
-    let remote = file
-        .query_filesystem_info(
+    let remote = match file
+        .query_filesystem_info_future(
             gio::FILE_ATTRIBUTE_FILESYSTEM_REMOTE,
-            gio::Cancellable::NONE,
+            glib::Priority::DEFAULT,
         )
-        .map(|info| info.boolean(gio::FILE_ATTRIBUTE_FILESYSTEM_REMOTE))
-        .unwrap_or_else(|err| {
+        .await
+    {
+        Ok(info) => info.boolean(gio::FILE_ATTRIBUTE_FILESYSTEM_REMOTE),
+        Err(err) => {
             log::warn!("failed to get GIO filesystem info for {uri}: {err}");
             // Assume remote, so per-entry work is skipped rather than retried
             true
-        });
+        }
+    };
 
-    let mut items = Vec::new();
-    for info_res in file
-        .enumerate_children(
+    let enumerator = file
+        .enumerate_children_future(
             SCAN_ATTRIBUTES,
             gio::FileQueryInfoFlags::NONE,
-            gio::Cancellable::NONE,
+            glib::Priority::DEFAULT,
         )
-        .map_err(err_str)?
-    {
-        let info = info_res.map_err(err_str)?;
-        let name = info.name().to_string_lossy().into_owned();
-        let display_name = String::from(info.display_name());
+        .await
+        .map_err(err_str)?;
 
-        let uri = String::from(file.child(info.name()).uri());
+    let mut items = Vec::new();
+    // Fetched a batch at a time. Each batch is one round trip, and between
+    // batches this task yields, so a directory with thousands of entries does
+    // not hold the thread for the whole listing.
+    loop {
+        let batch = enumerator
+            .next_files_future(SCAN_BATCH, glib::Priority::DEFAULT)
+            .await
+            .map_err(err_str)?;
+        if batch.is_empty() {
+            break;
+        }
+        for info in batch {
+            let name = info.name().to_string_lossy().into_owned();
+            let display_name = String::from(info.display_name());
 
-        let location = Location::Network(uri, display_name.clone(), file.child(&name).path());
+            let uri = String::from(file.child(info.name()).uri());
 
-        let metadata = if force_dir {
-            ItemMetadata::SimpleDir { entries: 0 }
-        } else {
-            let mtime = info.attribute_uint64(gio::FILE_ATTRIBUTE_TIME_MODIFIED);
-            let is_dir = matches!(info.file_type(), gio::FileType::Directory);
-            let size_opt = (!is_dir).then_some(info.size() as u64);
-            // Children are counted in the background by the tab's subscription
-            ItemMetadata::GvfsPath {
-                mtime,
-                size_opt,
-                children_opt: None,
-                is_dir,
-            }
-        };
+            let location = Location::Network(uri, display_name.clone(), file.child(&name).path());
 
-        // Local directories get their size summed in the background like any
-        // other local folder; remote ones would cost a listing per entry
-        let dir_size = if metadata.is_dir() && !remote && location.path_opt().is_some() {
-            DirSize::Calculating(crate::operation::Controller::default())
-        } else {
-            DirSize::NotDirectory
-        };
-
-        let (mime, icon_handle_grid, icon_handle_list, icon_handle_list_condensed) = {
-            let file_icon = |size| {
-                info.icon()
-                    .as_ref()
-                    .and_then(|icon| gio_icon_to_path(icon, size))
-                    .map(widget::icon::from_path)
-                    .unwrap_or(
-                        widget::icon::from_name(if metadata.is_dir() {
-                            "folder"
-                        } else {
-                            "text-x-generic"
-                        })
-                        .size(size)
-                        .handle(),
-                    )
-            };
-            // gio reports the content type per entry; directories keep the
-            // mime every directory item carries
-            let mime = if metadata.is_dir() {
-                None
+            let metadata = if force_dir {
+                ItemMetadata::SimpleDir { entries: 0 }
             } else {
-                info.content_type()
-                    .and_then(|t| t.parse::<mime_guess::Mime>().ok())
-            }
-            .unwrap_or_else(|| tab::DIRECTORY_MIME.clone());
-            (
+                let mtime = info.attribute_uint64(gio::FILE_ATTRIBUTE_TIME_MODIFIED);
+                let is_dir = matches!(info.file_type(), gio::FileType::Directory);
+                let size_opt = (!is_dir).then_some(info.size() as u64);
+                // Children are counted in the background by the tab's subscription
+                ItemMetadata::GvfsPath {
+                    mtime,
+                    size_opt,
+                    children_opt: None,
+                    is_dir,
+                }
+            };
+
+            // Local directories get their size summed in the background like any
+            // other local folder; remote ones would cost a listing per entry
+            let dir_size = if metadata.is_dir() && !remote && location.path_opt().is_some() {
+                DirSize::Calculating(crate::operation::Controller::default())
+            } else {
+                DirSize::NotDirectory
+            };
+
+            let (mime, icon_handle_grid, icon_handle_list, icon_handle_list_condensed) = {
+                let file_icon = |size| {
+                    info.icon()
+                        .as_ref()
+                        .and_then(|icon| gio_icon_to_path(icon, size))
+                        .map(widget::icon::from_path)
+                        .unwrap_or(
+                            widget::icon::from_name(if metadata.is_dir() {
+                                "folder"
+                            } else {
+                                "text-x-generic"
+                            })
+                            .size(size)
+                            .handle(),
+                        )
+                };
+                // gio reports the content type per entry; directories keep the
+                // mime every directory item carries
+                let mime = if metadata.is_dir() {
+                    None
+                } else {
+                    info.content_type()
+                        .and_then(|t| t.parse::<mime_guess::Mime>().ok())
+                }
+                .unwrap_or_else(|| tab::DIRECTORY_MIME.clone());
+                (
+                    mime,
+                    file_icon(sizes.grid()),
+                    file_icon(sizes.list()),
+                    file_icon(sizes.list_condensed()),
+                )
+            };
+
+            // Check if item is hidden
+            let hidden = name.starts_with('.')
+                || info.boolean(gio::FILE_ATTRIBUTE_STANDARD_IS_HIDDEN)
+                || hidden_files.contains(&name);
+
+            items.push(tab::Item {
+                name,
+                is_mount_point: false,
+                display_name,
+                metadata,
+                hidden,
+                location_opt: Some(location),
+                image_dimensions: OnceCell::new(),
+                file_metadata: OnceCell::new(),
                 mime,
-                file_icon(sizes.grid()),
-                file_icon(sizes.list()),
-                file_icon(sizes.list_condensed()),
-            )
-        };
-
-        // Check if item is hidden
-        let hidden = name.starts_with('.')
-            || info.boolean(gio::FILE_ATTRIBUTE_STANDARD_IS_HIDDEN)
-            || hidden_files.contains(&name);
-
-        items.push(tab::Item {
-            name,
-            is_mount_point: false,
-            display_name,
-            metadata,
-            hidden,
-            location_opt: Some(location),
-            image_dimensions: OnceCell::new(),
-            file_metadata: OnceCell::new(),
-            mime,
-            icon_handle_grid,
-            icon_handle_list,
-            icon_handle_list_condensed,
-            thumbnail_opt: Some(ItemThumbnail::NotImage),
-            button_id: widget::Id::unique(),
-            pos_opt: Cell::new(None),
-            rect_opt: Cell::new(None),
-            selected: false,
-            highlighted: false,
-            overlaps_drag_rect: false,
-            dir_size,
-            cut: false,
-            checksums: ChecksumState::default(),
-        });
+                icon_handle_grid,
+                icon_handle_list,
+                icon_handle_list_condensed,
+                thumbnail_opt: Some(ItemThumbnail::NotImage),
+                button_id: widget::Id::unique(),
+                pos_opt: Cell::new(None),
+                rect_opt: Cell::new(None),
+                selected: false,
+                highlighted: false,
+                overlaps_drag_rect: false,
+                dir_size,
+                cut: false,
+                checksums: ChecksumState::default(),
+            });
+        }
     }
     Ok(items)
 }
 
-fn dir_info(uri: &str) -> Result<(String, String, Option<PathBuf>), glib::Error> {
+async fn dir_info(uri: &str) -> Result<(String, String, Option<PathBuf>), glib::Error> {
     let (resolved_uri, file) = resolve_uri(uri);
-    let info = file.query_info(
-        gio::FILE_ATTRIBUTE_STANDARD_DISPLAY_NAME,
-        gio::FileQueryInfoFlags::NONE,
-        gio::Cancellable::NONE,
-    )?;
+    let info = file
+        .query_info_future(
+            gio::FILE_ATTRIBUTE_STANDARD_DISPLAY_NAME,
+            gio::FileQueryInfoFlags::NONE,
+            glib::Priority::DEFAULT,
+        )
+        .await?;
 
     Ok((resolved_uri, info.display_name().into(), file.path()))
 }
@@ -431,6 +472,12 @@ impl Gvfs {
             let main_loop = glib::MainLoop::new(None, false);
             main_loop.context().spawn_local(async move {
                 let event_tx = Arc::downgrade(&event_tx);
+                // Network requests allowed to be in flight at once. More than
+                // one, so a slow listing does not hold up an unrelated tab;
+                // bounded, because each one holds a connection and a mount
+                // prompt, and a burst of tabs opening at once should not open a
+                // burst of connections.
+                let requests = Arc::new(tokio::sync::Semaphore::new(GVFS_CONCURRENCY));
                 let monitor = gio::VolumeMonitor::get();
                 {
                     let event_tx = event_tx.clone();
@@ -618,6 +665,9 @@ impl Gvfs {
                         Cmd::NetworkScan(uri, sizes, items_tx) => {
                             let (resolved_uri, file) = resolve_uri(&uri);
 
+                            // No asynchronous binding for this one, and it
+                            // needs none: it asks the local mount table what
+                            // covers this URI, not the server.
                             let needs_mount = resolved_uri != "network:///"
                                 && match file.find_enclosing_mount(gio::Cancellable::NONE) {
                                     Ok(_) => false,
@@ -627,43 +677,70 @@ impl Gvfs {
                                     ),
                                 };
 
-                            if needs_mount {
-                                let mount_op = mount_op(resolved_uri.clone(), event_tx.clone());
-                                let event_tx = event_tx.clone();
-                                file.mount_enclosing_volume(
-                                    gio::MountMountFlags::empty(),
-                                    Some(&mount_op),
-                                    gio::Cancellable::NONE,
-                                    move |res| {
-                                        log::info!(
-                                            "network scan mounted {resolved_uri}: result {res:?}"
-                                        );
-                                        // FIXME sometimes a uri can be mounted and then not recognized as mounted...
-                                        // seems to be related to uri with a path
-                                        items_tx.blocking_send(network_scan(&uri, sizes)).unwrap();
-                                        let Some(event_tx) = event_tx.upgrade() else {
-                                            return;
-                                        };
-                                        event_tx.send(Event::NetworkResult(
-                                            resolved_uri,
-                                            match res {
-                                                Ok(()) => Ok(true),
-                                                Err(err) => match err.kind::<gio::IOErrorEnum>() {
-                                                    Some(gio::IOErrorEnum::FailedHandled) => {
-                                                        Ok(false)
-                                                    }
-                                                    _ => Err(format!("{err}")),
-                                                },
+                            // Spawned rather than awaited here. Awaiting would
+                            // keep this loop from taking the next command until
+                            // the listing came back, which is the serialization
+                            // the asynchronous calls exist to avoid.
+                            let event_tx = event_tx.clone();
+                            let requests = Arc::clone(&requests);
+                            glib::MainContext::ref_thread_default().spawn_local(async move {
+                                let Ok(_permit) = requests.acquire_owned().await else {
+                                    return;
+                                };
+
+                                if needs_mount {
+                                    let mount_op = mount_op(resolved_uri.clone(), event_tx.clone());
+                                    let res = file
+                                        .mount_enclosing_volume_future(
+                                            gio::MountMountFlags::empty(),
+                                            Some(&mount_op),
+                                        )
+                                        .await;
+                                    log::info!(
+                                        "network scan mounted {resolved_uri}: result {res:?}"
+                                    );
+                                    // FIXME sometimes a uri can be mounted and then not recognized as mounted...
+                                    // seems to be related to uri with a path
+                                    let scanned = network_scan(&uri, sizes).await;
+                                    if items_tx.send(scanned).await.is_err() {
+                                        log::warn!("nothing is waiting for the scan of {uri}");
+                                    }
+                                    let Some(event_tx) = event_tx.upgrade() else {
+                                        return;
+                                    };
+                                    event_tx.send(Event::NetworkResult(
+                                        resolved_uri,
+                                        match res {
+                                            Ok(()) => Ok(true),
+                                            Err(err) => match err.kind::<gio::IOErrorEnum>() {
+                                                Some(gio::IOErrorEnum::FailedHandled) => Ok(false),
+                                                _ => Err(format!("{err}")),
                                             },
-                                        ));
-                                    },
-                                );
-                            } else {
-                                items_tx.send(network_scan(&uri, sizes)).await.unwrap();
-                            }
+                                        },
+                                    ));
+                                } else {
+                                    let scanned = network_scan(&uri, sizes).await;
+                                    if items_tx.send(scanned).await.is_err() {
+                                        log::warn!("nothing is waiting for the scan of {uri}");
+                                    }
+                                }
+                            });
                         }
                         Cmd::DirInfo(uri, result_tx) => {
-                            result_tx.send(dir_info(&uri)).await.unwrap();
+                            // Spawned for the same reason: naming a directory
+                            // is a request to the server, and the command loop
+                            // must stay free to dispatch the next one.
+                            let requests = Arc::clone(&requests);
+                            glib::MainContext::ref_thread_default().spawn_local(async move {
+                                let Ok(_permit) = requests.acquire_owned().await else {
+                                    return;
+                                };
+                                if result_tx.send(dir_info(&uri).await).await.is_err() {
+                                    log::warn!(
+                                        "nothing is waiting for the directory info of {uri}"
+                                    );
+                                }
+                            });
                         }
                         Cmd::Unmount(mounter_item) => {
                             let MounterItem::Gvfs(item) = mounter_item else {
