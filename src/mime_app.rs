@@ -8,11 +8,12 @@ pub use mime_guess::Mime;
 use notify_debouncer_full::notify;
 use rustc_hash::{FxHashMap, FxHashSet};
 use std::ffi::OsStr;
+use std::io::Read as _;
 use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
-use std::sync::{Arc, RwLock, atomic};
-use std::time::{self, Instant};
+use std::sync::{Arc, OnceLock, RwLock, atomic};
+use std::time::{self, Duration, Instant};
 use std::{fs, io, process};
 
 #[cfg(feature = "desktop")]
@@ -235,6 +236,11 @@ pub struct MimeAppCache {
     apps: Vec<Arc<MimeApp>>,
     cache: FxHashMap<Mime, Vec<Arc<MimeApp>>>,
     terminals: Vec<Arc<MimeApp>>,
+    /// The mimeapps default for `x-scheme-handler/terminal`, resolved at most
+    /// once. Answering it costs a whole `xdg-mime` process, and
+    /// [`Self::terminal`] is asked every time a menu that offers "open in
+    /// terminal" is built.
+    default_terminal: OnceLock<Option<String>>,
 }
 
 impl MimeAppCache {
@@ -243,6 +249,7 @@ impl MimeAppCache {
             apps: Vec::new(),
             cache: FxHashMap::default(),
             terminals: Vec::new(),
+            default_terminal: OnceLock::new(),
         };
         mime_app_cache.reload();
         mime_app_cache
@@ -326,14 +333,16 @@ impl MimeAppCache {
         self.apps.clear();
         self.cache.clear();
         self.terminals.clear();
+        // The associations being reloaded are where the default terminal
+        // comes from, so the remembered answer is out of date too.
+        self.default_terminal = OnceLock::new();
 
         let mut list = cosmic_mime_apps::List::default();
         let paths = cosmic_mime_apps::list_paths();
         list.load_from_paths(&paths);
         let locales = fde::get_languages_from_env();
         let desktop_entries = fde::Iter::new(fde::default_paths()).entries(Some(&locales));
-        let mime_icon_cache = mime_icon::MIME_ICON_CACHE.lock().unwrap();
-        let shared_mime_info = &mime_icon_cache.shared_mime_info;
+        let shared_mime_info = &*mime_icon::SHARED_MIME_INFO;
         let mut aliased_mimes = FxHashMap::default();
 
         for desktop_entry in desktop_entries {
@@ -511,19 +520,52 @@ impl MimeAppCache {
             .map_or_else(Vec::new, |apps| apps.iter().map(|app| app.icon()).collect())
     }
 
-    fn get_default_terminal(&self) -> Option<String> {
-        let output = process::Command::new("xdg-mime")
-            .args(["query", "default", "x-scheme-handler/terminal"])
-            .output()
-            .ok()?;
+    /// How long `xdg-mime` may take to name the default terminal.
+    ///
+    /// It normally answers in milliseconds, but it is a shell script that
+    /// consults other tools, and any of them can hang. This runs where a menu
+    /// is being built, so waiting on it indefinitely means the menu never
+    /// opens.
+    const TERMINAL_QUERY_TIMEOUT: Duration = Duration::from_secs(2);
 
-        if !output.status.success() {
-            return None;
-        }
+    fn get_default_terminal(&self) -> Option<&str> {
+        self.default_terminal
+            .get_or_init(|| {
+                let mut child = process::Command::new("xdg-mime")
+                    .args(["query", "default", "x-scheme-handler/terminal"])
+                    .stdin(process::Stdio::null())
+                    .stdout(process::Stdio::piped())
+                    .stderr(process::Stdio::null())
+                    .spawn()
+                    .ok()?;
 
-        String::from_utf8(output.stdout)
-            .ok()
-            .map(|string| string.trim().replace(".desktop", ""))
+                // Safe to wait without draining: the answer is one desktop
+                // file id, nowhere near a pipe buffer.
+                match crate::child::wait_with_timeout(&mut child, Self::TERMINAL_QUERY_TIMEOUT) {
+                    Ok(Some(status)) if status.success() => {}
+                    Ok(Some(_)) => return None,
+                    Ok(None) => {
+                        log::warn!(
+                            "killed `xdg-mime query default x-scheme-handler/terminal`: no answer in {:?}",
+                            Self::TERMINAL_QUERY_TIMEOUT
+                        );
+                        return None;
+                    }
+                    Err(err) => {
+                        log::warn!("failed to ask xdg-mime for the default terminal: {err}");
+                        return None;
+                    }
+                }
+
+                let mut output = String::new();
+                child
+                    .stdout
+                    .as_mut()?
+                    .read_to_string(&mut output)
+                    .ok()?;
+                Some(output.trim().replace(".desktop", ""))
+            })
+            .as_deref()
     }
 
     /// The terminal to open folders in: the mimeapps default for
@@ -545,7 +587,7 @@ impl MimeAppCache {
 
         let by_id = |id: &str| self.terminals.iter().find(|terminal| terminal.id == id);
 
-        if let Some(terminal) = self.get_default_terminal().and_then(|id| by_id(&id)) {
+        if let Some(terminal) = self.get_default_terminal().and_then(by_id) {
             return Some(terminal);
         }
 
@@ -574,17 +616,23 @@ impl MimeAppCache {
     }
 
     #[cfg(not(feature = "desktop"))]
-    pub fn set_default(&mut self, mime: Mime, id: String) {
+    pub fn set_default(&mut self, mime: Mime, id: String) -> bool {
         log::warn!(
             "failed to set default handler for {mime:?} to {id:?}: desktop feature not enabled"
         );
+        false
     }
 
+    /// Records `id` as the default application for `mime`.
+    ///
+    /// Returns whether the associations changed, in which case the caller
+    /// reloads the cache. Reloading here would mean rebuilding it inline, and
+    /// it is built by walking every desktop entry on the system.
     #[cfg(feature = "desktop")]
-    pub fn set_default(&mut self, mime: Mime, mut id: String) {
+    pub fn set_default(&mut self, mime: Mime, mut id: String) -> bool {
         let Some(path) = cosmic_mime_apps::local_list_path() else {
             log::warn!("failed to find mimeapps.list path");
-            return;
+            return false;
         };
 
         let mut list = cosmic_mime_apps::List::default();
@@ -595,7 +643,7 @@ impl MimeAppCache {
             Err(err) => {
                 if err.kind() != io::ErrorKind::NotFound {
                     log::warn!("failed to read {}: {}", path.display(), err);
-                    return;
+                    return false;
                 }
             }
         }
@@ -609,11 +657,10 @@ impl MimeAppCache {
         let mut string = list.to_string();
         string.push('\n');
         match fs::write(&path, string) {
-            Ok(()) => {
-                self.reload();
-            }
+            Ok(()) => true,
             Err(err) => {
                 log::warn!("failed to write {}: {}", path.display(), err);
+                false
             }
         }
     }

@@ -1,0 +1,32 @@
+            mut child|user| user.name().to_str().map(ToOwned::to_owned))
+            mut child|group| group.name().to_str().map(ToOwned::to_owned))
+            mut child|now_secs| now_secs.checked_sub(secs))
+                    self.selectedmut child|x| x.checked_add(1)).unwrap_or(0)
+                        mut child|x| x.checked_sub(1))
+                mut childimage::ImageReader::with_guessed_format)
+                match File::open(path)mut child|f| {
+                mut child|mut child| wait_with_timeout(&mut child, THUMBNAILER_TIMEOUT));
+                            mut childImageReader::with_guessed_format)
+            _ => self.path_opt()mut child|p| fs::metadata(p).ok()),
+            mut child|opts| opts.get(&location_str))
+            mut child|items| items.iter().enumerate().find(|i| i.1.highlighted))
+            mut child|(h, items)| items.get_mut(h))
+                if let Some(location_path) = item.location_opt.as_ref()mut childLocation::path_opt)
+                mut child|item| item.path_opt().cloned())
+            mut child|i| self.items_opt.as_ref()?.get(i))
+            mut child|item| item.rect_opt.get())
+                        mut child|items| click_i_opt.and_then(|click_i| items.get(click_i)))
+                            mut child|i| self.items_opt.as_ref()?.get(i))
+                        mut child|path| path.ancestors().nth(ancestor_index))
+                let target = dnd.positionmut child|point| self.drop_target(point));
+                            mut child|i| self.items_opt.as_ref()?.get(i)?.path_opt().cloned())
+                        items.iter().find(|&item| item.selected)mut child|item| {
+                        let best = self.items_opt.as_ref()mut child|items| {
+                        let best = self.items_opt.as_ref()mut child|items| {
+                        self.items_opt.as_ref()mut child|items| items.get(click_i))
+                if let Some(item) = self.items_opt.as_mut()mut child|f| f.get_mut(i)) {
+                if let Some(item) = self.items_opt.as_mut()mut child|f| f.get_mut(i)) {
+                                items.last()mut child|item| item.metadata.modified())
+                            mut childLocation::path_opt)
+                mut child|(mime, _)| mime.parse::<Mime>().ok())
+            mut child|x| x.location.path_opt())

@@ -402,6 +402,8 @@ pub enum Message {
     PermanentlyDelete(Option<Entity>),
     Preview,
     ReloadMimeAppCache,
+    /// A freshly built mime app cache, ready to replace the one in use.
+    MimeAppCacheReloaded(MimeAppCacheWrapper),
     ReorderTab(ReorderEvent),
     RescanRecents,
     RescanTrash,
@@ -656,6 +658,45 @@ pub enum WindowKind {
     Dialogs(widget::Id),
     FileDialog(Option<Box<[PathBuf]>>),
     Preview(Option<Entity>, PreviewKind),
+}
+
+/// A rebuilt [`MimeAppCache`] on its way to the application.
+///
+/// A cache cannot be cloned or printed, and a message must be both. It is only
+/// ever delivered once, so a clone gives up the cache rather than duplicating
+/// it: the copy that carries it is the one that arrives.
+pub struct MimeAppCacheWrapper {
+    cache_opt: Option<MimeAppCache>,
+}
+
+impl MimeAppCacheWrapper {
+    fn new(cache: MimeAppCache) -> Self {
+        Self {
+            cache_opt: Some(cache),
+        }
+    }
+
+    fn take(&mut self) -> Option<MimeAppCache> {
+        self.cache_opt.take()
+    }
+}
+
+impl Clone for MimeAppCacheWrapper {
+    fn clone(&self) -> Self {
+        Self { cache_opt: None }
+    }
+}
+
+impl fmt::Debug for MimeAppCacheWrapper {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("MimeAppCacheWrapper").finish()
+    }
+}
+
+impl PartialEq for MimeAppCacheWrapper {
+    fn eq(&self, _other: &Self) -> bool {
+        false
+    }
 }
 
 pub struct WatcherWrapper {
@@ -4110,7 +4151,25 @@ impl Application for App {
                 return self.operation(Operation::RemoveFromRecents { paths });
             }
             Message::ReloadMimeAppCache => {
-                self.mime_app_cache.reload();
+                // Rebuilt on a worker and swapped in when it is ready. Building
+                // it walks every desktop entry installed on the system, which
+                // is far too much to do between two frames.
+                return Task::future(async move {
+                    match tokio::task::spawn_blocking(MimeAppCache::new).await {
+                        Ok(cache) => crate::ui::action::app(Message::MimeAppCacheReloaded(
+                            MimeAppCacheWrapper::new(cache),
+                        )),
+                        Err(err) => {
+                            log::warn!("failed to reload the mime app cache: {err}");
+                            crate::ui::action::none()
+                        }
+                    }
+                });
+            }
+            Message::MimeAppCacheReloaded(mut wrapper) => {
+                if let Some(cache) = wrapper.take() {
+                    self.mime_app_cache = cache;
+                }
             }
             Message::RescanRecents => {
                 return self.rescan_recents();
@@ -4513,7 +4572,9 @@ impl Application for App {
                             self.set_show_context(true);
                         }
                         tab::Command::SetOpenWith(mime, id) => {
-                            self.mime_app_cache.set_default(mime, id);
+                            if self.mime_app_cache.set_default(mime, id) {
+                                commands.push(self.update(Message::ReloadMimeAppCache));
+                            }
                         }
                         tab::Command::SetPermissions(path, mode) => {
                             commands.push(self.operation(Operation::SetPermissions { path, mode }));

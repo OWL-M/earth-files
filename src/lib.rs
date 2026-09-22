@@ -16,6 +16,7 @@ pub mod app;
 mod archive;
 mod batch_rename;
 pub mod channel;
+mod child;
 pub mod clipboard;
 pub mod config;
 mod context_action;
