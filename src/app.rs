@@ -4440,7 +4440,16 @@ impl Application for App {
                 let rebuild = self.mime_app_rebuild;
                 self.mime_app_rebuild = self.mime_app_rebuild.wrapping_add(1);
                 return Task::future(async move {
-                    match tokio::task::spawn_blocking(MimeAppCache::new).await {
+                    match tokio::task::spawn_blocking(|| {
+                        let cache = MimeAppCache::new();
+                        // While still on the worker: this shells out to
+                        // `xdg-mime`, and doing it here keeps that off the
+                        // handler that first opens a terminal.
+                        cache.prime_terminal();
+                        cache
+                    })
+                    .await
+                    {
                         Ok(cache) => crate::ui::action::app(Message::MimeAppCacheReloaded(
                             rebuild,
                             MimeAppCacheWrapper::new(cache),

@@ -528,6 +528,16 @@ impl MimeAppCache {
     /// opens.
     const TERMINAL_QUERY_TIMEOUT: Duration = Duration::from_secs(2);
 
+    /// Work out the default terminal now, so the first menu that asks for it
+    /// does not have to wait for `xdg-mime`.
+    ///
+    /// Called on the worker that builds the cache. Without it that query --
+    /// a whole process, with a two second deadline -- lands on whichever
+    /// handler first asks, which is one the user is waiting on.
+    pub fn prime_terminal(&self) {
+        let _ = self.get_default_terminal();
+    }
+
     fn get_default_terminal(&self) -> Option<&str> {
         self.default_terminal
             .get_or_init(|| {
