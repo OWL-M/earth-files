@@ -83,35 +83,52 @@ fn gio_icon_to_path(icon: &gio::Icon, size: u16) -> Option<PathBuf> {
     None
 }
 
-fn items(monitor: &gio::VolumeMonitor, sizes: IconSizes) -> MounterItems {
-    let mut items: MounterItems = (monitor.mounts().into_iter())
-        // Hide shadowed mounts
-        .filter(|mount| !mount.is_shadowed())
-        .map(|mount| {
-            let root = MountExt::root(&mount);
-            let is_remote = root
-                .query_filesystem_info(
-                    gio::FILE_ATTRIBUTE_FILESYSTEM_REMOTE,
-                    gio::Cancellable::NONE,
-                )
-                .ok()
-                .map(|info| info.boolean(gio::FILE_ATTRIBUTE_FILESYSTEM_REMOTE))
-                .unwrap_or(true); // Default to remote if query fails
+/// Whether the filesystem behind `root` is remote, asked asynchronously.
+///
+/// A mount whose server has gone away answers this slowly or not at all, and
+/// everything on the GLib thread waits behind a synchronous answer. Defaults
+/// to remote, as the synchronous version did, so a failed query skips
+/// per-entry work rather than retrying it.
+async fn is_remote(root: &gio::File) -> bool {
+    root.query_filesystem_info_future(
+        gio::FILE_ATTRIBUTE_FILESYSTEM_REMOTE,
+        glib::Priority::DEFAULT,
+    )
+    .await
+    .ok()
+    .map(|info| info.boolean(gio::FILE_ATTRIBUTE_FILESYSTEM_REMOTE))
+    .unwrap_or(true)
+}
 
-            let uri: String = root.uri().into();
-            MounterItem::Gvfs(Item {
-                id: uri.clone(),
-                uri,
-                kind: ItemKind::Mount,
-                name: mount.name().into(),
-                is_mounted: true,
-                is_remote,
-                icon_opt: gio_icon_to_path(&MountExt::icon(&mount), sizes.grid()),
-                icon_symbolic_opt: gio_icon_to_path(&MountExt::symbolic_icon(&mount), 16),
-                path_opt: root.path(),
-            })
-        })
-        .collect();
+/// List the mounts and volumes GVFS knows about.
+///
+/// Asynchronous because each mount has to be asked whether it is remote.
+/// Spawning this on the GLib context is not enough on its own: a task there
+/// runs on that same thread, so a synchronous query inside it blocks
+/// everything else just as surely as one in the command loop would.
+async fn items(monitor: &gio::VolumeMonitor, sizes: IconSizes) -> MounterItems {
+    let mut items: MounterItems = MounterItems::new();
+    for mount in monitor.mounts() {
+        // Hide shadowed mounts
+        if mount.is_shadowed() {
+            continue;
+        }
+        let root = MountExt::root(&mount);
+        let is_remote = is_remote(&root).await;
+
+        let uri: String = root.uri().into();
+        items.push(MounterItem::Gvfs(Item {
+            id: uri.clone(),
+            uri,
+            kind: ItemKind::Mount,
+            name: mount.name().into(),
+            is_mounted: true,
+            is_remote,
+            icon_opt: gio_icon_to_path(&MountExt::icon(&mount), sizes.grid()),
+            icon_symbolic_opt: gio_icon_to_path(&MountExt::symbolic_icon(&mount), 16),
+            path_opt: root.path(),
+        }));
+    }
     items.extend(
         (monitor.volumes().into_iter())
             // Volumes with mounts are already listed by mount
@@ -547,10 +564,11 @@ impl Gvfs {
                 while let Some(command) = command_rx.recv().await {
                     match command {
                         Cmd::Rescan => {
-                            // Spawned like the rest. Listing the mounts asks
-                            // each one whether it is remote, and a mount whose
-                            // server has gone away answers slowly or not at
-                            // all; done here that would stop this loop.
+                            // Spawned like the rest, and asynchronous inside:
+                            // listing the mounts asks each one whether it is
+                            // remote, and a task on this context runs on this
+                            // thread, so a synchronous answer in there would
+                            // stall everything anyway.
                             let event_tx = event_tx.clone();
                             let requests = Arc::clone(&requests);
                             glib::MainContext::ref_thread_default().spawn_local(async move {
@@ -558,7 +576,7 @@ impl Gvfs {
                                     return;
                                 };
                                 let monitor = gio::VolumeMonitor::get();
-                                let listed = items(&monitor, IconSizes::default());
+                                let listed = items(&monitor, IconSizes::default()).await;
                                 let Some(event_tx) = event_tx.upgrade() else {
                                     return;
                                 };
@@ -600,51 +618,53 @@ impl Gvfs {
                                     gio::Cancellable::NONE,
                                     move |res| {
                                         log::info!("mount {name}: result {res:?}");
-                                        // Update the mounter_item with mount information after successful mount
-                                        let mut updated_item = mounter_item.clone();
-                                        if res.is_ok()
-                                            && let MounterItem::Gvfs(ref mut item) = updated_item
-                                            && let Some(mount) = volume_for_callback.get_mount()
-                                        {
-                                            let root = MountExt::root(&mount);
-                                            item.path_opt = root.path();
-                                            item.is_mounted = true;
-                                            // Query if remote
-                                            item.is_remote = root
-                                                .query_filesystem_info(
-                                                    gio::FILE_ATTRIBUTE_FILESYSTEM_REMOTE,
-                                                    gio::Cancellable::NONE,
-                                                )
-                                                .ok()
-                                                .map(|info| {
-                                                    info.boolean(
-                                                        gio::FILE_ATTRIBUTE_FILESYSTEM_REMOTE,
-                                                    )
-                                                })
-                                                .unwrap_or(true);
-                                        }
-                                        let Some(event_tx) = event_tx.upgrade() else {
-                                            return;
-                                        };
-                                        event_tx.send(Event::MountResult(
-                                            updated_item,
-                                            match res {
-                                                Ok(()) => {
-                                                    _ = complete_tx.send(Ok(()));
-                                                    Ok(true)
+                                        // The rest runs in a task rather than
+                                        // here: asking the freshly mounted
+                                        // filesystem whether it is remote is a
+                                        // request like any other, and this
+                                        // callback runs on the GLib thread,
+                                        // where it cannot be awaited.
+                                        glib::MainContext::ref_thread_default().spawn_local(
+                                            async move {
+                                                // Update the mounter_item with mount information after successful mount
+                                                let mut updated_item = mounter_item.clone();
+                                                if res.is_ok()
+                                                    && let MounterItem::Gvfs(ref mut item) =
+                                                        updated_item
+                                                    && let Some(mount) =
+                                                        volume_for_callback.get_mount()
+                                                {
+                                                    let root = MountExt::root(&mount);
+                                                    item.path_opt = root.path();
+                                                    item.is_mounted = true;
+                                                    // Query if remote
+                                                    item.is_remote = is_remote(&root).await;
                                                 }
-                                                Err(err) => {
-                                                    _ = complete_tx
-                                                        .send(Err(anyhow::anyhow!("{err:?}")));
-                                                    match err.kind::<gio::IOErrorEnum>() {
-                                                        Some(gio::IOErrorEnum::FailedHandled) => {
-                                                            Ok(false)
+                                                let Some(event_tx) = event_tx.upgrade() else {
+                                                    return;
+                                                };
+                                                event_tx.send(Event::MountResult(
+                                                    updated_item,
+                                                    match res {
+                                                        Ok(()) => {
+                                                            _ = complete_tx.send(Ok(()));
+                                                            Ok(true)
                                                         }
-                                                        _ => Err(format!("{err}")),
-                                                    }
-                                                }
+                                                        Err(err) => {
+                                                            _ = complete_tx.send(Err(
+                                                                anyhow::anyhow!("{err:?}"),
+                                                            ));
+                                                            match err.kind::<gio::IOErrorEnum>() {
+                                                                Some(
+                                                                    gio::IOErrorEnum::FailedHandled,
+                                                                ) => Ok(false),
+                                                                _ => Err(format!("{err}")),
+                                                            }
+                                                        }
+                                                    },
+                                                ));
                                             },
-                                        ));
+                                        );
                                     },
                                 );
                             }
