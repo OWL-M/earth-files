@@ -1642,19 +1642,30 @@ pub struct EditLocation {
 }
 
 impl EditLocation {
+    /// What this edit names, as far as can be told without leaving the process.
+    ///
+    /// A network location is not resolved here. Naming its directory means
+    /// asking GVFS, which means waiting on a server that may be slow or gone;
+    /// done from an input handler that wait is the whole interface stopping.
+    /// [`Self::network_uri`] gives the URI to resolve through a task instead.
     pub fn resolve(&self) -> Option<Location> {
-        if let Location::Network(uri, ..) = &self.location {
-            MOUNTERS
-                .values()
-                .find_map(|mounter| mounter.dir_info(uri))
-                .map(|(uri, display_name, path_opt)| Location::Network(uri, display_name, path_opt))
-        } else {
-            let Some(selected) = self.selected else {
-                return Some(self.location.clone());
-            };
-            let completions = self.completions.as_ref()?;
-            let completion = completions.get(selected)?;
-            Some(self.location.with_path(completion.1.clone()).normalize())
+        if matches!(self.location, Location::Network(..)) {
+            return None;
+        }
+        let Some(selected) = self.selected else {
+            return Some(self.location.clone());
+        };
+        let completions = self.completions.as_ref()?;
+        let completion = completions.get(selected)?;
+        Some(self.location.with_path(completion.1.clone()).normalize())
+    }
+
+    /// The URI to resolve through a mounter, when this edit names a network
+    /// location rather than a path.
+    pub fn network_uri(&self) -> Option<&str> {
+        match &self.location {
+            Location::Network(uri, ..) => Some(uri),
+            _ => None,
         }
     }
 
@@ -1939,6 +1950,9 @@ pub enum Command {
     AddToSidebar(PathBuf),
     AutoScroll(Option<f32>),
     ChangeLocation(String, Location, Option<Vec<PathBuf>>),
+    /// Ask a mounter what this URI names, off the event loop, and answer with
+    /// [`Message::NetworkResolved`].
+    ResolveNetwork(String),
     Delete(Vec<PathBuf>),
     /// Files were dropped on this tab: read the drag payload and move them into
     /// `to`, or copy them when the second field is set.
@@ -1964,6 +1978,9 @@ pub enum Command {
 #[derive(Clone, Debug)]
 pub enum Message {
     AddNetworkDrive,
+    /// What a mounter said a submitted network URI names, or `None` when it
+    /// could not say.
+    NetworkResolved(String, Option<Location>),
     /// The icon cache has been filled, so placeholders can be replaced
     IconsReady,
     AutoScroll(Option<f32>),
@@ -3150,6 +3167,10 @@ pub struct Tab {
     large_image_manager: LargeImageManager,
     column_widths: ColumnWidths,
     column_resize: Option<ColumnResize>,
+    /// The network URI this tab is waiting on an answer for, if any. Kept so
+    /// an answer that arrives after the user has typed something else, or
+    /// navigated away, can be told apart from the one being waited for.
+    resolving_network: Option<String>,
 }
 
 /// Add up the size of everything under `path`.
@@ -3296,6 +3317,7 @@ impl Tab {
             location_ancestors,
             location_title,
             location_context_menu_index: None,
+            resolving_network: None,
             mode: Mode::App,
             scroll_opt: None,
             size_opt: Cell::new(None),
@@ -4447,10 +4469,35 @@ impl Tab {
                         edit_location.selected = Some(0);
                     }
 
-                    cd = edit_location.resolve();
-                    if cd.is_none() && typed_uri {
-                        cd = Some(edit_location.location);
+                    if let Some(uri) = edit_location.network_uri() {
+                        // Resolving this means a round trip to GVFS. Ask for
+                        // it and keep the field as it was typed, so the bar
+                        // still shows where the user is going while it is
+                        // being reached; the answer arrives as
+                        // `NetworkResolved`.
+                        self.resolving_network = Some(uri.to_owned());
+                        commands.push(Command::ResolveNetwork(uri.to_owned()));
+                        self.edit_location = Some(edit_location);
+                    } else {
+                        cd = edit_location.resolve();
+                        if cd.is_none() && typed_uri {
+                            cd = Some(edit_location.location);
+                        }
                     }
+                }
+            }
+            Message::NetworkResolved(uri, resolved) => {
+                // Only the answer to the question still being asked. The user
+                // may have typed something else, or gone somewhere else
+                // entirely, while the server was being waited on.
+                if self.resolving_network.as_deref() == Some(uri.as_str()) {
+                    self.resolving_network = None;
+                    self.edit_location = None;
+                    // Nothing came back, so go to the URI as typed and let the
+                    // scan report what is wrong with it. That is what
+                    // submitting an unresolvable URI has always done.
+                    cd =
+                        Some(resolved.unwrap_or_else(|| Location::Network(uri.clone(), uri, None)));
                 }
             }
             Message::EditLocationTab => {

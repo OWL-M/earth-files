@@ -1943,6 +1943,33 @@ impl Application for App {
                                 self.auto_scroll_speed = None;
                             }
                         }
+                        tab::Command::ResolveNetwork(uri) => {
+                            // Asked on a worker: the mounter answers over a
+                            // channel the GVFS thread writes to when it has
+                            // been round the network and back, and waiting for
+                            // that here is waiting for a server.
+                            commands.push(Task::future(async move {
+                                let asked = {
+                                    let uri = uri.clone();
+                                    tokio::task::spawn_blocking(move || {
+                                        MOUNTERS.values().find_map(|mounter| mounter.dir_info(&uri))
+                                    })
+                                    .await
+                                };
+                                let resolved = match asked {
+                                    Ok(info) => info.map(|(uri, display_name, path_opt)| {
+                                        Location::Network(uri, display_name, path_opt)
+                                    }),
+                                    Err(err) => {
+                                        log::warn!("failed to resolve {uri}: {err}");
+                                        None
+                                    }
+                                };
+                                crate::ui::action::app(Message::TabMessage(
+                                    tab::Message::NetworkResolved(uri, resolved),
+                                ))
+                            }));
+                        }
                         unsupported => {
                             log::warn!("{unsupported:?} not supported in dialog mode");
                         }
