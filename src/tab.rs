@@ -70,6 +70,18 @@ pub const DOUBLE_CLICK_DURATION: Duration = Duration::from_millis(500);
 pub const TYPE_SELECT_TIMEOUT: Duration = Duration::from_millis(1000);
 const MAX_SEARCH_LATENCY: Duration = Duration::from_millis(20);
 const THUMBNAIL_SIZE: u32 = (ICON_SIZE_GRID as u32) * (ICON_SCALE_MAX as u32);
+/// How long an external thumbnailer may run before it is killed.
+///
+/// Thumbnail work is bounded by [`THUMB_SEMAPHORE`], so a thumbnailer that
+/// never exits does not merely lose its own picture: it holds one of the few
+/// permits for as long as this process lives, and the pane stops filling in.
+/// A deadline is the only thing that gets the permit back.
+const THUMBNAILER_TIMEOUT: Duration = Duration::from_secs(30);
+/// How often [`wait_with_timeout`] asks whether the child has exited.
+///
+/// Short enough that a thumbnailer that finishes normally is not held up by
+/// the polling, long enough that waiting costs nothing.
+const THUMBNAILER_POLL: Duration = Duration::from_millis(10);
 /// Maximum bytes to read from a file for its preview. Only the first
 /// [`TEXT_PREVIEW_LINES`] of what is read are ever shaped, so this needs to be
 /// no more than enough to contain them.
@@ -133,6 +145,34 @@ fn preview_text(text: &str) -> String {
         }
     }
     preview
+}
+
+/// Waits for `child`, killing it if it outlives `timeout`.
+///
+/// Returns `None` when the deadline was reached, having killed and reaped the
+/// child. [`std::process::Child::wait`] has no deadline of its own, so this
+/// polls: `try_wait` is a `waitpid` that does not block, and between tries
+/// this thread sleeps rather than spins.
+fn wait_with_timeout(
+    child: &mut std::process::Child,
+    timeout: Duration,
+) -> std::io::Result<Option<std::process::ExitStatus>> {
+    let deadline = Instant::now() + timeout;
+    loop {
+        if let Some(status) = child.try_wait()? {
+            return Ok(Some(status));
+        }
+        let now = Instant::now();
+        if now >= deadline {
+            child.kill()?;
+            // Reap it. A killed child that is never waited for stays a zombie
+            // for as long as this process lives, which is the leak the
+            // deadline exists to avoid.
+            child.wait()?;
+            return Ok(None);
+        }
+        std::thread::sleep(THUMBNAILER_POLL.min(deadline - now));
+    }
 }
 
 // Thumbnail generation semaphore - limits parallel thumbnail workers
@@ -2431,8 +2471,19 @@ impl ItemThumbnail {
             let Some(mut command) = thumbnailer.command(path, file.path(), thumbnail_size) else {
                 continue;
             };
-            match command.status() {
-                Ok(status) => {
+            let status = command
+                .spawn()
+                .and_then(|mut child| wait_with_timeout(&mut child, THUMBNAILER_TIMEOUT));
+            match status {
+                Ok(None) => {
+                    log::warn!(
+                        "killed {:?} for {}: still running after {:?}",
+                        thumbnailer,
+                        path.display(),
+                        THUMBNAILER_TIMEOUT
+                    );
+                }
+                Ok(Some(status)) => {
                     if status.success() {
                         match image::ImageReader::open(file.path())
                             .and_then(ImageReader::with_guessed_format)
@@ -7720,6 +7771,49 @@ mod tests {
             !ran.load(Ordering::Relaxed),
             "work ran for an item that had already gone"
         );
+    }
+
+    #[test]
+    fn a_thumbnailer_that_never_exits_is_killed_and_reaped() {
+        use crate::tab::wait_with_timeout;
+        use std::time::{Duration, Instant};
+
+        let mut child = std::process::Command::new("sleep")
+            .arg("60")
+            .spawn()
+            .expect("sleep should be on PATH");
+
+        let started = Instant::now();
+        let status = wait_with_timeout(&mut child, Duration::from_millis(100))
+            .expect("waiting should not fail");
+
+        assert!(status.is_none(), "a killed child has no exit status");
+        assert!(
+            started.elapsed() < Duration::from_secs(5),
+            "the deadline did not end the wait"
+        );
+        // Already reaped: a second wait on a live zombie would succeed, so the
+        // only way this errors is that the child is gone for good.
+        assert!(
+            child.try_wait().is_ok(),
+            "the killed child was left unreaped"
+        );
+    }
+
+    #[test]
+    fn a_thumbnailer_that_exits_in_time_keeps_its_status() {
+        use crate::tab::wait_with_timeout;
+        use std::time::Duration;
+
+        let mut child = std::process::Command::new("true")
+            .spawn()
+            .expect("true should be on PATH");
+
+        let status = wait_with_timeout(&mut child, Duration::from_secs(30))
+            .expect("waiting should not fail")
+            .expect("the child exited well inside the deadline");
+
+        assert!(status.success(), "`true` exits successfully");
     }
 
     #[test]
