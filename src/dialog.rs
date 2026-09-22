@@ -489,8 +489,9 @@ enum Message {
     Open,
     Preview,
     /// Items re-read off the event loop after the filesystem changed beneath
-    /// them, tagged with the location they were read from.
-    RefreshedItems(Location, Vec<(PathBuf, Box<tab::Item>)>),
+    /// them, tagged with the location they were read from and the number of
+    /// the batch that asked for them.
+    RefreshedItems(Location, u64, Vec<(PathBuf, Box<tab::Item>)>),
     Save(bool),
     ScrollTab(i16),
     SearchActivate,
@@ -586,6 +587,14 @@ struct App {
         FxHashSet<PathBuf>,
     )>,
     auto_scroll_speed: Option<i16>,
+    /// The batch number given to the next set of items sent off to be re-read.
+    refresh_batch: u64,
+    /// The newest batch whose result has been adopted, per path, so a batch
+    /// that finishes out of order cannot put back an older snapshot. Emptied
+    /// once no batch is in flight.
+    refreshed_at: rustc_hash::FxHashMap<PathBuf, u64>,
+    /// Batches sent off to be re-read and not yet answered.
+    refresh_in_flight: usize,
     type_select_prefix: String,
     type_select_last_key: Option<Instant>,
 }
@@ -1080,6 +1089,9 @@ impl Application for App {
             core,
             flags,
             title,
+            refresh_batch: 0,
+            refreshed_at: rustc_hash::FxHashMap::default(),
+            refresh_in_flight: 0,
             accept_label: DialogLabel::from(accept_label),
             choices: Vec::new(),
             context_page: ContextPage::Preview(None, PreviewKind::Selected),
@@ -1680,6 +1692,9 @@ impl Application for App {
 
                     if !changed.is_empty() {
                         let location = self.tab.location.clone();
+                        let batch = self.refresh_batch;
+                        self.refresh_batch = self.refresh_batch.wrapping_add(1);
+                        self.refresh_in_flight += 1;
                         tasks.push(Task::future(async move {
                             let rebuilt = tokio::task::spawn_blocking(move || {
                                 changed
@@ -1698,21 +1713,20 @@ impl Application for App {
                             })
                             .await;
 
-                            match rebuilt {
-                                Ok(items) if !items.is_empty() => {
-                                    crate::ui::action::app(Message::RefreshedItems(location, items))
-                                }
-                                Ok(_) => crate::ui::action::none(),
-                                Err(err) => {
-                                    log::warn!("failed to reload changed items: {err}");
-                                    crate::ui::action::none()
-                                }
-                            }
+                            // Answered even when it found nothing, so the count
+                            // of batches still out stays honest.
+                            let items = rebuilt.unwrap_or_else(|err| {
+                                log::warn!("failed to reload changed items: {err}");
+                                Vec::new()
+                            });
+                            crate::ui::action::app(Message::RefreshedItems(location, batch, items))
                         }));
                     }
 
-                    // A refreshed item may now be a type whose icon has never
-                    // been resolved, and a refresh is not a scan
+                    // Icons still standing in as placeholders from an earlier
+                    // scan. Items being re-read above are warmed after they are
+                    // adopted instead, because until then the tab still holds
+                    // their old types.
                     let warmup = self.tab.refresh_icons(sizes);
                     if !warmup.is_empty() {
                         tasks.push(Task::future(async move {
@@ -1733,7 +1747,9 @@ impl Application for App {
                     }
                 }
             }
-            Message::RefreshedItems(location, rebuilt) => {
+            Message::RefreshedItems(location, batch, rebuilt) => {
+                self.refresh_in_flight = self.refresh_in_flight.saturating_sub(1);
+                let mut adopted = false;
                 // The chooser may have been sent somewhere else while these
                 // were being read, in which case they describe files it is no
                 // longer showing.
@@ -1741,13 +1757,51 @@ impl Application for App {
                     && let Some(items) = &mut self.tab.items_opt
                 {
                     for (path, fresh) in rebuilt {
+                        // Batches overlap: two bursts naming the same file
+                        // start two workers, and the older one can finish
+                        // last. Whatever was read more recently for a path is
+                        // what the chooser keeps.
+                        if self
+                            .refreshed_at
+                            .get(&path)
+                            .is_some_and(|seen| batch < *seen)
+                        {
+                            continue;
+                        }
+                        self.refreshed_at.insert(path.clone(), batch);
                         // One item per path in a listing, so the first match is
                         // the only one.
                         if let Some(item) =
                             items.iter_mut().find(|item| item.path_opt() == Some(&path))
                         {
                             item.adopt(*fresh);
+                            adopted = true;
                         }
+                    }
+                }
+                if self.refresh_in_flight == 0 {
+                    // Nothing is out, so nothing can arrive out of order any
+                    // more and these numbers say nothing about the next batch.
+                    self.refreshed_at.clear();
+                }
+                if adopted {
+                    // Asked for after adopting, not before: a refreshed item
+                    // may now be a type whose icon has never been resolved,
+                    // and until it is adopted the tab still holds the old one.
+                    let sizes = self.tab.config.icon_sizes;
+                    let warmup = self.tab.refresh_icons(sizes);
+                    if !warmup.is_empty() {
+                        return Task::future(async move {
+                            if tokio::task::spawn_blocking(move || {
+                                tab::warm_icons(&warmup, sizes);
+                            })
+                            .await
+                            .is_err()
+                            {
+                                return crate::ui::action::none();
+                            }
+                            crate::ui::action::app(Message::TabMessage(tab::Message::IconsReady))
+                        });
                     }
                 }
             }

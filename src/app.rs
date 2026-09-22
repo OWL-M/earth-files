@@ -403,8 +403,9 @@ pub enum Message {
     PermanentlyDelete(Option<Entity>),
     Preview,
     /// Items re-read off the event loop after the filesystem changed beneath
-    /// them, tagged with the location they were read from.
-    RefreshedItems(Entity, Location, Vec<(PathBuf, Box<tab::Item>)>),
+    /// them, tagged with the location they were read from and the number of
+    /// the batch that asked for them.
+    RefreshedItems(Entity, Location, u64, Vec<(PathBuf, Box<tab::Item>)>),
     /// A batch rename preview with its destination conflicts filled in, and
     /// the revision of the names it describes.
     BatchRenamePreview(u64, batch_rename::Preview),
@@ -807,6 +808,15 @@ pub struct App {
     /// What the last background check said about the name typed into the new
     /// item or rename dialog.
     name_check: Option<NameCheck>,
+    /// The batch number given to the next set of items sent off to be re-read.
+    refresh_batch: u64,
+    /// The newest batch whose result has been adopted, per path, so a batch
+    /// that finishes out of order cannot put back an older snapshot. Only
+    /// meaningful while batches are in flight, and emptied once none are, so
+    /// it does not grow with every file ever refreshed.
+    refreshed_at: FxHashMap<PathBuf, u64>,
+    /// Batches sent off to be re-read and not yet answered.
+    refresh_in_flight: usize,
     /// Bumped on every keystroke in that dialog. A check that finds the
     /// counter has moved on since it was scheduled drops out before touching
     /// the disk, so holding a key down costs one stat rather than one per
@@ -2613,6 +2623,9 @@ impl Application for App {
             file_dialog_opt: None,
             clipboard_cache: ClipboardCache::Empty,
             name_check: None,
+            refresh_batch: 0,
+            refreshed_at: FxHashMap::default(),
+            refresh_in_flight: 0,
             name_check_revision: Arc::new(AtomicU64::new(0)),
         };
 
@@ -3837,9 +3850,10 @@ impl Application for App {
                                 }
                             }
                         }
-                        // A refreshed item may now be a type whose icon has
-                        // never been resolved, and a refresh is not a scan,
-                        // so ask for those separately
+                        // Icons still standing in as placeholders from an
+                        // earlier scan of this tab. Items being re-read below
+                        // are warmed after they are adopted instead, because
+                        // until then the tab still holds their old types.
                         let sizes = tab.config.icon_sizes;
                         let warmup = tab.refresh_icons(sizes);
                         if !warmup.is_empty() {
@@ -3858,6 +3872,9 @@ impl Application for App {
                     .map(|(entity, location)| self.update_tab(entity, location, None))
                     .collect();
                 for (entity, location, sizes, paths) in refresh {
+                    let batch = self.refresh_batch;
+                    self.refresh_batch = self.refresh_batch.wrapping_add(1);
+                    self.refresh_in_flight += 1;
                     commands.push(Task::future(async move {
                         let rebuilt = tokio::task::spawn_blocking(move || {
                             paths
@@ -3873,16 +3890,15 @@ impl Application for App {
                         })
                         .await;
 
-                        match rebuilt {
-                            Ok(items) if !items.is_empty() => crate::ui::action::app(
-                                Message::RefreshedItems(entity, location, items),
-                            ),
-                            Ok(_) => crate::ui::action::none(),
-                            Err(err) => {
-                                log::warn!("failed to reload changed items: {err}");
-                                crate::ui::action::none()
-                            }
-                        }
+                        // Answered even when it found nothing, so the count of
+                        // batches still out stays honest.
+                        let items = rebuilt.unwrap_or_else(|err| {
+                            log::warn!("failed to reload changed items: {err}");
+                            Vec::new()
+                        });
+                        crate::ui::action::app(Message::RefreshedItems(
+                            entity, location, batch, items,
+                        ))
                     }));
                 }
                 for (entity, warmup, sizes) in warm {
@@ -4344,7 +4360,9 @@ impl Application for App {
                 let paths: Box<[_]> = self.selected_paths(entity_opt).collect();
                 return self.operation(Operation::RemoveFromRecents { paths });
             }
-            Message::RefreshedItems(entity, location, rebuilt) => {
+            Message::RefreshedItems(entity, location, batch, rebuilt) => {
+                self.refresh_in_flight = self.refresh_in_flight.saturating_sub(1);
+                let mut warm = None;
                 if let Some(tab) = self.tab_model.data_mut::<Tab>(entity) {
                     // The tab may have been sent somewhere else while these
                     // were being read, in which case they describe files it is
@@ -4352,16 +4370,60 @@ impl Application for App {
                     if tab.location == location
                         && let Some(items) = &mut tab.items_opt
                     {
+                        let mut adopted = false;
                         for (path, fresh) in rebuilt {
+                            // Batches overlap: two bursts naming the same file
+                            // start two workers, and the older one can finish
+                            // last. Whatever was read more recently for a path
+                            // is what the tab keeps.
+                            let newer = self
+                                .refreshed_at
+                                .get(&path)
+                                .is_none_or(|seen| batch >= *seen);
+                            if !newer {
+                                continue;
+                            }
+                            self.refreshed_at.insert(path.clone(), batch);
                             // One item per path in a listing, so the first match is
                             // the only one.
                             if let Some(item) =
                                 items.iter_mut().find(|item| item.path_opt() == Some(&path))
                             {
                                 item.adopt(*fresh);
+                                adopted = true;
+                            }
+                        }
+                        if adopted {
+                            // Asked for after adopting, not before: a refreshed
+                            // item may now be a type whose icon has never been
+                            // resolved, and until it is adopted the tab still
+                            // holds the old type.
+                            let sizes = tab.config.icon_sizes;
+                            let warmup = tab.refresh_icons(sizes);
+                            if !warmup.is_empty() {
+                                warm = Some((warmup, sizes));
                             }
                         }
                     }
+                }
+                if self.refresh_in_flight == 0 {
+                    // Nothing is out, so nothing can arrive out of order any
+                    // more and these numbers say nothing about the next batch.
+                    self.refreshed_at.clear();
+                }
+                if let Some((warmup, sizes)) = warm {
+                    return Task::future(async move {
+                        if tokio::task::spawn_blocking(move || tab::warm_icons(&warmup, sizes))
+                            .await
+                            .is_err()
+                        {
+                            return crate::ui::action::none();
+                        }
+                        crate::ui::action::app(Message::TabMessage(
+                            Some(entity),
+                            tab::Message::IconsReady,
+                        ))
+                    });
                 }
             }
             Message::ReloadMimeAppCache => {
