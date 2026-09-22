@@ -70,11 +70,68 @@ pub const DOUBLE_CLICK_DURATION: Duration = Duration::from_millis(500);
 pub const TYPE_SELECT_TIMEOUT: Duration = Duration::from_millis(1000);
 const MAX_SEARCH_LATENCY: Duration = Duration::from_millis(20);
 const THUMBNAIL_SIZE: u32 = (ICON_SIZE_GRID as u32) * (ICON_SCALE_MAX as u32);
-/// Maximum bytes of text to pass to the editor for preview; caps shaping work to avoid blocking.
-/// Files larger than this get a truncated preview (first N bytes only).
-const TEXT_PREVIEW_MAX_BYTES: usize = 256 * 1024; // 256 KiB
+/// Maximum bytes to read from a file for its preview. Only the first
+/// [`TEXT_PREVIEW_LINES`] of what is read are ever shaped, so this needs to be
+/// no more than enough to contain them.
+const TEXT_PREVIEW_MAX_BYTES: usize = 64 * 1024; // 64 KiB
+/// Lines of a text file the preview keeps.
+///
+/// The preview pane is a [`THUMBNAIL_SIZE`] square, which fits about fifteen
+/// rows of wrapped text. Every character beyond what it can show is shaped and
+/// then never drawn, and shaping takes the process-wide font system lock that
+/// the event loop needs to draw anything at all, so an over-long preview
+/// freezes the whole application rather than merely wasting work.
+const TEXT_PREVIEW_LINES: usize = 16;
+/// Characters of each preview line that are kept, for the same reason: a
+/// minified file is a single line thousands of columns wide, of which the pane
+/// can show about thirty before wrapping.
+const TEXT_PREVIEW_LINE_CHARS: usize = 80;
+/// Spaces a tab becomes in a preview.
+const TAB_PREVIEW_WIDTH: usize = 4;
 /// Maximum file size (bytes) to attempt text preview; files larger than this are skipped entirely.
 const TEXT_PREVIEW_MAX_FILE_BYTES: u64 = 8 * 1000 * 1000; // 8 MiB
+
+/// Cut `text` down to what the preview pane can actually show, and to what is
+/// cheap to shape.
+///
+/// Both dimensions are bounded, because shaping cost grows with the characters
+/// handed to the editor and is paid under a lock the event loop also needs.
+///
+/// Control characters are dropped, and not only because they draw as tofu: a
+/// character with no glyph in any loaded font sends the shaper searching every
+/// installed font for one, and it finds nothing to remember, so it searches
+/// again for the next. A log file's colour escapes cost about a hundred times
+/// what their letters do.
+fn preview_text(text: &str) -> String {
+    let mut preview = String::new();
+    for line in text.lines().take(TEXT_PREVIEW_LINES) {
+        if !preview.is_empty() {
+            preview.push('\n');
+        }
+
+        let mut kept = 0;
+        for character in line.chars() {
+            if kept >= TEXT_PREVIEW_LINE_CHARS {
+                break;
+            }
+            match character {
+                // Indentation is worth keeping; a tab is a control character
+                // and shapes like one.
+                '\t' => {
+                    let spaces = TAB_PREVIEW_WIDTH.min(TEXT_PREVIEW_LINE_CHARS - kept);
+                    preview.extend(std::iter::repeat_n(' ', spaces));
+                    kept += spaces;
+                }
+                _ if character.is_control() => {}
+                _ => {
+                    preview.push(character);
+                    kept += 1;
+                }
+            }
+        }
+    }
+    preview
+}
 
 // Thumbnail generation semaphore - limits parallel thumbnail workers
 // Uses 4 workers for balanced throughput and memory usage
@@ -2268,16 +2325,18 @@ impl ItemThumbnail {
                 }) {
                     Ok(()) => {
                         let text = match std::str::from_utf8(&buf) {
-                            Ok(s) => s.to_string(),
+                            Ok(s) => s,
                             Err(e) => {
                                 // Use only the valid UTF-8 prefix (slice is guaranteed valid by valid_up_to())
-                                std::str::from_utf8(&buf[..e.valid_up_to()])
-                                    .unwrap_or("")
-                                    .to_string()
+                                std::str::from_utf8(&buf[..e.valid_up_to()]).unwrap_or("")
                             }
                         };
-                        if !text.is_empty() {
-                            return Self::Text(widget::text_editor::Content::with_text(&text));
+                        // Only the lines the pane can show are shaped: the rest
+                        // would cost the event loop the font system lock for
+                        // nothing.
+                        let preview = preview_text(text);
+                        if !preview.is_empty() {
+                            return Self::Text(widget::text_editor::Content::with_text(&preview));
                         }
                     }
                     Err(err) => {
@@ -7556,6 +7615,62 @@ fn text_editor_class(
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn preview_text_keeps_only_what_the_pane_can_show() {
+        let text = (0..100)
+            .map(|line| format!("{line}: {}", "x".repeat(500)))
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        let preview = super::preview_text(&text);
+
+        assert_eq!(preview.lines().count(), super::TEXT_PREVIEW_LINES);
+        for line in preview.lines() {
+            assert!(
+                line.chars().count() <= super::TEXT_PREVIEW_LINE_CHARS,
+                "line kept {} characters",
+                line.chars().count()
+            );
+        }
+    }
+
+    #[test]
+    fn preview_text_leaves_a_short_file_alone() {
+        assert_eq!(super::preview_text("one\ntwo\nthree"), "one\ntwo\nthree");
+    }
+
+    #[test]
+    fn preview_text_drops_control_characters() {
+        let preview = super::preview_text("\u{1b}[2mdim\u{1b}[0m text\u{7}");
+
+        assert_eq!(preview, "[2mdim[0m text");
+    }
+
+    #[test]
+    fn preview_text_keeps_indentation() {
+        let preview = super::preview_text("\tindented");
+
+        assert_eq!(preview, "    indented");
+    }
+
+    #[test]
+    fn preview_text_counts_tab_spaces_against_the_line_budget() {
+        let text = "\t".repeat(super::TEXT_PREVIEW_LINE_CHARS);
+
+        let preview = super::preview_text(&text);
+
+        assert_eq!(preview.chars().count(), super::TEXT_PREVIEW_LINE_CHARS);
+    }
+
+    #[test]
+    fn preview_text_truncates_a_single_long_line() {
+        let text = "y".repeat(10_000);
+
+        let preview = super::preview_text(&text);
+
+        assert_eq!(preview.chars().count(), super::TEXT_PREVIEW_LINE_CHARS);
+    }
     use std::path::PathBuf;
     use std::{fs, io};
 
