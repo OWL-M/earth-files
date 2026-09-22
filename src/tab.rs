@@ -187,6 +187,35 @@ impl Drop for CancelOnDrop {
     }
 }
 
+/// What is known about an item from the disk itself, as opposed to from the
+/// listing it came in.
+///
+/// Every item carries listing metadata -- name, type, size, whatever the
+/// scan handed over -- and that is what the pane draws first. Trashed and
+/// GVFS items have nothing more than that until something asks the disk, and
+/// asking the disk is what this tracks: not yet, on its way, here, or refused.
+/// The three cases are kept apart deliberately. "Not here yet" and "could not
+/// be read" have to draw differently, and neither may be drawn as a plausible
+/// zero.
+#[derive(Clone, Debug)]
+pub enum MetadataState {
+    /// Nothing has come back. While the item is previewed, a request exists.
+    Pending,
+    Ready(Metadata),
+    Failed(String),
+}
+
+/// Detail reads for the preview pane allowed at once.
+///
+/// Small on purpose, and separate from every other semaphore, because of what
+/// a dead mount does: a `stat` on it may not return for as long as the mount
+/// stays dead, and the worker holding that permit stays with it. Each dead
+/// mount touched costs one permit for the session. The pane has to be, and
+/// is, fine with that: the listing still draws it, and a request that never
+/// answers is drawn as pending rather than as anything else.
+static DETAILS_SEMAPHORE: LazyLock<Arc<tokio::sync::Semaphore>> =
+    LazyLock::new(|| Arc::new(tokio::sync::Semaphore::new(2)));
+
 /// Folder-size traversals allowed at once.
 ///
 /// Kept apart from [`THUMB_SEMAPHORE`] so that selecting a few large folders
@@ -1070,7 +1099,8 @@ pub fn item_from_gvfs_info(path: PathBuf, file_info: gio::FileInfo, sizes: IconS
         // Only the gvfs listing builds these, and it runs on a worker.
         // Remote paths are left alone: reading content over the network to
         // learn a pixel size is what the remote guard exists to avoid.
-        file_metadata: OnceCell::new(),
+        details: MetadataState::Pending,
+        details_epoch: 0,
         image_dimensions: OnceCell::from(
             (!remote && mime.type_() == mime::IMAGE)
                 .then(|| image::image_dimensions(&path).ok())
@@ -1168,7 +1198,8 @@ pub fn item_from_entry(
         },
         hidden,
         image_dimensions: OnceCell::new(),
-        file_metadata: OnceCell::new(),
+        details: MetadataState::Pending,
+        details_epoch: 0,
         location_opt: Some(Location::Path(path)),
         mime,
         icon_handle_grid,
@@ -1225,7 +1256,8 @@ pub fn item_from_trash_entry(
         hidden: false,
         location_opt: location,
         image_dimensions: OnceCell::new(),
-        file_metadata: OnceCell::new(),
+        details: MetadataState::Pending,
+        details_epoch: 0,
         mime,
         icon_handle_grid,
         icon_handle_list,
@@ -1981,6 +2013,9 @@ pub enum Message {
     /// What a mounter said a submitted network URI names, or `None` when it
     /// could not say, tagged with the request number it answers.
     NetworkResolved(u64, String, Option<Location>),
+    /// What the disk said about a previewed item, tagged with the incarnation
+    /// of the item it was asked about.
+    ItemDetails(PathBuf, u64, Result<Metadata, String>),
     /// The icon cache has been filled, so placeholders can be replaced
     IconsReady,
     AutoScroll(Option<f32>),
@@ -2565,12 +2600,14 @@ pub struct Item {
     /// would block the interface. Only the details pane fills it on demand,
     /// for the one item it is describing.
     pub image_dimensions: OnceCell<Option<(u32, u32)>>,
-    /// Metadata for an item whose own [`Self::metadata`] does not carry any,
-    /// read once when something first asks. Trashed and GVFS items are the
-    /// ones that need it, and the details pane asks on every frame it is
-    /// open, so reading it each time would stat a trashed file -- or a file on
-    /// a network mount -- sixty times a second.
-    pub file_metadata: OnceCell<Option<Metadata>>,
+    /// What the disk says about an item whose [`Self::metadata`] does not
+    /// carry a [`Metadata`] of its own -- trashed and GVFS items. Filled in
+    /// the background while the item is previewed, never from a view.
+    pub details: MetadataState,
+    /// Which incarnation of this item `details` describes. Bumped when the
+    /// item is rebuilt after a change on disk, so the request for the new
+    /// incarnation is a new request and an answer to the old one is ignored.
+    pub details_epoch: u64,
     pub icon_handle_grid: widget::icon::Handle,
     pub icon_handle_list: widget::icon::Handle,
     pub icon_handle_list_condensed: widget::icon::Handle,
@@ -2597,7 +2634,12 @@ impl Item {
     /// what the burst would otherwise cost the interface. See
     /// [`item_from_path`], which callers run on a worker.
     pub fn adopt(&mut self, fresh: Item) {
+        // A new incarnation: whatever the disk said about the old one no
+        // longer applies, and an answer still on its way for it must not land
+        // on this one.
+        let details_epoch = self.details_epoch.wrapping_add(1);
         *self = Item {
+            details_epoch,
             button_id: self.button_id.clone(),
             pos_opt: Cell::new(self.pos_opt.get()),
             rect_opt: Cell::new(self.rect_opt.get()),
@@ -2639,17 +2681,27 @@ impl Item {
         self.mime.type_() == mime::IMAGE || self.mime.type_() == mime::TEXT
     }
 
+    /// The full [`Metadata`] for this item, if it is known. Never touches the
+    /// disk: a local item carries it from the scan, and any other item has it
+    /// only once a background read has answered.
     pub fn file_metadata(&self) -> Option<Metadata> {
-        match &self.metadata {
-            ItemMetadata::Path { metadata, .. } => Some(metadata.clone()),
-            // Trashed and GVFS items have a readable path of their own. Read
-            // once: an item that changes on disk is rebuilt by
-            // [`Self::adopt`], which brings a fresh cell with it.
-            _ => self
-                .file_metadata
-                .get_or_init(|| self.path_opt().and_then(|p| fs::metadata(p).ok()))
-                .clone(),
+        match (&self.metadata, &self.details) {
+            (ItemMetadata::Path { metadata, .. }, _) => Some(metadata.clone()),
+            (_, MetadataState::Ready(metadata)) => Some(metadata.clone()),
+            _ => None,
         }
+    }
+
+    /// Metadata for an action the user has just asked for, read now if need
+    /// be.
+    ///
+    /// Unlike [`Self::file_metadata`] this may touch the disk: one `stat`, on
+    /// one explicit action, from an update handler. On a dead mount that is
+    /// one stalled call, which is a different thing from one per frame. Views
+    /// must never call this.
+    pub fn metadata_for_action(&self) -> Option<Metadata> {
+        self.file_metadata()
+            .or_else(|| self.path_opt().and_then(|path| fs::metadata(path).ok()))
     }
 
     fn preview(&self) -> Element<'_, Message> {
@@ -2754,27 +2806,45 @@ impl Item {
             }
         }
 
-        if let Some(metadata) = self.file_metadata() {
-            if metadata.is_dir() {
-                if let Some(children) = self.metadata.children_count() {
-                    details = details.push(widget::text::body(fl!("items", items = children)));
-                }
-                let size = match &self.dir_size {
-                    DirSize::Calculating(_) => fl!("calculating"),
-                    DirSize::Directory(size) => format_size(*size),
-                    DirSize::NotDirectory => String::new(),
-                    DirSize::Error(err) => err.clone(),
-                };
-                if !size.is_empty() {
-                    details = details.push(widget::text::body(fl!("item-size", size = size)));
-                }
-            } else {
-                details = details.push(widget::text::body(fl!(
-                    "item-size",
-                    size = format_size(metadata.len())
-                )));
+        // From the listing: what every item knows about itself, however it
+        // was found. Drawn at once, so the pane is never blank while the disk
+        // is being asked for the rest.
+        if self.metadata.is_dir() {
+            if let Some(children) = self.metadata.children_count() {
+                details = details.push(widget::text::body(fl!("items", items = children)));
             }
+            let size = match &self.dir_size {
+                DirSize::Calculating(_) => fl!("calculating"),
+                DirSize::Directory(size) => format_size(*size),
+                DirSize::NotDirectory => String::new(),
+                DirSize::Error(err) => err.clone(),
+            };
+            if !size.is_empty() {
+                details = details.push(widget::text::body(fl!("item-size", size = size)));
+            }
+        } else if let Some(size) = self.metadata.file_size() {
+            details = details.push(widget::text::body(fl!(
+                "item-size",
+                size = format_size(size)
+            )));
+        }
 
+        // An item the listing could not fully describe, while the disk is
+        // asked, or after it refused. Never a made-up value in either case.
+        if !matches!(self.metadata, ItemMetadata::Path { .. }) {
+            match &self.details {
+                MetadataState::Pending => {
+                    details = details.push(widget::text::body(fl!("calculating")));
+                }
+                MetadataState::Failed(err) => {
+                    details = details.push(widget::text::body(err.clone()));
+                }
+                MetadataState::Ready(_) => {}
+            }
+        }
+
+        // From the disk: times and ownership, which only a `stat` can say.
+        if let Some(metadata) = self.file_metadata() {
             let date_time_formatter = date_time_formatter();
             let time_formatter = time_formatter();
 
@@ -5362,7 +5432,7 @@ impl Tab {
                     }) {
                         if let (Some(path), Some(mode)) = (
                             item.path_opt(),
-                            item.file_metadata().map(|metadata| metadata.mode()),
+                            item.metadata_for_action().map(|metadata| metadata.mode()),
                         ) {
                             permissions.push((path.clone(), set_mode_part(mode, shift, bits)));
                         }
@@ -5522,6 +5592,28 @@ impl Tab {
             }
             Message::ZoomOut => {
                 commands.push(Command::Action(Action::ZoomOut));
+            }
+            Message::ItemDetails(path, epoch, result) => {
+                let location = Location::Path(path);
+                let state = match result {
+                    Ok(metadata) => MetadataState::Ready(metadata),
+                    Err(err) => MetadataState::Failed(err),
+                };
+                // Only the incarnation that asked. An item rebuilt since is a
+                // different one, with a request of its own on the way.
+                if let Some(ref mut item) = self.parent_item_opt
+                    && item.location_opt.as_ref() == Some(&location)
+                    && item.details_epoch == epoch
+                {
+                    item.details = state.clone();
+                }
+                if let Some(ref mut items) = self.items_opt
+                    && let Some(item) = items.iter_mut().find(|item| {
+                        item.location_opt.as_ref() == Some(&location) && item.details_epoch == epoch
+                    })
+                {
+                    item.details = state;
+                }
             }
             Message::DirectorySize(path, dir_size) => {
                 let location = Location::Path(path);
@@ -7125,29 +7217,38 @@ impl Tab {
         for item in selected_items.iter() {
             *mime_type_counts.entry(item.mime.to_string()).or_insert(0) += 1;
 
-            if let Some(metadata) = item.file_metadata() {
-                if metadata.is_dir() {
-                    match &item.dir_size {
-                        DirSize::Calculating(_) => {
-                            calculating_dir_size = true;
-                        }
-                        DirSize::Directory(size) => {
-                            total_size = total_size.saturating_add(*size);
-                        }
-                        DirSize::NotDirectory => (),
-                        DirSize::Error(err) => {
-                            dir_size_error = Some(err.clone());
-                        }
-                    };
-                } else {
-                    total_size = total_size.saturating_add(metadata.len());
+            // Sizes from the listing, which every item has
+            if item.metadata.is_dir() {
+                match &item.dir_size {
+                    DirSize::Calculating(_) => {
+                        calculating_dir_size = true;
+                    }
+                    DirSize::Directory(size) => {
+                        total_size = total_size.saturating_add(*size);
+                    }
+                    DirSize::NotDirectory => (),
+                    DirSize::Error(err) => {
+                        dir_size_error = Some(err.clone());
+                    }
+                };
+            } else if let Some(size) = item.metadata.file_size() {
+                total_size = total_size.saturating_add(size);
+            }
+            // Ownership from the disk, which some items are still being asked
+            // for. A total with some of its items unanswered is shown the way
+            // a total with a folder still being walked is: as not ready yet.
+            match (item.file_metadata(), &item.details) {
+                (Some(metadata), _) => {
+                    let mode = metadata.mode();
+                    user_name.insert(crate::tab::user_name(metadata.uid()));
+                    mode_user.insert(get_mode_part(mode, MODE_SHIFT_USER));
+                    group_name.insert(crate::tab::group_name(metadata.gid()));
+                    mode_group.insert(get_mode_part(mode, MODE_SHIFT_GROUP));
+                    mode_other.insert(get_mode_part(mode, MODE_SHIFT_OTHER));
                 }
-                let mode = metadata.mode();
-                user_name.insert(crate::tab::user_name(metadata.uid()));
-                mode_user.insert(get_mode_part(mode, MODE_SHIFT_USER));
-                group_name.insert(crate::tab::group_name(metadata.gid()));
-                mode_group.insert(get_mode_part(mode, MODE_SHIFT_GROUP));
-                mode_other.insert(get_mode_part(mode, MODE_SHIFT_OTHER));
+                (None, MetadataState::Pending) => calculating_dir_size = true,
+                (None, MetadataState::Failed(err)) => dir_size_error = Some(err.clone()),
+                (None, MetadataState::Ready(_)) => {}
             }
         }
         let mut mime_types: Vec<(String, u64)> = mime_type_counts.into_iter().collect();
@@ -7571,6 +7672,51 @@ impl Tab {
                 for item in selected_items {
                     // Item must have a path
                     if let Some(path) = item.path_opt().cloned() {
+                        // Details the listing does not carry, for items that
+                        // have none of their own. Declared here, not started
+                        // from a view: this exists exactly while the item is
+                        // previewed and unanswered, and goes away with either.
+                        // Keyed on the incarnation as well as the path, so a
+                        // rebuilt item is asked about afresh.
+                        if !matches!(item.metadata, ItemMetadata::Path { .. })
+                            && matches!(item.details, MetadataState::Pending)
+                        {
+                            struct DetailsKey {
+                                path: PathBuf,
+                                epoch: u64,
+                            }
+                            impl Hash for DetailsKey {
+                                fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+                                    self.path.hash(state);
+                                    self.epoch.hash(state);
+                                }
+                            }
+                            subscriptions.push(Subscription::run_with(
+                                DetailsKey { path: path.clone(), epoch: item.details_epoch },
+                                |DetailsKey { path, epoch }| {
+                                    let path = path.clone();
+                                    let epoch = *epoch;
+                                    stream::channel(1, move |mut output: futures::channel::mpsc::Sender<_>| async move {
+                                        // Bounded, and the permit travels with
+                                        // the work: a `stat` on a dead mount
+                                        // does not stop when the pane stops
+                                        // waiting for it. Dropped before its
+                                        // turn, it never starts.
+                                        let result = bounded_blocking(Arc::clone(&DETAILS_SEMAPHORE), {
+                                            let path = path.clone();
+                                            move || fs::metadata(&path).map_err(|err| err.to_string())
+                                        })
+                                        .await;
+                                        if let Some(result) = result {
+                                            let _ = output
+                                                .send(Message::ItemDetails(path, epoch, result))
+                                                .await;
+                                        }
+                                        std::future::pending().await
+                                    })
+                                },
+                            ));
+                        }
                         // Item must be calculating directory size
                         if let DirSize::Calculating(_) = &item.dir_size {
                             struct Wrapper {
@@ -8436,6 +8582,83 @@ mod tests {
         assert_eq!(
             tab.location, now,
             "a network answer from before the tab moved took it back"
+        );
+        Ok(())
+    }
+
+    /// A detail read answers the incarnation of the item that asked for it,
+    /// and only that one. A rebuilt item is a new incarnation.
+    #[test]
+    fn details_answer_only_the_incarnation_that_asked() -> io::Result<()> {
+        use crate::tab::{Item, ItemMetadata, MetadataState};
+
+        let fs = empty_fs()?;
+        fs::write(fs.path().join("a.txt"), b"x")?;
+        let location = Location::Path(fs.path().to_owned());
+        let (_parent, items) = location.scan(IconSizes::default());
+        let mut tab = Tab::new(
+            location,
+            TabConfig::default(),
+            ThumbCfg::default(),
+            None,
+            std::borrow::Cow::Borrowed("Undefined"),
+            None,
+        );
+        tab.set_items(items);
+
+        // Make it an item the listing cannot fully describe, as a trashed or
+        // GVFS item is
+        let first = |tab: &mut Tab| -> &mut Item {
+            tab.items_opt
+                .as_mut()
+                .expect("populated")
+                .first_mut()
+                .expect("one item")
+        };
+        let path = {
+            let item = first(&mut tab);
+            item.metadata = ItemMetadata::SimpleFile { size: 1 };
+            item.path_opt().cloned().expect("has a path")
+        };
+        assert!(
+            first(&mut tab).file_metadata().is_none(),
+            "nothing is known before the disk answers, and nothing is read here"
+        );
+        assert!(
+            first(&mut tab).metadata_for_action().is_some(),
+            "an action may read it now"
+        );
+
+        let epoch = first(&mut tab).details_epoch;
+        let metadata = fs::metadata(&path)?;
+
+        // An answer for another incarnation is ignored
+        tab.update(
+            Message::ItemDetails(path.clone(), epoch.wrapping_add(1), Ok(metadata.clone())),
+            Modifiers::empty(),
+        );
+        assert!(
+            matches!(first(&mut tab).details, MetadataState::Pending),
+            "an answer for a different incarnation was applied"
+        );
+
+        // The answer for this one lands
+        tab.update(
+            Message::ItemDetails(path.clone(), epoch, Ok(metadata)),
+            Modifiers::empty(),
+        );
+        assert!(
+            first(&mut tab).file_metadata().is_some(),
+            "the answer for this incarnation was not applied"
+        );
+
+        // A rebuild is a new incarnation, asked about afresh
+        let fresh = super::item_from_path(&path, IconSizes::default()).expect("rebuild");
+        first(&mut tab).adopt(fresh);
+        assert_eq!(first(&mut tab).details_epoch, epoch.wrapping_add(1));
+        assert!(
+            matches!(first(&mut tab).details, MetadataState::Pending),
+            "a rebuilt item kept the old incarnation's answer"
         );
         Ok(())
     }
