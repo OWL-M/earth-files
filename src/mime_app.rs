@@ -236,7 +236,14 @@ impl AsRef<str> for MimeApp {
 ///
 /// It is read, changed and written back whole, so the changes have to be
 /// applied one at a time and in the order they were made.
-type AssociationJob = (Mime, String, std::sync::mpsc::SyncSender<bool>);
+pub enum AssociationJob {
+    Write(Mime, String, std::sync::mpsc::Sender<bool>),
+    /// Answer once every write queued before this one is on disk.
+    Barrier(std::sync::mpsc::SyncSender<()>),
+}
+
+/// What a queued association write answers with once it has landed.
+pub type AssociationAck = std::sync::mpsc::Receiver<bool>;
 
 static ASSOCIATION_WRITER: LazyLock<Option<std::sync::mpsc::Sender<AssociationJob>>> =
     LazyLock::new(|| {
@@ -245,8 +252,15 @@ static ASSOCIATION_WRITER: LazyLock<Option<std::sync::mpsc::Sender<AssociationJo
             .name("mime-associations".to_owned())
             .spawn(move || {
                 // Ends when every sender is dropped, which is at exit.
-                for (mime, id, done) in rx {
-                    let _ = done.send(MimeAppCache::set_default(mime, id));
+                for job in rx {
+                    match job {
+                        AssociationJob::Write(mime, id, done) => {
+                            let _ = done.send(MimeAppCache::set_default(mime, id));
+                        }
+                        AssociationJob::Barrier(done) => {
+                            let _ = done.send(());
+                        }
+                    }
                 }
             });
         match spawned {
@@ -257,6 +271,21 @@ static ASSOCIATION_WRITER: LazyLock<Option<std::sync::mpsc::Sender<AssociationJo
             }
         }
     });
+
+/// Wait until every queued association write has reached the disk.
+///
+/// Called before the process exits: choosing a default application and closing
+/// the window straight after must not lose the choice.
+pub fn flush_associations() {
+    let Some(tx) = ASSOCIATION_WRITER.as_ref() else {
+        return;
+    };
+    let (done_tx, done_rx) = std::sync::mpsc::sync_channel(0);
+    if tx.send(AssociationJob::Barrier(done_tx)).is_err() {
+        return;
+    }
+    let _ = done_rx.recv();
+}
 
 pub struct MimeAppCache {
     apps: Vec<Arc<MimeApp>>,
@@ -586,7 +615,9 @@ impl MimeAppCache {
     /// a whole process, with a two second deadline -- lands on whichever
     /// handler first asks, which is one the user is waiting on.
     pub fn prime_terminal(&self) {
-        let _ = self.get_default_terminal();
+        // Runs the query, rather than asking the cache-only getter, which
+        // would have looked at an empty cell and left it empty.
+        let _ = self.default_terminal.get_or_init(Self::run_terminal_query);
     }
 
     /// Run the `xdg-mime` query on its own, away from any cache.
@@ -711,24 +742,35 @@ impl MimeAppCache {
         false
     }
 
-    /// Records `id` as the default application for `mime`, in order.
+    /// Queue `id` as the default application for `mime`, and return a handle
+    /// to wait on.
     ///
-    /// Serialized through one worker because the write is a read-modify-write
-    /// of the whole `mimeapps.list`: two overlapping changes would each write
-    /// back a file that does not know about the other, and one of them would
-    /// be lost. In order, too, so that two choices for the same type end up
-    /// with the later one winning rather than whichever finished last.
-    pub fn set_default_ordered(mime: Mime, id: String) -> bool {
-        let Some(tx) = ASSOCIATION_WRITER.as_ref() else {
+    /// Queued here, synchronously, and deliberately so. The write itself is
+    /// serialized through one worker because it is a read-modify-write of the
+    /// whole `mimeapps.list`, and two overlapping changes would each write
+    /// back a file that did not know about the other. But a single writer only
+    /// fixes overlap; it cannot fix the order things reach it in. Handing this
+    /// to a worker to enqueue would mean two choices for the same type racing
+    /// to get into the queue, and the one the user made first could land
+    /// second and win. Enqueueing where the choice is made keeps the order the
+    /// user made them in.
+    pub fn queue_default(mime: Mime, id: String) -> Option<AssociationAck> {
+        let tx = ASSOCIATION_WRITER.as_ref().or_else(|| {
             log::error!("the mime association writer is not running");
-            return false;
-        };
-        let (done_tx, done_rx) = std::sync::mpsc::sync_channel(0);
-        if tx.send((mime, id, done_tx)).is_err() {
+            None
+        })?;
+        let (done_tx, done_rx) = std::sync::mpsc::channel();
+        if tx.send(AssociationJob::Write(mime, id, done_tx)).is_err() {
             log::warn!("the mime association writer stopped");
-            return false;
+            return None;
         }
-        done_rx.recv().unwrap_or(false)
+        Some(done_rx)
+    }
+
+    /// Wait for a queued association write to finish. Blocking, so it belongs
+    /// on a worker.
+    pub fn await_association(ack: AssociationAck) -> bool {
+        ack.recv().unwrap_or(false)
     }
 
     /// Records `id` as the default application for `mime`.
@@ -811,6 +853,20 @@ mod tests {
     #[test]
     fn a_built_cache_reports_itself_loaded() {
         assert!(super::MimeAppCache::new().is_loaded());
+    }
+
+    /// Priming has to leave an answer behind. Asking the cache-only getter
+    /// instead would look at the empty cell, find nothing, and leave it empty
+    /// -- priming nothing while looking like it had.
+    #[test]
+    fn priming_the_terminal_leaves_an_answer() {
+        let cache = super::MimeAppCache::empty();
+        assert!(!cache.terminal_known(), "nothing known before priming");
+        cache.prime_terminal();
+        assert!(
+            cache.terminal_known(),
+            "priming left the default terminal unresolved"
+        );
     }
 
     #[test]

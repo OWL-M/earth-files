@@ -414,9 +414,15 @@ pub enum Message {
     /// Open these paths with the applications the mime cache names. Exists so
     /// that opening can wait for that cache to be built.
     OpenFiles(Vec<PathBuf>),
+    /// Offer applications for this file, which was chosen when the user asked
+    /// rather than when the cache was ready.
+    OpenWithFor(PathBuf, Mime),
     /// The same, for a terminal the user has already asked to open: take the
     /// answer and then open it.
-    DefaultTerminalThenOpen(Option<String>, Option<Entity>),
+    DefaultTerminalThenOpen(Option<String>, Box<[PathBuf]>),
+    /// Open a terminal in each of these folders, resolved from the selection
+    /// when the user asked rather than when the cache was ready.
+    OpenTerminalIn(Box<[PathBuf]>),
     /// The result of looking at a path the user is typing towards.
     NameChecked(NameCheck),
     ReloadMimeAppCache,
@@ -3532,9 +3538,9 @@ impl Application for App {
             Message::DefaultTerminal(id) => {
                 self.mime_app_cache.adopt_terminal(id);
             }
-            Message::DefaultTerminalThenOpen(id, entity_opt) => {
+            Message::DefaultTerminalThenOpen(id, paths) => {
                 self.mime_app_cache.adopt_terminal(id);
-                return self.update(Message::OpenTerminal(entity_opt));
+                return self.update(Message::OpenTerminalIn(paths));
             }
             Message::NameChecked(check) => {
                 self.name_check = Some(check);
@@ -4010,7 +4016,32 @@ impl Application for App {
                 }
             },
             Message::OpenTerminal(entity_opt) => {
-                if self.defer_until_mime_apps(Message::OpenTerminal(entity_opt)) {
+                // Which folders to open is decided now, from the selection as
+                // it is at the moment the user asks. Everything below may have
+                // to wait for the mime app cache, and the selection can change
+                // while it does -- opening whatever happens to be selected
+                // when the wait ends is not what was asked for.
+                let entity = entity_opt.unwrap_or_else(|| self.tab_model.active());
+                let mut paths: Box<[PathBuf]> = Box::from([]);
+                if let Some(tab) = self.tab_model.data::<Tab>(entity)
+                    && let Some(path) = tab.location.path_opt()
+                {
+                    if let Some(items) = tab.items_opt() {
+                        paths = items
+                            .iter()
+                            .filter_map(|item| {
+                                item.selected.then(|| item.path_opt().cloned()).flatten()
+                            })
+                            .collect();
+                    }
+                    if paths.is_empty() {
+                        paths = Box::from([path.clone()]);
+                    }
+                }
+                return self.update(Message::OpenTerminalIn(paths));
+            }
+            Message::OpenTerminalIn(paths) => {
+                if self.defer_until_mime_apps(Message::OpenTerminalIn(paths.clone())) {
                     return Task::none();
                 }
                 if !self.mime_app_cache.terminal_known() {
@@ -4025,30 +4056,11 @@ impl Application for App {
                                 log::warn!("failed to look up the default terminal: {err}");
                                 None
                             });
-                        crate::ui::action::app(Message::DefaultTerminalThenOpen(id, entity_opt))
+                        crate::ui::action::app(Message::DefaultTerminalThenOpen(id, paths))
                     });
                 }
                 if let Some(terminal) = self.mime_app_cache.terminal() {
-                    let mut paths = Box::from([]);
-                    let entity = entity_opt.unwrap_or_else(|| self.tab_model.active());
-                    if let Some(tab) = self.tab_model.data_mut::<Tab>(entity)
-                        && let Some(path) = tab.location.path_opt()
-                    {
-                        if let Some(items) = tab.items_opt() {
-                            paths = items
-                                .iter()
-                                .filter_map(
-                                    |item| {
-                                        if item.selected { item.path_opt() } else { None }
-                                    },
-                                )
-                                .collect();
-                        }
-                        if paths.is_empty() {
-                            paths = Box::from([path]);
-                        }
-                    }
-                    for path in paths {
+                    for path in &paths {
                         if let Some(mut command) = terminal
                             .command::<&str>(&[])
                             .and_then(|v| v.into_iter().next())
@@ -4136,40 +4148,45 @@ impl Application for App {
                 return self.open_file(&paths);
             }
             Message::OpenWithDialog(entity_opt) => {
-                if self.defer_until_mime_apps(Message::OpenWithDialog(entity_opt)) {
+                // Which file the dialog is for is decided now, from the
+                // selection as it is at the moment the user asks. Opening the
+                // dialog may have to wait for the mime app cache, and the
+                // selection can change while it does.
+                let entity = entity_opt.unwrap_or_else(|| self.tab_model.active());
+                let chosen = self
+                    .tab_model
+                    .data::<Tab>(entity)
+                    .and_then(Tab::items_opt)
+                    .and_then(|items| {
+                        items.iter().filter(|item| item.selected).find_map(|item| {
+                            item.path_opt()
+                                .map(|path| (path.clone(), item.mime.clone()))
+                        })
+                    });
+                if let Some((path, mime)) = chosen {
+                    return self.update(Message::OpenWithFor(path, mime));
+                }
+            }
+            Message::OpenWithFor(path, mime) => {
+                if self.defer_until_mime_apps(Message::OpenWithFor(path.clone(), mime.clone())) {
                     return Task::none();
                 }
-                let entity = entity_opt.unwrap_or_else(|| self.tab_model.active());
-                if let Some(tab) = self.tab_model.data::<Tab>(entity)
-                    && let Some(items) = tab.items_opt()
-                {
-                    for item in items {
-                        if !item.selected {
-                            continue;
-                        }
-                        let Some(path) = item.path_opt() else {
-                            continue;
-                        };
-                        return Task::batch([
-                            self.push_dialog(
-                                DialogPage::OpenWith {
-                                    path: path.clone(),
-                                    mime: item.mime.clone(),
-                                    selected: 0,
-                                    store_opt: "x-scheme-handler/mime"
-                                        .parse::<mime_guess::Mime>()
-                                        .ok()
-                                        .and_then(|mime| {
-                                            self.mime_app_cache.get(&mime).first().cloned()
-                                        }),
-                                    search_app_name: String::new(),
-                                },
-                                Some(CONFIRM_OPEN_WITH_BUTTON_ID.clone()),
-                            ),
-                            widget::text_input::focus(self.dialog_text_input.clone()),
-                        ]);
-                    }
-                }
+                return Task::batch([
+                    self.push_dialog(
+                        DialogPage::OpenWith {
+                            path,
+                            mime,
+                            selected: 0,
+                            store_opt: "x-scheme-handler/mime"
+                                .parse::<mime_guess::Mime>()
+                                .ok()
+                                .and_then(|mime| self.mime_app_cache.get(&mime).first().cloned()),
+                            search_app_name: String::new(),
+                        },
+                        Some(CONFIRM_OPEN_WITH_BUTTON_ID.clone()),
+                    ),
+                    widget::text_input::focus(self.dialog_text_input.clone()),
+                ]);
             }
             Message::OpenWithSelection(index) => {
                 if let Some(DialogPage::OpenWith { selected, .. }) = self.dialog_pages.front_mut() {
@@ -5004,12 +5021,19 @@ impl Application for App {
                             self.set_show_context(true);
                         }
                         tab::Command::SetOpenWith(mime, id) => {
-                            // Written on a worker: it reads `mimeapps.list`,
-                            // edits it and writes it back, which is disk work
-                            // however small the file is.
+                            // Queued here, in the order the user made the
+                            // choices. Handing the queueing itself to a worker
+                            // would let two choices race to reach the writer,
+                            // and the earlier one could land second and win.
+                            // Only the waiting goes to a worker: the write is
+                            // a read-modify-write of `mimeapps.list`, which is
+                            // disk work however small the file is.
+                            let Some(ack) = MimeAppCache::queue_default(mime, id) else {
+                                continue;
+                            };
                             commands.push(Task::future(async move {
                                 match tokio::task::spawn_blocking(move || {
-                                    MimeAppCache::set_default_ordered(mime, id)
+                                    MimeAppCache::await_association(ack)
                                 })
                                 .await
                                 {
@@ -5388,11 +5412,8 @@ impl Application for App {
                     }
                 }
                 NavMenuAction::OpenWith(entity) => {
-                    if self.defer_until_mime_apps(Message::NavMenuAction(NavMenuAction::OpenWith(
-                        entity,
-                    ))) {
-                        return Task::none();
-                    }
+                    // Resolved from the sidebar entry the user clicked, before
+                    // anything can wait on the mime app cache.
                     if let Some(path) = self
                         .nav_model
                         .data::<Location>(entity)
@@ -5401,21 +5422,7 @@ impl Application for App {
                     {
                         match tab::item_from_path(&path, IconSizes::default()) {
                             Ok(item) => {
-                                return self.push_dialog(
-                                    DialogPage::OpenWith {
-                                        path,
-                                        mime: item.mime,
-                                        selected: 0,
-                                        store_opt: "x-scheme-handler/mime"
-                                            .parse::<mime_guess::Mime>()
-                                            .ok()
-                                            .and_then(|mime| {
-                                                self.mime_app_cache.get(&mime).first().cloned()
-                                            }),
-                                        search_app_name: String::new(),
-                                    },
-                                    None,
-                                );
+                                return self.update(Message::OpenWithFor(path, item.mime));
                             }
                             Err(err) => {
                                 log::warn!(

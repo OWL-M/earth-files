@@ -252,4 +252,5 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
 pub fn shut_down() {
     config::store::flush();
     recents::flush();
+    mime_app::flush_associations();
 }
