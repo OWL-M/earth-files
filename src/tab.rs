@@ -57,7 +57,7 @@ use crate::large_image::{
 use crate::localize::{LANGUAGE_SORTER, LOCALE};
 use crate::mime_icon::mime_for_path;
 use crate::mounter::MOUNTERS;
-use crate::operation::{Controller, OperationError};
+use crate::operation::{Controller, ControllerState, OperationError};
 use crate::thumbnail_cacher::{CachedThumbnail, ThumbnailCacher, ThumbnailSize};
 use crate::thumbnailer::thumbnailer;
 use crate::trash::{Trash, TrashExt};
@@ -172,6 +172,34 @@ where
     .await
     .ok()
 }
+
+/// Cancels a [`Controller`] when dropped.
+///
+/// Dropping the future that awaits a blocking job does not stop the job, so
+/// the drop has to reach it some other way. Scrolling a selected folder out of
+/// view drops its subscription, and this turns that into a cancellation the
+/// walk itself notices.
+struct CancelOnDrop(Controller);
+
+impl Drop for CancelOnDrop {
+    fn drop(&mut self) {
+        self.0.cancel();
+    }
+}
+
+/// Folder-size traversals allowed at once.
+///
+/// Kept apart from [`THUMB_SEMAPHORE`] so that selecting a few large folders
+/// cannot starve the thumbnails the same pane is trying to draw. Smaller,
+/// because these are whole-tree walks and running many of them at once turns
+/// a disk's seek pattern against itself.
+static DIR_SIZE_SEMAPHORE: LazyLock<Arc<tokio::sync::Semaphore>> =
+    LazyLock::new(|| Arc::new(tokio::sync::Semaphore::new(2)));
+
+/// How long a traversal that finds its controller paused waits before looking
+/// again. Nothing pauses a folder-size job today; this keeps the meaning of a
+/// pause the same as everywhere else in case something ever does.
+const DIR_SIZE_PAUSE_POLL: Duration = Duration::from_millis(50);
 
 pub(crate) static SORT_OPTION_FALLBACK: LazyLock<FxHashMap<String, (HeadingOptions, bool)>> =
     LazyLock::new(|| {
@@ -3107,25 +3135,53 @@ pub struct Tab {
     column_resize: Option<ColumnResize>,
 }
 
+/// Add up the size of everything under `path`.
+///
+/// The walk runs on a bounded blocking worker. It reads directories and stats
+/// every entry, which is blocking work whatever it is wrapped in: awaiting
+/// between entries let the runtime schedule something else, but one slow
+/// directory read still held the thread it was on, and a selection of several
+/// large folders held several.
+///
+/// `controller` is what stops it. The caller cancels it when it stops caring,
+/// because dropping the future that awaits a blocking job does not reach the
+/// job, and a walk nobody is waiting for would otherwise run to the end of the
+/// tree.
 async fn calculate_dir_size(path: &Path, controller: Controller) -> Result<u64, OperationError> {
-    let mut total = 0;
-    for entry_res in WalkDir::new(path) {
-        controller
-            .check()
-            .await
-            .map_err(|s| OperationError::from_state(s, &controller))?;
+    let path = path.to_path_buf();
+    let walk = {
+        let controller = controller.clone();
+        bounded_blocking(Arc::clone(&DIR_SIZE_SEMAPHORE), move || {
+            let mut total = 0;
+            for entry_res in WalkDir::new(&path) {
+                // Checked here, inside the work, for the same reason the permit
+                // is held here: nothing outside can interrupt it.
+                loop {
+                    match controller.state() {
+                        ControllerState::Running => break,
+                        ControllerState::Paused => std::thread::sleep(DIR_SIZE_PAUSE_POLL),
+                        state => return Err(OperationError::from_state(state, &controller)),
+                    }
+                }
 
-        if let Ok(entry) = entry_res
-            && let Ok(metadata) = entry.metadata()
-            && metadata.is_file()
-        {
-            total += metadata.len();
-        }
+                if let Ok(entry) = entry_res
+                    && let Ok(metadata) = entry.metadata()
+                    && metadata.is_file()
+                {
+                    total += metadata.len();
+                }
+            }
+            Ok(total)
+        })
+        .await
+    };
 
-        // Yield in case this process takes a while.
-        tokio::task::yield_now().await;
-    }
-    Ok(total)
+    walk.unwrap_or_else(|| {
+        Err(OperationError::from_state(
+            ControllerState::Failed,
+            &controller,
+        ))
+    })
 }
 
 /// Calculate file checksums in a single pass over the file. To add another
@@ -7366,6 +7422,14 @@ impl Tab {
                                     let path = path.clone();
                                     let controller = controller.clone();
                                     stream::channel(1, |mut output: futures::channel::mpsc::Sender<_>| async move {
+                                        // The controller belongs to the item and outlives any
+                                        // one run of this subscription, so a cancellation left
+                                        // over from the last time the folder scrolled out of
+                                        // view would stop this one before it started.
+                                        controller.set_state(ControllerState::Running);
+                                        // Cancel the walk when this subscription goes away,
+                                        // which is the only notice a blocking job gets.
+                                        let _cancel = CancelOnDrop(controller.clone());
                                         let message = {
                                             let start = Instant::now();
                                             match calculate_dir_size(&path, controller).await {
@@ -7738,6 +7802,44 @@ mod tests {
             !ran.load(Ordering::Relaxed),
             "work ran for an item that had already gone"
         );
+    }
+
+    #[tokio::test]
+    async fn a_folder_size_walk_stops_when_its_controller_is_cancelled() {
+        use crate::operation::Controller;
+
+        let dir = tempfile::tempdir().expect("tempdir");
+        // Enough entries that the walk cannot finish before the cancellation
+        // is seen, without making the test slow when it works.
+        for i in 0..5_000 {
+            std::fs::write(dir.path().join(format!("{i}")), b"x").expect("write");
+        }
+
+        let controller = Controller::default();
+        controller.cancel();
+
+        let result = super::calculate_dir_size(dir.path(), controller).await;
+
+        assert!(
+            result.is_err(),
+            "a cancelled walk reported a size instead of stopping"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_folder_size_walk_adds_up_what_is_there() {
+        use crate::operation::Controller;
+
+        let dir = tempfile::tempdir().expect("tempdir");
+        std::fs::write(dir.path().join("a"), b"12345").expect("write");
+        std::fs::create_dir(dir.path().join("sub")).expect("mkdir");
+        std::fs::write(dir.path().join("sub").join("b"), b"678").expect("write");
+
+        let size = super::calculate_dir_size(dir.path(), Controller::default())
+            .await
+            .expect("the walk should finish");
+
+        assert_eq!(size, 8, "nested files count, directories themselves do not");
     }
 
     #[test]
