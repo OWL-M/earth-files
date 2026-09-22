@@ -414,6 +414,13 @@ pub enum Message {
     /// Open these paths with the applications the mime cache names. Exists so
     /// that opening can wait for that cache to be built.
     OpenFiles(Vec<PathBuf>),
+    /// The types of files the user asked to open, worked out on a worker.
+    OpenFilesResolved(u64, Vec<(Mime, PathBuf)>),
+    /// Opening has taken long enough to be acknowledged.
+    OpeningStillRunning(u64),
+    /// Forget an open request: its files are not launched when their types
+    /// arrive. The read itself is not interrupted.
+    CancelOpening(u64),
     /// Offer applications for this file, which was chosen when the user asked
     /// rather than when the cache was ready.
     OpenWithFor(PathBuf, Mime),
@@ -571,7 +578,9 @@ pub enum DialogPage {
     /// "Open with" for a path whose type is still being worked out on a
     /// worker. Shown at once, so the click is seen to have landed and can be
     /// cancelled; replaced by [`Self::OpenWith`] when the answer arrives.
-    OpenWithLoading { path: PathBuf },
+    OpenWithLoading {
+        path: PathBuf,
+    },
     PermanentlyDelete {
         paths: Box<[PathBuf]>,
     },
@@ -833,6 +842,12 @@ pub struct App {
     /// the newest one already installed.
     mime_app_rebuild: u64,
     mime_app_rebuild_applied: u64,
+    /// Files being opened whose types are still being worked out on a
+    /// worker, by request number, with the toast shown for any that has taken
+    /// long enough to need one. A request that is cancelled leaves the map,
+    /// and its answer is thrown away when it arrives.
+    opening: FxHashMap<u64, Option<widget::toaster::ToastId>>,
+    next_open_request: u64,
     /// Messages that arrived before the mime app cache had been built, to be
     /// handled again once it has. Bounded: past a handful the user is holding
     /// a key down, and replaying hundreds of them at once would be worse than
@@ -844,6 +859,15 @@ pub struct App {
     /// repeat.
     name_check_revision: Arc<AtomicU64>,
 }
+
+/// How long opening files may take before the user is told it is still
+/// happening. Working out a file's type is milliseconds locally, so in the
+/// ordinary case this never shows; it is for a slow or absent mount, where a
+/// click with no visible effect is its own kind of bug.
+const OPENING_ACK_DELAY: Duration = Duration::from_millis(400);
+/// A backstop for that toast. It is removed when the request ends, so this
+/// only matters if something goes wrong on the way there.
+const OPENING_TOAST_BACKSTOP: Duration = Duration::from_secs(60);
 
 /// How long a typed name must stand still before it is checked against the
 /// disk. Long enough that typing a name straight through checks it once,
@@ -984,29 +1008,68 @@ impl App {
             return Task::none();
         }
 
+        // The types are worked out on a worker. `mime_for_path` reads each
+        // file -- its metadata and, for the content sniff, its first bytes --
+        // and for a large selection, or one file on a mount that has gone
+        // away, that is not work for the event loop. The inputs are exactly
+        // what they were: what opens a file is decided the same way, only
+        // somewhere else.
+        let paths: Vec<PathBuf> = paths
+            .iter()
+            .map(|path| path.as_ref().to_path_buf())
+            .collect();
+        let request = self.next_open_request;
+        self.next_open_request = self.next_open_request.wrapping_add(1);
+        self.opening.insert(request, None);
+        let resolve = Task::future(async move {
+            let resolved = tokio::task::spawn_blocking(move || {
+                paths
+                    .into_iter()
+                    .map(|path| (mime_icon::mime_for_path(&path, None, false), path))
+                    .collect::<Vec<_>>()
+            })
+            .await;
+            match resolved {
+                Ok(resolved) => {
+                    crate::ui::action::app(Message::OpenFilesResolved(request, resolved))
+                }
+                Err(err) => {
+                    log::warn!("failed to work out what to open files with: {err}");
+                    crate::ui::action::app(Message::CancelOpening(request))
+                }
+            }
+        });
+        // Acknowledged only if it takes long enough to be noticed
+        let acknowledge = Task::future(async move {
+            tokio::time::sleep(OPENING_ACK_DELAY).await;
+            crate::ui::action::app(Message::OpeningStillRunning(request))
+        });
+        Task::batch([resolve, acknowledge])
+    }
+
+    /// Open files whose types are now known: the second half of
+    /// [`Self::open_file`], reached once a worker has read them.
+    fn open_resolved(&mut self, resolved: Vec<(Mime, PathBuf)>) -> Task<Message> {
         let mut tasks = Vec::new();
 
         // Associate all paths to its MIME type
         // This allows handling paths as groups if possible, such as launching a single video
         // player that is passed every path.
         let mut groups: FxHashMap<Mime, Vec<PathBuf>> = FxHashMap::default();
+        let mut all_paths = Vec::with_capacity(resolved.len());
         let mut all_archives = true;
         let supported_archive_types = crate::archive::SUPPORTED_ARCHIVE_TYPES;
-        for (mime, path) in paths.iter().map(|path| {
-            (
-                mime_icon::mime_for_path(path, None, false),
-                path.as_ref().to_owned(),
-            )
-        }) {
+        for (mime, path) in resolved {
             if all_archives && !supported_archive_types.iter().copied().any(|t| mime == t) {
                 all_archives = false;
             }
+            all_paths.push(path.clone());
             groups.entry(mime).or_default().push(path);
         }
 
         if all_archives {
             // Use extract to dialog if all selected paths are supported archives
-            return self.extract_to(paths);
+            return self.extract_to(&all_paths);
         }
 
         'outer: for (mime, paths) in groups {
@@ -2703,6 +2766,8 @@ impl Application for App {
             mime_app_rebuild: 0,
             mime_app_rebuild_applied: 0,
             deferred_mime_messages: Vec::new(),
+            opening: FxHashMap::default(),
+            next_open_request: 0,
             name_check_revision: Arc::new(AtomicU64::new(0)),
         };
 
@@ -4156,6 +4221,36 @@ impl Application for App {
             Message::OpenFiles(paths) => {
                 return self.open_file(&paths);
             }
+            Message::OpenFilesResolved(request, resolved) => {
+                // A cancelled request has left the map, and its files stay
+                // closed however late its answer is.
+                let Some(toast) = self.opening.remove(&request) else {
+                    return Task::none();
+                };
+                if let Some(id) = toast {
+                    self.toasts.remove(id);
+                }
+                return self.open_resolved(resolved);
+            }
+            Message::OpeningStillRunning(request) => {
+                if let Some(slot) = self.opening.get_mut(&request)
+                    && slot.is_none()
+                {
+                    let toast = widget::toaster::Toast::new(fl!("opening-files"))
+                        .action(fl!("cancel"), move |_| Message::CancelOpening(request))
+                        .duration(widget::toaster::Duration::Custom(OPENING_TOAST_BACKSTOP));
+                    let (id, expiry) = self.toasts.push_with_id(toast);
+                    *slot = Some(id);
+                    return expiry.map(crate::ui::action::app);
+                }
+            }
+            Message::CancelOpening(request) => {
+                // Discard, not interrupt: the worker finishes reading the
+                // types regardless, and what it finds is thrown away.
+                if let Some(Some(id)) = self.opening.remove(&request) {
+                    self.toasts.remove(id);
+                }
+            }
             Message::OpenWithDialog(entity_opt) => {
                 // Which file the dialog is for is decided now, from the
                 // selection as it is at the moment the user asks. Opening the
@@ -5462,10 +5557,8 @@ impl Application for App {
                         .and_then(Location::path_opt)
                         .cloned()
                     {
-                        let shown = self.push_dialog(
-                            DialogPage::OpenWithLoading { path: path.clone() },
-                            None,
-                        );
+                        let shown = self
+                            .push_dialog(DialogPage::OpenWithLoading { path: path.clone() }, None);
                         let resolve = Task::future(async move {
                             let resolved = tokio::task::spawn_blocking({
                                 let path = path.clone();

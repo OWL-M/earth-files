@@ -378,3 +378,5 @@ search-application = Αναζήτηση με όνομα εφαρμογής
 change-sidebar-label = Αλλαγή ετικέτας πλαϊνής στήλης
 
 close = Κλείσιμο
+
+opening-files = Opening…

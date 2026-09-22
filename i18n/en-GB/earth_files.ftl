@@ -101,3 +101,5 @@ copy-to-button-label = Copy
 move-to-title = Select move destination
 move-to-button-label = Move
 context-action = Context action
+
+opening-files = Opening…

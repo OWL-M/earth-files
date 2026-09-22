@@ -477,3 +477,5 @@ removed-from-recents =
 remove-from-recents = Выдаліць з нядаўніх
 
 close = Закрыць
+
+opening-files = Opening…

@@ -10,3 +10,5 @@ save = Lagra
 delete = Slett
 
 close = Lukk
+
+opening-files = Opening…

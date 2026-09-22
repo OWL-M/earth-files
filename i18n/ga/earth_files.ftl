@@ -493,3 +493,5 @@ calculate = Ríomh
 error = Earráid
 
 close = Dún
+
+opening-files = Opening…

@@ -388,3 +388,5 @@ sort-largest-to-smallest = بزرگ‌ترین به کوچک‌ترین
 sort-type-a-z = نوع A-Z
 sort-type-z-a = نوع Z-A
 run = اجرا
+
+opening-files = Opening…

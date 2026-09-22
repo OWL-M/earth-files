@@ -496,3 +496,5 @@ search-application = Keresés alkalmazásnév alapján
 change-sidebar-label = Oldalsávcímke módosítása
 
 close = Bezárás
+
+opening-files = Opening…

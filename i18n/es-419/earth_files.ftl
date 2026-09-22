@@ -424,3 +424,5 @@ delete-permanently = Eliminar de forma permanente
 eject = Expulsar
 
 close = Cerrar
+
+opening-files = Opening…

@@ -62,3 +62,5 @@ default-size = Podrazumevana veličina
 zoom-out = Umanji
 
 close = Zatvori
+
+opening-files = Opening…

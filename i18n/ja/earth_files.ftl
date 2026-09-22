@@ -402,3 +402,5 @@ reload-folder = フォルダーを再読み込み
 gallery-preview = ギャラリープレビュー
 
 close = 閉じる
+
+opening-files = Opening…

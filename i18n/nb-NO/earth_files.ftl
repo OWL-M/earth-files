@@ -346,3 +346,5 @@ sort-type-a-z = Type A-Å
 sort-type-z-a = Type Å-A
 
 close = Lukk
+
+opening-files = Opening…

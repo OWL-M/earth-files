@@ -1,1 +1,3 @@
 earth-files = Earth Files
+
+opening-files = Opening…

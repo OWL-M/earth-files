@@ -423,3 +423,5 @@ pasted-text = चिपकाया गया पाठ
 pasted-video = चिपकाया गया वीडियो
 
 close = बंद करें
+
+opening-files = Opening…

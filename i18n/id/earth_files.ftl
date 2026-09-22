@@ -374,3 +374,5 @@ search-application = Cari berdasarkan nama aplikasi
 change-sidebar-label = Ubah label bilah sisi
 
 close = Tutup
+
+opening-files = Opening…

@@ -442,3 +442,5 @@ search-application = Пошук за назвою застосунку
 change-sidebar-label = Змінити назву бічної панелі
 
 close = Закрити
+
+opening-files = Opening…

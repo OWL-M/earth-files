@@ -378,3 +378,5 @@ search-application = Li gorî navê sepanê bigere
 change-sidebar-label = Nîşanka benda kêlekê biguhêrîne
 
 close = Bigire
+
+opening-files = Opening…

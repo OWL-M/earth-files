@@ -443,3 +443,5 @@ sort-type-a-z = Type A-Z
 sort-type-z-a = Type Z-A
 
 close = Close
+
+opening-files = Opening…

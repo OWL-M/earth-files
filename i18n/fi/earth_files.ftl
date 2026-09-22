@@ -465,3 +465,5 @@ sidebar-label = Sivupalkin nimike
 change-sidebar-label = Muuta sivupalkin nimikettä
 
 close = Sulje
+
+opening-files = Opening…

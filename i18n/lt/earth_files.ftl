@@ -372,3 +372,5 @@ calculate = Skaičiuoti
 error = Klaida
 
 close = Uždaryti
+
+opening-files = Opening…

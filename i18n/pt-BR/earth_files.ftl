@@ -499,3 +499,5 @@ error = Erro
 search-application = Pesquisar por nome de aplicativo
 
 close = Fechar
+
+opening-files = Opening…

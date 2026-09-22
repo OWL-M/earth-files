@@ -480,3 +480,5 @@ sidebar-label = Popisek v postranním panelu
 change-sidebar-label = Změnit popisek
 
 close = Zavřít
+
+opening-files = Opening…

@@ -490,3 +490,5 @@ checksum = { $kind } 校验和
 sidebar-label = 侧边栏标签
 search-application = 使用应用名称搜索
 change-sidebar-label = 更改侧边栏标签
+
+opening-files = Opening…

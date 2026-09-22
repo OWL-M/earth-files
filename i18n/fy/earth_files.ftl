@@ -9,3 +9,5 @@ earth-files = Earth Files
 empty-folder = Lege map
 empty-folder-hidden = Lege map (mei ferburgen bestannen)
 no-results = Gjin resultaten fûn
+
+opening-files = Opening…

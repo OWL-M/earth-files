@@ -436,3 +436,5 @@ batch-rename-conflicts = {$count ->
   }
 
 close = أغلِق
+
+opening-files = Opening…

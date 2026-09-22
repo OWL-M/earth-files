@@ -176,6 +176,12 @@ impl<Message: Clone + Send + 'static> Toasts<Message> {
 
     /// Add a new [`Toast`]
     pub fn push(&mut self, toast: Toast<Message>) -> Task<Message> {
+        self.push_with_id(toast).1
+    }
+
+    /// Add a new [`Toast`] and say which one it is, for a caller that means
+    /// to remove it before its time is up.
+    pub fn push_with_id(&mut self, toast: Toast<Message>) -> (ToastId, Task<Message>) {
         while self.toasts.len() >= self.limit {
             self.toasts.remove(
                 self.queue
@@ -190,10 +196,11 @@ impl<Message: Clone + Send + 'static> Toasts<Message> {
         self.queue.push_back(id);
 
         let on_close = self.on_close;
-        Task::future(async move {
+        let expiry = Task::future(async move {
             tokio::time::sleep(duration).await;
             on_close(id)
-        })
+        });
+        (id, expiry)
     }
 
     /// Remove a [`Toast`]

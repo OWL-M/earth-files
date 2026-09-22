@@ -437,3 +437,5 @@ error = 錯誤
 sidebar-label = 側邊欄標籤
 search-application = 依應用程式名稱搜尋
 change-sidebar-label = 變更側邊欄標籤
+
+opening-files = Opening…

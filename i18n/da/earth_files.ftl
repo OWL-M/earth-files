@@ -455,3 +455,5 @@ favorite-path-error-description =
 
     Ønsker du at fjerne den fra sidebjælken?
 single-click = Enkelt klik for at åbne
+
+opening-files = Opening…

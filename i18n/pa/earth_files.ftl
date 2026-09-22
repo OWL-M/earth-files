@@ -252,3 +252,5 @@ sort-type-a-z = ਕਿਸਮ ਓ-ੜ
 sort-type-z-a = ਕਿਸਮ ੜ-ਓ
 
 close = ਬੰਦ ਕਰੋ
+
+opening-files = Opening…

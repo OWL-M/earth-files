@@ -364,3 +364,5 @@ clear-recents-history = Sfeḍ azray n melmi kan
 copy-path = Nɣel abrid
 
 close = Mdel
+
+opening-files = Opening…

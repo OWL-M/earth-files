@@ -77,3 +77,5 @@ icon-size-and-spacing = Величина иконице и размак
 icon-size = Величина иконице
 
 close = Затвори
+
+opening-files = Opening…

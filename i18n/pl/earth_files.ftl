@@ -500,3 +500,5 @@ search-application = Wyszukaj po nazwie aplikacji
 change-sidebar-label = Zmień etykietę panelu bocznego
 
 close = Zamknij
+
+opening-files = Opening…

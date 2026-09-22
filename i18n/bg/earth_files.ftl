@@ -464,3 +464,5 @@ sort-type-a-z = Вид А→Я
 sort-type-z-a = Вид Я→А
 
 close = Затваряне
+
+opening-files = Opening…

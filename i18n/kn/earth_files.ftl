@@ -325,3 +325,5 @@ sort-smallest-to-largest = ಚಿಕ್ಕದರಿಂದ ದೊಡ್ಡದು
 sort-largest-to-smallest = ದೊಡ್ಡದರಿಂದ ಚಿಕ್ಕದು
 sort-type-a-z = ಪ್ರಕಾರ ಅ-ಆ ಕ್ರಮದಲ್ಲಿ ವಿಂಗಡಿಸಿ
 sort-type-z-a = ಪ್ರಕಾರ ಆ-ಅ ಕ್ರಮದಲ್ಲಿ ವಿಂಗಡಿಸಿ
+
+opening-files = Opening…

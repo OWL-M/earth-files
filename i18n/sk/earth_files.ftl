@@ -503,3 +503,5 @@ sort-type-z-a = Typ Z-A
 repository = Repozitár
 support = Podpora
 progress-failed = { $percent }%, zlyhalo
+
+opening-files = Opening…

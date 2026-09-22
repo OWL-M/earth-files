@@ -375,3 +375,5 @@ calculate = Есептеу
 error = Қате
 
 close = Жабу
+
+opening-files = Opening…

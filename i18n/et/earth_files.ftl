@@ -258,3 +258,5 @@ sort-type-a-z = Tüüp A-Z
 sort-type-z-a = Tüüp Z-A
 
 close = Sulge
+
+opening-files = Opening…

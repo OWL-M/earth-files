@@ -496,3 +496,5 @@ search-application = Chercher par nom d'appli
 change-sidebar-label = Changer le libellé de la barre latérale
 
 close = Fermer
+
+opening-files = Opening…

@@ -346,3 +346,5 @@ restored =
     } úr { trash }
 
 close = Loka
+
+opening-files = Opening…

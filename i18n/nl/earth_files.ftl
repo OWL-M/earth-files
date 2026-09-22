@@ -477,3 +477,5 @@ keywords = Bestand;Map;Document;Verkenner
 move-to-title = Verplaatsbestemming aanwijzen
 
 close = Sluiten
+
+opening-files = Opening…

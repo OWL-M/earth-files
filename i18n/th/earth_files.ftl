@@ -337,3 +337,5 @@ sort-largest-to-smallest = ขนาดใหญ่ก่อน
 sort-type-a-z = ชนิด A-Z
 sort-type-z-a = ชนิด Z-A
 remove = ลบ
+
+opening-files = Opening…

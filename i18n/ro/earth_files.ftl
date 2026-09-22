@@ -421,3 +421,5 @@ sort-type-a-z = Tip A-Z
 sort-type-z-a = Tip Z-A
 
 close = Închide
+
+opening-files = Opening…

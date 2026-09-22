@@ -466,3 +466,5 @@ progress-failed = { $percent } %, con errores
 set-permissions = Establecer permisos de "{ $name }" como { $mode }
 
 close = Cerrar
+
+opening-files = Opening…

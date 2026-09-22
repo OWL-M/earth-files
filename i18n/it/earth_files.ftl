@@ -467,3 +467,5 @@ removed-from-recents =
 run = Esegui
 
 close = Chiudi
+
+opening-files = Opening…

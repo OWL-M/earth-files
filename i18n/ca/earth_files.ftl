@@ -407,3 +407,5 @@ move-to-button-label = Mou
 keywords = Carpeta;Fitxers;Arxius;Gestor;Explorador;
 
 close = Tancar
+
+opening-files = Opening…

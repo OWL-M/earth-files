@@ -374,3 +374,5 @@ batch-rename-conflicts = {$count ->
   }
 
 close = Затвори
+
+opening-files = Opening…

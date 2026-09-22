@@ -487,3 +487,5 @@ sidebar-label = Bezeichnung in der Seitenleiste
 search-application = Nach App-Name suchen
 
 close = Schließen
+
+opening-files = Opening…

@@ -399,3 +399,5 @@ batch-rename-conflicts = {$count ->
   }
 
 close = Fechar
+
+opening-files = Opening…
