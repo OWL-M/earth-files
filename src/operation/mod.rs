@@ -1200,12 +1200,14 @@ impl Operation {
                     .duration_since(std::time::UNIX_EPOCH)
                     .map_or(0, |d| d.as_secs() as i64);
                 for (i, path) in paths.iter().enumerate() {
-                    futures::executor::block_on(async {
-                        controller
-                            .check()
-                            .await
-                            .map_err(|s| OperationError::from_state(s, &controller))
-                    })?;
+                    // Awaited, not blocked on. Every operation shares one
+                    // compio runtime thread, so blocking here while the user
+                    // has this one paused would stop every other copy, move
+                    // and delete along with it.
+                    controller
+                        .check()
+                        .await
+                        .map_err(|s| OperationError::from_state(s, &controller))?;
 
                     controller.set_progress((i as f32) / (total as f32));
 
