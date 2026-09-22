@@ -498,6 +498,8 @@ enum Message {
     SearchActivate,
     SearchClear,
     SearchInput(String),
+    /// Widen the search to subfolders, or narrow it back to this folder.
+    ToggleSearchRecursive,
     Surface(crate::ui::surface::Action<Message>),
     #[allow(clippy::enum_variant_names)]
     TabMessage(tab::Message),
@@ -808,6 +810,39 @@ impl App {
         })
     }
 
+    /// What sits at the right-hand end of the search field. As in the main
+    /// window: the text input has one trailing slot and `on_clear` is that
+    /// slot, so the eye shares it with the clear button.
+    fn search_trailing(&self) -> Element<'_, Message> {
+        let mut row: Vec<Element<'_, Message>> = Vec::with_capacity(2);
+        if matches!(
+            self.tab.location,
+            Location::Search(tab::SearchLocation::Path(..), ..)
+        ) {
+            let recursive = self.flags.config.tab.search_recursive;
+            row.push(
+                widget::button::custom(
+                    widget::icon::icon(tab::search_scope_icon(recursive)).size(16),
+                )
+                .class(crate::ui::theme::Button::Icon)
+                .selected(recursive)
+                .on_press(Message::ToggleSearchRecursive)
+                .padding(8)
+                .into(),
+            );
+        }
+        row.push(
+            widget::button::custom(widget::icon::from_name("edit-clear-symbolic").size(16))
+                .class(crate::ui::theme::Button::Icon)
+                .on_press(Message::SearchClear)
+                .padding(8)
+                .into(),
+        );
+        widget::Row::with_children(row)
+            .align_y(Alignment::Center)
+            .into()
+    }
+
     fn search_get(&self) -> Option<&str> {
         match &self.tab.location {
             Location::Search(_, term, ..) => Some(term),
@@ -833,7 +868,7 @@ impl App {
                         Location::Search(
                             search_location,
                             term,
-                            self.tab.config.show_hidden,
+                            self.tab.search_options(),
                             Instant::now(),
                         ),
                         true,
@@ -1259,7 +1294,7 @@ impl Application for App {
                     widget::text_input::search_input("", term)
                         .width(Length::Fixed(240.0))
                         .id(self.search_id.clone())
-                        .on_clear(Message::SearchClear)
+                        .trailing_icon(self.search_trailing())
                         .on_input(Message::SearchInput)
                         .into(),
                 );
@@ -1906,6 +1941,21 @@ impl Application for App {
                 }
 
                 return Task::batch(tasks);
+            }
+            Message::ToggleSearchRecursive => {
+                // Shared with the main window rather than kept separately:
+                // whether a search looks into subfolders is one intent, and
+                // two of them that drift apart is a difference nobody asked
+                // for.
+                self.flags.config.tab.search_recursive = !self.flags.config.tab.search_recursive;
+                if let Err(err) = self
+                    .flags
+                    .config_handler
+                    .save_in_background(&self.flags.config)
+                {
+                    log::warn!("failed to save config \"search_recursive\": {err}");
+                }
+                return self.update_config();
             }
             Message::SearchClear => {
                 return self.search_set(None);

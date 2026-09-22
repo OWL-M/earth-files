@@ -222,6 +222,7 @@ impl Config {
             show_hidden: self.dialog.show_hidden,
             show_type_column: false,
             max_search_results: DEFAULT_MAX_SEARCH_RESULTS,
+            search_recursive: self.tab.search_recursive,
             single_click: false,
             view: self.dialog.view,
         }
@@ -322,6 +323,9 @@ pub struct TabConfig {
     pub show_type_column: bool,
     /// Maximum number of search results kept
     pub max_search_results: NonZeroU16,
+    /// Whether a search descends into subfolders. Off by default: a search
+    /// answers about the folder being looked at, and is widened deliberately.
+    pub search_recursive: bool,
     /// Single click to open
     pub single_click: bool,
     /// Selected view, grid or list
@@ -336,6 +340,7 @@ impl Default for TabConfig {
             show_hidden: false,
             show_type_column: false,
             max_search_results: DEFAULT_MAX_SEARCH_RESULTS,
+            search_recursive: false,
             single_click: false,
             view: View::List,
         }

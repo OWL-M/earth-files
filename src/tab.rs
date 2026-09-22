@@ -1476,10 +1476,45 @@ pub fn scan_path(tab_path: &PathBuf, sizes: IconSizes) -> Vec<Item> {
     items
 }
 
+/// The eye that says whether a search descends into subfolders.
+///
+/// `view-reveal-symbolic` and `view-conceal-symbolic` are the standard names
+/// for showing and hiding a password, drawn as an open and a shut eye, so a
+/// theme that has them already has exactly this pair. The Cosmic theme has
+/// neither, and the theme is the user's to choose, so copies are bundled and
+/// used when the lookup comes back empty. The bundled ones are marked
+/// symbolic, so they take the colour of the button they sit in.
+pub fn search_scope_icon(recursive: bool) -> widget::icon::Handle {
+    static REVEAL_SVG: &[u8] = include_bytes!("../res/icons/symbolic/view-reveal-symbolic.svg");
+    static CONCEAL_SVG: &[u8] = include_bytes!("../res/icons/symbolic/view-conceal-symbolic.svg");
+
+    let (name, bundled) = if recursive {
+        ("view-reveal-symbolic", REVEAL_SVG)
+    } else {
+        ("view-conceal-symbolic", CONCEAL_SVG)
+    };
+
+    let theme = crate::ui::icon_theme::default();
+    let themed = freedesktop_icons::lookup(name)
+        .with_theme(theme.as_str())
+        .with_size(16)
+        .with_cache()
+        .force_svg()
+        .find();
+    match themed {
+        Some(path) => widget::icon::from_path(path),
+        None => {
+            let mut handle = widget::icon::from_svg_bytes(bundled);
+            handle.symbolic = true;
+            handle
+        }
+    }
+}
+
 pub fn scan_search<F: Fn(SearchItem) -> bool + Sync>(
     search_location: &SearchLocation,
     term: &str,
-    show_hidden: bool,
+    options: SearchOptions,
     callback: F,
 ) {
     if term.is_empty() {
@@ -1500,50 +1535,55 @@ pub fn scan_search<F: Fn(SearchItem) -> bool + Sync>(
 
     match search_location {
         SearchLocation::Path(tab_path) => {
-            ignore::WalkBuilder::new(tab_path)
+            let mut builder = ignore::WalkBuilder::new(tab_path);
+            builder
                 .standard_filters(false)
-                .hidden(!show_hidden)
-                .same_file_system(true)
-                .build_parallel()
-                .run(|| {
-                    Box::new(|entry_res| {
-                        let Ok(entry) = entry_res else {
-                            // Skip invalid entries
-                            return ignore::WalkState::Skip;
-                        };
+                .hidden(!options.show_hidden)
+                .same_file_system(true);
+            if !options.recursive {
+                // The folder itself is depth 0 and what is in it is depth 1,
+                // so this lists the folder and descends no further.
+                builder.max_depth(Some(1));
+            }
+            builder.build_parallel().run(|| {
+                Box::new(|entry_res| {
+                    let Ok(entry) = entry_res else {
+                        // Skip invalid entries
+                        return ignore::WalkState::Skip;
+                    };
 
-                        let Some(file_name) = entry.file_name().to_str() else {
-                            // Skip anything with an invalid name
-                            return ignore::WalkState::Skip;
-                        };
+                    let Some(file_name) = entry.file_name().to_str() else {
+                        // Skip anything with an invalid name
+                        return ignore::WalkState::Skip;
+                    };
 
-                        if regex.is_match(file_name) {
-                            let path = entry.path();
+                    if regex.is_match(file_name) {
+                        let path = entry.path();
 
-                            let metadata = match entry.metadata() {
-                                Ok(ok) => ok,
-                                Err(err) => {
-                                    log::warn!(
-                                        "failed to read metadata for entry at {}: {}",
-                                        path.display(),
-                                        err
-                                    );
-                                    return ignore::WalkState::Continue;
-                                }
-                            };
-
-                            if !callback(SearchItem::Path(
-                                path.to_path_buf(),
-                                file_name.to_string(),
-                                metadata,
-                            )) {
-                                return ignore::WalkState::Quit;
+                        let metadata = match entry.metadata() {
+                            Ok(ok) => ok,
+                            Err(err) => {
+                                log::warn!(
+                                    "failed to read metadata for entry at {}: {}",
+                                    path.display(),
+                                    err
+                                );
+                                return ignore::WalkState::Continue;
                             }
-                        }
+                        };
 
-                        ignore::WalkState::Continue
-                    })
-                });
+                        if !callback(SearchItem::Path(
+                            path.to_path_buf(),
+                            file_name.to_string(),
+                            metadata,
+                        )) {
+                            return ignore::WalkState::Quit;
+                        }
+                    }
+
+                    ignore::WalkState::Continue
+                })
+            });
         }
         SearchLocation::Recents => {
             let recent_files = match recently_used_xbel::parse_file() {
@@ -1742,6 +1782,19 @@ impl EditLocation {
     }
 }
 
+/// How a search is run.
+///
+/// A struct rather than two more positional fields on [`Location::Search`]:
+/// they are both booleans, and next to each other they would be a standing
+/// invitation to pass them the wrong way round.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub struct SearchOptions {
+    pub show_hidden: bool,
+    /// Whether to descend into subfolders. Only meaningful for a path: trash
+    /// and recent files are flat lists with no subfolders to descend into.
+    pub recursive: bool,
+}
+
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum SearchLocation {
     Path(PathBuf),
@@ -1780,7 +1833,7 @@ pub enum Location {
     Network(String, String, Option<PathBuf>),
     Path(PathBuf),
     Recents,
-    Search(SearchLocation, String, bool, Instant),
+    Search(SearchLocation, String, SearchOptions, Instant),
     Trash,
 }
 
@@ -1859,12 +1912,9 @@ impl Location {
         let path = Self::expand_tilde(path);
         match self {
             Self::Path(..) => Self::Path(path),
-            Self::Search(SearchLocation::Path(_), term, show_hidden, time) => Self::Search(
-                SearchLocation::Path(path),
-                term.clone(),
-                *show_hidden,
-                *time,
-            ),
+            Self::Search(SearchLocation::Path(_), term, options, time) => {
+                Self::Search(SearchLocation::Path(path), term.clone(), *options, *time)
+            }
 
             other => other.clone(),
         }
@@ -3531,6 +3581,14 @@ impl Tab {
         self.navigation
     }
 
+    /// How a search started from this tab should be run, from its config.
+    pub fn search_options(&self) -> SearchOptions {
+        SearchOptions {
+            show_hidden: self.config.show_hidden,
+            recursive: self.config.search_recursive,
+        }
+    }
+
     /// Which listing is on screen, for tagging background re-reads of it.
     pub fn listing(&self) -> u64 {
         self.listing
@@ -4511,14 +4569,19 @@ impl Tab {
             Message::Config(config) => {
                 // View is preserved for existing tabs
                 let view = self.config.view;
-                let show_hidden_changed = self.config.show_hidden != config.show_hidden;
+                // Both of these decide what a search looks at, so changing
+                // either runs it again rather than leaving results that
+                // answer the question as it was asked before.
+                let search_changed = self.config.show_hidden != config.show_hidden
+                    || self.config.search_recursive != config.search_recursive;
                 self.config = config;
                 self.config.view = view;
-                if show_hidden_changed && let Location::Search(path, term, ..) = &self.location {
+                if search_changed && let Location::Search(path, term, ..) = &self.location {
+                    let options = self.search_options();
                     cd = Some(Location::Search(
                         path.clone(),
                         term.clone(),
-                        self.config.show_hidden,
+                        options,
                         Instant::now(),
                     ));
                 }
@@ -7947,18 +8010,18 @@ impl Tab {
         }
 
         // Load search items incrementally
-        if let Location::Search(search_location, term, show_hidden, start) = &self.location {
+        if let Location::Search(search_location, term, options, start) = &self.location {
             let location = self.location.clone();
             let search_location = search_location.clone();
             let term = term.clone();
-            let show_hidden = *show_hidden;
+            let options = *options;
             let start = *start;
             #[derive(Debug, Hash, Clone)]
             struct Wrapper {
                 location: Location,
                 search_location: SearchLocation,
                 term: String,
-                show_hidden: bool,
+                options: SearchOptions,
                 start: Instant,
             }
 
@@ -7967,7 +8030,7 @@ impl Tab {
                     location: location.clone(),
                     search_location: search_location.clone(),
                     term: term.clone(),
-                    show_hidden,
+                    options,
                     start,
                 },
                 |wrapper| {
@@ -7979,7 +8042,7 @@ impl Tab {
                                 location,
                                 search_location,
                                 term,
-                                show_hidden,
+                                options,
                                 start,
                             } = wrapper;
                             let (results_tx, results_rx) = mpsc::channel(65536);
@@ -8004,7 +8067,7 @@ impl Tab {
                                     scan_search(
                                         &search_location,
                                         &term,
-                                        show_hidden,
+                                        options,
                                         move |search_item| -> bool {
                                             // Don't send if the result is too old
                                             if let Some(last_modified) =
@@ -8736,6 +8799,72 @@ mod tests {
             "a network answer from before the tab moved took it back"
         );
         Ok(())
+    }
+
+    /// A shut eye searches the folder and nothing under it; an open one
+    /// searches the whole tree.
+    #[test]
+    fn search_depth_follows_the_eye() -> io::Result<()> {
+        use crate::tab::{SearchItem, SearchLocation, SearchOptions, scan_search};
+        use std::sync::Mutex;
+
+        let fs = empty_fs()?;
+        let root = fs.path();
+        fs::write(root.join("target-here.txt"), b"x")?;
+        fs::create_dir(root.join("sub"))?;
+        fs::write(root.join("sub").join("target-deep.txt"), b"x")?;
+        fs::create_dir(root.join("sub").join("deeper"))?;
+        fs::write(
+            root.join("sub").join("deeper").join("target-deepest.txt"),
+            b"x",
+        )?;
+
+        let found = |recursive: bool| -> Vec<String> {
+            let names = Mutex::new(Vec::new());
+            scan_search(
+                &SearchLocation::Path(root.to_path_buf()),
+                "target",
+                SearchOptions {
+                    show_hidden: false,
+                    recursive,
+                },
+                |item| {
+                    if let SearchItem::Path(_, name, _) = item {
+                        names.lock().unwrap().push(name);
+                    }
+                    true
+                },
+            );
+            let mut names = names.into_inner().unwrap();
+            names.sort();
+            names
+        };
+
+        assert_eq!(
+            found(false),
+            vec!["target-here.txt".to_owned()],
+            "a shut eye should find only what is in this folder"
+        );
+        assert_eq!(
+            found(true),
+            vec![
+                "target-deep.txt".to_owned(),
+                "target-deepest.txt".to_owned(),
+                "target-here.txt".to_owned(),
+            ],
+            "an open eye should find everything underneath too"
+        );
+        Ok(())
+    }
+
+    /// The eye starts shut: a search answers about the folder being looked
+    /// at, and is widened deliberately.
+    #[test]
+    fn search_starts_in_this_folder_only() {
+        assert!(
+            !TabConfig::default().search_recursive,
+            "search should not descend into subfolders by default"
+        );
     }
 
     /// A detail read answers the incarnation of the item that asked for it,

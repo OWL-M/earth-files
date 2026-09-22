@@ -475,6 +475,8 @@ pub enum Message {
     TabView(Option<Entity>, tab::View),
     ToggleContextPage(ContextPage),
     ToggleFoldersFirst,
+    /// Widen the search to subfolders, or narrow it back to this folder.
+    ToggleSearchRecursive,
     ToggleShowHidden,
     ToggleShowTypeColumn,
     ToggleAuthPasswordVisible,
@@ -2062,6 +2064,50 @@ impl App {
         Task::batch(commands)
     }
 
+    /// What sits at the right-hand end of the search field: the eye that says
+    /// whether subfolders are searched, then the button that clears the
+    /// search.
+    ///
+    /// Both live in one slot because the text input has one: `on_clear` is
+    /// itself a `trailing_icon`, so anything beside the clear button has to
+    /// share that slot rather than ask for another.
+    ///
+    /// The eye is shown only when searching a folder. Trash and recent files
+    /// are flat lists, and a control that cannot do anything is worse than
+    /// no control at all.
+    fn search_trailing(&self) -> Element<'_, Message> {
+        let mut row: Vec<Element<'_, Message>> = Vec::with_capacity(2);
+        let searching_path = self.tab_model.active_data::<Tab>().is_some_and(|tab| {
+            matches!(
+                tab.location,
+                Location::Search(tab::SearchLocation::Path(..), ..)
+            )
+        });
+        if searching_path {
+            let recursive = self.config.tab.search_recursive;
+            row.push(
+                widget::button::custom(
+                    widget::icon::icon(tab::search_scope_icon(recursive)).size(16),
+                )
+                .class(crate::ui::theme::Button::Icon)
+                .selected(recursive)
+                .on_press(Message::ToggleSearchRecursive)
+                .padding(8)
+                .into(),
+            );
+        }
+        row.push(
+            widget::button::custom(widget::icon::from_name("edit-clear-symbolic").size(16))
+                .class(crate::ui::theme::Button::Icon)
+                .on_press(Message::SearchClear)
+                .padding(8)
+                .into(),
+        );
+        widget::Row::with_children(row)
+            .align_y(Alignment::Center)
+            .into()
+    }
+
     fn search_get(&self) -> Option<&str> {
         let entity = self.tab_model.active();
         let tab = self.tab_model.data::<Tab>(entity)?;
@@ -2101,7 +2147,7 @@ impl App {
                             Location::Search(
                                 search_location,
                                 term,
-                                tab.config.show_hidden,
+                                tab.search_options(),
                                 Instant::now(),
                             ),
                             true,
@@ -5056,6 +5102,11 @@ impl Application for App {
                 config.folders_first = !config.folders_first;
                 return self.update(Message::TabConfig(config));
             }
+            Message::ToggleSearchRecursive => {
+                let mut config = self.config.tab;
+                config.search_recursive = !config.search_recursive;
+                return self.update(Message::TabConfig(config));
+            }
             Message::ToggleShowHidden => {
                 let mut config = self.config.tab;
                 config.show_hidden = !config.show_hidden;
@@ -7005,7 +7056,7 @@ impl Application for App {
                     widget::text_input::search_input("", term)
                         .width(Length::Fixed(240.0))
                         .id(self.search_id.clone())
-                        .on_clear(Message::SearchClear)
+                        .trailing_icon(self.search_trailing())
                         .on_input(Message::SearchInput)
                         .into(),
                 );
