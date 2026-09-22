@@ -12,7 +12,7 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, LazyLock, Mutex};
+use std::sync::{Arc, Condvar, LazyLock, Mutex};
 
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -145,39 +145,176 @@ impl Store {
     }
 
     /// Write the value, creating the parent directory as needed.
+    ///
+    /// This flushes the value all the way to the disk before returning, so it
+    /// must not be called where a person is waiting: use
+    /// [`Self::save_in_background`] from anything driven by the event loop.
     pub fn save<T: Serialize>(&self, value: &T) -> io::Result<()> {
+        let text = self.prepare(value)?;
+        write_text(&self.path, &self.sealed, &text)
+    }
+
+    /// Queue the value to be written, and return without waiting for the disk.
+    ///
+    /// The value is serialized here, so what is queued is a snapshot of it
+    /// taken now rather than a reference that could change before it lands.
+    /// Everything after that happens on one shared writer thread, which is
+    /// what keeps an older snapshot from overwriting a newer one. A save
+    /// queued for a path that already has one waiting replaces it: these are
+    /// whole files, so only the newest is worth writing.
+    ///
+    /// Failures are reported through the log rather than to the caller, which
+    /// has long since returned. The seal is the exception: it is checked here
+    /// as well, so a caller still learns immediately that its settings are
+    /// being refused.
+    pub fn save_in_background<T: Serialize>(&self, value: &T) -> io::Result<()> {
+        let text = self.prepare(value)?;
+        queue_write(self.path.clone(), Arc::clone(&self.sealed), text);
+        Ok(())
+    }
+
+    /// The seal check and serialization both saves share.
+    fn prepare<T: Serialize>(&self, value: &T) -> io::Result<String> {
         if self.sealed.load(Ordering::Relaxed) {
             return Err(io::Error::other(format!(
                 "refusing to overwrite the unreadable {}",
                 self.path.display()
             )));
         }
-        let parent = self
-            .path
-            .parent()
-            .filter(|parent| !parent.as_os_str().is_empty());
-        if let Some(parent) = parent {
-            fs::create_dir_all(parent)?;
-        }
-        let text = ron::ser::to_string_pretty(value, ron::ser::PrettyConfig::default())
-            .map_err(io::Error::other)?;
+        ron::ser::to_string_pretty(value, ron::ser::PrettyConfig::default())
+            .map_err(io::Error::other)
+    }
+}
 
-        // Write to a temporary file in the same directory and rename over the
-        // target, so a reader never observes a half-written file. Writing in
-        // place would truncate first, and this app watches its own config
-        // directory: another instance could read the gap.
-        let parent = parent.unwrap_or(Path::new("."));
-        let mut file = tempfile::NamedTempFile::new_in(parent)?;
-        io::Write::write_all(&mut file, text.as_bytes())?;
-        // Get the contents down before the rename publishes the name, and the
-        // directory entry down after it, so a crash leaves either the old file
-        // or the new one rather than an empty one
-        file.as_file().sync_all()?;
-        file.persist(&self.path).map_err(|err| err.error)?;
-        if let Ok(dir) = fs::File::open(parent) {
-            let _ = dir.sync_all();
+/// Put `text` at `path`, durably, unless the path is sealed.
+///
+/// The seal is read again here and not only when the write was asked for: a
+/// queued write can be picked up after a failed rescue has sealed the path,
+/// and it must not go through then either.
+fn write_text(path: &Path, sealed: &AtomicBool, text: &str) -> io::Result<()> {
+    if sealed.load(Ordering::Relaxed) {
+        return Err(io::Error::other(format!(
+            "refusing to overwrite the unreadable {}",
+            path.display()
+        )));
+    }
+    let parent = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty());
+    if let Some(parent) = parent {
+        fs::create_dir_all(parent)?;
+    }
+
+    // Write to a temporary file in the same directory and rename over the
+    // target, so a reader never observes a half-written file. Writing in
+    // place would truncate first, and this app watches its own config
+    // directory: another instance could read the gap.
+    let parent = parent.unwrap_or(Path::new("."));
+    let mut file = tempfile::NamedTempFile::new_in(parent)?;
+    io::Write::write_all(&mut file, text.as_bytes())?;
+    // Get the contents down before the rename publishes the name, and the
+    // directory entry down after it, so a crash leaves either the old file
+    // or the new one rather than an empty one
+    file.as_file().sync_all()?;
+    file.persist(path).map_err(|err| err.error)?;
+    if let Ok(dir) = fs::File::open(parent) {
+        let _ = dir.sync_all();
+    }
+    Ok(())
+}
+
+/// A write waiting for the writer thread.
+struct Queued {
+    sealed: Arc<AtomicBool>,
+    text: String,
+}
+
+#[derive(Default)]
+struct WriteQueue {
+    /// The newest queued text per path.
+    by_path: HashMap<PathBuf, Queued>,
+    /// Whether a write is on its way to the disk right now. [`flush`] waits
+    /// for this as well as for the queue to empty, because a write that has
+    /// left the queue is not yet a write that has landed.
+    writing: bool,
+}
+
+/// The queue, and the signal that it changed.
+static WRITES: LazyLock<Arc<(Mutex<WriteQueue>, Condvar)>> = LazyLock::new(|| {
+    let queue = Arc::new((Mutex::new(WriteQueue::default()), Condvar::new()));
+    let worker = Arc::clone(&queue);
+    if let Err(err) = std::thread::Builder::new()
+        .name("config-writer".to_owned())
+        .spawn(move || run_writes(&worker))
+    {
+        // Without the thread nothing would ever drain the queue, so saves go
+        // back to happening where they are asked for. Slow is better than lost.
+        log::error!("failed to start the config writer: {err}; saving inline instead");
+        WRITER_RUNNING.store(false, Ordering::Relaxed);
+    }
+    queue
+});
+
+/// Whether the writer thread exists. Only ever set false, once, at startup.
+static WRITER_RUNNING: AtomicBool = AtomicBool::new(true);
+
+fn queue_write(path: PathBuf, sealed: Arc<AtomicBool>, text: String) {
+    let (lock, change) = &**WRITES;
+    if !WRITER_RUNNING.load(Ordering::Relaxed) {
+        if let Err(err) = write_text(&path, &sealed, &text) {
+            log::warn!("failed to save {}: {err}", path.display());
         }
-        Ok(())
+        return;
+    }
+
+    let mut queue = lock.lock().unwrap_or_else(|err| err.into_inner());
+    queue.by_path.insert(path, Queued { sealed, text });
+    change.notify_all();
+}
+
+fn run_writes(queue: &(Mutex<WriteQueue>, Condvar)) {
+    let (lock, change) = queue;
+    let mut state = lock.lock().unwrap_or_else(|err| err.into_inner());
+    loop {
+        let next = state
+            .by_path
+            .keys()
+            .next()
+            .cloned()
+            .and_then(|path| state.by_path.remove_entry(&path));
+
+        let Some((path, queued)) = next else {
+            // Nothing left: say so, so a flush waiting on this can return,
+            // and sleep until something is queued.
+            state.writing = false;
+            change.notify_all();
+            state = change.wait(state).unwrap_or_else(|err| err.into_inner());
+            continue;
+        };
+
+        state.writing = true;
+        drop(state);
+
+        if let Err(err) = write_text(&path, &queued.sealed, &queued.text) {
+            log::warn!("failed to save {}: {err}", path.display());
+        }
+
+        state = lock.lock().unwrap_or_else(|err| err.into_inner());
+    }
+}
+
+/// Wait until every queued save has reached the disk.
+///
+/// Called before the application exits, so settings changed in the last moment
+/// before quitting are not lost with the process.
+pub fn flush() {
+    if !WRITER_RUNNING.load(Ordering::Relaxed) {
+        return;
+    }
+    let (lock, change) = &**WRITES;
+    let mut queue = lock.lock().unwrap_or_else(|err| err.into_inner());
+    while !queue.by_path.is_empty() || queue.writing {
+        queue = change.wait(queue).unwrap_or_else(|err| err.into_inner());
     }
 }
 
@@ -236,7 +373,16 @@ impl Store {
                     }
 
                     while rx.recv().await.is_some() {
-                        if output.send(store.load::<T>()).await.is_err() {
+                        // Read on a blocking worker. This loop is a task on a
+                        // shared runtime, and reading and parsing the file is
+                        // ordinary blocking I/O however short the file is.
+                        let store = store.clone();
+                        let Ok(value) =
+                            tokio::task::spawn_blocking(move || store.load::<T>()).await
+                        else {
+                            break;
+                        };
+                        if output.send(value).await.is_err() {
                             break;
                         }
                     }
@@ -381,6 +527,113 @@ mod tests {
     struct Sample {
         value: u32,
         name: String,
+    }
+
+    #[test]
+    fn a_background_save_lands_on_disk() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let store = Store::at(dir.path().join("sample.ron"));
+
+        store
+            .save_in_background(&Sample {
+                value: 7,
+                name: "seven".to_owned(),
+            })
+            .expect("queueing should not fail");
+        flush();
+
+        assert_eq!(
+            store.load::<Sample>(),
+            Sample {
+                value: 7,
+                name: "seven".to_owned(),
+            },
+            "the queued value reached the file"
+        );
+    }
+
+    #[test]
+    fn the_newest_background_save_is_the_one_kept() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let store = Store::at(dir.path().join("sample.ron"));
+
+        // Queued back to back, as a drag that changes one setting many times
+        // does. Whether the writer coalesces them or writes each in turn, the
+        // file must end up holding the last one and never an earlier one.
+        for value in 0..50 {
+            store
+                .save_in_background(&Sample {
+                    value,
+                    name: value.to_string(),
+                })
+                .expect("queueing should not fail");
+        }
+        flush();
+
+        assert_eq!(
+            store.load::<Sample>(),
+            Sample {
+                value: 49,
+                name: "49".to_owned(),
+            },
+            "an older snapshot overwrote a newer one"
+        );
+    }
+
+    #[test]
+    fn a_background_save_does_not_wait_for_the_disk() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let store = Store::at(dir.path().join("sample.ron"));
+
+        // Not a timing assertion about the disk: queueing must not do the
+        // work at all, so even a pathologically slow filesystem cannot make
+        // this exceed the time it takes to serialize fifty small values.
+        let started = std::time::Instant::now();
+        for value in 0..50 {
+            store
+                .save_in_background(&Sample {
+                    value,
+                    name: String::new(),
+                })
+                .expect("queueing should not fail");
+        }
+        let queueing = started.elapsed();
+        flush();
+
+        assert!(
+            queueing < Duration::from_secs(2),
+            "queueing fifty saves took {queueing:?}, so it is still writing inline"
+        );
+    }
+
+    #[test]
+    fn a_sealed_path_refuses_a_background_save_too() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("sample.ron");
+        std::fs::write(&path, b"not ron").expect("write");
+
+        // Make the rescue copy impossible, which is what seals the path
+        let mut perms = std::fs::metadata(dir.path())
+            .expect("metadata")
+            .permissions();
+        std::os::unix::fs::PermissionsExt::set_mode(&mut perms, 0o500);
+        std::fs::set_permissions(dir.path(), perms.clone()).expect("set permissions");
+
+        let store = Store::at(&path);
+        let _: Sample = store.load();
+
+        let refused = store.save_in_background(&Sample::default());
+
+        std::os::unix::fs::PermissionsExt::set_mode(&mut perms, 0o700);
+        std::fs::set_permissions(dir.path(), perms).expect("restore permissions");
+
+        assert!(refused.is_err(), "a sealed path must refuse a queued save");
+        flush();
+        assert_eq!(
+            std::fs::read(&path).expect("read"),
+            b"not ron",
+            "the unreadable file was overwritten anyway"
+        );
     }
 
     #[test]

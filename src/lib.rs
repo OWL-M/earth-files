@@ -231,7 +231,15 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
         locations,
         uris
     };
-    crate::ui::shell::run::<App>(settings, flags)?;
+    let result = crate::ui::shell::run::<App>(settings, flags);
+
+    // Settings are written by a worker thread, which the process would
+    // otherwise take down with it. Wait for what is still queued, including
+    // anything changed in the moment before quitting. Done even when the run
+    // failed: the settings from before it did are still the user's.
+    config::store::flush();
+
+    result?;
 
     Ok(())
 }

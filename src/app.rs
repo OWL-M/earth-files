@@ -2360,7 +2360,7 @@ impl App {
 
         if favorites_changed {
             self.config.favorites = favorites;
-            if let Err(err) = self.config_handler.save(&self.config) {
+            if let Err(err) = self.config_handler.save_in_background(&self.config) {
                 log::warn!("failed to update favorites after moving directories: {err:?}",);
             }
             return true;
@@ -2692,7 +2692,7 @@ impl Application for App {
 
     fn on_nav_bar_resized(&mut self, width: u16) -> Task<Self::Message> {
         self.config.nav_bar_width = Some(width);
-        if let Err(err) = self.config_handler.save(&self.config) {
+        if let Err(err) = self.config_handler.save_in_background(&self.config) {
             log::warn!("failed to save config \"nav_bar_width\": {err}");
         }
         Task::none()
@@ -2874,7 +2874,7 @@ impl Application for App {
         macro_rules! config_set {
             ($name: ident, $value: expr) => {
                 self.config.$name = $value;
-                if let Err(err) = self.config_handler.save(&self.config) {
+                if let Err(err) = self.config_handler.save_in_background(&self.config) {
                     log::warn!("failed to save config {:?}: {}", stringify!($name), err);
                 }
             };
@@ -5152,7 +5152,7 @@ impl Application for App {
             }
             Message::SaveSortNames => {
                 self.must_save_sort_names = false;
-                if let Err(err) = self.state_handler.save(&self.state) {
+                if let Err(err) = self.state_handler.save_in_background(&self.state) {
                     log::warn!("Failed to save sort names: {err:?}");
                 }
             }

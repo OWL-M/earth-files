@@ -875,7 +875,11 @@ impl App {
             Task::none()
         } else {
             self.flags.config.dialog = dialog;
-            if let Err(err) = self.flags.config_handler.save(&self.flags.config) {
+            if let Err(err) = self
+                .flags
+                .config_handler
+                .save_in_background(&self.flags.config)
+            {
                 log::warn!("failed to save config \"dialog\": {err}");
             }
             self.update_config()
@@ -1319,7 +1323,11 @@ impl Application for App {
     /// The chooser shares the sidebar width with the main window
     fn on_nav_bar_resized(&mut self, width: u16) -> Task<Message> {
         self.flags.config.nav_bar_width = Some(width);
-        if let Err(err) = self.flags.config_handler.save(&self.flags.config) {
+        if let Err(err) = self
+            .flags
+            .config_handler
+            .save_in_background(&self.flags.config)
+        {
             log::warn!("failed to save config \"nav_bar_width\": {err}");
         }
         Task::none()
