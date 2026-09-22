@@ -106,6 +106,13 @@ impl<Message: Clone + 'static> ContextMenu<'_, Message> {
             bounds.y = my_state.context_cursor.y;
 
             let (id, root_list) = my_state.menu_bar_state.inner.with_data_mut(|state| {
+                // A popup still collapsing has to go now rather than finish:
+                // the menu about to be laid out needs this tree diffed, and
+                // that one is still rendering against it.
+                if let Some(id) = state.leaving.remove(&self.window_id) {
+                    shell.publish(surface_action(destroy_popup(id)));
+                }
+
                 if let Some(id) = state.popup_id.get(&self.window_id).copied() {
                     // close existing popups
                     state.menu_states.clear();
@@ -216,6 +223,9 @@ impl<Message: Clone + 'static> ContextMenu<'_, Message> {
                     parent,
                     id,
                     positioner,
+                    // Only a dismissed menu animates out, never a replaced
+                    // one: see `destroy_popup_animated` and the `leaving`
+                    // map. Two popups cannot share the one menu tree.
                     animate: true,
                 },
                 Some(move || {
@@ -309,7 +319,13 @@ impl<Message: 'static + Clone> Widget<Message, crate::ui::Theme, crate::ui::Rend
                 // lifetime of the popup is also the right semantics: the popup renders
                 // what was on screen when it opened. The next diff after the popup
                 // closes reconciles the tree with whatever the roots are by then.
-                if inner.popup_id.contains_key(&self.window_id) {
+                //
+                // `leaving` as well as `popup_id`: a popup playing its exit
+                // is still on screen and still rendering against this tree,
+                // even though it is no longer the current one.
+                if inner.popup_id.contains_key(&self.window_id)
+                    || inner.leaving.contains_key(&self.window_id)
+                {
                     return;
                 }
                 menu_roots_diff(context_menu, &mut inner.tree);
@@ -419,6 +435,16 @@ impl<Message: 'static + Clone> Widget<Message, crate::ui::Theme, crate::ui::Rend
                 d.popup_id.remove(&self.window_id);
                 d.reset();
             }
+
+            // A popup that was animating out is gone once its surface is,
+            // and only then may the tree thaw.
+            if d.leaving
+                .get(&self.window_id)
+                .copied()
+                .is_some_and(crate::ui::surface::dismissal::claim)
+            {
+                d.leaving.remove(&self.window_id);
+            }
         });
 
         // XXX this should reset the state if there are no other copies of the state, which implies no dropdown menus open.
@@ -433,9 +459,10 @@ impl<Message: 'static + Clone> Widget<Message, crate::ui::Theme, crate::ui::Rend
                 && let Some(popup_id) = state.popup_id.get(&self.window_id).copied()
                 && let Some(handler) = self.on_surface_action.as_ref()
             {
-                shell.publish((handler)(crate::ui::surface::Action::DestroyPopup(
-                    popup_id,
-                )));
+                shell.publish((handler)(crate::ui::surface::Action::DestroyPopup {
+                    id: popup_id,
+                    animate: false,
+                }));
                 state.reset();
             }
             state.open
@@ -468,9 +495,28 @@ impl<Message: 'static + Clone> Widget<Message, crate::ui::Theme, crate::ui::Rend
                 {
                     {
                         let surface_action = self.on_surface_action.as_ref().unwrap();
-                        shell.publish(surface_action(crate::ui::surface::action::destroy_popup(
-                            id,
-                        )));
+
+                        // A right press is about to open a replacement on its
+                        // release, and two popups cannot share the one menu
+                        // tree. Everything else is a plain dismissal and may
+                        // collapse on its way out, which means its surface
+                        // outlives this request — so the tree has to stay
+                        // frozen until it is really gone.
+                        let replacing = matches!(
+                            event,
+                            Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Right))
+                        );
+
+                        if replacing {
+                            shell.publish(surface_action(
+                                crate::ui::surface::action::destroy_popup(id),
+                            ));
+                        } else {
+                            state.leaving.insert(self.window_id, id);
+                            shell.publish(surface_action(
+                                crate::ui::surface::action::destroy_popup_animated(id),
+                            ));
+                        }
                     }
                     state.view_cursor = cursor;
                 }
@@ -526,8 +572,9 @@ impl<Message: 'static + Clone> Widget<Message, crate::ui::Theme, crate::ui::Rend
                     {
                         {
                             let surface_action = self.on_surface_action.as_ref().unwrap();
+                            state.leaving.insert(self.window_id, id);
                             shell.publish(surface_action(
-                                crate::ui::surface::action::destroy_popup(id),
+                                crate::ui::surface::action::destroy_popup_animated(id),
                             ));
                         }
                         state.view_cursor = cursor;

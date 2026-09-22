@@ -47,6 +47,15 @@ pub(crate) struct MenuBarState {
 pub(crate) struct MenuBarStateInner {
     pub(crate) tree: Tree,
     pub(crate) popup_id: HashMap<window::Id, window::Id>,
+    /// Popups that have been asked to go but are still on screen, playing
+    /// their exit animation, keyed by parent window like `popup_id`.
+    ///
+    /// `popup_id` means "this window's popup is open and current". It stops
+    /// meaning "a popup is on screen" the moment a teardown is deferred, and
+    /// the tree freeze depends on the latter: thawed under a popup that is
+    /// still rendering, the next diff lays out a mismatch and
+    /// `menu_inner`'s root-count assertion fails.
+    pub(crate) leaving: HashMap<window::Id, window::Id>,
     pub(crate) pressed: bool,
     pub(crate) bar_pressed: bool,
     pub(crate) view_cursor: Cursor,
@@ -85,6 +94,7 @@ impl Default for MenuBarStateInner {
             vertical_direction: Direction::Positive,
             menu_states: Vec::new(),
             popup_id: HashMap::new(),
+            leaving: HashMap::new(),
             bar_pressed: false,
         }
     }
@@ -598,9 +608,10 @@ where
                 && let Some(popup_id) = state.popup_id.get(&self.window_id).copied()
                 && let Some(handler) = self.on_surface_action.as_ref()
             {
-                shell.publish((handler)(crate::ui::surface::Action::DestroyPopup(
-                    popup_id,
-                )));
+                shell.publish((handler)(crate::ui::surface::Action::DestroyPopup {
+                    id: popup_id,
+                    animate: false,
+                }));
                 state.reset();
             }
             state.open

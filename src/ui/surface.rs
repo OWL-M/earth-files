@@ -124,7 +124,16 @@ pub enum Action<M> {
     /// Open a popup, rendering the given view into it.
     Popup(Settings, Option<View<M>>),
     /// Destroy a popup opened earlier.
-    DestroyPopup(window::Id),
+    DestroyPopup {
+        /// The popup surface to tear down.
+        id: window::Id,
+        /// Whether it may play an exit animation first.
+        ///
+        /// Only a popup that nothing is replacing may: the menu's widget
+        /// tree is shared, and a popup that outlives its request while
+        /// another takes its place leaves the two needing different trees.
+        animate: bool,
+    },
     /// Responsive menu bar measurement, published by `responsive_container`.
     ResponsiveMenuBar {
         /// Id of the menu bar.
@@ -155,7 +164,7 @@ impl<M: 'static> Action<M> {
                 settings,
                 view.map(|view| Arc::new(move || view().map(g.clone())) as View<N>),
             ),
-            Action::DestroyPopup(id) => Action::DestroyPopup(id),
+            Action::DestroyPopup { id, animate } => Action::DestroyPopup { id, animate },
             Action::ResponsiveMenuBar {
                 menu_bar,
                 limits,
@@ -185,7 +194,11 @@ impl<M> std::fmt::Debug for Action<M> {
                 .debug_tuple("Popup")
                 .field(&view.as_ref().map(|_| "view"))
                 .finish(),
-            Self::DestroyPopup(id) => f.debug_tuple("DestroyPopup").field(id).finish(),
+            Self::DestroyPopup { id, animate } => f
+                .debug_struct("DestroyPopup")
+                .field("id", id)
+                .field("animate", animate)
+                .finish(),
             Self::ResponsiveMenuBar {
                 menu_bar,
                 limits,
@@ -235,7 +248,17 @@ pub mod action {
     /// Used to produce a destroy-popup action from within a widget.
     #[must_use]
     pub fn destroy_popup<M>(id: window::Id) -> Action<M> {
-        Action::DestroyPopup(id)
+        Action::DestroyPopup { id, animate: false }
+    }
+
+    /// A destroy that may play an exit animation first.
+    ///
+    /// Only for a popup that nothing is about to replace. A popup that
+    /// animates outlives the request to destroy it, and two popups alive at
+    /// once cannot share the one menu tree they both need.
+    #[must_use]
+    pub fn destroy_popup_animated<M>(id: window::Id) -> Action<M> {
+        Action::DestroyPopup { id, animate: true }
     }
 
     /// Used to create a popup action from within a widget.

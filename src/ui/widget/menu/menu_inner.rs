@@ -697,9 +697,12 @@ impl<'b, Message: Clone + 'static> Menu<'b, Message> {
                                     root = *parent.0;
                                     depth = depth.saturating_sub(1);
                                 }
-                                shell.publish((handler)(crate::ui::surface::Action::DestroyPopup(
-                                    root,
-                                )));
+                                shell.publish((handler)(
+                                    crate::ui::surface::Action::DestroyPopup {
+                                        id: root,
+                                        animate: false,
+                                    },
+                                ));
                             }
 
                             state.reset();

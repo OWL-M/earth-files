@@ -491,11 +491,11 @@ impl<App: Application> Shell<App> {
 
                 iced::Task::done(crate::ui::action::exwl::popup(id, settings.to_exwlshell()))
             }
-            crate::ui::surface::Action::DestroyPopup(id) => {
+            crate::ui::surface::Action::DestroyPopup { id, animate } => {
                 // An animated popup keeps its surface until it has finished
                 // collapsing; `widget::popup_genie` publishes
                 // `PopupExitFinished` and the removal happens there instead.
-                if self.popup_genies.begin_exit(id) {
+                if animate && self.popup_genies.begin_exit(id) {
                     return iced::Task::none();
                 }
 
