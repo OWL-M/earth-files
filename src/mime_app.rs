@@ -267,15 +267,39 @@ pub struct MimeAppCache {
     /// [`Self::terminal`] is asked every time a menu that offers "open in
     /// terminal" is built.
     default_terminal: OnceLock<Option<String>>,
+    /// Whether this holds a real answer. See [`Self::empty`].
+    loaded: bool,
 }
 
 impl MimeAppCache {
+    /// A cache with nothing in it.
+    ///
+    /// What the application holds until the real one has been built on a
+    /// worker. Every question it is asked answers "nothing", which is why
+    /// callers check [`Self::is_loaded`] rather than trusting the answer.
+    pub fn empty() -> Self {
+        Self {
+            apps: Vec::new(),
+            cache: FxHashMap::default(),
+            terminals: Vec::new(),
+            default_terminal: OnceLock::new(),
+            loaded: false,
+        }
+    }
+
+    /// Whether this cache has been built, as opposed to standing in for one
+    /// that is still being built.
+    pub fn is_loaded(&self) -> bool {
+        self.loaded
+    }
+
     pub fn new() -> Self {
         let mut mime_app_cache = Self {
             apps: Vec::new(),
             cache: FxHashMap::default(),
             terminals: Vec::new(),
             default_terminal: OnceLock::new(),
+            loaded: true,
         };
         mime_app_cache.reload();
         mime_app_cache
@@ -362,6 +386,7 @@ impl MimeAppCache {
         // The associations being reloaded are where the default terminal
         // comes from, so the remembered answer is out of date too.
         self.default_terminal = OnceLock::new();
+        self.loaded = true;
 
         let mut list = cosmic_mime_apps::List::default();
         let paths = cosmic_mime_apps::list_paths();
@@ -762,6 +787,31 @@ impl Default for MimeAppCache {
 #[cfg(test)]
 mod tests {
     use super::exec_to_command;
+
+    /// The gates in `app` decide whether to act or wait by asking
+    /// `is_loaded`, so an empty cache has to say no to that and to everything
+    /// else. Saying "no applications" while looking loaded would make every
+    /// file fall through to `xdg-open`.
+    #[test]
+    fn an_empty_cache_admits_it_knows_nothing() {
+        let cache = super::MimeAppCache::empty();
+        assert!(!cache.is_loaded(), "an empty cache is not a built one");
+        assert!(
+            !cache.terminal_known(),
+            "an empty cache has not looked up a terminal"
+        );
+        assert!(cache.apps().is_empty());
+        assert!(
+            cache.terminal().is_none(),
+            "an empty cache must not name a terminal it does not have"
+        );
+    }
+
+    /// And a real one says yes, so the gates open.
+    #[test]
+    fn a_built_cache_reports_itself_loaded() {
+        assert!(super::MimeAppCache::new().is_loaded());
+    }
 
     #[test]
     fn keys_within_words() {

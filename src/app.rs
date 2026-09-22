@@ -411,6 +411,9 @@ pub enum Message {
     BatchRenamePreview(u64, batch_rename::Preview),
     /// The default terminal, worked out on a worker at startup.
     DefaultTerminal(Option<String>),
+    /// Open these paths with the applications the mime cache names. Exists so
+    /// that opening can wait for that cache to be built.
+    OpenFiles(Vec<PathBuf>),
     /// The same, for a terminal the user has already asked to open: take the
     /// answer and then open it.
     DefaultTerminalThenOpen(Option<String>, Option<Entity>),
@@ -818,6 +821,11 @@ pub struct App {
     /// the newest one already installed.
     mime_app_rebuild: u64,
     mime_app_rebuild_applied: u64,
+    /// Messages that arrived before the mime app cache had been built, to be
+    /// handled again once it has. Bounded: past a handful the user is holding
+    /// a key down, and replaying hundreds of them at once would be worse than
+    /// dropping the extras.
+    deferred_mime_messages: Vec<Message>,
     /// Bumped on every keystroke in that dialog. A check that finds the
     /// counter has moved on since it was scheduled drops out before touching
     /// the disk, so holding a key down costs one stat rather than one per
@@ -951,6 +959,19 @@ impl App {
     }
 
     fn open_file(&mut self, paths: &[impl AsRef<Path>]) -> Task<Message> {
+        // Nothing useful can be decided from an empty cache: every mime lookup
+        // would come back with nothing and every file would fall through to
+        // `xdg-open`, quietly ignoring whatever application the user chose.
+        // Better to open a moment later with the right one.
+        if !self.mime_app_cache.is_loaded() {
+            let paths: Vec<PathBuf> = paths
+                .iter()
+                .map(|path| path.as_ref().to_path_buf())
+                .collect();
+            self.defer_until_mime_apps(Message::OpenFiles(paths));
+            return Task::none();
+        }
+
         let mut tasks = Vec::new();
 
         // Associate all paths to its MIME type
@@ -1414,6 +1435,46 @@ impl App {
             tasks.push(self.operation(Operation::Delete { paths: trash_paths }));
         }
         Task::batch(tasks)
+    }
+
+    /// The mime app cache, for view code, or `None` while it is still being
+    /// built.
+    ///
+    /// The preview panes already take this as an optional: without it they
+    /// leave out the "opens with" row rather than showing a wrong one. That is
+    /// exactly the right thing to show before the cache exists, so the pending
+    /// state costs nothing here.
+    fn mime_apps_for_view(&self) -> Option<&MimeAppCache> {
+        self.mime_app_cache
+            .is_loaded()
+            .then_some(&self.mime_app_cache)
+    }
+
+    /// How many messages may wait on the mime app cache at once.
+    ///
+    /// The cache takes a few tens of milliseconds to build, so in practice at
+    /// most one or two actions can land inside that window. A larger number
+    /// means a key is being held down, and replaying all of them when the
+    /// cache lands would be worse than dropping the extras.
+    const MAX_DEFERRED_MIME_MESSAGES: usize = 8;
+
+    /// Hold `message` until the mime app cache has been built, if it has not.
+    ///
+    /// Returns whether it was held. A handler that needs to know which
+    /// application opens a file cannot answer with an empty cache -- it would
+    /// silently find nothing rather than the right application -- so it waits
+    /// instead, and is handled again once the answer exists.
+    fn defer_until_mime_apps(&mut self, message: Message) -> bool {
+        if self.mime_app_cache.is_loaded() {
+            return false;
+        }
+        if self.deferred_mime_messages.len() >= Self::MAX_DEFERRED_MIME_MESSAGES {
+            log::warn!("dropping {message:?}: too many actions waiting on the mime app cache");
+            return true;
+        }
+        log::debug!("holding {message:?} until the mime app cache is built");
+        self.deferred_mime_messages.push(message);
+        true
     }
 
     /// Look at `path` in the background, and report what is there.
@@ -2329,7 +2390,7 @@ impl App {
         let entity = entity_opt.unwrap_or_else(|| self.tab_model.active());
         match kind {
             PreviewKind::Custom(PreviewItem(item)) => {
-                children.push(item.preview_view(Some(&self.mime_app_cache)));
+                children.push(item.preview_view(self.mime_apps_for_view()));
             }
             PreviewKind::Location(location) => {
                 if let Some(tab) = self.tab_model.data::<Tab>(entity)
@@ -2337,7 +2398,7 @@ impl App {
                 {
                     for item in items {
                         if item.location_opt.as_ref() == Some(location) {
-                            children.push(item.preview_view(Some(&self.mime_app_cache)));
+                            children.push(item.preview_view(self.mime_apps_for_view()));
                             // Only show one property view to avoid issues like hangs when generating
                             // preview images on thousands of files
                             break;
@@ -2355,11 +2416,11 @@ impl App {
                         match (selected.next(), selected.next()) {
                             // At least two selected items
                             (Some(_), Some(_)) => {
-                                Some(tab.multi_preview_view(Some(&self.mime_app_cache)))
+                                Some(tab.multi_preview_view(self.mime_apps_for_view()))
                             }
                             // Exactly one selected item
                             (Some(item), None) => {
-                                Some(item.preview_view(Some(&self.mime_app_cache)))
+                                Some(item.preview_view(self.mime_apps_for_view()))
                             }
                             // No selected items
                             _ => None,
@@ -2373,7 +2434,7 @@ impl App {
                     if children.is_empty()
                         && let Some(item) = &tab.parent_item_opt
                     {
-                        children.push(item.preview_view(Some(&self.mime_app_cache)));
+                        children.push(item.preview_view(self.mime_apps_for_view()));
                     }
                 }
             }
@@ -2597,7 +2658,10 @@ impl Application for App {
             batch_rename_preview: batch_rename::Preview::default(),
             batch_rename_revision: 0,
             key_binds,
-            mime_app_cache: MimeAppCache::new(),
+            // Built on a worker below rather than here: walking every desktop
+            // entry on the system is not work to do before the first frame.
+            // Anything that needs it waits through `defer_until_mime_apps`.
+            mime_app_cache: MimeAppCache::empty(),
             modifiers: Modifiers::empty(),
             mounter_items: FxHashMap::default(),
             must_save_sort_names: false,
@@ -2626,26 +2690,16 @@ impl Application for App {
             name_check: None,
             mime_app_rebuild: 0,
             mime_app_rebuild_applied: 0,
+            deferred_mime_messages: Vec::new(),
             name_check_revision: Arc::new(AtomicU64::new(0)),
         };
 
         let mut commands = vec![
             app.update_config(),
             app.update(Message::CheckClipboard),
-            // The cache built just above was built here, on the event loop,
-            // where asking `xdg-mime` for the default terminal would have
-            // added a whole process -- and its two second deadline -- to the
-            // time before the window appears. Asked on a worker instead, so
-            // the first menu that wants a terminal already has the answer.
-            Task::future(async move {
-                match tokio::task::spawn_blocking(MimeAppCache::query_default_terminal).await {
-                    Ok(id) => crate::ui::action::app(Message::DefaultTerminal(id)),
-                    Err(err) => {
-                        log::warn!("failed to look up the default terminal: {err}");
-                        crate::ui::action::none()
-                    }
-                }
-            }),
+            // The cache starts empty; this builds it, and primes the default
+            // terminal along with it, on a worker.
+            app.update(Message::ReloadMimeAppCache),
         ];
 
         for location in flags.locations {
@@ -3956,6 +4010,9 @@ impl Application for App {
                 }
             },
             Message::OpenTerminal(entity_opt) => {
+                if self.defer_until_mime_apps(Message::OpenTerminal(entity_opt)) {
+                    return Task::none();
+                }
                 if !self.mime_app_cache.terminal_known() {
                     // The lookup started at startup has not come back yet.
                     // Rather than run it here -- a whole process, with a two
@@ -4075,7 +4132,13 @@ impl Application for App {
                 }
                 None => {}
             },
+            Message::OpenFiles(paths) => {
+                return self.open_file(&paths);
+            }
             Message::OpenWithDialog(entity_opt) => {
+                if self.defer_until_mime_apps(Message::OpenWithDialog(entity_opt)) {
+                    return Task::none();
+                }
                 let entity = entity_opt.unwrap_or_else(|| self.tab_model.active());
                 if let Some(tab) = self.tab_model.data::<Tab>(entity)
                     && let Some(items) = tab.items_opt()
@@ -4500,6 +4563,16 @@ impl Application for App {
                 } else if let Some(cache) = wrapper.take() {
                     self.mime_app_rebuild_applied = rebuild;
                     self.mime_app_cache = cache;
+                    // Whatever arrived while there was no cache to answer with
+                    let waiting = std::mem::take(&mut self.deferred_mime_messages);
+                    if !waiting.is_empty() {
+                        return Task::batch(
+                            waiting
+                                .into_iter()
+                                .map(|message| self.update(message))
+                                .collect::<Vec<_>>(),
+                        );
+                    }
                 }
             }
             Message::RescanRecents => {
@@ -5315,6 +5388,11 @@ impl Application for App {
                     }
                 }
                 NavMenuAction::OpenWith(entity) => {
+                    if self.defer_until_mime_apps(Message::NavMenuAction(NavMenuAction::OpenWith(
+                        entity,
+                    ))) {
+                        return Task::none();
+                    }
                     if let Some(path) = self
                         .nav_model
                         .data::<Location>(entity)
