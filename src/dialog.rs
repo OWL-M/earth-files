@@ -20,7 +20,6 @@ use crate::ui::widget::{self, segmented_button};
 use mime_guess::{Mime, mime};
 use notify_debouncer_full::notify::{self, RecommendedWatcher};
 use notify_debouncer_full::{DebouncedEvent, Debouncer, RecommendedCache, new_debouncer};
-use recently_used_xbel::update_recently_used;
 use rustc_hash::{FxHashMap, FxHashSet};
 use std::any::TypeId;
 use std::collections::{HashMap, VecDeque};
@@ -483,6 +482,8 @@ enum Message {
     MounterItems(MounterKey, MounterItems),
     NavBarClose(segmented_button::Entity),
     NewFolder,
+    /// A folder the chooser asked for now exists, so it can be entered.
+    NewFolderCreated(PathBuf),
     NotifyEvents(Vec<DebouncedEvent>),
     NotifyWatcher(WatcherWrapper),
     Open,
@@ -1418,18 +1419,30 @@ impl Application for App {
                     match dialog_page {
                         DialogPage::NewFolder { parent, name } => {
                             let path = parent.join(name);
-                            match fs::create_dir(&path) {
-                                Ok(()) => {
-                                    // cd to directory
-                                    let message = Message::TabMessage(tab::Message::Location(
-                                        Location::Path(path),
-                                    ));
-                                    return self.update(message);
+                            // Created off the event loop, and navigated into
+                            // only once it exists. On a slow or remote
+                            // destination the `mkdir` alone can take long
+                            // enough to be felt as the dialog hanging.
+                            return Task::future(async move {
+                                let created = tokio::task::spawn_blocking({
+                                    let path = path.clone();
+                                    move || fs::create_dir(&path)
+                                })
+                                .await;
+                                match created {
+                                    Ok(Ok(())) => {
+                                        crate::ui::action::app(Message::NewFolderCreated(path))
+                                    }
+                                    Ok(Err(err)) => {
+                                        log::warn!("failed to create {}: {}", path.display(), err);
+                                        crate::ui::action::none()
+                                    }
+                                    Err(err) => {
+                                        log::warn!("failed to create {}: {}", path.display(), err);
+                                        crate::ui::action::none()
+                                    }
                                 }
-                                Err(err) => {
-                                    log::warn!("failed to create {}: {}", path.display(), err);
-                                }
-                            }
+                            });
                         }
                         DialogPage::Replace { .. } => {
                             return self.update(Message::Save(true));
@@ -1598,6 +1611,11 @@ impl Application for App {
                     return widget::text_input::focus(self.dialog_text_input.clone());
                 }
             }
+            Message::NewFolderCreated(path) => {
+                return self.update(Message::TabMessage(tab::Message::Location(Location::Path(
+                    path,
+                ))));
+            }
             Message::NotifyEvents(events) => {
                 log::debug!("{events:?}");
 
@@ -1682,11 +1700,10 @@ impl Application for App {
                         {
                             paths.push(path.clone());
                             if self.flags.config.show_recents {
-                                let _ = update_recently_used(
-                                    path,
+                                crate::recents::record(
+                                    path.clone(),
                                     Self::APP_ID.to_string(),
                                     "earth-files".to_string(),
-                                    None,
                                 );
                             }
                         }

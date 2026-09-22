@@ -940,11 +940,10 @@ impl App {
                 match open::that_detached(&path) {
                     Ok(()) => {
                         if self.config.show_recents {
-                            let _ = recently_used_xbel::update_recently_used(
-                                &path,
+                            crate::recents::record(
+                                path.clone(),
                                 Self::APP_ID.to_string(),
                                 "earth-files".to_string(),
-                                None,
                             );
                         }
                     }
@@ -1061,11 +1060,10 @@ impl App {
                     Ok(()) => {
                         if self.config.show_recents {
                             for path in &covered {
-                                let _ = recently_used_xbel::update_recently_used(
-                                    &path.into(),
+                                crate::recents::record(
+                                    path.into(),
                                     Self::APP_ID.to_string(),
                                     "earth-files".to_string(),
-                                    None,
                                 );
                             }
                         }
@@ -3158,11 +3156,10 @@ impl Application for App {
                                     match spawn_detached(&mut command) {
                                         Ok(()) => {
                                             if self.config.show_recents {
-                                                let _ = recently_used_xbel::update_recently_used(
-                                                    &path,
+                                                crate::recents::record(
+                                                    path.clone(),
                                                     Self::APP_ID.to_string(),
                                                     "earth-files".to_string(),
-                                                    None,
                                                 );
                                             }
                                         }
@@ -4460,12 +4457,7 @@ impl Application for App {
                             commands.push(Self::drop_files(to, copy));
                         }
                         tab::Command::ClearRecents => {
-                            match recently_used_xbel::clear_recently_used() {
-                                Ok(()) => {}
-                                Err(err) => {
-                                    log::warn!("failed to clear recents history: {}", err);
-                                }
-                            }
+                            crate::recents::clear();
                         }
                         tab::Command::EmptyTrash => {
                             return self.push_dialog(
@@ -4873,12 +4865,7 @@ impl Application for App {
                 }
             }
             Message::NavMenuAction(action) => match action {
-                NavMenuAction::ClearRecents => match recently_used_xbel::clear_recently_used() {
-                    Ok(()) => {}
-                    Err(err) => {
-                        log::warn!("failed to clear recents history: {}", err);
-                    }
-                },
+                NavMenuAction::ClearRecents => crate::recents::clear(),
                 NavMenuAction::EmptyTrash => {
                     return self
                         .push_dialog(DialogPage::EmptyTrash, Some(EMPTY_TRASH_BUTTON_ID.clone()));

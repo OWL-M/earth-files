@@ -35,6 +35,7 @@ mod mounter;
 mod mouse_area;
 pub mod operation;
 pub mod portal;
+mod recents;
 mod spawn_detached;
 pub mod tab;
 mod thumbnail_cacher;
