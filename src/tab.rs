@@ -8608,13 +8608,13 @@ mod tests {
 
         // Make it an item the listing cannot fully describe, as a trashed or
         // GVFS item is
-        let first = |tab: &mut Tab| -> &mut Item {
+        fn first(tab: &mut Tab) -> &mut Item {
             tab.items_opt
                 .as_mut()
                 .expect("populated")
                 .first_mut()
                 .expect("one item")
-        };
+        }
         let path = {
             let item = first(&mut tab);
             item.metadata = ItemMetadata::SimpleFile { size: 1 };

@@ -417,6 +417,8 @@ pub enum Message {
     /// Offer applications for this file, which was chosen when the user asked
     /// rather than when the cache was ready.
     OpenWithFor(PathBuf, Mime),
+    /// What a worker found a sidebar entry's type to be, for its loading page.
+    OpenWithResolved(PathBuf, Result<Mime, String>),
     /// The same, for a terminal the user has already asked to open: take the
     /// answer and then open it.
     DefaultTerminalThenOpen(Option<String>, Box<[PathBuf]>),
@@ -566,6 +568,10 @@ pub enum DialogPage {
         store_opt: Option<Arc<MimeApp>>,
         search_app_name: String,
     },
+    /// "Open with" for a path whose type is still being worked out on a
+    /// worker. Shown at once, so the click is seen to have landed and can be
+    /// cancelled; replaced by [`Self::OpenWith`] when the answer arrives.
+    OpenWithLoading { path: PathBuf },
     PermanentlyDelete {
         paths: Box<[PathBuf]>,
     },
@@ -3303,6 +3309,9 @@ impl Application for App {
                 if let Some((dialog_page, task)) = self.dialog_pages.pop_front() {
                     let mut tasks = vec![task];
                     match dialog_page {
+                        // Nothing to complete yet: the type is still being
+                        // read, and the page offers only Cancel.
+                        DialogPage::OpenWithLoading { .. } => {}
                         DialogPage::Compress {
                             paths,
                             to,
@@ -4167,24 +4176,53 @@ impl Application for App {
                     return self.update(Message::OpenWithFor(path, mime));
                 }
             }
+            Message::OpenWithResolved(path, resolved) => {
+                // Only for a loading page still up for this path. Cancelled,
+                // or moved on from, and the answer is nobody's.
+                let waiting = matches!(
+                    self.dialog_pages.front(),
+                    Some(DialogPage::OpenWithLoading { path: shown }) if *shown == path
+                );
+                if !waiting {
+                    return Task::none();
+                }
+                match resolved {
+                    Ok(mime) => return self.update(Message::OpenWithFor(path, mime)),
+                    Err(err) => {
+                        log::warn!("failed to get item for path {}: {}", path.display(), err);
+                        if let Some((_, task)) = self.dialog_pages.pop_front() {
+                            return task;
+                        }
+                    }
+                }
+            }
             Message::OpenWithFor(path, mime) => {
                 if self.defer_until_mime_apps(Message::OpenWithFor(path.clone(), mime.clone())) {
                     return Task::none();
                 }
+                let page = DialogPage::OpenWith {
+                    path: path.clone(),
+                    mime,
+                    selected: 0,
+                    store_opt: "x-scheme-handler/mime"
+                        .parse::<mime_guess::Mime>()
+                        .ok()
+                        .and_then(|mime| self.mime_app_cache.get(&mime).first().cloned()),
+                    search_app_name: String::new(),
+                };
+                // A loading page for this path becomes the real one in place;
+                // otherwise this is a fresh dialog.
+                let shown = if matches!(
+                    self.dialog_pages.front(),
+                    Some(DialogPage::OpenWithLoading { path: shown }) if *shown == path
+                ) {
+                    self.dialog_pages.update_front(page);
+                    Task::none()
+                } else {
+                    self.push_dialog(page, Some(CONFIRM_OPEN_WITH_BUTTON_ID.clone()))
+                };
                 return Task::batch([
-                    self.push_dialog(
-                        DialogPage::OpenWith {
-                            path,
-                            mime,
-                            selected: 0,
-                            store_opt: "x-scheme-handler/mime"
-                                .parse::<mime_guess::Mime>()
-                                .ok()
-                                .and_then(|mime| self.mime_app_cache.get(&mime).first().cloned()),
-                            search_app_name: String::new(),
-                        },
-                        Some(CONFIRM_OPEN_WITH_BUTTON_ID.clone()),
-                    ),
+                    shown,
                     widget::text_input::focus(self.dialog_text_input.clone()),
                 ]);
             }
@@ -5412,26 +5450,35 @@ impl Application for App {
                     }
                 }
                 NavMenuAction::OpenWith(entity) => {
-                    // Resolved from the sidebar entry the user clicked, before
-                    // anything can wait on the mime app cache.
+                    // The path is known now; its type is not, and finding out
+                    // means reading the disk -- for a bookmarked mount that
+                    // has gone away, possibly for a long time. So the dialog
+                    // goes up at once, saying so, with a way out, and the
+                    // reading happens on a worker. Cancel discards the answer;
+                    // it cannot interrupt the read.
                     if let Some(path) = self
                         .nav_model
                         .data::<Location>(entity)
                         .and_then(Location::path_opt)
                         .cloned()
                     {
-                        match tab::item_from_path(&path, IconSizes::default()) {
-                            Ok(item) => {
-                                return self.update(Message::OpenWithFor(path, item.mime));
-                            }
-                            Err(err) => {
-                                log::warn!(
-                                    "failed to get item for path {}: {}",
-                                    path.display(),
-                                    err
-                                );
-                            }
-                        }
+                        let shown = self.push_dialog(
+                            DialogPage::OpenWithLoading { path: path.clone() },
+                            None,
+                        );
+                        let resolve = Task::future(async move {
+                            let resolved = tokio::task::spawn_blocking({
+                                let path = path.clone();
+                                move || {
+                                    tab::item_from_path(&path, IconSizes::default())
+                                        .map(|item| item.mime)
+                                }
+                            })
+                            .await
+                            .unwrap_or_else(|err| Err(err.to_string()));
+                            crate::ui::action::app(Message::OpenWithResolved(path, resolved))
+                        });
+                        return Task::batch([shown, resolve]);
                     }
                 }
                 NavMenuAction::RunContextAction(entity, action) => {
@@ -6095,6 +6142,19 @@ impl Application for App {
                             .on_press(Message::DialogComplete)
                             .id(CONFIRM_CONTEXT_ACTION_BUTTON_ID.clone()),
                     )
+                    .secondary_action(
+                        widget::button::standard(fl!("cancel")).on_press(Message::DialogCancel),
+                    )
+            }
+            DialogPage::OpenWithLoading { path } => {
+                let name = match path.file_name() {
+                    Some(file_name) => file_name.to_str(),
+                    None => path.as_os_str().to_str(),
+                }
+                .unwrap_or_default();
+                widget::dialog()
+                    .title(fl!("open-with-title", name = name))
+                    .control(widget::text::body(fl!("calculating")))
                     .secondary_action(
                         widget::button::standard(fl!("cancel")).on_press(Message::DialogCancel),
                     )
