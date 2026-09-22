@@ -3551,7 +3551,9 @@ impl Tab {
     /// second one for the same path would hold another, for the same answer.
     /// An item that finds a read already out is marked as waiting on it, and
     /// is read for itself once that read ends and its answer turns out not to
-    /// be for this incarnation.
+    /// be for this incarnation -- which is why a `Loading` item with no read
+    /// out for its path is accepted here: that is what waiting looks like
+    /// from the outside, and this is the read it was waiting for.
     fn start_details_read(&mut self, path: PathBuf, epoch: u64, listing: u64) -> Option<Command> {
         let location = Location::Path(path.clone());
         let mut found = false;
@@ -3563,7 +3565,13 @@ impl Tab {
         {
             if item.location_opt.as_ref() == Some(&location)
                 && item.details_epoch == epoch
-                && matches!(item.details, MetadataState::Pending)
+                && matches!(
+                    item.details,
+                    // Pending: asked for the first time. Loading with no read
+                    // out for the path: told to wait on a read that has since
+                    // ended without being for it. Both start a read now.
+                    MetadataState::Pending | MetadataState::Loading
+                )
             {
                 item.details = MetadataState::Loading;
                 found = true;
@@ -8800,29 +8808,6 @@ mod tests {
             "a second ask for a read already out started another"
         );
 
-        // Nor does a rescan that replaces the item: the path is still being
-        // read, and the replacement waits for that read rather than adding a
-        // second one that would hold a second permit
-        tab.set_items(Vec::new());
-        let replaced = super::item_from_path(&path, IconSizes::default()).expect("rebuild");
-        let mut replaced = replaced;
-        replaced.metadata = ItemMetadata::SimpleFile { size: 1 };
-        tab.set_items(vec![replaced]);
-        let listing = tab.listing();
-        let epoch = first(&mut tab).details_epoch;
-        let after_rescan = reads(tab.update(
-            Message::RequestDetails(path.clone(), epoch, listing),
-            Modifiers::empty(),
-        ));
-        assert_eq!(
-            after_rescan, 0,
-            "a rescanned item started a second read of a path already being read"
-        );
-        assert!(
-            matches!(first(&mut tab).details, MetadataState::Loading),
-            "the replacement should be marked as waiting on the read"
-        );
-
         // An answer for another incarnation is ignored
         tab.update(
             Message::ItemDetails(
@@ -8835,7 +8820,8 @@ mod tests {
         );
         assert!(
             matches!(first(&mut tab).details, MetadataState::Loading),
-            "an answer for a different incarnation was applied"
+            "an answer for a different incarnation was applied: state is {:?}",
+            first(&mut tab).details
         );
         // And so is one for another listing, even at the same epoch: a rescan
         // hands out fresh items at epoch zero, just like the ones before it
@@ -8871,6 +8857,69 @@ mod tests {
             matches!(first(&mut tab).details, MetadataState::Pending),
             "a rebuilt item kept the old incarnation's answer"
         );
+        // A read for the rebuilt item, left outstanding across the rescan
+        // below
+        let epoch = first(&mut tab).details_epoch;
+        let started = reads(tab.update(
+            Message::RequestDetails(path.clone(), epoch, listing),
+            Modifiers::empty(),
+        ));
+        assert_eq!(started, 1, "the rebuilt item should be read afresh");
+
+        // Nor does a rescan that replaces the item: the path is still being
+        // read, and the replacement waits for that read rather than adding a
+        // second one that would hold a second permit
+        let (old_epoch, old_listing) = (epoch, listing);
+        tab.set_items(Vec::new());
+        let replaced = super::item_from_path(&path, IconSizes::default()).expect("rebuild");
+        let mut replaced = replaced;
+        replaced.metadata = ItemMetadata::SimpleFile { size: 1 };
+        tab.set_items(vec![replaced]);
+        let listing = tab.listing();
+        let epoch = first(&mut tab).details_epoch;
+        let after_rescan = reads(tab.update(
+            Message::RequestDetails(path.clone(), epoch, listing),
+            Modifiers::empty(),
+        ));
+        assert_eq!(
+            after_rescan, 0,
+            "a rescanned item started a second read of a path already being read"
+        );
+        assert!(
+            matches!(first(&mut tab).details, MetadataState::Loading),
+            "the replacement should be marked as waiting on the read"
+        );
+
+        // The old read ends. Its answer is for the incarnation before the
+        // rescan and is not applied -- but the replacement was waiting on
+        // exactly this, and must now be read for itself rather than left
+        // "Calculating" for good.
+        let stale = fs::metadata(&path)?;
+        let restarted = reads(tab.update(
+            Message::ItemDetails(path.clone(), old_epoch, old_listing, Ok(stale)),
+            Modifiers::empty(),
+        ));
+        assert!(
+            !matches!(first(&mut tab).details, MetadataState::Ready(_)),
+            "a stale answer was applied to the replacement"
+        );
+        assert_eq!(
+            restarted, 1,
+            "the replacement's own read was not started when the read it waited on ended"
+        );
+        assert!(matches!(first(&mut tab).details, MetadataState::Loading));
+
+        // And that read's answer lands
+        let fresh = fs::metadata(&path)?;
+        tab.update(
+            Message::ItemDetails(path.clone(), epoch, listing, Ok(fresh)),
+            Modifiers::empty(),
+        );
+        assert!(
+            first(&mut tab).file_metadata().is_some(),
+            "the replacement's own answer was not applied"
+        );
+
         Ok(())
     }
 
