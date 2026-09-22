@@ -21,6 +21,11 @@ enum Job {
         id: String,
         exec: String,
     },
+    /// Forget these paths.
+    Remove {
+        paths: Box<[PathBuf]>,
+        done: mpsc::SyncSender<Result<(), String>>,
+    },
     /// Forget everything.
     Clear,
     /// Answer once every job queued before this one has been applied.
@@ -46,6 +51,14 @@ static WORKER: LazyLock<Option<Sender<Job>>> = LazyLock::new(|| {
                         {
                             log::warn!("failed to record {} as recent: {err}", path.display());
                         }
+                    }
+                    Job::Remove { paths, done } => {
+                        let path_refs = paths.iter().map(PathBuf::as_path).collect::<Box<[_]>>();
+                        let result = recently_used_xbel::remove_recently_used(&path_refs)
+                            .map_err(|err| err.to_string());
+                        // Reported back, unlike the rest: this one is an
+                        // operation the user started and can see fail.
+                        let _ = done.send(result);
                     }
                     Job::Clear => {
                         if let Err(err) = recently_used_xbel::clear_recently_used() {
@@ -87,6 +100,31 @@ pub fn record(path: PathBuf, id: String, exec: String) {
 /// Forgets every recent file, without waiting for the write.
 pub fn clear() {
     submit(Job::Clear);
+}
+
+/// Forgets `paths`, waiting for the write and reporting whether it worked.
+///
+/// Blocking, so it belongs on a worker rather than the event loop. It goes
+/// through the same queue as everything else here, because the file is read,
+/// edited and written back whole: a removal running beside a recording would
+/// undo one of them.
+pub fn remove(paths: Box<[PathBuf]>) -> Result<(), String> {
+    let Some(tx) = WORKER.as_ref() else {
+        return Err("the recent files worker is not running".to_owned());
+    };
+    let (done_tx, done_rx) = mpsc::sync_channel(0);
+    if tx
+        .send(Job::Remove {
+            paths,
+            done: done_tx,
+        })
+        .is_err()
+    {
+        return Err("the recent files worker stopped".to_owned());
+    }
+    done_rx
+        .recv()
+        .unwrap_or_else(|_| Err("the recent files worker stopped".to_owned()))
 }
 
 /// Waits until every queued change has been applied.

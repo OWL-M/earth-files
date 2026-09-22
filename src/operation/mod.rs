@@ -1509,13 +1509,13 @@ impl Operation {
                 Ok(OperationSelection::default())
             }
             Self::RemoveFromRecents { paths } => {
-                tokio::task::spawn_blocking(move || {
-                    let path_refs = paths.iter().map(PathBuf::as_path).collect::<Box<[_]>>();
-                    recently_used_xbel::remove_recently_used(&path_refs)
-                })
-                .await
-                .map_err(|e| OperationError::from_err(e, &controller))?
-                .map_err(|e| OperationError::from_err(e, &controller))?;
+                // Through the same worker that records and clears recents.
+                // The file is read, edited and written back whole, so a
+                // removal running beside a recording would undo one of them.
+                tokio::task::spawn_blocking(move || crate::recents::remove(paths))
+                    .await
+                    .map_err(|e| OperationError::from_err(e, &controller))?
+                    .map_err(|e| OperationError::from_err(e, &controller))?;
 
                 Ok(OperationSelection::default())
             }

@@ -412,8 +412,9 @@ pub enum Message {
     /// The result of looking at a path the user is typing towards.
     NameChecked(NameCheck),
     ReloadMimeAppCache,
-    /// A freshly built mime app cache, ready to replace the one in use.
-    MimeAppCacheReloaded(MimeAppCacheWrapper),
+    /// A freshly built mime app cache, ready to replace the one in use, and
+    /// the number of the rebuild that produced it.
+    MimeAppCacheReloaded(u64, MimeAppCacheWrapper),
     ReorderTab(ReorderEvent),
     RescanRecents,
     RescanTrash,
@@ -810,6 +811,10 @@ pub struct App {
     name_check: Option<NameCheck>,
     /// The batch number given to the next set of items sent off to be re-read.
     refresh_batch: u64,
+    /// The number given to the next mime app cache rebuild, and the number of
+    /// the newest one already installed.
+    mime_app_rebuild: u64,
+    mime_app_rebuild_applied: u64,
     /// The newest batch whose result has been adopted, per path, so a batch
     /// that finishes out of order cannot put back an older snapshot. Only
     /// meaningful while batches are in flight, and emptied once none are, so
@@ -2624,6 +2629,8 @@ impl Application for App {
             clipboard_cache: ClipboardCache::Empty,
             name_check: None,
             refresh_batch: 0,
+            mime_app_rebuild: 0,
+            mime_app_rebuild_applied: 0,
             refreshed_at: FxHashMap::default(),
             refresh_in_flight: 0,
             name_check_revision: Arc::new(AtomicU64::new(0)),
@@ -4430,9 +4437,12 @@ impl Application for App {
                 // Rebuilt on a worker and swapped in when it is ready. Building
                 // it walks every desktop entry installed on the system, which
                 // is far too much to do between two frames.
+                let rebuild = self.mime_app_rebuild;
+                self.mime_app_rebuild = self.mime_app_rebuild.wrapping_add(1);
                 return Task::future(async move {
                     match tokio::task::spawn_blocking(MimeAppCache::new).await {
                         Ok(cache) => crate::ui::action::app(Message::MimeAppCacheReloaded(
+                            rebuild,
                             MimeAppCacheWrapper::new(cache),
                         )),
                         Err(err) => {
@@ -4442,8 +4452,16 @@ impl Application for App {
                     }
                 });
             }
-            Message::MimeAppCacheReloaded(mut wrapper) => {
-                if let Some(cache) = wrapper.take() {
+            Message::MimeAppCacheReloaded(rebuild, mut wrapper) => {
+                // Rebuilds overlap: two default-application changes, or a
+                // change and the watcher noticing it, start two workers, and
+                // the older one can finish last. Installing whichever arrives
+                // would then put back associations that are already out of
+                // date.
+                if rebuild < self.mime_app_rebuild_applied {
+                    log::debug!("discarding mime app cache rebuild {rebuild}: superseded");
+                } else if let Some(cache) = wrapper.take() {
+                    self.mime_app_rebuild_applied = rebuild;
                     self.mime_app_cache = cache;
                 }
             }

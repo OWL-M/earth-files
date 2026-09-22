@@ -7487,10 +7487,9 @@ impl Tab {
                     // Item must have a path
                     if let Some(path) = item.path_opt().cloned() {
                         // Item must be calculating directory size
-                        if let DirSize::Calculating(controller) = &item.dir_size {
+                        if let DirSize::Calculating(_) = &item.dir_size {
                             struct Wrapper {
                                 path: PathBuf,
-                                controller: Controller,
                             }
                             impl Hash for Wrapper {
                                 fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
@@ -7498,16 +7497,20 @@ impl Tab {
                                 }
                             }
                             subscriptions.push(Subscription::run_with(
-                                Wrapper { path: path.clone(), controller: controller.clone() },
-                                |Wrapper { path, controller }| {
+                                Wrapper { path: path.clone() },
+                                |Wrapper { path }| {
                                     let path = path.clone();
-                                    let controller = controller.clone();
                                     stream::channel(1, |mut output: futures::channel::mpsc::Sender<_>| async move {
-                                        // The controller belongs to the item and outlives any
-                                        // one run of this subscription, so a cancellation left
-                                        // over from the last time the folder scrolled out of
-                                        // view would stop this one before it started.
-                                        controller.set_state(ControllerState::Running);
+                                        // A controller of this run's own, never the item's.
+                                        // The item's outlives every run, so resetting it to
+                                        // Running for a new one would also revive the walk the
+                                        // previous run had just cancelled: a worker still
+                                        // inside a slow read would wake to find itself Running
+                                        // again and carry on, and two walks would share the
+                                        // permits meant for one. A cancellation must stay
+                                        // cancelled, so each run gets a fresh one and the
+                                        // item's is left alone.
+                                        let controller = Controller::default();
                                         // Cancel the walk when this subscription goes away,
                                         // which is the only notice a blocking job gets.
                                         let _cancel = CancelOnDrop(controller.clone());
