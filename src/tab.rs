@@ -4569,15 +4569,22 @@ impl Tab {
             Message::Config(config) => {
                 // View is preserved for existing tabs
                 let view = self.config.view;
-                // Both of these decide what a search looks at, so changing
-                // either runs it again rather than leaving results that
-                // answer the question as it was asked before.
-                let search_changed = self.config.show_hidden != config.show_hidden
-                    || self.config.search_recursive != config.search_recursive;
+                // What a search looks at, as the config now says it should.
+                let options = SearchOptions {
+                    show_hidden: config.show_hidden,
+                    recursive: config.search_recursive,
+                };
                 self.config = config;
                 self.config.view = view;
-                if search_changed && let Location::Search(path, term, ..) = &self.location {
-                    let options = self.search_options();
+                // Compared against the search that is actually running, not
+                // against the config as it was a moment ago. History restores
+                // a search with the options it was made with, so a restored
+                // search can disagree with the config without the config
+                // having changed at all -- and then it is the search that is
+                // out of date, and running it again is what fixes it.
+                if let Location::Search(path, term, current, ..) = &self.location
+                    && *current != options
+                {
                     cd = Some(Location::Search(
                         path.clone(),
                         term.clone(),
@@ -8854,6 +8861,55 @@ mod tests {
             ],
             "an open eye should find everything underneath too"
         );
+        Ok(())
+    }
+
+    /// A search restored from history carries the options it was made with,
+    /// which can disagree with a config that has changed since. The config is
+    /// what the eye offers, so the search is the one that has to give way.
+    #[test]
+    fn a_restored_search_is_brought_up_to_date_with_the_config() -> io::Result<()> {
+        use crate::tab::{SearchLocation, SearchOptions};
+        use std::time::Instant;
+
+        let fs = empty_fs()?;
+        let mut tab = Tab::new(
+            Location::Path(fs.path().to_owned()),
+            TabConfig::default(),
+            ThumbCfg::default(),
+            None,
+            std::borrow::Cow::Borrowed("Undefined"),
+            None,
+        );
+
+        // A search made while the eye was shut, as history would give back
+        let narrow = SearchOptions {
+            show_hidden: false,
+            recursive: false,
+        };
+        tab.location = Location::Search(
+            SearchLocation::Path(fs.path().to_owned()),
+            "term".to_owned(),
+            narrow,
+            Instant::now(),
+        );
+
+        // The config says subfolders are searched. Nothing about the config
+        // changed in this step -- it is the restored search that is behind.
+        let config = TabConfig {
+            search_recursive: true,
+            ..TabConfig::default()
+        };
+        tab.config.search_recursive = true;
+        tab.update(Message::Config(config), Modifiers::empty());
+
+        match &tab.location {
+            Location::Search(_, _, options, _) => assert!(
+                options.recursive,
+                "a restored search kept options the config had moved on from"
+            ),
+            other => panic!("expected a search location, got {other:?}"),
+        }
         Ok(())
     }
 

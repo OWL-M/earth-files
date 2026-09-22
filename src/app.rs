@@ -476,7 +476,7 @@ pub enum Message {
     ToggleContextPage(ContextPage),
     ToggleFoldersFirst,
     /// Widen the search to subfolders, or narrow it back to this folder.
-    ToggleSearchRecursive,
+    SetSearchRecursive(bool),
     ToggleShowHidden,
     ToggleShowTypeColumn,
     ToggleAuthPasswordVisible,
@@ -2075,27 +2075,35 @@ impl App {
     /// The eye is shown only when searching a folder. Trash and recent files
     /// are flat lists, and a control that cannot do anything is worse than
     /// no control at all.
-    fn search_trailing(&self) -> Element<'_, Message> {
-        let mut row: Vec<Element<'_, Message>> = Vec::with_capacity(2);
-        let searching_path = self.tab_model.active_data::<Tab>().is_some_and(|tab| {
-            matches!(
-                tab.location,
-                Location::Search(tab::SearchLocation::Path(..), ..)
-            )
-        });
-        if searching_path {
-            let recursive = self.config.tab.search_recursive;
-            row.push(
-                widget::button::custom(
-                    widget::icon::icon(tab::search_scope_icon(recursive)).size(16),
-                )
+    /// The eye, when there is a search it can act on.
+    ///
+    /// Its state comes from the search that is running, not from the config:
+    /// history restores a search with the options it was made with, and an
+    /// eye showing the config would then be describing a different search
+    /// from the one on screen.
+    fn search_scope_button(&self) -> Option<Element<'_, Message>> {
+        let recursive =
+            self.tab_model
+                .active_data::<Tab>()
+                .and_then(|tab| match &tab.location {
+                    Location::Search(tab::SearchLocation::Path(..), _, options, _) => {
+                        Some(options.recursive)
+                    }
+                    _ => None,
+                })?;
+        Some(
+            widget::button::custom(widget::icon::icon(tab::search_scope_icon(recursive)).size(16))
                 .class(crate::ui::theme::Button::Icon)
                 .selected(recursive)
-                .on_press(Message::ToggleSearchRecursive)
+                .on_press(Message::SetSearchRecursive(!recursive))
                 .padding(8)
                 .into(),
-            );
-        }
+        )
+    }
+
+    fn search_trailing(&self) -> Element<'_, Message> {
+        let mut row: Vec<Element<'_, Message>> = Vec::with_capacity(2);
+        row.extend(self.search_scope_button());
         row.push(
             widget::button::custom(widget::icon::from_name("edit-clear-symbolic").size(16))
                 .class(crate::ui::theme::Button::Icon)
@@ -5102,10 +5110,16 @@ impl Application for App {
                 config.folders_first = !config.folders_first;
                 return self.update(Message::TabConfig(config));
             }
-            Message::ToggleSearchRecursive => {
+            Message::SetSearchRecursive(recursive) => {
                 let mut config = self.config.tab;
-                config.search_recursive = !config.search_recursive;
-                return self.update(Message::TabConfig(config));
+                config.search_recursive = recursive;
+                // Written and propagated rather than sent through
+                // `Message::TabConfig`, which does nothing when the config
+                // already holds this value. It can: a search restored from
+                // history may disagree with a config that never changed, and
+                // that search still has to be told.
+                config_set!(tab, config);
+                return self.update_config();
             }
             Message::ToggleShowHidden => {
                 let mut config = self.config.tab;
@@ -7044,6 +7058,10 @@ impl Application for App {
 
         if let Some(term) = self.search_get() {
             if self.core.is_condensed() {
+                // The field itself is collapsed here, so the eye stands on
+                // its own beside the button that clears the search. Without
+                // it a narrow window could not widen a search at all.
+                elements.extend(self.search_scope_button());
                 elements.push(
                     widget::button::icon(icon::from_name("system-search-symbolic"))
                         .on_press(Message::SearchClear)

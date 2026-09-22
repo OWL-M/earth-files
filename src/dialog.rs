@@ -499,7 +499,7 @@ enum Message {
     SearchClear,
     SearchInput(String),
     /// Widen the search to subfolders, or narrow it back to this folder.
-    ToggleSearchRecursive,
+    SetSearchRecursive(bool),
     Surface(crate::ui::surface::Action<Message>),
     #[allow(clippy::enum_variant_names)]
     TabMessage(tab::Message),
@@ -813,24 +813,27 @@ impl App {
     /// What sits at the right-hand end of the search field. As in the main
     /// window: the text input has one trailing slot and `on_clear` is that
     /// slot, so the eye shares it with the clear button.
-    fn search_trailing(&self) -> Element<'_, Message> {
-        let mut row: Vec<Element<'_, Message>> = Vec::with_capacity(2);
-        if matches!(
-            self.tab.location,
-            Location::Search(tab::SearchLocation::Path(..), ..)
-        ) {
-            let recursive = self.flags.config.tab.search_recursive;
-            row.push(
-                widget::button::custom(
-                    widget::icon::icon(tab::search_scope_icon(recursive)).size(16),
-                )
+    /// The eye, when there is a search it can act on. As in the main window,
+    /// its state comes from the search that is running rather than from the
+    /// config, so it describes what is on screen.
+    fn search_scope_button(&self) -> Option<Element<'_, Message>> {
+        let recursive = match &self.tab.location {
+            Location::Search(tab::SearchLocation::Path(..), _, options, _) => options.recursive,
+            _ => return None,
+        };
+        Some(
+            widget::button::custom(widget::icon::icon(tab::search_scope_icon(recursive)).size(16))
                 .class(crate::ui::theme::Button::Icon)
                 .selected(recursive)
-                .on_press(Message::ToggleSearchRecursive)
+                .on_press(Message::SetSearchRecursive(!recursive))
                 .padding(8)
                 .into(),
-            );
-        }
+        )
+    }
+
+    fn search_trailing(&self) -> Element<'_, Message> {
+        let mut row: Vec<Element<'_, Message>> = Vec::with_capacity(2);
+        row.extend(self.search_scope_button());
         row.push(
             widget::button::custom(widget::icon::from_name("edit-clear-symbolic").size(16))
                 .class(crate::ui::theme::Button::Icon)
@@ -1282,6 +1285,9 @@ impl Application for App {
 
         if let Some(term) = self.search_get() {
             if self.core.is_condensed() {
+                // The field itself is collapsed here, so the eye stands on
+                // its own beside the button that clears the search.
+                elements.extend(self.search_scope_button());
                 elements.push(
                     widget::button::icon(widget::icon::from_name("system-search-symbolic"))
                         .on_press(Message::SearchClear)
@@ -1942,12 +1948,12 @@ impl Application for App {
 
                 return Task::batch(tasks);
             }
-            Message::ToggleSearchRecursive => {
+            Message::SetSearchRecursive(recursive) => {
                 // Shared with the main window rather than kept separately:
                 // whether a search looks into subfolders is one intent, and
                 // two of them that drift apart is a difference nobody asked
                 // for.
-                self.flags.config.tab.search_recursive = !self.flags.config.tab.search_recursive;
+                self.flags.config.tab.search_recursive = recursive;
                 if let Err(err) = self
                     .flags
                     .config_handler
