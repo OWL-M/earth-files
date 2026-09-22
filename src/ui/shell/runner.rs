@@ -323,6 +323,20 @@ impl<App: Application> Shell<App> {
             // squeezed with the texture and reads as a straight cut.
             let corner_radius = self.theme.cosmic().radius_s()[0];
             let collapsing = iced_texture_cache::cached(genie.cache(), content)
+                // A menu on its way out is a picture, not a menu. Dismissal
+                // has already cleared the state it draws from — `Menu::draw`
+                // returns at once with `open` false — so what keeps it on
+                // screen is the texture recorded while it was still live. Any
+                // re-record during the collapse would replace that picture
+                // with an empty one and the menu would vanish mid-animation
+                // instead of collapsing.
+                //
+                // Auto-invalidation is what would order that re-record: it
+                // fires when the content reacts to an event or its pointer
+                // appearance changes, both of which a dismissed menu under
+                // the cursor does. That is why the collapse was lost only
+                // sometimes, and only ever with the pointer over the menu.
+                .auto_invalidate(!genie.exiting())
                 .genie(genie.progress(), genie.shape(corner_radius));
             let watched = crate::ui::widget::popup_genie(
                 genie.motion().clone(),
