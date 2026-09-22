@@ -3568,7 +3568,12 @@ impl Application for App {
             }
             Message::MaybeExit => {
                 if self.core.main_window_id().is_none() && self.pending_operations.is_empty() {
-                    // Exit if window is closed and there are no pending operations
+                    // Exit if window is closed and there are no pending operations.
+                    // Settings and recents are written by worker threads, and
+                    // `process::exit` runs nothing on the way out, so what is
+                    // still queued has to be waited for here rather than after
+                    // the loop returns -- which this never lets happen.
+                    crate::shut_down();
                     process::exit(0);
                 }
             }
@@ -4776,7 +4781,7 @@ impl Application for App {
                                 log::error!("failed to get current executable path: {err}");
                             }
                         },
-                        tab::Command::ResolveNetwork(uri) => {
+                        tab::Command::ResolveNetwork(request, uri) => {
                             // Asked on a worker: the mounter answers over a
                             // channel the GVFS thread writes to when it has
                             // been round the network and back, and waiting for
@@ -4800,7 +4805,7 @@ impl Application for App {
                                 };
                                 crate::ui::action::app(Message::TabMessage(
                                     Some(entity),
-                                    tab::Message::NetworkResolved(uri, resolved),
+                                    tab::Message::NetworkResolved(request, uri, resolved),
                                 ))
                             }));
                         }

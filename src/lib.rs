@@ -36,7 +36,7 @@ mod mounter;
 mod mouse_area;
 pub mod operation;
 pub mod portal;
-mod recents;
+pub mod recents;
 mod spawn_detached;
 pub mod tab;
 mod thumbnail_cacher;
@@ -233,13 +233,23 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
     let result = crate::ui::shell::run::<App>(settings, flags);
 
-    // Settings are written by a worker thread, which the process would
-    // otherwise take down with it. Wait for what is still queued, including
-    // anything changed in the moment before quitting. Done even when the run
-    // failed: the settings from before it did are still the user's.
-    config::store::flush();
+    // Reached when the loop returns rather than when the window is closed;
+    // that path exits the process directly and drains through `shut_down`
+    // itself. Done even when the run failed: the settings from before it did
+    // are still the user's.
+    shut_down();
 
     result?;
 
     Ok(())
+}
+
+/// Wait for everything written in the background to reach the disk.
+///
+/// Settings and recent files are written by worker threads, which the process
+/// would otherwise take down with it along with whatever is still queued.
+/// Anything that ends the process must call this first.
+pub fn shut_down() {
+    config::store::flush();
+    recents::flush();
 }

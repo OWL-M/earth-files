@@ -1951,8 +1951,8 @@ pub enum Command {
     AutoScroll(Option<f32>),
     ChangeLocation(String, Location, Option<Vec<PathBuf>>),
     /// Ask a mounter what this URI names, off the event loop, and answer with
-    /// [`Message::NetworkResolved`].
-    ResolveNetwork(String),
+    /// [`Message::NetworkResolved`] carrying the same request number back.
+    ResolveNetwork(u64, String),
     Delete(Vec<PathBuf>),
     /// Files were dropped on this tab: read the drag payload and move them into
     /// `to`, or copy them when the second field is set.
@@ -1979,8 +1979,8 @@ pub enum Command {
 pub enum Message {
     AddNetworkDrive,
     /// What a mounter said a submitted network URI names, or `None` when it
-    /// could not say.
-    NetworkResolved(String, Option<Location>),
+    /// could not say, tagged with the request number it answers.
+    NetworkResolved(u64, String, Option<Location>),
     /// The icon cache has been filled, so placeholders can be replaced
     IconsReady,
     AutoScroll(Option<f32>),
@@ -3167,10 +3167,17 @@ pub struct Tab {
     large_image_manager: LargeImageManager,
     column_widths: ColumnWidths,
     column_resize: Option<ColumnResize>,
-    /// The network URI this tab is waiting on an answer for, if any. Kept so
-    /// an answer that arrives after the user has typed something else, or
-    /// navigated away, can be told apart from the one being waited for.
-    resolving_network: Option<String>,
+    /// The request number of the network resolution this tab is waiting on,
+    /// if any.
+    ///
+    /// A number rather than the URI itself, because the same URI can be
+    /// submitted twice and the first answer must not settle the second
+    /// request. Cleared whenever the tab goes somewhere or the address field
+    /// is put away, so an answer that outlives the question it was asked for
+    /// is dropped rather than dragging the tab back.
+    resolving_network: Option<u64>,
+    /// The number given to the next network resolution this tab asks for.
+    next_network_request: u64,
 }
 
 /// Add up the size of everything under `path`.
@@ -3318,6 +3325,7 @@ impl Tab {
             location_title,
             location_context_menu_index: None,
             resolving_network: None,
+            next_network_request: 0,
             mode: Mode::App,
             scroll_opt: None,
             size_opt: Cell::new(None),
@@ -3988,6 +3996,10 @@ impl Tab {
         self.location_ancestors = self.location.ancestors();
         self.location_title = self.location.title();
         self.edit_location = None;
+        // Going somewhere answers the question the address field was asking,
+        // so a network resolution still in flight is no longer wanted: letting
+        // it land would take the tab back off wherever it has just gone.
+        self.resolving_network = None;
         self.items_opt = None;
         // Remember where this entry was scrolled to before leaving it
         if let Some(saved) = self.history_scroll.get_mut(self.history_i) {
@@ -4410,6 +4422,9 @@ impl Tab {
                 }
             }
             Message::EditLocation(edit_location) => {
+                // Typing something else, or putting the field away, withdraws
+                // whatever it was last asked to resolve.
+                self.resolving_network = None;
                 self.edit_location = edit_location;
                 if self.edit_location.is_some() {
                     commands.push(Command::Iced(
@@ -4475,8 +4490,10 @@ impl Tab {
                         // still shows where the user is going while it is
                         // being reached; the answer arrives as
                         // `NetworkResolved`.
-                        self.resolving_network = Some(uri.to_owned());
-                        commands.push(Command::ResolveNetwork(uri.to_owned()));
+                        let request = self.next_network_request;
+                        self.next_network_request = self.next_network_request.wrapping_add(1);
+                        self.resolving_network = Some(request);
+                        commands.push(Command::ResolveNetwork(request, uri.to_owned()));
                         self.edit_location = Some(edit_location);
                     } else {
                         cd = edit_location.resolve();
@@ -4486,11 +4503,11 @@ impl Tab {
                     }
                 }
             }
-            Message::NetworkResolved(uri, resolved) => {
+            Message::NetworkResolved(request, uri, resolved) => {
                 // Only the answer to the question still being asked. The user
                 // may have typed something else, or gone somewhere else
                 // entirely, while the server was being waited on.
-                if self.resolving_network.as_deref() == Some(uri.as_str()) {
+                if self.resolving_network == Some(request) {
                     self.resolving_network = None;
                     self.edit_location = None;
                     // Nothing came back, so go to the URI as typed and let the
@@ -8282,6 +8299,100 @@ mod tests {
         assert!(
             fresh.image_dimensions.get().is_none(),
             "constructing an item must not read the file"
+        );
+        Ok(())
+    }
+
+    /// Submitting a slow network address and then going somewhere else must
+    /// not be undone when the address finally resolves.
+    #[test]
+    fn a_late_network_answer_does_not_drag_the_tab_back() -> io::Result<()> {
+        use crate::tab::Command;
+
+        let fs = empty_fs()?;
+        let start = Location::Path(fs.path().to_owned());
+        let mut tab = Tab::new(
+            start,
+            TabConfig::default(),
+            ThumbCfg::default(),
+            None,
+            std::borrow::Cow::Borrowed("Undefined"),
+            None,
+        );
+
+        // Ask for a network address
+        let uri = "smb://example/share/".to_owned();
+        tab.edit_location = Some(Location::Network(uri.clone(), uri.clone(), None).into());
+        let commands = tab.update(Message::EditLocationSubmit, Modifiers::empty());
+        let request = commands
+            .iter()
+            .find_map(|command| match command {
+                Command::ResolveNetwork(request, _) => Some(*request),
+                _ => None,
+            })
+            .expect("submitting a network address should ask for it to be resolved");
+
+        // Go somewhere else while the server is being waited on
+        let elsewhere = Location::Path(fs.path().join("elsewhere"));
+        fs::create_dir(fs.path().join("elsewhere"))?;
+        tab.change_location(&elsewhere, None);
+        let now = tab.location.clone();
+
+        // The answer finally arrives
+        let resolved = Location::Network(uri.clone(), uri.clone(), None);
+        tab.update(
+            Message::NetworkResolved(request, uri, Some(resolved)),
+            Modifiers::empty(),
+        );
+
+        assert_eq!(
+            tab.location, now,
+            "a network answer from before the tab moved took it back"
+        );
+        Ok(())
+    }
+
+    /// The same address submitted twice: the first answer settles only the
+    /// first request.
+    #[test]
+    fn a_network_answer_settles_only_the_request_it_belongs_to() -> io::Result<()> {
+        use crate::tab::Command;
+
+        let fs = empty_fs()?;
+        let mut tab = Tab::new(
+            Location::Path(fs.path().to_owned()),
+            TabConfig::default(),
+            ThumbCfg::default(),
+            None,
+            std::borrow::Cow::Borrowed("Undefined"),
+            None,
+        );
+
+        let uri = "smb://example/share/".to_owned();
+        let ask = |tab: &mut Tab| -> u64 {
+            tab.edit_location = Some(Location::Network(uri.clone(), uri.clone(), None).into());
+            tab.update(Message::EditLocationSubmit, Modifiers::empty())
+                .iter()
+                .find_map(|command| match command {
+                    Command::ResolveNetwork(request, _) => Some(*request),
+                    _ => None,
+                })
+                .expect("should ask for resolution")
+        };
+
+        let first = ask(&mut tab);
+        let second = ask(&mut tab);
+        assert_ne!(first, second, "each request gets its own number");
+
+        // The first answer arrives while the second is outstanding
+        tab.update(
+            Message::NetworkResolved(first, uri.clone(), None),
+            Modifiers::empty(),
+        );
+        assert_eq!(
+            tab.resolving_network,
+            Some(second),
+            "an answer to a withdrawn request settled the one still waiting"
         );
         Ok(())
     }

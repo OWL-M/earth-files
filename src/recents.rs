@@ -23,6 +23,8 @@ enum Job {
     },
     /// Forget everything.
     Clear,
+    /// Answer once every job queued before this one has been applied.
+    Barrier(mpsc::SyncSender<()>),
 }
 
 /// The one thread that touches the recently-used file.
@@ -49,6 +51,11 @@ static WORKER: LazyLock<Option<Sender<Job>>> = LazyLock::new(|| {
                         if let Err(err) = recently_used_xbel::clear_recently_used() {
                             log::warn!("failed to clear recents history: {err}");
                         }
+                    }
+                    Job::Barrier(done) => {
+                        // The queue is in order, so reaching this means every
+                        // job queued before it is on disk.
+                        let _ = done.send(());
                     }
                 }
             }
@@ -80,4 +87,21 @@ pub fn record(path: PathBuf, id: String, exec: String) {
 /// Forgets every recent file, without waiting for the write.
 pub fn clear() {
     submit(Job::Clear);
+}
+
+/// Waits until every queued change has been applied.
+///
+/// Called before the process exits. The worker is an ordinary thread, which
+/// the process would otherwise take down mid-write along with everything
+/// still queued behind it.
+pub fn flush() {
+    let Some(tx) = WORKER.as_ref() else {
+        return;
+    };
+    let (done_tx, done_rx) = mpsc::sync_channel(0);
+    if tx.send(Job::Barrier(done_tx)).is_err() {
+        return;
+    }
+    // The worker is gone if this fails, so there is nothing left to wait for.
+    let _ = done_rx.recv();
 }

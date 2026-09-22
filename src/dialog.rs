@@ -1943,7 +1943,7 @@ impl Application for App {
                                 self.auto_scroll_speed = None;
                             }
                         }
-                        tab::Command::ResolveNetwork(uri) => {
+                        tab::Command::ResolveNetwork(request, uri) => {
                             // Asked on a worker: the mounter answers over a
                             // channel the GVFS thread writes to when it has
                             // been round the network and back, and waiting for
@@ -1966,7 +1966,7 @@ impl Application for App {
                                     }
                                 };
                                 crate::ui::action::app(Message::TabMessage(
-                                    tab::Message::NetworkResolved(uri, resolved),
+                                    tab::Message::NetworkResolved(request, uri, resolved),
                                 ))
                             }));
                         }
