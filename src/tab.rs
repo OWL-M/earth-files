@@ -104,8 +104,10 @@ const TEXT_PREVIEW_MAX_FILE_BYTES: u64 = 8 * 1000 * 1000; // 8 MiB
 /// what their letters do.
 fn preview_text(text: &str) -> String {
     let mut preview = String::new();
-    for line in text.lines().take(TEXT_PREVIEW_LINES) {
-        if !preview.is_empty() {
+    for (index, line) in text.lines().take(TEXT_PREVIEW_LINES).enumerate() {
+        // By index, not by whether anything has been written: a file that
+        // opens with blank lines opens with them in its preview too.
+        if index > 0 {
             preview.push('\n');
         }
 
@@ -7742,6 +7744,11 @@ mod tests {
     #[test]
     fn preview_text_leaves_a_short_file_alone() {
         assert_eq!(super::preview_text("one\ntwo\nthree"), "one\ntwo\nthree");
+    }
+
+    #[test]
+    fn preview_text_keeps_leading_blank_lines() {
+        assert_eq!(super::preview_text("\n\nhello"), "\n\nhello");
     }
 
     #[test]
