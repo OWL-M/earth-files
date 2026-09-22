@@ -1353,10 +1353,19 @@ impl Operation {
                                     &controller,
                                 )
                                 .await?;
-                                let entries: Vec<PathBuf> = fs::read_dir(&staging)
-                                    .map_err(|e| OperationError::from_err(e, &controller))?
-                                    .map(|entry| entry.map(|e| e.path()))
-                                    .collect::<io::Result<_>>()
+                                // Enumerated off the runtime thread: a staging
+                                // directory holds every entry of the archive,
+                                // and on a slow or remote destination reading
+                                // them would stall every other operation.
+                                let to_list = staging.clone();
+                                let entries: Vec<PathBuf> =
+                                    compio::runtime::spawn_blocking(move || {
+                                        fs::read_dir(&to_list)?
+                                            .map(|entry| entry.map(|e| e.path()))
+                                            .collect::<io::Result<Vec<_>>>()
+                                    })
+                                    .await
+                                    .map_err(wrap_compio_spawn_error)?
                                     .map_err(|e| OperationError::from_err(e, &controller))?;
                                 let mut moved = copy_or_move(
                                     entries.clone(),
@@ -1381,8 +1390,17 @@ impl Operation {
                                 Ok::<_, OperationError>((moved.selected, moved.created))
                             }
                             .await;
-                            // Skipped or cancelled entries stay in the staging directory
-                            let _ = fs::remove_dir_all(&staging);
+                            // Skipped or cancelled entries stay in the staging
+                            // directory, so this can be the whole archive.
+                            // Unlinking it entry by entry takes about as long
+                            // as writing it did, which is far too long to hold
+                            // the one thread every operation runs on. The
+                            // staging directory stays ours until it is gone.
+                            let to_clean = staging.clone();
+                            let _ = compio::runtime::spawn_blocking(move || {
+                                fs::remove_dir_all(to_clean)
+                            })
+                            .await;
                             // Only what the move actually created may be undone:
                             // entries the user skipped, and directories that were
                             // merged into, were already the user's
