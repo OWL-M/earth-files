@@ -41,14 +41,23 @@ const SCAN_BATCH: i32 = 128;
 /// Network requests allowed in flight at once on the GLib thread.
 const GVFS_CONCURRENCY: usize = 4;
 
-fn resolve_uri(uri: &str) -> (String, gio::File) {
+/// Follow `uri` to what it actually points at.
+///
+/// Asynchronous because it is a query like any other: for a network URI it
+/// goes to the server. Doing it synchronously held the GLib thread before any
+/// of the asynchronous work below even began, which made the rest of the
+/// asynchrony worth nothing.
+async fn resolve_uri(uri: &str) -> (String, gio::File) {
     let file = gio::File::for_uri(uri);
     // Resolve the target-uri if it exists
-    if let Ok(file_info) = file.query_info(
-        TARGET_URI_ATTRIBUTE,
-        gio::FileQueryInfoFlags::NONE,
-        gio::Cancellable::NONE,
-    ) && let Some(resolved_uri) = file_info.attribute_as_string(TARGET_URI_ATTRIBUTE)
+    if let Ok(file_info) = file
+        .query_info_future(
+            TARGET_URI_ATTRIBUTE,
+            gio::FileQueryInfoFlags::NONE,
+            glib::Priority::DEFAULT,
+        )
+        .await
+        && let Some(resolved_uri) = file_info.attribute_as_string(TARGET_URI_ATTRIBUTE)
     {
         let resolved_uri = String::from(resolved_uri);
         let file = gio::File::for_uri(&resolved_uri);
@@ -135,7 +144,7 @@ fn items(monitor: &gio::VolumeMonitor, sizes: IconSizes) -> MounterItems {
 /// stop all of them. Awaited, the thread stays free to run the rest.
 async fn network_scan(uri: &str, sizes: IconSizes) -> Result<Vec<tab::Item>, String> {
     let force_dir = uri.starts_with("network:///");
-    let (_, file) = resolve_uri(uri);
+    let (_, file) = resolve_uri(uri).await;
 
     // Read .hidden file if present. This one is ordinary local I/O rather than
     // GIO, and only for a URI that maps to a path, so it goes to a worker.
@@ -293,7 +302,7 @@ async fn network_scan(uri: &str, sizes: IconSizes) -> Result<Vec<tab::Item>, Str
 }
 
 async fn dir_info(uri: &str) -> Result<(String, String, Option<PathBuf>), glib::Error> {
-    let (resolved_uri, file) = resolve_uri(uri);
+    let (resolved_uri, file) = resolve_uri(uri).await;
     let info = file
         .query_info_future(
             gio::FILE_ATTRIBUTE_STANDARD_DISPLAY_NAME,
@@ -538,11 +547,23 @@ impl Gvfs {
                 while let Some(command) = command_rx.recv().await {
                     match command {
                         Cmd::Rescan => {
-                            let Some(event_tx) = event_tx.upgrade() else {
-                                return;
-                            };
-
-                            event_tx.send(Event::Items(items(&monitor, IconSizes::default())));
+                            // Spawned like the rest. Listing the mounts asks
+                            // each one whether it is remote, and a mount whose
+                            // server has gone away answers slowly or not at
+                            // all; done here that would stop this loop.
+                            let event_tx = event_tx.clone();
+                            let requests = Arc::clone(&requests);
+                            glib::MainContext::ref_thread_default().spawn_local(async move {
+                                let Ok(_permit) = requests.acquire_owned().await else {
+                                    return;
+                                };
+                                let monitor = gio::VolumeMonitor::get();
+                                let listed = items(&monitor, IconSizes::default());
+                                let Some(event_tx) = event_tx.upgrade() else {
+                                    return;
+                                };
+                                event_tx.send(Event::Items(listed));
+                            });
                         }
                         Cmd::Mount(mounter_item, complete_tx) => {
                             let MounterItem::Gvfs(ref item) = mounter_item else {
@@ -663,23 +684,11 @@ impl Gvfs {
                             );
                         }
                         Cmd::NetworkScan(uri, sizes, items_tx) => {
-                            let (resolved_uri, file) = resolve_uri(&uri);
-
-                            // No asynchronous binding for this one, and it
-                            // needs none: it asks the local mount table what
-                            // covers this URI, not the server.
-                            let needs_mount = resolved_uri != "network:///"
-                                && match file.find_enclosing_mount(gio::Cancellable::NONE) {
-                                    Ok(_) => false,
-                                    Err(err) => matches!(
-                                        err.kind::<gio::IOErrorEnum>(),
-                                        Some(gio::IOErrorEnum::NotMounted)
-                                    ),
-                                };
-
-                            // Spawned rather than awaited here. Awaiting would
-                            // keep this loop from taking the next command until
-                            // the listing came back, which is the serialization
+                            // Spawned rather than awaited here, and nothing is
+                            // resolved before the spawn: every step below can
+                            // go to the server, and doing any of them in this
+                            // loop keeps it from taking the next command until
+                            // the server answers -- which is the serialization
                             // the asynchronous calls exist to avoid.
                             let event_tx = event_tx.clone();
                             let requests = Arc::clone(&requests);
@@ -687,6 +696,20 @@ impl Gvfs {
                                 let Ok(_permit) = requests.acquire_owned().await else {
                                     return;
                                 };
+
+                                let (resolved_uri, file) = resolve_uri(&uri).await;
+
+                                // No asynchronous binding for this one, and it
+                                // needs none: it asks the local mount table what
+                                // covers this URI, not the server.
+                                let needs_mount = resolved_uri != "network:///"
+                                    && match file.find_enclosing_mount(gio::Cancellable::NONE) {
+                                        Ok(_) => false,
+                                        Err(err) => matches!(
+                                            err.kind::<gio::IOErrorEnum>(),
+                                            Some(gio::IOErrorEnum::NotMounted)
+                                        ),
+                                    };
 
                                 if needs_mount {
                                     let mount_op = mount_op(resolved_uri.clone(), event_tx.clone());
