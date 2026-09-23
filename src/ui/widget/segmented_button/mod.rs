@@ -82,8 +82,8 @@ mod widget;
 
 pub use self::horizontal::{HorizontalSegmentedButton, horizontal};
 pub use self::model::{
-    BuilderEntity, Entity, EntityMut, Model, ModelBuilder, MultiSelect, MultiSelectEntityMut,
-    MultiSelectModel, Selectable, SingleSelect, SingleSelectEntityMut, SingleSelectModel,
+    BuilderEntity, Entity, EntityMut, Model, ModelBuilder, Selectable, SingleSelect,
+    SingleSelectEntityMut, SingleSelectModel,
 };
 mod style;
 pub use self::style::{Appearance, ItemAppearance, ItemStatusAppearance, StyleSheet};

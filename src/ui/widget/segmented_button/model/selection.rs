@@ -3,10 +3,9 @@
 
 //! Vendored from pop-os/libcosmic, src/widget/segmented_button/model/selection.rs
 //!
-//! Describes logic specific to the single-select and multi-select modes of a model.
+//! Describes logic specific to the single-select mode of a model.
 
 use super::{Entity, Model};
-use std::collections::HashSet;
 
 /// Describes a type that has selectable items.
 pub trait Selectable {
@@ -73,47 +72,5 @@ impl Model<SingleSelect> {
     #[inline]
     pub fn active(&self) -> Entity {
         self.selection.active
-    }
-}
-
-/// [`Model<MultiSelect>`] permits multiple keys to be active at a time.
-#[derive(Debug, Default)]
-pub struct MultiSelect {
-    pub active: HashSet<Entity>,
-}
-
-impl Selectable for Model<MultiSelect> {
-    fn activate(&mut self, id: Entity) {
-        if !self.items.contains_key(id) {
-            return;
-        }
-
-        if !self.selection.active.insert(id) {
-            self.selection.active.remove(&id);
-        }
-    }
-
-    #[inline]
-    fn deactivate(&mut self, id: Entity) {
-        self.selection.active.remove(&id);
-    }
-
-    #[inline]
-    fn is_active(&self, id: Entity) -> bool {
-        self.selection.active.contains(&id)
-    }
-}
-
-impl Model<MultiSelect> {
-    /// Deactivates the item in the model.
-    #[inline]
-    pub fn deactivate(&mut self, id: Entity) {
-        Selectable::deactivate(self, id);
-    }
-
-    /// The IDs of the active items.
-    #[inline]
-    pub fn active(&self) -> impl Iterator<Item = Entity> + '_ {
-        self.selection.active.iter().copied()
     }
 }

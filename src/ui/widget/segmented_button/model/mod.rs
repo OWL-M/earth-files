@@ -10,7 +10,7 @@ mod entity;
 pub use self::entity::EntityMut;
 
 mod selection;
-pub use self::selection::{MultiSelect, Selectable, SingleSelect};
+pub use self::selection::{Selectable, SingleSelect};
 
 use crate::ui::widget::Icon;
 use crate::ui::widget::segmented_button::InsertPosition;
@@ -44,12 +44,6 @@ pub type SingleSelectModel = Model<SingleSelect>;
 
 /// Single-select variant of an [`EntityMut`].
 pub type SingleSelectEntityMut<'a> = EntityMut<'a, SingleSelect>;
-
-/// A model for multi-select button selection.
-pub type MultiSelectModel = Model<MultiSelect>;
-
-/// Multi-select variant of an [`EntityMut`].
-pub type MultiSelectEntityMut<'a> = EntityMut<'a, MultiSelect>;
 
 /// The portion of the model used only by the application.
 #[derive(Debug, Default)]
