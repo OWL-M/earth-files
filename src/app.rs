@@ -5586,6 +5586,15 @@ impl Application for App {
                         let tasks: Vec<_> = undo
                             .into_iter()
                             .map(|op| {
+                                // A move that emptied a folder removed it, and
+                                // undoing it has to put the files back inside;
+                                // a paste into a folder that is gone must fail
+                                // instead, so only an undo recreates it
+                                if let Operation::Move { to, .. } = &op
+                                    && let Err(err) = std::fs::create_dir_all(to)
+                                {
+                                    log::warn!("failed to create {}: {err}", to.display());
+                                }
                                 self.undo_ids.insert(self.pending_operation_id);
                                 self.operation(op)
                             })

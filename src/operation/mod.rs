@@ -160,14 +160,6 @@ async fn copy_or_move(
             return Err(OperationError::from_err(fl!("into-itself"), &controller));
         }
 
-        // The destination folder may be gone: undoing a move that emptied a
-        // source folder and removed it has to put the files back inside it.
-        // For any ordinary copy or move it is already there and this does
-        // nothing.
-        if let Err(err) = compio::fs::create_dir_all(&to).await {
-            log::warn!("failed to create {}: {err}", to.display());
-        }
-
         // Handle duplicate file names by renaming paths
         let from_to_pairs_iter = paths
             .into_iter()
@@ -2105,6 +2097,11 @@ mod tests {
             "the app skips an undo entry unless all of it applies: {undo:?}"
         );
         for operation in undo {
+            // As the app does before launching an undo: a move that emptied a
+            // folder removed it, and putting the files back needs it there
+            if let Operation::Move { to, .. } = &operation {
+                fs::create_dir_all(to).expect("the folder can be put back");
+            }
             perform(operation, ReplaceResult::Cancel).await?;
         }
         Ok(())
@@ -2679,6 +2676,22 @@ mod tests {
         result.expect("copying a file onto itself should succeed as a no-op");
         assert_eq!(asked, 0, "the user should not be asked about a self copy");
         assert_eq!(fs::read(path.join("docs/a.txt"))?, b"precious");
+        Ok(())
+    }
+
+    /// A paste into a folder that was deleted underneath the tab must fail,
+    /// not quietly bring the folder back.
+    #[test(compio::test)]
+    async fn copying_into_a_missing_folder_fails_without_creating_it() -> io::Result<()> {
+        let fs = empty_fs()?;
+        let source = fs.path().join("file.txt");
+        fs::write(&source, b"SOURCE")?;
+        let to = fs.path().join("gone");
+
+        operation_copy(vec![source], to.clone())
+            .await
+            .expect_err("there is nowhere to copy to");
+        assert!(!to.exists(), "the missing destination is not recreated");
         Ok(())
     }
 
