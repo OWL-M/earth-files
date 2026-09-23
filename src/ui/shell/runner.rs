@@ -585,7 +585,9 @@ impl<App: Application> Shell<App> {
                     }
                 }
             }
-            Action::KeyboardNav(..) => {}
+            // Nothing to do. For `DrawerSlideSettled` the update itself is
+            // what rebuilds the view, which then lays the drawer out at rest.
+            Action::KeyboardNav(..) | Action::DrawerSlideSettled => {}
 
             Action::ContextDrawer(show) => {
                 self.app.core_mut().set_show_context(show);
@@ -631,10 +633,6 @@ impl<App: Application> Shell<App> {
                 // drops the view and the animation state.
                 return iced::Task::done(crate::ui::action::exwl::remove_window(id));
             }
-
-            // Nothing to do: the update itself is what rebuilds the view,
-            // which now lays the drawer out at rest.
-            Action::DrawerSlideSettled => {}
 
             Action::ToggleNavBar => {
                 self.app.core_mut().nav_bar_toggle();
