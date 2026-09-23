@@ -518,14 +518,18 @@ impl Op {
                 match compio::fs::hard_link(&self.from, &self.to).await {
                     Ok(()) => {}
                     Err(err) => {
-                        const EXDEV: i32 = libc::EXDEV as _;
-
-                        if err.raw_os_error() == Some(EXDEV) {
+                        // Fall back to a plain copy on any failure but a
+                        // name that appeared at `to` in the meantime, not
+                        // only on a cross-device error: filesystems without
+                        // hard links (vfat, exfat, many FUSE mounts) answer
+                        // `EPERM` or `ENOTSUP`, and by now a replaced
+                        // destination is already gone. Returning that error
+                        // would leave nothing at `to`.
+                        if err.raw_os_error() != Some(libc::EEXIST) {
                             if cross_device_copy {
                                 // Do not clean up if cross_device_copy is set
                                 self.skipped.cleanup.set(true);
                             }
-                            // Try standard copy if hard link fails with cross device error
                             let mut copy_op = Self {
                                 kind: OpKind::Copy,
                                 from: self.from.clone(),
