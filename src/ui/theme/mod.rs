@@ -36,7 +36,7 @@ pub use style::{
 pub fn over(a: Srgba, b: Srgba) -> Srgba {
     let alpha = (a.alpha + b.alpha * (1.0 - a.alpha)).clamp(0.0, 1.0);
     let channel = |a_c: f32, b_c: f32| {
-        (a_c * a.alpha + b_c * b.alpha * (1.0 - a.alpha) / alpha).clamp(0.0, 1.0)
+        ((a_c * a.alpha + b_c * b.alpha * (1.0 - a.alpha)) / alpha).clamp(0.0, 1.0)
     };
     Srgba::new(
         channel(a.red, b.red),
@@ -487,6 +487,18 @@ mod tests {
             "second call took {:?}, which suggests it re-queried",
             started.elapsed()
         );
+    }
+
+    #[test]
+    fn over_divides_both_terms_by_the_result_alpha() {
+        // Half red over half blue: the result is 3/4 opaque, and each source
+        // contributes its share of that, not of the whole
+        let red = Srgba::new(1.0, 0.0, 0.0, 0.5);
+        let blue = Srgba::new(0.0, 0.0, 1.0, 0.5);
+        let out = over(red, blue);
+        assert!((out.alpha - 0.75).abs() < 1e-6);
+        assert!((out.red - 2.0 / 3.0).abs() < 1e-6, "red was {}", out.red);
+        assert!((out.blue - 1.0 / 3.0).abs() < 1e-6, "blue was {}", out.blue);
     }
 
     #[test]

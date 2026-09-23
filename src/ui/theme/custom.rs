@@ -134,16 +134,10 @@ fn opaque(color: Srgba) -> Srgba {
 /// A colour may be partly or wholly transparent, and colours carried by the
 /// theme file can be. Its own channels then say nothing about what is on
 /// screen: a fully transparent fill shows the surface under it, whatever its
-/// stored red, green and blue happen to be.
+/// stored red, green and blue happen to be. Every surface here is opaque, so
+/// the result is made opaque too rather than carrying a rounding-off alpha.
 fn over(color: Srgba, surface: Srgba) -> Srgba {
-    let alpha = color.alpha.clamp(0.0, 1.0);
-    let blend = |fore: f32, back: f32| fore.mul_add(alpha, back * (1.0 - alpha));
-    Srgba::new(
-        blend(color.red, surface.red),
-        blend(color.green, surface.green),
-        blend(color.blue, surface.blue),
-        1.0,
-    )
+    opaque(super::over(color, surface))
 }
 
 /// Whichever of black and white stays legible on `base` drawn over `surface`.
@@ -1172,6 +1166,21 @@ mod tests {
         )
         .apply(&DARK);
         assert_eq!(solid.accent.on, color("#000000"));
+    }
+
+    #[test]
+    fn over_an_opaque_surface_matches_the_shared_compositor() {
+        let seen = over(color("#00000080"), color("#ffffff"));
+        let shared = super::super::over(color("#00000080"), color("#ffffff"));
+        assert_eq!(seen.alpha, 1.0);
+        for (a, b) in [
+            (seen.red, shared.red),
+            (seen.green, shared.green),
+            (seen.blue, shared.blue),
+        ] {
+            assert!((a - b).abs() < 1e-6, "{a} != {b}");
+        }
+        assert!((seen.red - 0.498_039_2).abs() < 1e-3, "{}", seen.red);
     }
 
     #[test]
