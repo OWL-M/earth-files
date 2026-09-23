@@ -8,12 +8,6 @@ edition = "2024"
 license = "GPL-3.0-only"
 rust-version = "1.93"
 
-# Register the `wayland_platform` cfg alias so vendored code such as
-# `src/ui/widget/autosize.rs` can use `#[cfg(wayland_platform)]` without an unknown-cfg
-# warning. The cfg remains unset, so the guarded code is excluded.
-[lints.rust]
-unexpected_cfgs = { level = "warn", check-cfg = ['cfg(wayland_platform)'] }
-
 [dependencies]
 anyhow = "1"
 jiff = "0.2"

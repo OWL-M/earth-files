@@ -5,12 +5,8 @@
 //!
 //! Autosize Container, which will resize the window to its contents.
 
-// `event::self` is only used inside the `#[cfg(wayland_platform)]` block below,
-// which never compiles in this crate (see the `[lints.rust]` note in
-// Cargo.toml), hence the otherwise-unused import.
 pub use iced::widget::container::{Catalog, Style};
-#[allow(unused_imports)]
-use iced_core::event::{self, Event};
+use iced_core::event::Event;
 use iced_core::widget::{Id, Operation, Tree};
 use iced_core::{
     Clipboard, Element, Layout, Length, Rectangle, Shell, Vector, Widget, layout, mouse, overlay,
@@ -174,16 +170,6 @@ where
         shell: &mut Shell<'_, Message>,
         viewport: &Rectangle,
     ) {
-        #[cfg(wayland_platform)]
-        if matches!(
-            event,
-            Event::PlatformSpecific(event::PlatformSpecific::Wayland(
-                event::wayland::Event::RequestResize
-            ))
-        ) {
-            let bounds = layout.bounds().size();
-            clipboard.request_logical_window_size(bounds.width.max(1.), bounds.height.max(1.));
-        }
         self.content.as_widget_mut().update(
             &mut tree.children[0],
             event,

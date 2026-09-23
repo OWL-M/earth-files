@@ -6,12 +6,8 @@
 
 use super::Id;
 use super::menu::{self, Menu};
-// `Handle` is named only inside the `#[cfg(wayland_platform)]` popup block
-// below, which never compiles in this crate (see the `[lints.rust]` note in
-// Cargo.toml), hence the otherwise-unused import. `icon` itself is used.
 use crate::ui::surface;
-#[allow(unused_imports)]
-use crate::ui::widget::icon::{self, Handle};
+use crate::ui::widget::icon;
 
 use crate::ui::Element;
 use derive_setters::Setters;
@@ -27,11 +23,9 @@ use iced_core::{
 use std::borrow::Cow;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, LazyLock, Mutex};
+use std::sync::{Arc, Mutex};
 
 pub type DropdownView<Message> = Arc<dyn Fn() -> Element<'static, Message> + Send + Sync>;
-static AUTOSIZE_ID: LazyLock<crate::ui::widget::Id> =
-    LazyLock::new(|| crate::ui::widget::Id::new("cosmic-applet-autosize"));
 
 /// A widget for selecting a single value from a list of selections.
 #[derive(Setters)]
@@ -68,8 +62,6 @@ where
     action_map: Option<Arc<dyn Fn(Message) -> AppMessage + 'static + Send + Sync>>,
     #[setters(strip_option)]
     window_id: Option<window::Id>,
-    #[cfg(wayland_platform)]
-    positioner: crate::ui::surface::Positioner,
 }
 
 impl<'a, S: AsRef<str> + Send + Sync + Clone + 'static, Message: 'static, AppMessage: 'static>
@@ -104,66 +96,13 @@ where
             text_line_height: text::LineHeight::Relative(1.2),
             font: None,
             window_id: None,
-            #[cfg(wayland_platform)]
-            positioner: crate::ui::surface::Positioner::default(),
             on_surface_action: None,
             action_map: None,
         }
     }
 
-    #[cfg(wayland_platform)]
-    /// Handle dropdown requests for popup creation.
-    pub fn with_popup<NewAppMessage>(
-        self,
-        parent_id: window::Id,
-        on_surface_action: impl Fn(surface::Action<NewAppMessage>) -> Message + Send + Sync + 'static,
-        action_map: impl Fn(Message) -> NewAppMessage + Send + Sync + 'static,
-    ) -> Dropdown<'a, S, Message, NewAppMessage> {
-        let Self {
-            id,
-            on_selected,
-            selections,
-            icons,
-            selected,
-            placeholder,
-            width,
-            gap,
-            padding,
-            text_size,
-            text_line_height,
-            font,
-            positioner,
-            ..
-        } = self;
-
-        Dropdown::<'a, S, Message, NewAppMessage> {
-            id,
-            on_selected,
-            selections,
-            icons,
-            selected,
-            placeholder,
-            width,
-            gap,
-            padding,
-            text_size,
-            text_line_height,
-            font,
-            on_surface_action: Some(Arc::new(on_surface_action)),
-            action_map: Some(Arc::new(action_map)),
-            window_id: Some(parent_id),
-            positioner,
-        }
-    }
-
     pub fn id(mut self, id: Id) -> Self {
         self.id = Some(id);
-        self
-    }
-
-    #[cfg(wayland_platform)]
-    pub fn with_positioner(mut self, positioner: crate::ui::surface::Positioner) -> Self {
-        self.positioner = positioner;
         self
     }
 }
@@ -271,8 +210,6 @@ where
             layout,
             cursor,
             shell,
-            #[cfg(wayland_platform)]
-            self.positioner.clone(),
             self.on_selected.clone(),
             self.selected,
             &self.selections,
@@ -346,11 +283,6 @@ where
         viewport: &Rectangle,
         translation: Vector,
     ) -> Option<overlay::Element<'b, Message, crate::ui::Theme, crate::ui::Renderer>> {
-        #[cfg(wayland_platform)]
-        if self.window_id.is_some() || self.on_surface_action.is_some() {
-            return None;
-        }
-
         let state = tree.state.downcast_mut::<State>();
 
         overlay(
@@ -526,7 +458,6 @@ pub fn update<
     layout: Layout<'_>,
     cursor: mouse::Cursor,
     shell: &mut Shell<'_, Message>,
-    #[cfg(wayland_platform)] positioner: crate::ui::surface::Positioner,
     on_selected: Arc<dyn Fn(usize) -> Message + Send + Sync + 'static>,
     selected: Option<usize>,
     selections: &[S],
@@ -554,87 +485,6 @@ pub fn update<
         *hovered_guard = selected;
         let id = window::Id::unique();
         state.popup_id = id;
-        #[cfg(wayland_platform)]
-        if let Some(((on_surface_action, parent), action_map)) = on_surface_action
-            .as_ref()
-            .zip(_window_id)
-            .zip(action_map.clone())
-        {
-            use crate::ui::surface::{PopupSettings, Positioner};
-
-            let bounds = layout.bounds();
-            let anchor_rect = Rectangle {
-                x: bounds.x as i32,
-                y: bounds.y as i32,
-                width: bounds.width as i32,
-                height: bounds.height as i32,
-            };
-            let icon_width = if icons.is_empty() { 0.0 } else { 24.0 };
-            let measure = |_label: &str,
-                           selection_paragraph: &crate::ui::widget::dropdown::Paragraph|
-             -> f32 { selection_paragraph.min_width().round() };
-            let pad_width = padding.x().mul_add(2.0, 16.0);
-
-            let selections_width = selections
-                .iter()
-                .zip(state.selections.iter_mut())
-                .map(|(label, selection)| measure(label.as_ref(), selection.raw()))
-                .fold(0.0, |next, current| current.max(next));
-
-            let icons: Cow<'static, [Handle]> = Cow::Owned(icons.to_vec());
-            let selections: Cow<'static, [S]> = Cow::Owned(selections.to_vec());
-            let state = state.clone();
-            let on_close = surface::action::destroy_popup(id);
-            let on_surface_action_clone = on_surface_action.clone();
-            let get_popup_action = surface::action::simple_popup::<AppMessage>(
-                move || PopupSettings {
-                    parent,
-                    id,
-                    positioner: Positioner {
-                        size: Some((
-                            selections_width as u32
-                                + gap as u32
-                                + pad_width as u32
-                                + icon_width as u32,
-                            10,
-                        )),
-                        // exwlshell never sends `xdg_positioner.set_offset`, so
-                        // the `-padding.left` nudge is folded into the anchor
-                        // rect instead.
-                        anchor_rect: Rectangle {
-                            x: anchor_rect.x - padding.left as i32,
-                            ..anchor_rect
-                        },
-                        anchor: crate::ui::surface::PopupAnchor::BottomLeft,
-                        gravity: crate::ui::surface::PopupGravity::BottomRight,
-                        // Was the raw `9` = SlideX | FlipY.
-                        constraint_adjustment: crate::ui::surface::PopupConstraintAdjustment::SlideX
-                            | crate::ui::surface::PopupConstraintAdjustment::FlipY,
-                    },
-                    animate: false,
-                },
-                Some(Box::new(move || {
-                    let action_map = action_map.clone();
-                    let on_selected = on_selected.clone();
-                    let e: Element<'static, crate::ui::Action<AppMessage>> =
-                        Element::from(menu_widget(
-                            bounds,
-                            &state,
-                            gap,
-                            padding,
-                            text_size.unwrap_or(14.0),
-                            selections.clone(),
-                            icons.clone(),
-                            selected_option,
-                            Arc::new(move |i| on_selected.clone()(i)),
-                            Some(on_surface_action_clone(on_close.clone())),
-                        ))
-                        .map(move |m| crate::ui::Action::App(action_map.clone()(m)));
-                    e
-                })),
-            );
-            shell.publish(on_surface_action(get_popup_action));
-        }
     };
 
     let is_open = state.is_open.load(Ordering::Relaxed);
@@ -645,10 +495,6 @@ pub fn update<
         state.is_open.store(false, Ordering::SeqCst);
         if is_open {
             shell.request_redraw();
-            #[cfg(wayland_platform)]
-            if let Some(ref on_close) = on_surface_action {
-                shell.publish(on_close(surface::action::destroy_popup(state.popup_id)));
-            }
         }
     }
 
@@ -669,10 +515,6 @@ pub fn update<
                 // bounds or on the drop-down, either way we close the overlay.
                 state.is_open.store(false, Ordering::Relaxed);
                 shell.request_redraw();
-                #[cfg(wayland_platform)]
-                if let Some(on_close) = on_surface_action {
-                    shell.publish(on_close(surface::action::destroy_popup(state.popup_id)));
-                }
                 shell.capture_event();
             } else if cursor.is_over(layout.bounds()) {
                 open(shell, state, on_selected);
@@ -712,69 +554,6 @@ pub fn mouse_interaction(layout: Layout<'_>, cursor: mouse::Cursor) -> mouse::In
     } else {
         mouse::Interaction::default()
     }
-}
-
-#[cfg(wayland_platform)]
-/// Returns the current menu widget of a [`Dropdown`].
-#[allow(clippy::too_many_arguments)]
-pub fn menu_widget<
-    S: AsRef<str> + Send + Sync + Clone + 'static,
-    Message: 'static + std::clone::Clone,
->(
-    bounds: Rectangle,
-    state: &State,
-    gap: f32,
-    padding: Padding,
-    text_size: f32,
-    selections: Cow<'static, [S]>,
-    icons: Cow<'static, [icon::Handle]>,
-    selected_option: Option<usize>,
-    on_selected: Arc<dyn Fn(usize) -> Message + Send + Sync + 'static>,
-    close_on_selected: Option<Message>,
-) -> crate::ui::Element<'static, Message>
-where
-    [S]: std::borrow::ToOwned,
-{
-    let icon_width = if icons.is_empty() { 0.0 } else { 24.0 };
-    let measure = |_label: &str,
-                   selection_paragraph: &crate::ui::widget::dropdown::Paragraph|
-     -> f32 { selection_paragraph.min_width().round() };
-    let selections_width = selections
-        .iter()
-        .zip(state.selections.iter())
-        .map(|(label, selection)| measure(label.as_ref(), selection.raw()))
-        .fold(0.0, |next, current| current.max(next));
-    let pad_width = padding.x().mul_add(2.0, 16.0);
-
-    let width = selections_width + gap + pad_width + icon_width;
-    let is_open = state.is_open.clone();
-    let menu: Menu<'static, S, Message> = Menu::new(
-        state.menu.clone(),
-        selections,
-        icons,
-        state.hovered_option.clone(),
-        selected_option,
-        move |option| {
-            is_open.store(false, Ordering::Relaxed);
-
-            (on_selected)(option)
-        },
-        None,
-        close_on_selected,
-    )
-    .width(width)
-    .padding(padding)
-    .text_size(text_size);
-
-    crate::ui::widget::autosize::autosize(
-        menu.popup(iced::Point::new(0., 0.), bounds.height),
-        AUTOSIZE_ID.clone(),
-    )
-    .auto_height(true)
-    .auto_width(true)
-    .min_height(1.)
-    .min_width(width)
-    .into()
 }
 
 /// Returns the current overlay of a [`Dropdown`].
