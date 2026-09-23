@@ -4178,12 +4178,24 @@ impl Tab {
     }
 
     /// Whether the list can follow a drawer slide by moving its fixed
-    /// columns alone: list view, not a search, and the same effective
-    /// widths now and once the drawer has taken (or given back) `extent`,
-    /// so that only Name changes. See `crate::ui::shell::drawer_slide`.
+    /// columns alone: list view, not a search, at least one row shown (an
+    /// empty list centres its empty-state message, which would re-centre
+    /// with a jump when a column slide ends), and the same effective widths
+    /// now and once the drawer has taken (or given back) `extent`, so that
+    /// only Name changes. `size_opt` is the width of the last layout, so
+    /// this assumes no tab switch or resize since; if one happened in the
+    /// same update, at worst one slide runs on the wrong path and the
+    /// relayout at its end corrects it. See `crate::ui::shell::drawer_slide`.
     #[must_use]
     pub fn column_slide_fits(&self, extent: f32, opening: bool) -> bool {
-        if self.config.view != View::List || matches!(self.location, Location::Search(..)) {
+        if self.config.view != View::List || self.is_search() {
+            return false;
+        }
+        let show_hidden = self.config.show_hidden;
+        let shows_a_row = self
+            .items_opt()
+            .is_some_and(|items| items.iter().any(|item| !item.hidden || show_hidden));
+        if !shows_a_row {
             return false;
         }
         let Some(width) = self.size_opt.get().map(|size| size.width) else {
@@ -4198,6 +4210,14 @@ impl Tab {
             (Some(now), Some(then)) => now.widths == then.widths,
             _ => false,
         }
+    }
+
+    /// Whether the tab is showing search results, for the row shape (a
+    /// simpler layout, path shown under the name) and the drawer slide
+    /// (columns never follow, since a search's Name is `Length::Fill` next
+    /// to the fixed columns rather than shrinking with them).
+    fn is_search(&self) -> bool {
+        matches!(self.location, Location::Search(..))
     }
 
     /// The part of the item view currently on screen, for a view of `size`.
@@ -7126,7 +7146,7 @@ impl Tab {
         let modified_width = widths.modified;
         let size_width = widths.size;
         let type_width = if show_type_column { widths.type_ } else { 0.0 };
-        let is_search = matches!(self.location, Location::Search(..));
+        let is_search = self.is_search();
         let icon_size = if condensed || is_search {
             icon_sizes.list_condensed()
         } else {
@@ -10093,14 +10113,18 @@ mod tests {
         use crate::ui::iced::Size;
 
         let dir = tempfile::tempdir()?;
+        std::fs::write(dir.path().join("a.txt"), b"hi")?;
+        let location = Location::Path(dir.path().into());
+        let (_, items) = location.scan(IconSizes::default());
         let mut tab = Tab::new(
-            Location::Path(dir.path().into()),
+            location,
             TabConfig::default(),
             ThumbCfg::default(),
             None,
             std::borrow::Cow::Borrowed("Undefined"),
             None,
         );
+        tab.set_items(items);
         // Defaults: no Type column, so the fixed columns take 200 + 100.
 
         tab.size_opt.set(Some(Size::new(1400.0, 800.0)));
@@ -10110,23 +10134,89 @@ mod tests {
         );
 
         tab.size_opt.set(Some(Size::new(1000.0, 800.0)));
-        assert!(tab.column_slide_fits(400.0, false), "1000 → 1400 closing");
+        assert!(tab.column_slide_fits(400.0, false), "1000 → 1400: closing");
 
         tab.size_opt.set(Some(Size::new(900.0, 800.0)));
         assert!(
             !tab.column_slide_fits(400.0, true),
-            "at 500 the columns shrink"
+            "900 → 500: the columns shrink"
         );
 
         tab.size_opt.set(Some(Size::new(700.0, 800.0)));
         assert!(
             !tab.column_slide_fits(400.0, true),
-            "at 300 the list condenses"
+            "700 → 300: the list condenses"
         );
 
         tab.size_opt.set(Some(Size::new(1400.0, 800.0)));
         tab.config.view = View::Grid;
-        assert!(!tab.column_slide_fits(400.0, true), "grid view reflows");
+        assert!(
+            !tab.column_slide_fits(400.0, true),
+            "1400 → 1000: grid view reflows"
+        );
+        tab.config.view = View::List;
+
+        // The exact boundary: room is exactly NAME_MIN once the drawer has
+        // opened, so the columns still keep their widths.
+        tab.size_opt.set(Some(Size::new(1000.0, 800.0)));
+        assert!(
+            tab.column_slide_fits(400.0, true),
+            "1000 → 600: room is exactly NAME_MIN"
+        );
+
+        // A search's Name fills the row instead of shrinking with the fixed
+        // columns, so it never follows.
+        {
+            use crate::tab::{SearchLocation, SearchOptions};
+            use std::time::Instant;
+
+            tab.location = Location::Search(
+                SearchLocation::Path(dir.path().into()),
+                "term".to_owned(),
+                SearchOptions {
+                    show_hidden: false,
+                    recursive: false,
+                },
+                Instant::now(),
+            );
+            tab.size_opt.set(Some(Size::new(1400.0, 800.0)));
+            assert!(
+                !tab.column_slide_fits(400.0, true),
+                "1400 → 1000: a search never follows"
+            );
+            tab.location = Location::Path(dir.path().into());
+        }
+
+        // The Type column can itself be the one that shrinks.
+        tab.config.show_type_column = true;
+        tab.size_opt.set(Some(Size::new(1400.0, 800.0)));
+        assert!(
+            tab.column_slide_fits(400.0, true),
+            "1400 → 1000: type column, room to spare"
+        );
+        tab.size_opt.set(Some(Size::new(650.0, 800.0)));
+        assert!(
+            !tab.column_slide_fits(400.0, true),
+            "650 → 250: the type column shrinks"
+        );
+        tab.config.show_type_column = false;
+
+        // No layout yet: nothing to compare against.
+        tab.size_opt.set(None);
+        assert!(
+            !tab.column_slide_fits(400.0, true),
+            "no size: nothing to compare against"
+        );
+
+        // No rows shown: the empty-state message would re-centre with a
+        // jump when the slide settled instead.
+        tab.set_items(Vec::new());
+        tab.size_opt.set(Some(Size::new(1400.0, 800.0)));
+        assert!(
+            !tab.column_slide_fits(400.0, true),
+            "1400 → 1000: no items, nothing to keep in place"
+        );
+
         Ok(())
     }
 }
