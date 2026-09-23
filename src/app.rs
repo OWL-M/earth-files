@@ -1805,16 +1805,9 @@ impl App {
         let mut op_sel = OperationSelection::default();
         for (id, op_sel_pending) in completed {
             let trash_items = op_sel_pending.trash_items.clone();
-            if let Some((op, _)) = self.pending_operations.get(&id)
-                && !self.undo_ids.remove(&id)
-            {
+            if let Some((op, _)) = self.pending_operations.get(&id) {
                 let undo = op.undo(&op_sel_pending);
-                if !undo.is_empty() {
-                    self.undo_stack.push(undo);
-                    if self.undo_stack.len() > UNDO_DEPTH {
-                        self.undo_stack.remove(0);
-                    }
-                }
+                self.record_undo(id, undo);
             }
             op_sel.ignored.extend(op_sel_pending.ignored);
             op_sel.selected.extend(op_sel_pending.selected);
@@ -1898,11 +1891,28 @@ impl App {
         Task::batch(commands)
     }
 
+    /// Keep `undo` as the way back from operation `id`, unless that
+    /// operation was itself an undo
+    fn record_undo(&mut self, id: u64, undo: Vec<Operation>) {
+        if self.undo_ids.remove(&id) || undo.is_empty() {
+            return;
+        }
+        self.undo_stack.push(undo);
+        if self.undo_stack.len() > UNDO_DEPTH {
+            self.undo_stack.remove(0);
+        }
+    }
+
     fn handle_operation_errors(&mut self, errors: Vec<(u64, OperationError)>) -> Task<Message> {
         let mut tasks = Vec::new();
         let mut failed = Vec::new();
         for (id, err) in errors.into_iter() {
             if let Some((op, controller)) = self.pending_operations.remove(&id) {
+                // What was done before the failure can be undone on its own,
+                // and a retry has only the rest to do
+                let undo = op.undo(&err.partial);
+                self.record_undo(id, undo);
+                let op = op.remaining(&err.partial);
                 // Only show dialog if not cancelled
                 if !controller.is_cancelled() {
                     match err.kind {

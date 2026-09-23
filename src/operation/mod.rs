@@ -475,6 +475,27 @@ impl Operation {
         }
     }
 
+    /// This operation with what `done` already covers taken out, for
+    /// retrying it after a failure part-way: trashing again what is already
+    /// in the trash would fail as not found.
+    pub fn remaining(&self, done: &OperationSelection) -> Operation {
+        match self {
+            Self::Delete { paths } if !done.trash_items.is_empty() => Self::Delete {
+                paths: paths
+                    .iter()
+                    .filter(|path| {
+                        !done
+                            .trash_items
+                            .iter()
+                            .any(|item| item.original_path() == **path)
+                    })
+                    .cloned()
+                    .collect(),
+            },
+            _ => self.clone(),
+        }
+    }
+
     /// Release anything large this operation carries once it has finished.
     ///
     /// Completed and failed operations are kept for the history dialog and
@@ -810,6 +831,10 @@ pub enum OperationErrorType {
 #[derive(Clone, Debug)]
 pub struct OperationError {
     pub kind: OperationErrorType,
+    /// What the operation got done before it failed. It is undone like a
+    /// completed operation, and a retry starts after it. Boxed to keep the
+    /// error small enough for every `Result` that carries it.
+    pub partial: Box<OperationSelection>,
 }
 
 impl OperationError {
@@ -824,6 +849,7 @@ impl OperationError {
 
         Self {
             kind: OperationErrorType::Generic(message),
+            partial: Box::default(),
         }
     }
 
@@ -832,17 +858,22 @@ impl OperationError {
 
         Self {
             kind: OperationErrorType::Generic(err.to_string()),
+            partial: Box::default(),
         }
     }
 
     pub fn from_kind(kind: OperationErrorType, controller: &Controller) -> Self {
         controller.set_state(ControllerState::Failed);
-        Self { kind }
+        Self {
+            kind,
+            partial: Box::default(),
+        }
     }
 
     pub fn from_msg(m: impl Into<String>) -> Self {
         Self {
             kind: OperationErrorType::Generic(m.into()),
+            partial: Box::default(),
         }
     }
 }
@@ -1297,34 +1328,55 @@ impl Operation {
                 let started = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
                     .map_or(0, |d| d.as_secs() as i64);
+                let mut paths = paths;
+                let mut failure = None;
+                let mut trashed = 0;
                 for (i, path) in paths.iter().enumerate() {
-                    // Awaited, not blocked on. Every operation shares one
-                    // compio runtime thread, so blocking here while the user
-                    // has this one paused would stop every other copy, move
-                    // and delete along with it.
-                    controller
-                        .check()
-                        .await
-                        .map_err(|s| OperationError::from_state(s, &controller))?;
+                    let result = async {
+                        // Awaited, not blocked on. Every operation shares one
+                        // compio runtime thread, so blocking here while the user
+                        // has this one paused would stop every other copy, move
+                        // and delete along with it.
+                        controller
+                            .check()
+                            .await
+                            .map_err(|s| OperationError::from_state(s, &controller))?;
 
-                    controller.set_progress((i as f32) / (total as f32));
+                        controller.set_progress((i as f32) / (total as f32));
 
-                    let path = path.clone();
-                    compio::runtime::spawn_blocking(move || trash::delete(path))
-                        .await
-                        .map_err(wrap_compio_spawn_error)?
-                        .map_err(|e| OperationError::from_err(e, &controller))?;
+                        let path = path.clone();
+                        compio::runtime::spawn_blocking(move || trash::delete(path))
+                            .await
+                            .map_err(wrap_compio_spawn_error)?
+                            .map_err(|e| OperationError::from_err(e, &controller))
+                    }
+                    .await;
+                    if let Err(err) = result {
+                        failure = Some(err);
+                        break;
+                    }
+                    trashed = i + 1;
                 }
                 // Trashing returns nothing, so find the entries just created:
-                // the newest entry per path deleted since the start
+                // the newest entry per path deleted since the start. A failure
+                // part-way still records them, so what did reach the trash can
+                // be undone and a retry has only the rest to do
+                paths.truncate(trashed);
                 let trash_items =
                     compio::runtime::spawn_blocking(move || trashed_entries(&paths, started))
                         .await
                         .map_err(wrap_compio_spawn_error)?;
-                Ok(OperationSelection {
+                let op_sel = OperationSelection {
                     trash_items,
                     ..Default::default()
-                })
+                };
+                match failure {
+                    Some(err) => Err(OperationError {
+                        partial: Box::new(op_sel),
+                        ..err
+                    }),
+                    None => Ok(op_sel),
+                }
             }
             Self::DeleteTrash { items } => {
                 let controller_clone = controller.clone();
@@ -2788,6 +2840,36 @@ mod tests {
             .undo(&OperationSelection::default())
             .is_empty(),
             "a trash operation with no recorded entries cannot be undone"
+        );
+    }
+
+    /// A trash operation that failed part-way is retried without the
+    /// paths that did reach the trash
+    #[test]
+    fn a_retried_trash_operation_skips_what_was_already_trashed() {
+        let op = Operation::Delete {
+            paths: vec!["/a/one".into(), "/a/two".into(), "/a/three".into()],
+        };
+        let trashed = |name: &str| trash::TrashItem {
+            id: format!("/trash/info/{name}.trashinfo").into(),
+            name: name.into(),
+            original_parent: "/a".into(),
+            time_deleted: 1,
+        };
+        let done = OperationSelection {
+            trash_items: vec![trashed("one"), trashed("two")],
+            ..Default::default()
+        };
+        assert_eq!(
+            op.remaining(&done),
+            Operation::Delete {
+                paths: vec!["/a/three".into()]
+            }
+        );
+        assert_eq!(
+            op.remaining(&OperationSelection::default()),
+            op,
+            "a failure before anything was trashed retries everything"
         );
     }
 
