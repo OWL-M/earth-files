@@ -7744,14 +7744,9 @@ mod tests {
             "the recorded pair wins over the basename guess"
         );
     }
-}
 
-#[cfg(test)]
-mod tests {
     use std::fs;
     use std::os::unix::fs::PermissionsExt;
-
-    use super::*;
 
     /// Opening an executable asks before running it, whether or not the
     /// file is already marked executable
