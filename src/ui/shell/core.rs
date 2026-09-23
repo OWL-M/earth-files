@@ -180,7 +180,7 @@ impl Core {
     }
 
     /// Call this whenever the scaling factor or window width has changed.
-    pub(crate) fn is_condensed_update(&mut self) {
+    fn is_condensed_update(&mut self) {
         // Nav bar (280px) + padding (8px) + content (360px)
         let mut breakpoint = 280.0 + 8.0 + 360.0;
         if self.window.show_context && !self.window.context_is_overlay {

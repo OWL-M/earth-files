@@ -43,7 +43,9 @@ pub enum Action {
     NavBarResizeEnd,
     /// A popup has finished collapsing and its surface can go.
     PopupExitFinished(window::Id),
-    /// The context drawer's slide has come to rest; rebuild the layout.
+    /// Published by `widget::settle_watch` when the context drawer's slide
+    /// comes to rest. Handled as a no-op: the update itself rebuilds the
+    /// view, which then lays the drawer out at rest.
     DrawerSlideSettled,
     /// A new window was opened.
     Opened(window::Id),

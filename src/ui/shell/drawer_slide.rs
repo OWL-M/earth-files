@@ -104,7 +104,11 @@ impl DrawerSlide {
     ///
     /// `extent` and `columns_fit` are only read when a slide starts from
     /// rest (see [`starts_slide`](Self::starts_slide)); pass anything
-    /// otherwise. `condensed` must already reflect `shown`.
+    /// otherwise. `condensed` is `Core::is_condensed` as `view_main` will
+    /// read it.
+    ///
+    /// Callers gate the extent and fit computation on
+    /// [`starts_slide`](Self::starts_slide); `sync` checks it again itself.
     pub(crate) fn sync(&mut self, shown: bool, condensed: bool, extent: f32, columns_fit: bool) {
         let from_rest = self.starts_slide(shown);
         let was_condensed = std::mem::replace(&mut self.condensed, condensed);

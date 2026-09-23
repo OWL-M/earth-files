@@ -397,8 +397,12 @@ impl<App: Application> Shell<App> {
 
     /// Starts, turns round or latches the drawer's slide from
     /// `show_context`, which several sites write directly.
+    ///
+    /// `is_condensed` is passed as stored, even where a direct write has
+    /// left it stale: `view_main` lays out from the same value, and the
+    /// slide's path has to agree with that layout, not with what the value
+    /// ought to be.
     fn sync_drawer_slide(&mut self) {
-        self.app.core_mut().is_condensed_update();
         let core = self.app.core();
         let shown = core.window.show_context;
         let condensed = core.is_condensed();
