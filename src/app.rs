@@ -3244,6 +3244,12 @@ impl Application for App {
         Task::none()
     }
 
+    fn drawer_slide_fits_columns(&self, extent: f32, opening: bool) -> bool {
+        self.tab_model
+            .data::<Tab>(self.tab_model.active())
+            .is_some_and(|tab| tab.column_slide_fits(extent, opening))
+    }
+
     fn on_escape(&mut self) -> Task<Self::Message> {
         let entity = self.tab_model.active();
 

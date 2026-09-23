@@ -1243,6 +1243,10 @@ impl Application for App {
         (app, commands)
     }
 
+    fn drawer_slide_fits_columns(&self, extent: f32, opening: bool) -> bool {
+        self.tab.column_slide_fits(extent, opening)
+    }
+
     fn context_drawer(&self) -> Option<context_drawer::ContextDrawer<'_, Message>> {
         match &self.context_page {
             ContextPage::Preview(_, kind) => {

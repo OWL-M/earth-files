@@ -4150,7 +4150,11 @@ impl Tab {
     /// each, until Name has [`NAME_MIN`] of room. Only the effective widths
     /// shrink, so widening the window restores what was requested.
     fn list_geometry(&self) -> Option<ListGeometry> {
-        let width = self.size_opt.get()?.width;
+        self.list_geometry_at(self.size_opt.get()?.width)
+    }
+
+    /// [`Self::list_geometry`] for a view `width` wide.
+    fn list_geometry_at(&self, width: f32) -> Option<ListGeometry> {
         let show_type = self.config.show_type_column;
         let mut widths = self.column_widths;
         let mut room = width - widths.fixed_total(show_type);
@@ -4171,6 +4175,29 @@ impl Tab {
             show_type,
             name_room: room,
         })
+    }
+
+    /// Whether the list can follow a drawer slide by moving its fixed
+    /// columns alone: list view, not a search, and the same effective
+    /// widths now and once the drawer has taken (or given back) `extent`,
+    /// so that only Name changes. See `crate::ui::shell::drawer_slide`.
+    #[must_use]
+    pub fn column_slide_fits(&self, extent: f32, opening: bool) -> bool {
+        if self.config.view != View::List || matches!(self.location, Location::Search(..)) {
+            return false;
+        }
+        let Some(width) = self.size_opt.get().map(|size| size.width) else {
+            return false;
+        };
+        let then = if opening {
+            width - extent
+        } else {
+            width + extent
+        };
+        match (self.list_geometry_at(width), self.list_geometry_at(then)) {
+            (Some(now), Some(then)) => now.widths == then.widths,
+            _ => false,
+        }
     }
 
     /// The part of the item view currently on screen, for a view of `size`.
@@ -10057,6 +10084,49 @@ mod tests {
                 thumb
             ),
         }
+        Ok(())
+    }
+
+    #[test]
+    fn the_columns_follow_a_slide_only_if_they_keep_their_widths() -> io::Result<()> {
+        use super::View;
+        use crate::ui::iced::Size;
+
+        let dir = tempfile::tempdir()?;
+        let mut tab = Tab::new(
+            Location::Path(dir.path().into()),
+            TabConfig::default(),
+            ThumbCfg::default(),
+            None,
+            std::borrow::Cow::Borrowed("Undefined"),
+            None,
+        );
+        // Defaults: no Type column, so the fixed columns take 200 + 100.
+
+        tab.size_opt.set(Some(Size::new(1400.0, 800.0)));
+        assert!(
+            tab.column_slide_fits(400.0, true),
+            "1400 → 1000: room to spare"
+        );
+
+        tab.size_opt.set(Some(Size::new(1000.0, 800.0)));
+        assert!(tab.column_slide_fits(400.0, false), "1000 → 1400 closing");
+
+        tab.size_opt.set(Some(Size::new(900.0, 800.0)));
+        assert!(
+            !tab.column_slide_fits(400.0, true),
+            "at 500 the columns shrink"
+        );
+
+        tab.size_opt.set(Some(Size::new(700.0, 800.0)));
+        assert!(
+            !tab.column_slide_fits(400.0, true),
+            "at 300 the list condenses"
+        );
+
+        tab.size_opt.set(Some(Size::new(1400.0, 800.0)));
+        tab.config.view = View::Grid;
+        assert!(!tab.column_slide_fits(400.0, true), "grid view reflows");
         Ok(())
     }
 }
