@@ -220,19 +220,34 @@ impl Core {
         (window_width - reserved_width).min(480.0).max(344.0)
     }
 
-    /// How much width the drawer takes from the main content, which is how
-    /// far it slides.
+    /// The padding around the window's content, in logical pixels.
+    ///
+    /// libcosmic pads a maximized window by 8, but exwlshell never reports
+    /// that a window is maximized (see `view_main`), so this is 7 unless
+    /// set.
+    #[must_use]
+    pub fn border_padding(&self) -> u16 {
+        self.window.border_padding.unwrap_or(7)
+    }
+
+    /// How far the drawer slides. Inline, that is the width it takes from
+    /// the main content; in overlay mode, the distance from its left edge to
+    /// the window's right edge.
     ///
     /// Inline, the main content gives up its right padding and the drawer
     /// brings its own on both sides (see `view_main`), so a content
-    /// container adds one padding. In overlay mode the drawer sits 8px in
-    /// from the edge (`context_drawer::overlay`).
+    /// container adds one padding. That equals the change in the main
+    /// content's width only while the drawer's presence and that padding
+    /// change together, which `view_main` must keep true. In overlay mode
+    /// the drawer sits 8px in from the window's edge
+    /// (`context_drawer::overlay`), whatever the content's padding.
+    #[must_use]
     pub fn drawer_extent(&self, has_nav: bool) -> f32 {
         let width = self.context_width(has_nav);
         if self.window.context_is_overlay {
             width + 8.0
         } else if self.window.content_container {
-            width + f32::from(self.window.border_padding.unwrap_or(7))
+            width + f32::from(self.border_padding())
         } else {
             width
         }
@@ -601,5 +616,11 @@ mod tests {
 
         core.window.context_is_overlay = true;
         assert!((core.drawer_extent(false) - 488.0).abs() < f32::EPSILON);
+
+        // An explicit padding is used, not the default.
+        core.window.context_is_overlay = false;
+        core.window.content_container = true;
+        core.window.border_padding = Some(12);
+        assert!((core.drawer_extent(false) - 492.0).abs() < f32::EPSILON);
     }
 }

@@ -202,10 +202,7 @@ where
             .iter()
             .any(|i| Some(*i) == core.main_window_id());
 
-        let border_padding = core
-            .window
-            .border_padding
-            .unwrap_or(if maximized { 8 } else { 7 });
+        let border_padding = core.border_padding();
 
         let main_content_padding = if content_container {
             let right_padding = if show_context { 0 } else { border_padding };
