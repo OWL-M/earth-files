@@ -6462,7 +6462,7 @@ impl Tab {
             .into()
     }
 
-    pub fn location_view(&self, column_slide: Option<ColumnSlide>) -> Element<'_, Message> {
+    pub fn location_view(&self, column_slide: Option<&ColumnSlide>) -> Element<'_, Message> {
         fn text_width<'a>(
             content: &'a str,
             font: font::Font,
@@ -6621,7 +6621,7 @@ impl Tab {
         // While the drawer slides, Name is held at the width it is going to
         // have and the rest slides over the gap as one texture, like the rows
         // below; see `crate::ui::shell::drawer_slide`.
-        let headings: Vec<Element<'_, Message>> = if let Some(slide) = &column_slide {
+        let headings: Vec<Element<'_, Message>> = if let Some(slide) = column_slide {
             vec![
                 name_heading,
                 space::horizontal()
@@ -7151,7 +7151,7 @@ impl Tab {
         (mouse_area.into(), true)
     }
 
-    pub fn list_view(&self, column_slide: Option<ColumnSlide>) -> (Element<'_, Message>, bool) {
+    pub fn list_view(&self, column_slide: Option<&ColumnSlide>) -> (Element<'_, Message>, bool) {
         let Spacing {
             space_s, space_xxs, ..
         } = spacing();
@@ -7350,7 +7350,7 @@ impl Tab {
                         if show_type_column {
                             columns.push(type_cell());
                         }
-                        if let Some(slide) = &column_slide {
+                        if let Some(slide) = column_slide {
                             // Name is held at the width it is going to have
                             // and the columns slide over the gap as one
                             // texture, never over the name. The spacer's two
@@ -7468,7 +7468,7 @@ impl Tab {
         size: Size,
         clipboard_paste_available: bool,
         context_actions: &'a [ContextActionPreset],
-        column_slide: Option<ColumnSlide>,
+        column_slide: Option<&ColumnSlide>,
     ) -> Element<'a, Message> {
         // Update cached size
         self.size_opt.set(Some(size));
@@ -7479,7 +7479,7 @@ impl Tab {
             ..
         } = spacing();
 
-        let location_view = self.location_view(column_slide.clone());
+        let location_view = self.location_view(column_slide);
         let (item_view, can_scroll) = match self.config.view {
             View::Grid => self.grid_view(),
             View::List => self.list_view(column_slide),
@@ -7884,7 +7884,7 @@ impl Tab {
                     size,
                     clipboard_paste_available,
                     context_actions,
-                    column_slide.clone(),
+                    column_slide.as_ref(),
                 ),
                 Id::from(format!(
                     "tab-{}-{}",
