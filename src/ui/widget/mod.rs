@@ -99,6 +99,9 @@ pub use popover::{Popover, popover};
 pub mod popup_genie;
 pub use popup_genie::{PopupGenie, popup_genie};
 
+pub mod settle_watch;
+pub use settle_watch::{SettleWatch, settle_watch};
+
 pub mod radio;
 
 pub mod progress_bar;
