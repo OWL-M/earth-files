@@ -19,7 +19,8 @@ use iced_texture_cache::iced_animate::{Anim, Curve, Motion, MotionKey, curves};
 
 use crate::ui::Element;
 
-/// A critically damped spring, so turning round mid-slide keeps velocity.
+/// A spring, so turning round mid-slide keeps velocity; critically damped,
+/// so the drawer never overshoots its edge.
 const CURVE: Curve = curves::QUICK;
 
 /// How the file view follows a slide.
@@ -40,7 +41,9 @@ pub struct ColumnSlide {
     pub offset: Anim<Vector>,
 }
 
-/// The drawer's slide state. Cheap to clone: every field is a handle.
+/// The drawer's slide state. Cloneable because `Core` is; clones share
+/// the engine and tracks but not the observation state, so only the one
+/// in `Core` is ever synced.
 #[derive(Clone)]
 pub(crate) struct DrawerSlide {
     motion: Motion,
@@ -101,8 +104,9 @@ impl DrawerSlide {
     ///
     /// `extent` and `columns_fit` are only read when a slide starts from
     /// rest (see [`starts_slide`](Self::starts_slide)); pass anything
-    /// otherwise.
+    /// otherwise. `condensed` must already reflect `shown`.
     pub(crate) fn sync(&mut self, shown: bool, condensed: bool, extent: f32, columns_fit: bool) {
+        let from_rest = self.starts_slide(shown);
         let was_condensed = std::mem::replace(&mut self.condensed, condensed);
         let Some(was) = self.shown.replace(shown) else {
             // The first look is the starting state, not a change.
@@ -112,7 +116,7 @@ impl DrawerSlide {
             return;
         }
 
-        if self.is_moving() {
+        if !from_rest {
             // Turned round mid-slide: carry on from where it is, with its
             // velocity, on the path and at the extent it started with.
             let extent = self.extent;
@@ -126,7 +130,13 @@ impl DrawerSlide {
             return;
         }
 
-        self.extent = extent;
+        // `enter` asserts on non-finite values; a bad width is no slide.
+        self.extent = if extent.is_finite() {
+            extent.max(0.0)
+        } else {
+            0.0
+        };
+        let extent = self.extent;
         self.path = if columns_fit && !condensed && !was_condensed {
             SlidePath::Columns
         } else {
@@ -285,6 +295,8 @@ mod tests {
         // It carries on from part-way, not from the edge.
         let x = slide.drawer.get().x;
         assert!(x > 0.0 && x < 400.0, "restarted at {x}");
+        let c = slide.columns.get().x;
+        assert!(c < 0.0 && c > -400.0, "columns restarted at {c}");
     }
 
     #[test]
@@ -313,5 +325,44 @@ mod tests {
         assert!(!slide.starts_slide(true));
         slide.sync(true, false, 400.0, true);
         assert!(!slide.is_moving());
+    }
+
+    #[test]
+    fn turning_round_twice_mid_slide_stays_on_one_track() {
+        let mut slide = DrawerSlide::new();
+        let mut clock = FrameClock::new(slide.motion());
+        slide.sync(false, false, 0.0, false);
+        slide.sync(true, false, 400.0, true);
+        let _ = clock.run(3);
+        let key = slide.key();
+
+        slide.sync(false, false, 0.0, false);
+        let _ = clock.run(3);
+        slide.sync(true, false, 0.0, false);
+
+        assert!(slide.is_moving());
+        assert_eq!(slide.key(), key, "still the same track");
+        assert_eq!(slide.path(), SlidePath::Columns);
+        assert!(close(slide.drawer.target().x, 0.0));
+        assert!(close(slide.columns.target().x, -400.0));
+    }
+
+    #[test]
+    fn a_slide_after_rest_starts_afresh_at_the_new_width() {
+        let mut slide = DrawerSlide::new();
+        let mut clock = FrameClock::new(slide.motion());
+        slide.sync(false, false, 0.0, false);
+        slide.sync(true, false, 400.0, true);
+        let _ = clock.run_until_settled();
+        let key = slide.key();
+
+        slide.sync(false, false, 300.0, false);
+
+        assert_ne!(slide.key(), key, "a fresh slide from rest, a fresh track");
+        assert_eq!(slide.path(), SlidePath::Snap);
+        assert!(close(slide.drawer.get().x, 0.0), "starts at rest");
+
+        let _ = clock.run_until_settled();
+        assert!(close(slide.drawer.get().x, 300.0));
     }
 }

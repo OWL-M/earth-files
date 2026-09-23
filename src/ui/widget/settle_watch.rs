@@ -4,9 +4,12 @@
 //!
 //! The engine ticks inside the widget tree and never rebuilds the view on
 //! its own, so a layout that must change when an animation ends needs a
-//! message to ask for the rebuild. This is it. It fires once per track
-//! (keyed by the track's `MotionKey`), on the first frame that finds the
-//! value at rest.
+//! message to ask for the rebuild. This is it. It fires on the first
+//! redraw that finds the value at rest, once per track (`MotionKey`) per
+//! widget instance — so a watcher built around a value that is already at
+//! rest reports at once. The shell only builds it while the drawer moves,
+//! and its handler is idempotent, so a repeat costs one rebuild and
+//! nothing else.
 
 use iced_core::event::Event;
 use iced_core::widget::{Operation, Tree, tree};
@@ -125,8 +128,9 @@ impl<Message: Clone> Widget<Message, crate::ui::Theme, crate::ui::Renderer>
             viewport,
         );
 
-        // Asked once a frame: the `Host` ticks the engine on the redraw,
-        // before the event reaches this widget.
+        // Asked once a frame, on the redraw: the `Host` ticks the engine on
+        // it before the event reaches the tree, and `content` is updated
+        // first, so the value is this frame's wherever the host sits.
         if !matches!(event, Event::Window(window::Event::RedrawRequested(_))) {
             return;
         }
