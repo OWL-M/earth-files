@@ -10197,7 +10197,12 @@ mod tests {
         tab.size_opt.set(Some(Size::new(650.0, 800.0)));
         assert!(
             !tab.column_slide_fits(400.0, true),
-            "650 → 250: the type column shrinks"
+            "650 → 250: the list condenses"
+        );
+        tab.size_opt.set(Some(Size::new(1100.0, 800.0)));
+        assert!(
+            !tab.column_slide_fits(400.0, true),
+            "1100 → 700: the type column shrinks"
         );
         tab.config.show_type_column = false;
 
