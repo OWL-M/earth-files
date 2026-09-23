@@ -37,7 +37,7 @@ use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, LazyLock, Mutex};
 use std::time::{self, Duration, Instant};
-use std::{env, fmt, io, process};
+use std::{env, fmt, process};
 use tokio::sync::mpsc;
 use trash::TrashItem;
 
@@ -630,6 +630,11 @@ pub enum DialogPage {
         path: PathBuf,
         command: String,
     },
+    /// Confirm running an executable file; `command` is what the dialog shows
+    LaunchExecutable {
+        path: PathBuf,
+        command: String,
+    },
     FavoritePathError {
         path: PathBuf,
         entity: Entity,
@@ -1154,24 +1159,16 @@ impl App {
                     continue;
                 }
             } else if mime == "application/x-executable" || mime == "application/vnd.appimage" {
-                // Try opening executable
+                // An executable runs arbitrary code, so it is confirmed first
                 for path in paths {
-                    let mut command = std::process::Command::new(&path);
-                    match spawn_detached(&mut command) {
-                        Ok(()) => {}
-                        Err(err) => match err.kind() {
-                            io::ErrorKind::PermissionDenied => {
-                                // If permission is denied, try marking as executable, then running
-                                tasks.push(self.push_dialog(
-                                    DialogPage::SetExecutableAndLaunch { path },
-                                    Some(SET_EXECUTABLE_AND_LAUNCH_CONFIRM_BUTTON_ID.clone()),
-                                ));
-                            }
-                            _ => {
-                                log::warn!("failed to execute {}: {}", path.display(), err);
-                            }
-                        },
-                    }
+                    let page = Self::launch_executable_dialog(path);
+                    let button_id = match page {
+                        DialogPage::SetExecutableAndLaunch { .. } => {
+                            SET_EXECUTABLE_AND_LAUNCH_CONFIRM_BUTTON_ID.clone()
+                        }
+                        _ => LAUNCH_DESKTOP_ENTRY_CONFIRM_BUTTON_ID.clone(),
+                    };
+                    tasks.push(self.push_dialog(page, Some(button_id)));
                 }
                 continue;
             }
@@ -1213,6 +1210,20 @@ impl App {
         }
 
         Task::batch(tasks)
+    }
+
+    /// The confirmation asked before an executable file is run: to mark it
+    /// executable first when it is not, or just to launch it when it is
+    fn launch_executable_dialog(path: PathBuf) -> DialogPage {
+        use std::os::unix::fs::PermissionsExt;
+        let executable =
+            std::fs::metadata(&path).is_ok_and(|m| m.permissions().mode() & 0o111 != 0);
+        if executable {
+            let command = path.to_string_lossy().into_owned();
+            DialogPage::LaunchExecutable { path, command }
+        } else {
+            DialogPage::SetExecutableAndLaunch { path }
+        }
     }
 
     #[cfg(feature = "desktop")]
@@ -3681,6 +3692,12 @@ impl Application for App {
                             Self::launch_desktop_entries(&[path]);
                             #[cfg(not(feature = "desktop"))]
                             let _ = path;
+                        }
+                        DialogPage::LaunchExecutable { path, .. } => {
+                            let mut command = std::process::Command::new(&path);
+                            if let Err(err) = spawn_detached(&mut command) {
+                                log::warn!("failed to execute {}: {}", path.display(), err);
+                            }
                         }
                         DialogPage::FavoritePathError { entity, .. } => {
                             if let Some(FavoriteIndex(favorite_i)) =
@@ -6890,7 +6907,8 @@ impl Application for App {
                         name = name
                     )))
             }
-            DialogPage::LaunchDesktopEntry { path, command } => {
+            DialogPage::LaunchDesktopEntry { path, command }
+            | DialogPage::LaunchExecutable { path, command } => {
                 let name = path
                     .file_name()
                     .unwrap_or(path.as_os_str())
@@ -7618,6 +7636,37 @@ impl Application for App {
 // Utilities to build a temporary file hierarchy for tests.
 //
 // Ideally, tests would use the cap-std crate which limits path traversal.
+#[cfg(test)]
+mod tests {
+    use std::fs;
+    use std::os::unix::fs::PermissionsExt;
+
+    use super::*;
+
+    /// Opening an executable asks before running it, whether or not the
+    /// file is already marked executable
+    #[test]
+    fn executable_is_confirmed_before_launch() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("downloaded");
+        fs::write(&path, b"#!/bin/sh\n").unwrap();
+
+        assert!(matches!(
+            App::launch_executable_dialog(path.clone()),
+            DialogPage::SetExecutableAndLaunch { .. }
+        ));
+
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
+        match App::launch_executable_dialog(path.clone()) {
+            DialogPage::LaunchExecutable { path: p, command } => {
+                assert_eq!(p, path);
+                assert_eq!(command, path.to_string_lossy());
+            }
+            _ => panic!("an executable file should get the launch confirmation"),
+        }
+    }
+}
+
 #[cfg(test)]
 pub(crate) mod test_utils {
     use std::cmp::Ordering;
