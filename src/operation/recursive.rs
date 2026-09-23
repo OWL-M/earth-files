@@ -80,6 +80,29 @@ fn plan_tree(
     controller: &Controller,
 ) -> Result<Vec<PlannedOp>, OperationError> {
     let mut planned = Vec::new();
+    // A root that is itself a link is one step, never a walk: the walker
+    // follows a root link that points at a regular file, and would plan a
+    // copy of the target's bytes where the user selected the link.
+    let root = fs::symlink_metadata(from_parent).map_err(|err| {
+        OperationError::from_err(
+            format!("failed to stat {}: {}", from_parent.display(), err),
+            controller,
+        )
+    })?;
+    if root.file_type().is_symlink() {
+        let target = fs::read_link(from_parent).map_err(|err| {
+            OperationError::from_err(
+                format!("failed to read link {}: {}", from_parent.display(), err),
+                controller,
+            )
+        })?;
+        planned.push(PlannedOp {
+            kind: OpKind::Symlink { target },
+            from: from_parent.to_path_buf(),
+            to: to_parent.to_path_buf(),
+        });
+        return Ok(planned);
+    }
     for entry in ignore::WalkBuilder::new(from_parent)
         .standard_filters(false)
         .build()
@@ -918,6 +941,28 @@ mod tests {
     use super::{Method, OpKind, PlannedOp, plan_tree};
     use crate::operation::{Controller, ControllerState};
     use std::fs;
+
+    #[test]
+    fn a_selected_link_to_a_file_is_planned_as_a_link() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        fs::write(dir.path().join("target.txt"), b"t").expect("write");
+        let link = dir.path().join("link");
+        std::os::unix::fs::symlink("target.txt", &link).expect("symlink");
+
+        let planned = plan_tree(
+            &link,
+            &dir.path().join("out"),
+            Method::Copy,
+            &Controller::default(),
+        )
+        .expect("planning");
+
+        assert_eq!(planned.len(), 1);
+        assert!(
+            matches!(&planned[0].kind, OpKind::Symlink { target } if target == std::path::Path::new("target.txt")),
+            "a link is copied as a link, not as its target's bytes"
+        );
+    }
 
     #[test]
     fn a_plan_covers_the_whole_tree() {
