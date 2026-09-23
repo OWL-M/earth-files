@@ -6618,9 +6618,10 @@ impl Tab {
                 HeadingOptions::Size,
             ));
         }
-        // While the drawer slides, Name is held at the width it is going to
-        // have and the rest slides over the gap as one texture, like the rows
-        // below; see `crate::ui::shell::drawer_slide`.
+        // While the drawer slides, Name is held at its narrow width (its
+        // width with the drawer in the layout) and the rest slides over the
+        // gap as one texture, like the rows below; see
+        // `crate::ui::shell::drawer_slide`.
         let headings: Vec<Element<'_, Message>> = if let Some(slide) = column_slide {
             vec![
                 name_heading,
@@ -7351,15 +7352,18 @@ impl Tab {
                             columns.push(type_cell());
                         }
                         if let Some(slide) = column_slide {
-                            // Name is held at the width it is going to have
-                            // and the columns slide over the gap as one
-                            // texture, never over the name. The spacer's two
-                            // gaps stand in for the one gap the name loses.
+                            // Name is held at its narrow width (its width
+                            // with the drawer in the layout) and the columns
+                            // slide over the gap as one texture, never over
+                            // the name. The spacer brings one more row gap
+                            // with it, so it is one gap short of `extent`.
+                            debug_assert!(
+                                slide.extent >= f32::from(space_xxs),
+                                "a drawer narrower than a gap"
+                            );
                             cells.push(
                                 space::horizontal()
-                                    .width(Length::Fixed(
-                                        (slide.extent - f32::from(space_xxs)).max(0.0),
-                                    ))
+                                    .width(Length::Fixed(slide.extent - f32::from(space_xxs)))
                                     .into(),
                             );
                             cells.push(
