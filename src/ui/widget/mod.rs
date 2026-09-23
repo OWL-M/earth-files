@@ -105,7 +105,7 @@ pub mod radio;
 pub mod progress_bar;
 pub use progress_bar::{
     circular, circular::Circular, determinate_circular, determinate_linear, indeterminate_circular,
-    indeterminate_linear, linear, linear::Linear, style,
+    linear, linear::Linear, style,
 };
 
 pub mod segmented_button;

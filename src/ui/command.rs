@@ -61,23 +61,9 @@ pub fn show_window_menu<M>(id: window::Id) -> Task<Action<M>> {
     iced_runtime::window::show_system_menu(id)
 }
 
-/// Sets the title of a window.
-///
-/// A no-op: the title is served to the compositor from the shell's `title`
-/// map through the daemon's `.title(..)` closure.
-#[allow(unused_variables, clippy::needless_pass_by_value)]
-pub fn set_title<M>(id: window::Id, title: String) -> Task<Action<M>> {
-    Task::none()
-}
-
 /// Sets the theme every window renders with.
 pub fn set_theme<M: Send + 'static>(theme: crate::ui::Theme) -> Task<Action<M>> {
     Task::done(Action::Cosmic(crate::ui::app::Action::AppThemeChange(
         theme,
     )))
-}
-
-/// Sets the scaling factor.
-pub fn set_scaling_factor<M: Send + 'static>(factor: f32) -> Task<Action<M>> {
-    Task::done(Action::Cosmic(crate::ui::app::Action::ScaleFactor(factor)))
 }
