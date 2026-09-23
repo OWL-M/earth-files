@@ -36,7 +36,6 @@ open = "5.3.4"
 palette = "0.7.7"
 regex = "1"
 ron = "0.12"
-roxmltree = "0.21"
 rustc-hash = "2.1"
 serde = { version = "1", features = ["serde_derive"] }
 shlex = { version = "2.0" }

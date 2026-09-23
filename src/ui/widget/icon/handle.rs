@@ -91,8 +91,37 @@ fn svg_source(path: &Path) -> Option<SvgSource> {
         return None;
     }
 
-    let document = roxmltree::Document::parse(std::str::from_utf8(&bytes).ok()?).ok()?;
-    (document.root_element().tag_name().name() == "svg").then_some(SvgSource::Bytes(bytes))
+    starts_with_svg_tag(&bytes).then_some(SvgSource::Bytes(bytes))
+}
+
+/// Whether the document's first element is `<svg>`, looking past a UTF-8
+/// BOM, an XML prolog, comments and a DOCTYPE. Anything malformed after
+/// that is the SVG renderer's problem, not a reason to treat the file as a
+/// raster image.
+fn starts_with_svg_tag(bytes: &[u8]) -> bool {
+    let mut rest = bytes.strip_prefix(b"\xEF\xBB\xBF").unwrap_or(bytes);
+    loop {
+        rest = rest.trim_ascii_start();
+        let skipped = if rest.starts_with(b"<?") {
+            rest.windows(2).position(|w| w == b"?>").map(|i| i + 2)
+        } else if rest.starts_with(b"<!--") {
+            rest[4..]
+                .windows(3)
+                .position(|w| w == b"-->")
+                .map(|i| i + 4 + 3)
+        } else if rest.starts_with(b"<!") {
+            rest.iter().position(|&b| b == b'>').map(|i| i + 1)
+        } else {
+            return rest
+                .strip_prefix(b"<svg")
+                .and_then(|after| after.first())
+                .is_some_and(|&b| b.is_ascii_whitespace() || b == b'>' || b == b'/');
+        };
+        match skipped {
+            Some(n) => rest = &rest[n..],
+            None => return false,
+        }
+    }
 }
 
 /// Create an icon handle from its path.
@@ -160,5 +189,25 @@ pub fn from_svg_bytes(bytes: impl Into<Cow<'static, [u8]>>) -> Handle {
     Handle {
         symbolic: false,
         data: Data::Svg(svg::Handle::from_memory(bytes)),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::starts_with_svg_tag;
+
+    #[test]
+    fn an_svg_is_recognised_by_its_first_tag() {
+        assert!(starts_with_svg_tag(
+            br#"<svg xmlns="http://www.w3.org/2000/svg"><path d="M0 0"/></svg>"#
+        ));
+        assert!(starts_with_svg_tag(
+            b"\xEF\xBB\xBF<?xml version=\"1.0\"?>\n<!-- made by <html> -->\n<!DOCTYPE svg>\n<svg/>"
+        ));
+        assert!(!starts_with_svg_tag(
+            b"<html><body>not an icon</body></html>"
+        ));
+        assert!(!starts_with_svg_tag(b"<svgfoo>"));
+        assert!(!starts_with_svg_tag(b""));
     }
 }
