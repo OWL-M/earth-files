@@ -7,6 +7,7 @@
 
 use std::borrow::Borrow;
 use std::cell::RefCell;
+use std::mem::ManuallyDrop;
 use std::rc::Rc;
 use std::thread::{self, ThreadId};
 
@@ -17,7 +18,8 @@ use iced_core::{Widget, widget};
 
 #[derive(Debug)]
 pub struct RcWrapper<T> {
-    pub(crate) data: Rc<RefCell<T>>,
+    /// Dropped by hand, and only on the creating thread; see [`Drop`].
+    pub(crate) data: ManuallyDrop<Rc<RefCell<T>>>,
     pub(crate) thread_id: ThreadId,
 }
 
@@ -43,10 +45,16 @@ impl<T> Clone for RcWrapper<T> {
 impl<T> Drop for RcWrapper<T> {
     /// # Panics
     ///
-    /// Will panic if dropped outside of original thread.
+    /// Will panic if dropped outside of original thread. The `Rc` is then
+    /// leaked rather than released: an assertion alone would not stop the
+    /// field's own drop from decrementing the non-atomic count on the wrong
+    /// thread during unwinding.
     fn drop(&mut self) {
-        if !thread::panicking() {
-            assert_eq!(self.thread_id, thread::current().id());
+        if self.thread_id == thread::current().id() {
+            // SAFETY: dropped exactly once, here, and never touched again.
+            unsafe { ManuallyDrop::drop(&mut self.data) };
+        } else if !thread::panicking() {
+            panic!("RcWrapper dropped off the thread that created it; leaked");
         }
     }
 }
@@ -58,14 +66,15 @@ impl<T> Drop for RcWrapper<T> {
 // every operation that touches the `Rc` count or the `RefCell` (`clone`,
 // `drop`, `with_data`, `with_data_mut`, `overlay`) asserts it runs on the
 // thread that created the wrapper, so a violation is a panic, not a data
-// race.
+// race; a drop on the wrong thread leaks the `Rc` rather than touching its
+// count.
 unsafe impl<M: 'static> Send for RcWrapper<M> {}
 unsafe impl<M: 'static> Sync for RcWrapper<M> {}
 
 impl<T> RcWrapper<T> {
     pub fn new(element: T) -> Self {
         Self {
-            data: Rc::new(RefCell::new(element)),
+            data: ManuallyDrop::new(Rc::new(RefCell::new(element))),
             thread_id: thread::current().id(),
         }
     }
@@ -250,10 +259,14 @@ mod tests {
     }
 
     #[test]
-    fn drop_on_another_thread_panics() {
+    fn drop_on_another_thread_panics_and_leaks() {
         let w = RcWrapper::new(1u8);
         let c = w.clone();
+        assert_eq!(std::rc::Rc::strong_count(&w.data), 2);
         let joined = std::thread::spawn(move || drop(c)).join();
         assert!(joined.is_err());
+        // The count was not touched from the other thread: the clone leaked
+        assert_eq!(std::rc::Rc::strong_count(&w.data), 2);
+        assert_eq!(w.with_data(|v| *v), 1);
     }
 }
