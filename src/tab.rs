@@ -144,8 +144,13 @@ fn preview_text(text: &str) -> String {
 
 // Thumbnail generation semaphore - limits parallel thumbnail workers
 // Uses 4 workers for balanced throughput and memory usage
-pub static THUMB_SEMAPHORE: LazyLock<Arc<tokio::sync::Semaphore>> =
-    LazyLock::new(|| Arc::new(tokio::sync::Semaphore::new(num_cpus::get().min(4))));
+pub static THUMB_SEMAPHORE: LazyLock<Arc<tokio::sync::Semaphore>> = LazyLock::new(|| {
+    Arc::new(tokio::sync::Semaphore::new(
+        std::thread::available_parallelism()
+            .map_or(1, std::num::NonZero::get)
+            .min(4),
+    ))
+});
 
 /// Runs `work` on a blocking thread, no more than `semaphore` allows at once.
 ///
