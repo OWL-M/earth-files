@@ -449,8 +449,10 @@ impl Operation {
             Self::Copy { .. } if !created_only(result).is_empty() => vec![Self::Delete {
                 paths: created_only(result),
             }],
-            Self::NewFile { path } | Self::NewFolder { path } => vec![Self::PermanentlyDelete {
-                paths: Box::from([path.clone()]),
+            // A new folder may have been filled since it was created, so an
+            // undo trashes it rather than destroying it and its contents
+            Self::NewFile { path } | Self::NewFolder { path } => vec![Self::Delete {
+                paths: vec![path.clone()],
             }],
             // Pasted content is the only copy of what was on the clipboard, so
             // undoing a paste puts it in the trash rather than destroying it
@@ -2717,6 +2719,22 @@ mod tests {
             }],
             "a created path inside another created path is covered by it"
         );
+        // A new file or folder goes to the trash, not straight to oblivion
+        for op in [
+            Operation::NewFile {
+                path: "/a/new".into(),
+            },
+            Operation::NewFolder {
+                path: "/a/new".into(),
+            },
+        ] {
+            assert_eq!(
+                op.undo(&OperationSelection::default()),
+                vec![Operation::Delete {
+                    paths: vec!["/a/new".into()]
+                }]
+            );
+        }
         let compress = Operation::Compress {
             paths: vec!["/a/one".into()],
             to: "/a/one.zip".into(),
