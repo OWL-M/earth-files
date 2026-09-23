@@ -117,6 +117,17 @@ impl AllowedMimeTypes for ClipboardPaste {
     }
 }
 
+/// The local path a `file:` URL names. `Url::to_file_path` does not check
+/// the scheme, so without this `sftp://localhost/x` would read as `/x`.
+fn file_url_to_path(line: &str) -> Result<PathBuf, Box<dyn Error>> {
+    let url = Url::parse(line)?;
+    if url.scheme() != "file" {
+        return Err(format!("not a file URL {url:?}").into());
+    }
+    url.to_file_path()
+        .map_err(|()| format!("invalid file URL {url:?}").into())
+}
+
 impl TryFrom<(Vec<u8>, String)> for ClipboardPaste {
     type Error = Box<dyn Error>;
     fn try_from(value: (Vec<u8>, String)) -> Result<Self, Self::Error> {
@@ -128,14 +139,9 @@ impl TryFrom<(Vec<u8>, String)> for ClipboardPaste {
         match mime.as_str() {
             "text/uri-list" => {
                 let text = str::from_utf8(&data)?;
-                let _lines = text.lines();
 
                 for line in text.lines() {
-                    let url = Url::parse(line)?;
-                    match url.to_file_path() {
-                        Ok(path) => paths.push(path),
-                        Err(()) => Err(format!("invalid file URL {url:?}"))?,
-                    }
+                    paths.push(file_url_to_path(line)?);
                 }
             }
             "x-special/gnome-copied-files" => {
@@ -149,11 +155,7 @@ impl TryFrom<(Vec<u8>, String)> for ClipboardPaste {
                             _ => Err(format!("unsupported clipboard operation {line:?}"))?,
                         };
                     } else {
-                        let url = Url::parse(line)?;
-                        match url.to_file_path() {
-                            Ok(path) => paths.push(path),
-                            Err(()) => Err(format!("invalid file URL {url:?}"))?,
-                        }
+                        paths.push(file_url_to_path(line)?);
                     }
                 }
             }
@@ -335,4 +337,29 @@ pub enum ClipboardCache {
     Video(ClipboardPasteVideo),
     Text(ClipboardPasteText),
     Empty,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A pasted or dropped URI list names local files by scheme; any other
+    /// scheme on `localhost` would otherwise be read as a local path.
+    #[test]
+    fn only_file_urls_become_paths() {
+        let data = b"file:///tmp/a.txt\nsftp://localhost/home/u/id_rsa\n".to_vec();
+        let err = ClipboardPaste::try_from((data, String::from("text/uri-list")))
+            .expect_err("a non-file URL must be rejected");
+        assert!(err.to_string().contains("sftp"), "{err}");
+
+        let data = b"cut\ntrash:///report.pdf\n".to_vec();
+        ClipboardPaste::try_from((data, String::from("x-special/gnome-copied-files")))
+            .expect_err("a non-file URL must be rejected");
+
+        let data = b"copy\nfile:///tmp/a.txt\n".to_vec();
+        let paste = ClipboardPaste::try_from((data, String::from("x-special/gnome-copied-files")))
+            .expect("a file URL is a path");
+        assert!(matches!(paste.kind, ClipboardKind::Copy));
+        assert_eq!(paste.paths, vec![PathBuf::from("/tmp/a.txt")]);
+    }
 }
