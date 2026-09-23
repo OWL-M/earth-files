@@ -432,7 +432,7 @@ impl<'a, Message: Clone + 'static> HeaderBar<'a, Message> {
             .apply(crate::mouse_area::MouseArea::new);
 
         // `mouse_area`'s setters take a closure of the event's geometry
-        // (`OnDrag = Fn(Option<Rectangle>) -> Message`, `OnMouseButton =
+        // (`on_drag` takes `Fn(Option<Rectangle>) -> Message`, `on_press` takes
         // Fn(Option<Point>) -> Message`). The header bar does not use the
         // position, so the argument is discarded.
         if let Some(message) = self.on_drag {
