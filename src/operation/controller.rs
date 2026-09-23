@@ -125,7 +125,7 @@ impl Controller {
     }
 
     pub fn unpause(&self) {
-        if !self.is_cancelled() | !self.is_failed() {
+        if !self.is_cancelled() && !self.is_failed() {
             self.set_state(ControllerState::Running);
         }
     }
@@ -146,5 +146,26 @@ impl Drop for Controller {
         if self.primary && self.state() != ControllerState::Failed {
             self.cancel();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn unpause_does_not_revive_a_cancelled_or_failed_controller() {
+        let controller = Controller::default();
+        controller.cancel();
+        controller.unpause();
+        assert!(controller.is_cancelled());
+
+        controller.set_state(ControllerState::Failed);
+        controller.unpause();
+        assert!(controller.is_failed());
+
+        controller.pause();
+        controller.unpause();
+        assert_eq!(controller.state(), ControllerState::Running);
     }
 }
