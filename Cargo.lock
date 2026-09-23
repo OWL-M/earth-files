@@ -1564,7 +1564,6 @@ dependencies = [
  "notify-debouncer-full",
  "notify-rust",
  "num_cpus",
- "num_enum",
  "open",
  "ordermap",
  "palette",

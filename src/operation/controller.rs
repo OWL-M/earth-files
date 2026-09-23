@@ -1,15 +1,34 @@
-use num_enum::{IntoPrimitive, TryFromPrimitive};
 use std::sync::Arc;
 use std::sync::atomic::{self, AtomicU16, AtomicU32};
 use tokio::sync::Notify;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, IntoPrimitive, TryFromPrimitive)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u16)]
 pub enum ControllerState {
     Cancelled,
     Failed,
     Paused,
     Running,
+}
+
+impl From<ControllerState> for u16 {
+    fn from(state: ControllerState) -> Self {
+        state as u16
+    }
+}
+
+impl TryFrom<u16> for ControllerState {
+    type Error = u16;
+
+    fn try_from(value: u16) -> Result<Self, Self::Error> {
+        match value {
+            0 => Ok(Self::Cancelled),
+            1 => Ok(Self::Failed),
+            2 => Ok(Self::Paused),
+            3 => Ok(Self::Running),
+            other => Err(other),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -176,5 +195,18 @@ mod tests {
         controller.set_progress(0.375);
         assert_eq!(controller.progress(), 0.375);
         assert_eq!(controller.clone().progress(), 0.375);
+    }
+
+    #[test]
+    fn state_round_trips_through_u16() {
+        for state in [
+            ControllerState::Cancelled,
+            ControllerState::Failed,
+            ControllerState::Paused,
+            ControllerState::Running,
+        ] {
+            assert_eq!(ControllerState::try_from(u16::from(state)), Ok(state));
+        }
+        assert_eq!(ControllerState::try_from(4), Err(4));
     }
 }
