@@ -2336,7 +2336,13 @@ impl Application for App {
 
         col = col.push(
             self.tab
-                .view(&self.key_binds, &self.modifiers, false, &[])
+                .view(
+                    &self.key_binds,
+                    &self.modifiers,
+                    false,
+                    &[],
+                    self.core.drawer_slide.column_slide(),
+                )
                 .map(Message::TabMessage),
         );
 

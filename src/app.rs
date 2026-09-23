@@ -7244,6 +7244,7 @@ impl Application for App {
                     &self.modifiers,
                     self.clipboard_has_content(),
                     &self.config.context_actions,
+                    self.core.drawer_slide.column_slide(),
                 )
                 .map(move |message| Message::TabMessage(Some(entity), message));
             tab_column = tab_column.push(tab_view);

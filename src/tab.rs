@@ -62,8 +62,10 @@ use crate::thumbnailer::thumbnailer;
 use crate::trash::{Trash, TrashExt};
 use crate::ui::convert::{ToColor, ToRadius};
 use crate::ui::convert::{ToPadding, ToPixels};
+use crate::ui::shell::drawer_slide::ColumnSlide;
 use crate::ui::theme::{Button, Container, Layer, Rule, Spacing, spacing};
 use crate::{FxOrderMap, fl, menu, mime_app, mouse_area};
+use iced_texture_cache::{TextureCache, cached};
 
 pub const DOUBLE_CLICK_DURATION: Duration = Duration::from_millis(500);
 pub const TYPE_SELECT_TIMEOUT: Duration = Duration::from_millis(1000);
@@ -6460,7 +6462,7 @@ impl Tab {
             .into()
     }
 
-    pub fn location_view(&self) -> Element<'_, Message> {
+    pub fn location_view(&self, column_slide: Option<ColumnSlide>) -> Element<'_, Message> {
         fn text_width<'a>(
             content: &'a str,
             font: font::Font,
@@ -6587,8 +6589,8 @@ impl Tab {
             (fl!("modified"), HeadingOptions::Modified)
         };
         let widths = geometry.widths;
-        let mut headings = vec![
-            heading(fl!("name"), Length::Fill, HeadingOptions::Name),
+        let name_heading = heading(fl!("name"), Length::Fill, HeadingOptions::Name);
+        let mut columns = vec![
             divider(ColumnDivider::NameModified),
             heading(
                 modified_label,
@@ -6598,24 +6600,47 @@ impl Tab {
             divider(ColumnDivider::ModifiedSize),
         ];
         if geometry.show_type {
-            headings.push(heading(
+            columns.push(heading(
                 fl!("size"),
                 Length::Fixed(widths.size - DIVIDER_GRAB),
                 HeadingOptions::Size,
             ));
-            headings.push(divider(ColumnDivider::SizeType));
-            headings.push(heading(
+            columns.push(divider(ColumnDivider::SizeType));
+            columns.push(heading(
                 fl!("type-heading"),
                 Length::Fixed(widths.type_),
                 HeadingOptions::Type,
             ));
         } else {
-            headings.push(heading(
+            columns.push(heading(
                 fl!("size"),
                 Length::Fixed(widths.size),
                 HeadingOptions::Size,
             ));
         }
+        // While the drawer slides, Name is held at the width it is going to
+        // have and the rest slides over the gap as one texture, like the rows
+        // below; see `crate::ui::shell::drawer_slide`.
+        let headings: Vec<Element<'_, Message>> = if let Some(slide) = &column_slide {
+            vec![
+                name_heading,
+                space::horizontal()
+                    .width(Length::Fixed(slide.extent))
+                    .into(),
+                cached(
+                    TextureCache::new(),
+                    widget::Row::with_children(columns)
+                        .align_y(Alignment::Center)
+                        .height(Length::Fill),
+                )
+                .translate(slide.offset.clone())
+                .into(),
+            ]
+        } else {
+            let mut headings = vec![name_heading];
+            headings.extend(columns);
+            headings
+        };
         let heading_row = widget::Row::with_children(headings)
             .align_y(Alignment::Center)
             .height(Length::Fixed((space_m + 4).into()))
@@ -7126,7 +7151,7 @@ impl Tab {
         (mouse_area.into(), true)
     }
 
-    pub fn list_view(&self) -> (Element<'_, Message>, bool) {
+    pub fn list_view(&self, column_slide: Option<ColumnSlide>) -> (Element<'_, Message>, bool) {
         let Spacing {
             space_s, space_xxs, ..
         } = spacing();
@@ -7313,6 +7338,8 @@ impl Tab {
                             Item::list_display_name(item.display_name.clone())
                                 .width(Length::Fill)
                                 .into(),
+                        ];
+                        let mut columns: Vec<Element<'_, Message>> = vec![
                             widget::text::body(modified_text.clone())
                                 .width(Length::Fixed(modified_width))
                                 .into(),
@@ -7321,7 +7348,32 @@ impl Tab {
                                 .into(),
                         ];
                         if show_type_column {
-                            cells.push(type_cell());
+                            columns.push(type_cell());
+                        }
+                        if let Some(slide) = &column_slide {
+                            // Name is held at the width it is going to have
+                            // and the columns slide over the gap as one
+                            // texture, never over the name. The spacer's two
+                            // gaps stand in for the one gap the name loses.
+                            cells.push(
+                                space::horizontal()
+                                    .width(Length::Fixed(
+                                        (slide.extent - f32::from(space_xxs)).max(0.0),
+                                    ))
+                                    .into(),
+                            );
+                            cells.push(
+                                cached(
+                                    TextureCache::new(),
+                                    widget::Row::with_children(columns)
+                                        .align_y(Alignment::Center)
+                                        .spacing(space_xxs.to_pixels()),
+                                )
+                                .translate(slide.offset.clone())
+                                .into(),
+                            );
+                        } else {
+                            cells.extend(columns);
                         }
                         widget::Row::with_children(cells)
                             .height(Length::Fixed(f32::from(row_height)))
@@ -7416,6 +7468,7 @@ impl Tab {
         size: Size,
         clipboard_paste_available: bool,
         context_actions: &'a [ContextActionPreset],
+        column_slide: Option<ColumnSlide>,
     ) -> Element<'a, Message> {
         // Update cached size
         self.size_opt.set(Some(size));
@@ -7426,10 +7479,10 @@ impl Tab {
             ..
         } = spacing();
 
-        let location_view = self.location_view();
+        let location_view = self.location_view(column_slide.clone());
         let (item_view, can_scroll) = match self.config.view {
             View::Grid => self.grid_view(),
-            View::List => self.list_view(),
+            View::List => self.list_view(column_slide),
         };
         let item_view: Element<'a, Message> =
             widget::container(item_view).width(Length::Fill).into();
@@ -7821,6 +7874,7 @@ impl Tab {
         modifiers: &'a Modifiers,
         clipboard_paste_available: bool,
         context_actions: &'a [ContextActionPreset],
+        column_slide: Option<ColumnSlide>,
     ) -> Element<'a, Message> {
         widget::responsive(move |size| {
             widget::id_container(
@@ -7830,6 +7884,7 @@ impl Tab {
                     size,
                     clipboard_paste_available,
                     context_actions,
+                    column_slide.clone(),
                 ),
                 Id::from(format!(
                     "tab-{}-{}",
