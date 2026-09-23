@@ -19,7 +19,7 @@ use iced_texture_cache::{Corner, GenieShape, TextureCache};
 /// The one number here that is taste rather than arithmetic.
 /// `GenieWarpMesh` uses 500ms, but that is a whole window travelling to a
 /// dock rather than a small menu collapsing into the pointer beside it.
-const DURATION: Duration = Duration::from_millis(280);
+const DURATION: Duration = Duration::from_millis(140);
 
 /// The progress curve, deliberately linear.
 ///
