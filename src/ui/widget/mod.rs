@@ -10,12 +10,11 @@
 // items this app never calls. Scoping the allow to this module keeps the
 // app's own dead-code warnings meaningful.
 #![allow(dead_code)]
-// `button`'s vendored code warns under this crate's feature set: four
-// `let mut button` bindings are reassigned only inside
-// `#[cfg(feature = "a11y")]` blocks, and `button::draw`'s `is_image`
-// parameter is unused. Keep both: `mut` is required when a11y is on, and
-// `draw` is public API. Scoped here for the same reason as `dead_code` above:
-// it keeps the app's own warnings meaningful.
+// Vendored code warns under this crate's lints: `button::draw`'s `is_image`
+// parameter is unused (`draw` is public API, so it stays), and
+// `menu_inner`, `segmented_button` and `toggler` each carry a `mut` binding
+// that is never reassigned. Scoped here for the same reason as `dead_code`
+// above: it keeps the app's own warnings meaningful.
 #![allow(unused_mut, unused_variables)]
 // `text_input::input::draw`'s `icon_layout` is assigned up to three times as it
 // walks the layout children, and only the last is read. The dead writes are how

@@ -41,12 +41,6 @@ enum Variant<Message> {
 #[must_use]
 pub struct Button<'a, Message> {
     id: Id,
-    #[cfg(feature = "a11y")]
-    name: Option<std::borrow::Cow<'a, str>>,
-    #[cfg(feature = "a11y")]
-    description: Option<iced_accessibility::Description<'a>>,
-    #[cfg(feature = "a11y")]
-    label: Option<Vec<iced_accessibility::accesskit::NodeId>>,
     content: crate::ui::Element<'a, Message>,
     on_press: Option<Box<dyn Fn(Vector, Rectangle) -> Message + 'a>>,
     on_press_down: Option<Box<dyn Fn(Vector, Rectangle) -> Message + 'a>>,
@@ -64,12 +58,6 @@ impl<'a, Message: Clone + 'a> Button<'a, Message> {
     pub(super) fn new(content: impl Into<crate::ui::Element<'a, Message>>) -> Self {
         Self {
             id: Id::unique(),
-            #[cfg(feature = "a11y")]
-            name: None,
-            #[cfg(feature = "a11y")]
-            description: None,
-            #[cfg(feature = "a11y")]
-            label: None,
             content: content.into(),
             on_press: None,
             on_press_down: None,
@@ -226,36 +214,6 @@ impl<'a, Message: Clone + 'a> Button<'a, Message> {
     #[inline]
     pub fn class(mut self, style: crate::ui::theme::Button) -> Self {
         self.style = style;
-        self
-    }
-
-    #[cfg(feature = "a11y")]
-    /// Sets the name of the [`Button`].
-    pub fn name(mut self, name: impl Into<std::borrow::Cow<'a, str>>) -> Self {
-        self.name = Some(name.into());
-        self
-    }
-
-    #[cfg(feature = "a11y")]
-    /// Sets the description of the [`Button`].
-    pub fn description_widget<T: iced_accessibility::Describes>(mut self, description: &T) -> Self {
-        self.description = Some(iced_accessibility::Description::Id(
-            description.description(),
-        ));
-        self
-    }
-
-    #[cfg(feature = "a11y")]
-    /// Sets the description of the [`Button`].
-    pub fn description(mut self, description: impl Into<std::borrow::Cow<'a, str>>) -> Self {
-        self.description = Some(iced_accessibility::Description::Text(description.into()));
-        self
-    }
-
-    #[cfg(feature = "a11y")]
-    /// Sets the label of the [`Button`].
-    pub fn label(mut self, label: &dyn iced_accessibility::Labels) -> Self {
-        self.label = Some(label.label().into_iter().map(|l| l.into()).collect());
         self
     }
 }
@@ -724,21 +682,6 @@ pub fn update<'a, Message: Clone>(
                     shell.request_redraw();
                 }
             }
-        }
-        #[cfg(feature = "a11y")]
-        Event::A11y(event_id, iced_accessibility::accesskit::ActionRequest { action, .. }) => {
-            let state = state();
-            if let Some(on_press) = matches!(action, iced_accessibility::accesskit::Action::Click)
-                .then_some(on_press)
-                .flatten()
-            {
-                state.is_pressed = false;
-                let msg = (on_press)(iced_core::Vector::ZERO, layout.bounds());
-
-                shell.publish(msg);
-            }
-            shell.capture_event();
-            return;
         }
         Event::Keyboard(keyboard::Event::KeyPressed { key, .. }) => {
             if let Some(on_press) = on_press {

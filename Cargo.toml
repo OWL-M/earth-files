@@ -209,9 +209,6 @@ name = "earth-files-portal"
 path = "src/bin/earth-files-portal.rs"
 
 [features]
-# Not enabled anywhere; declared only so vendored widgets carrying
-# `#[cfg(feature = "a11y")]` don't trip `unexpected_cfgs`.
-a11y = []
 default = [
     "bzip2",
     "desktop",
