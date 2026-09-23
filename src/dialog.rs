@@ -1244,10 +1244,6 @@ impl Application for App {
     }
 
     fn context_drawer(&self) -> Option<context_drawer::ContextDrawer<'_, Message>> {
-        if !self.core.window.show_context {
-            return None;
-        }
-
         match &self.context_page {
             ContextPage::Preview(_, kind) => {
                 let actions = self

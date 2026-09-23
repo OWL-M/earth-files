@@ -6009,10 +6009,6 @@ impl Application for App {
     }
 
     fn context_drawer(&self) -> Option<context_drawer::ContextDrawer<'_, Message>> {
-        if !self.core.window.show_context {
-            return None;
-        }
-
         Some(match &self.context_page {
             ContextPage::About => context_drawer::context_drawer(
                 widget::about::about(&self.about, |url| Message::LaunchUrl(url.to_string())),

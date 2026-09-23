@@ -216,6 +216,17 @@ impl<'a, Message: Clone + 'static> ContextDrawer<'a, Message> {
         self.on_close = message;
         self
     }
+
+    /// Hands the drawer (not the content beside it) to `wrap`; the shell
+    /// uses it to slide the drawer without reshaping the content's tree.
+    #[inline]
+    pub fn slide(
+        mut self,
+        wrap: impl FnOnce(Element<'a, Message>) -> Element<'a, Message>,
+    ) -> Self {
+        self.drawer = wrap(self.drawer);
+        self
+    }
 }
 
 impl<Message: Clone> Widget<Message, crate::ui::Theme, Renderer> for ContextDrawer<'_, Message> {

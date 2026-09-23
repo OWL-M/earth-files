@@ -188,6 +188,7 @@ where
     fn view_main(&self) -> Element<'_, crate::ui::Action<Self::Message>> {
         use crate::ui::app::Action;
         use crate::ui::iced::Length;
+        use crate::ui::shell::drawer_slide::SlidePath;
         use crate::ui::widget::{container, id_container, space};
         use crate::ui::{Apply, widget};
 
@@ -212,8 +213,16 @@ where
 
         let border_padding = core.border_padding();
 
+        let slide = &core.drawer_slide;
+        let sliding = slide.is_moving();
+        // Mid-slide on the column path the drawer floats over a layout that
+        // is still full width; see `drawer_slide`.
+        let drawer_inline = show_context && !(sliding && slide.path() == SlidePath::Columns);
+        let on_settled = crate::ui::Action::Cosmic(Action::DrawerSlideSettled);
+        let mut floating_drawer = None;
+
         let main_content_padding = if content_container {
-            let right_padding = if show_context { 0 } else { border_padding };
+            let right_padding = if drawer_inline { 0 } else { border_padding };
             let left_padding = if nav_bar_active { 0 } else { border_padding };
 
             [0, right_padding, 0, left_padding]
@@ -302,32 +311,46 @@ where
                 let main_content = self.view();
 
                 let context_width = core.context_width(has_nav);
-                if core.window.context_is_overlay && show_context {
-                    if let Some(context) = self.context_drawer() {
+                // Built while shown and while sliding out.
+                let context = if show_context || sliding {
+                    self.context_drawer()
+                } else {
+                    None
+                };
+                if core.window.context_is_overlay && (show_context || sliding) {
+                    if let Some(context) = context {
+                        let mut drawer = widget::context_drawer(
+                            context.title,
+                            context.actions,
+                            context.header,
+                            context.footer,
+                            context.on_close,
+                            main_content,
+                            context.content,
+                            context_width,
+                        )
+                        .map(crate::ui::Action::App);
+                        if sliding {
+                            // Only the drawer is wrapped, so the content's
+                            // tree keeps its shape when the slide ends.
+                            drawer = drawer.slide(|drawer| {
+                                slide.watch(on_settled.clone(), slide.translated(drawer))
+                            });
+                        }
                         widgets.push(
-                            widget::context_drawer(
-                                context.title,
-                                context.actions,
-                                context.header,
-                                context.footer,
-                                context.on_close,
-                                main_content,
-                                context.content,
-                                context_width,
-                            )
-                            .apply(|drawer| {
-                                Element::from(id_container(
-                                    drawer,
-                                    widget::Id::new("COSMIC_context_drawer"),
-                                ))
-                            })
-                            .apply(container)
-                            .padding(
-                                ([0, if content_container { border_padding } else { 0 }, 0, 0])
-                                    .to_padding(),
-                            )
-                            .apply(Element::from)
-                            .map(crate::ui::Action::App),
+                            drawer
+                                .apply(|drawer| {
+                                    Element::from(id_container(
+                                        drawer,
+                                        widget::Id::new("COSMIC_context_drawer"),
+                                    ))
+                                })
+                                .apply(container)
+                                .padding(
+                                    ([0, if content_container { border_padding } else { 0 }, 0, 0])
+                                        .to_padding(),
+                                )
+                                .into(),
                         );
                     } else {
                         widgets.push(
@@ -342,47 +365,70 @@ where
                             .padding(main_content_padding.to_padding())
                             .into(),
                     );
-                    if let Some(context) = self.context_drawer() {
-                        widgets.push(
-                            widget::ContextDrawer::new_inner(
-                                context.title,
-                                context.actions,
-                                context.header,
-                                context.footer,
-                                context.content,
-                                context.on_close,
-                                context_width,
-                            )
-                            .apply(Element::from)
-                            .map(crate::ui::Action::App)
-                            .apply(container)
-                            .width(context_width)
-                            .apply(|drawer| {
-                                Element::from(id_container(
-                                    drawer,
-                                    widget::Id::new("COSMIC_context_drawer"),
-                                ))
+                    let drawer = context.map(|context| {
+                        widget::ContextDrawer::new_inner(
+                            context.title,
+                            context.actions,
+                            context.header,
+                            context.footer,
+                            context.content,
+                            context.on_close,
+                            context_width,
+                        )
+                        .apply(Element::from)
+                        .map(crate::ui::Action::App)
+                        .apply(container)
+                        .width(context_width)
+                        .apply(|drawer| {
+                            Element::from(id_container(
+                                drawer,
+                                widget::Id::new("COSMIC_context_drawer"),
+                            ))
+                        })
+                        .apply(container)
+                        .padding(
+                            (if content_container {
+                                [0, border_padding, border_padding, border_padding]
+                            } else {
+                                [0, 0, 0, 0]
                             })
-                            .apply(container)
-                            .padding(
-                                (if content_container {
-                                    [0, border_padding, border_padding, border_padding]
-                                } else {
-                                    [0, 0, 0, 0]
-                                })
-                                .to_padding(),
-                            )
-                            .into(),
-                        );
-                    } else {
+                            .to_padding(),
+                        )
+                        .apply(Element::from)
+                    });
+                    match drawer {
+                        Some(drawer) if drawer_inline => widgets.push(if sliding {
+                            slide.slid(on_settled.clone(), drawer)
+                        } else {
+                            drawer
+                        }),
+                        Some(drawer) => {
+                            // Only reached while sliding: at rest a built
+                            // drawer is always inline.
+                            floating_drawer = Some(slide.slid(on_settled.clone(), drawer));
+                            // Keeps the widget tree shape stable
+                            widgets.push(space::horizontal().width(Length::Shrink).into());
+                        }
                         // Keeps the widget tree shape stable when there is no drawer
-                        widgets.push(space::horizontal().width(Length::Shrink).into());
+                        None => widgets.push(space::horizontal().width(Length::Shrink).into()),
                     }
                 }
             }
 
             widgets
         });
+
+        // Always a two-layer stack, so a drawer floating mid-slide never
+        // changes the shape of the tree above the main content.
+        let content_row = widget::Stack::with_children(vec![
+            content_row.into(),
+            widget::Row::with_children(vec![
+                space::horizontal().width(Length::Fill).into(),
+                floating_drawer.unwrap_or_else(|| space::horizontal().width(Length::Shrink).into()),
+            ])
+            .height(Length::Fill)
+            .into(),
+        ]);
 
         let content_col = widget::Column::with_capacity(2)
             .push(content_row)
@@ -527,7 +573,9 @@ where
             popover = popover.popup(dialog.map(crate::ui::Action::App));
         }
 
-        let view_element: Element<'_, crate::ui::Action<Self::Message>> = popover.into();
+        // The slide's clock; always present, so the tree never changes shape.
+        let view_element: Element<'_, crate::ui::Action<Self::Message>> =
+            core.drawer_slide.motion().host(popover).into();
         if core.debug {
             view_element.explain(crate::ui::iced::Color::WHITE)
         } else {
