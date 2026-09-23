@@ -267,7 +267,9 @@ impl<'a, Message, F> OnScroll<'a, Message> for F where
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct DndDrag {
     /// The drag's position relative to this area's top-left, or `None` when it is over
-    /// another pane, window or client.
+    /// another pane, window or client. Wayland reports surface-local coordinates, so
+    /// inside a scrollable this is measured from the *visible* top-left: a listener
+    /// that hit tests against content has to add the scroll offset back.
     pub position: Option<Point>,
     /// The compositor delivered the drop, and `ui::dnd::read_drop` will answer.
     pub dropped: bool,
@@ -286,6 +288,11 @@ struct State {
     last_position: Option<Point>,
     last_virtual_position: Option<Point>,
     drag_initiated: Option<Point>,
+    /// How far the content has scrolled under the pointer since the press that
+    /// started the gesture in progress. See [`State::drag_distance`].
+    scrolled_since_press: Vector,
+    /// Whether the press that a release would complete happened in this area.
+    pressed: bool,
     /// The generation of the Wayland drag this area last reported, so a poll
     /// that saw no change publishes nothing. `None` means no drag is live as
     /// far as this area knows.
@@ -295,10 +302,16 @@ struct State {
 }
 
 impl State {
+    /// Where the cursor is for the purposes of a drag, with the fallback this
+    /// has always used for when iced has no cursor to give.
+    fn drag_position(&self, cursor: mouse::Cursor) -> Option<Point> {
+        cursor.position().or(self.last_virtual_position)
+    }
+
     fn drag_rect(&self, cursor: mouse::Cursor) -> Option<Rectangle> {
         if let Some(drag_source) = self.drag_initiated
-            && let Some(position) = cursor.position().or(self.last_virtual_position)
-            && position.distance(drag_source) > 1.0
+            && let Some(position) = self.drag_position(cursor)
+            && self.drag_distance(cursor) > 1.0
         {
             let min_x = drag_source.x.min(position.x);
             let max_x = drag_source.x.max(position.x);
@@ -310,6 +323,23 @@ impl State {
             ));
         }
         None
+    }
+
+    /// How far the pointer physically moved since the press that started the
+    /// gesture in progress.
+    ///
+    /// Not simply the distance from `drag_initiated` to the cursor: an
+    /// enclosing scrollable hands its content a cursor shifted by the scroll
+    /// offset, so content sliding under a pointer that is standing still moves
+    /// the cursor too, and a wheel turn over a pressed item was enough to begin
+    /// a file drag. That shift is measured as it happens, in `update`, and
+    /// taken back out here, which leaves what the pointer itself did.
+    fn drag_distance(&self, cursor: mouse::Cursor) -> f32 {
+        let (Some(from), Some(now)) = (self.drag_initiated, self.drag_position(cursor)) else {
+            return 0.0;
+        };
+        (now.x - from.x - self.scrolled_since_press.x)
+            .hypot(now.y - from.y - self.scrolled_since_press.y)
     }
 
     fn click(&mut self, pos: Point) -> mouse::Click {
@@ -614,6 +644,22 @@ fn update<Message: Clone>(
         }
     }
 
+    // A scrollable hands its content a viewport of the part that is on screen,
+    // in the same coordinates it shifts the cursor into, so this origin moves
+    // by exactly the scroll offset — on every event, however deeply nested this
+    // area is. Read from here rather than inferred from the kind of event: the
+    // offset can first reach this area on a pointer movement, when a wheel turn
+    // and a motion arrive in one batch, and the scrolling would then be counted
+    // as the pointer having moved.
+    //
+    // Only while the area keeps its size, because that origin also moves when
+    // the window or a pane is resized, which is not the content scrolling.
+    if let Some(previous) = state.viewport
+        && previous.size() == viewport.size()
+    {
+        state.scrolled_since_press += viewport.position() - previous.position();
+    }
+
     let viewport_changed = state.viewport != Some(*viewport);
 
     if let Some(message) = widget.on_resize.as_ref()
@@ -687,6 +733,23 @@ fn update<Message: Clone>(
         }
     }
 
+    // Whether the press this release completes happened in this area. Retained
+    // double-click history is not evidence of that: an item clicked a moment
+    // ago would otherwise claim the release of a rubber-band selection that
+    // began on the background, capture it, and leave that gesture never told it
+    // had ended. Taken on every release, wherever the pointer is, so a gesture
+    // that ends elsewhere does not leave the flag set behind it.
+    let released = matches!(
+        event,
+        Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left))
+            | Event::Touch(touch::Event::FingerLifted { .. })
+    );
+    let pressed_here = if released {
+        std::mem::take(&mut state.pressed)
+    } else {
+        state.pressed
+    };
+
     if state.drag_initiated.is_none() && !cursor.is_over(layout_bounds) {
         return;
     }
@@ -712,8 +775,10 @@ fn update<Message: Clone>(
                 }
             }
         }
+        state.pressed = true;
         if widget.on_drag.is_some() || widget.on_drag_delta.is_some() {
             state.drag_initiated = cursor.position();
+            state.scrolled_since_press = Vector::ZERO;
         }
 
         if widget.on_press.is_some() {
@@ -722,16 +787,8 @@ fn update<Message: Clone>(
         }
     }
 
-    let distance_dragged = state
-        .drag_initiated
-        .map(|initiated| initiated.distance(cursor.position().unwrap_or_default()))
-        .unwrap_or_default();
-    if matches!(
-        event,
-        Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left))
-            | Event::Touch(touch::Event::FingerLifted { .. })
-    ) && distance_dragged > 1.0
-    {
+    let distance_dragged = state.drag_distance(cursor);
+    if released && distance_dragged > 1.0 {
         state.drag_initiated = None;
         state.prev_click = None;
         shell.request_redraw();
@@ -756,18 +813,14 @@ fn update<Message: Clone>(
         // surface, so this arm handles a stolen grab, not ordinary dragging.
         state.drag_initiated = None;
         state.prev_click = None;
+        state.pressed = false;
     }
 
     let recent_click = state
         .prev_click
         .as_ref()
         .is_some_and(|(_, i)| Instant::now().duration_since(*i) <= DOUBLE_CLICK_DURATION);
-    if matches!(
-        event,
-        Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left))
-            | Event::Touch(touch::Event::FingerLifted { .. })
-    ) && state.prev_click.is_some()
-    {
+    if released && pressed_here && state.prev_click.is_some() {
         if !recent_click {
             state.prev_click = None;
             // A press held without moving is over too: otherwise later pointer
@@ -919,5 +972,224 @@ fn update<Message: Clone>(
         && let Some(position) = cursor.position()
     {
         shell.publish(message(position - source));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Instant;
+
+    use super::{MouseArea, State, update};
+    use crate::ui::iced_core::event::Event;
+    use crate::ui::iced_core::mouse::{self, Cursor};
+    use crate::ui::iced_core::{Layout, Point, Rectangle, Shell, Size, layout, window};
+    use crate::ui::widget::space;
+
+    #[derive(Clone, Debug, PartialEq)]
+    enum Msg {
+        Drag(Option<Rectangle>),
+        Release,
+    }
+
+    const AREA: Size = Size::new(200.0, 200.0);
+
+    /// Hand one event to `update`, and report what it published.
+    ///
+    /// `pointer` is where the pointer is in the window. A scrollable shifts
+    /// both of the things it hands its content by the scroll offset — the
+    /// cursor and the viewport — so `scrolled` moves the two together, as one.
+    fn feed_scrolled(
+        widget: &mut MouseArea<'_, Msg>,
+        state: &mut State,
+        event: &Event,
+        pointer: Point,
+        scrolled: f32,
+    ) -> Vec<Msg> {
+        let node = layout::Node::new(AREA);
+        let layout = Layout::new(&node);
+        let viewport = Rectangle::new(Point::new(0.0, scrolled), AREA);
+        let cursor = Cursor::Available(Point::new(pointer.x, pointer.y + scrolled));
+        let mut messages = Vec::new();
+        let mut shell = Shell::new(&mut messages);
+        update(widget, event, layout, cursor, &mut shell, state, &viewport);
+        messages
+    }
+
+    /// The same, for an area nothing has scrolled.
+    fn feed(
+        widget: &mut MouseArea<'_, Msg>,
+        state: &mut State,
+        event: &Event,
+        pointer: Point,
+    ) -> Vec<Msg> {
+        feed_scrolled(widget, state, event, pointer, 0.0)
+    }
+
+    fn moved_to(position: Point) -> Event {
+        Event::Mouse(mouse::Event::CursorMoved { position })
+    }
+
+    const fn pressed() -> Event {
+        Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left))
+    }
+
+    const fn released() -> Event {
+        Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left))
+    }
+
+    /// An enclosing scrollable hands its content a cursor shifted by the scroll
+    /// offset, so scrolling with the button held moves the cursor although the
+    /// pointer has not: a wheel turn over a pressed item must not become a drag.
+    #[test]
+    fn scrolling_under_a_held_button_is_not_a_drag() {
+        let mut widget = MouseArea::new(space::vertical()).on_drag(Msg::Drag);
+        let mut state = State::default();
+
+        let at = Point::new(10.0, 10.0);
+        feed(&mut widget, &mut state, &moved_to(at), at);
+        feed(&mut widget, &mut state, &pressed(), at);
+
+        // 100 pixels of scrolling, and the redraw that follows it
+        let published = feed_scrolled(
+            &mut widget,
+            &mut state,
+            &Event::Window(window::Event::RedrawRequested(Instant::now())),
+            at,
+            100.0,
+        );
+        assert!(
+            published.is_empty(),
+            "the pointer never moved, so nothing was dragged: {published:?}"
+        );
+
+        // The pointer itself moving still is a drag, scrolled or not
+        let published = feed_scrolled(
+            &mut widget,
+            &mut state,
+            &moved_to(Point::new(60.0, 60.0)),
+            Point::new(60.0, 60.0),
+            100.0,
+        );
+        assert!(
+            matches!(published.as_slice(), [Msg::Drag(Some(_))]),
+            "a pointer that moved drags: {published:?}"
+        );
+    }
+
+    /// An item that scrolls into view under a stationary pointer is a brand
+    /// new widget with brand new state: it never saw a pointer move, so there
+    /// is no window position to compare against. A press on it, followed by
+    /// more scrolling, must still not be a drag.
+    #[test]
+    fn a_press_on_a_freshly_built_area_is_not_dragged_by_scrolling() {
+        let mut widget = MouseArea::new(space::vertical()).on_drag(Msg::Drag);
+        // Default: this area has never seen a pointer event
+        let mut state = State::default();
+
+        let at = Point::new(10.0, 10.0);
+        feed(&mut widget, &mut state, &pressed(), at);
+
+        let published = feed_scrolled(
+            &mut widget,
+            &mut state,
+            &Event::Window(window::Event::RedrawRequested(Instant::now())),
+            at,
+            100.0,
+        );
+        assert!(
+            published.is_empty(),
+            "the pointer never moved, so nothing was dragged: {published:?}"
+        );
+
+        // Once the pointer does move, it drags as usual
+        feed_scrolled(&mut widget, &mut state, &moved_to(at), at, 100.0);
+        let published = feed_scrolled(
+            &mut widget,
+            &mut state,
+            &moved_to(Point::new(60.0, 60.0)),
+            Point::new(60.0, 60.0),
+            100.0,
+        );
+        assert!(
+            matches!(published.as_slice(), [Msg::Drag(Some(_))]),
+            "a pointer that moved drags: {published:?}"
+        );
+    }
+
+    /// The first pointer movement of a gesture can be a long one — a flick, or
+    /// several motions the compositor delivered as one — and it counts. An area
+    /// that has only just been built must not swallow it and read the gesture
+    /// as a click, which in single-click mode opens the item instead.
+    #[test]
+    fn the_first_movement_of_a_drag_counts() {
+        let mut widget = MouseArea::new(space::vertical()).on_drag(Msg::Drag);
+        let mut state = State::default();
+
+        feed(&mut widget, &mut state, &pressed(), Point::new(10.0, 10.0));
+        let far = Point::new(100.0, 100.0);
+        let published = feed(&mut widget, &mut state, &moved_to(far), far);
+        assert!(
+            matches!(published.as_slice(), [Msg::Drag(Some(_))]),
+            "one movement of 127 pixels is a drag: {published:?}"
+        );
+    }
+
+    /// A wheel turn and a pointer movement can arrive in one batch of events.
+    /// The scrollable applies the new offset after handing the wheel event
+    /// down, so the offset first reaches this area on the movement itself —
+    /// and that scrolling is still not the pointer moving.
+    #[test]
+    fn scrolling_in_the_same_batch_as_a_movement_is_not_a_drag() {
+        let mut widget = MouseArea::new(space::vertical()).on_drag(Msg::Drag);
+        let mut state = State::default();
+
+        let at = Point::new(10.0, 10.0);
+        feed(&mut widget, &mut state, &moved_to(at), at);
+        feed(&mut widget, &mut state, &pressed(), at);
+
+        // The wheel reaches this area before the offset it causes does
+        feed(
+            &mut widget,
+            &mut state,
+            &Event::Mouse(mouse::Event::WheelScrolled {
+                delta: mouse::ScrollDelta::Lines { x: 0.0, y: -1.0 },
+            }),
+            at,
+        );
+        // The movement that follows carries 100 pixels of scrolling and half a
+        // pixel of pointer travel, with no redraw in between to tell them apart
+        let nudged = Point::new(10.0, 10.5);
+        let published = feed_scrolled(&mut widget, &mut state, &moved_to(nudged), nudged, 100.0);
+        assert!(
+            published.is_empty(),
+            "half a pixel of travel is not a drag, whatever scrolled with it: {published:?}"
+        );
+    }
+
+    /// A release belongs to the area that saw the press it completes. Retained
+    /// double-click history is not evidence of that: an item clicked a moment
+    /// ago would otherwise claim, and capture, the release of a gesture that
+    /// began on the background behind it.
+    #[test]
+    fn a_release_needs_the_press_that_started_it() {
+        let mut widget = MouseArea::new(space::vertical()).on_release(|_| Msg::Release);
+        let mut state = State::default();
+
+        let at = Point::new(10.0, 10.0);
+        feed(&mut widget, &mut state, &moved_to(at), at);
+        feed(&mut widget, &mut state, &pressed(), at);
+        assert_eq!(
+            feed(&mut widget, &mut state, &released(), at),
+            vec![Msg::Release],
+            "its own click ends in a release"
+        );
+
+        // A second release over the same area, from a gesture that began
+        // somewhere else, inside the double-click interval
+        let published = feed(&mut widget, &mut state, &released(), at);
+        assert!(
+            published.is_empty(),
+            "a release with no press of its own is not this area's: {published:?}"
+        );
     }
 }

@@ -9,7 +9,7 @@ use compio::BufResult;
 use compio::buf::{IntoInner, IoBuf};
 use compio::driver::ToSharedFd;
 use compio::driver::op::AsyncifyFd;
-use compio::io::{AsyncReadAt, AsyncWriteAt};
+use compio::io::{AsyncReadAt, AsyncWriteAtExt};
 use futures::{FutureExt, StreamExt};
 use std::cell::Cell;
 use std::error::Error;
@@ -221,6 +221,7 @@ impl Context {
                         cleanup: Cell::new(false),
                     }),
                     is_cleanup: false,
+                    created_to: Cell::new(false),
                 };
                 if matches!(method, Method::Move { .. })
                     && let Some(cleanup_op) = op.move_cleanup_op()
@@ -309,11 +310,33 @@ impl Context {
                     op.kind,
                     OpKind::Copy | OpKind::Move { .. } | OpKind::Mkdir | OpKind::Symlink { .. }
                 );
-                if creates && !op.skipped.normal.get() && (op.to != to_before || !to_existed) {
+                let created =
+                    creates && !op.skipped.normal.get() && (op.to != to_before || !to_existed);
+                if created {
                     self.op_sel.created.push(op.to.clone());
                 }
-                // The from path is ignored in the operation selection if it is a top level item
-                if self.op_sel.ignored.contains(&op.from) {
+                // What an undo has to put back, paired with where it came from.
+                // The pairing cannot be recovered afterwards: a Keep Both
+                // conflict gives the destination a different name. A directory
+                // that was already there is left out, because a merge into it
+                // transfers only its children and carrying the whole folder
+                // back would take what it already held with it.
+                if !op.is_cleanup
+                    && !op.skipped.normal.get()
+                    && (created
+                        || matches!(
+                            op.kind,
+                            OpKind::Copy | OpKind::Move { .. } | OpKind::Symlink { .. }
+                        ))
+                {
+                    self.op_sel.moved.push((op.from.clone(), op.to.clone()));
+                }
+                // The from path is ignored in the operation selection if it is a top level item.
+                // Only from the op that did the work: a cleanup op still carries
+                // the destination its main op was planned with, which Keep Both
+                // has since renamed, so selecting it would name the file that
+                // was already there rather than the one just moved.
+                if !op.is_cleanup && self.op_sel.ignored.contains(&op.from) {
                     // So add the to path to the selection
                     self.op_sel.selected.push(op.to);
                 }
@@ -428,6 +451,9 @@ pub struct Op {
     pub to: PathBuf,
     pub skipped: Rc<Skip>,
     pub is_cleanup: bool,
+    /// Whether this op brought `to` into existence, so that cleaning up after
+    /// a failure removes only what it put there.
+    pub created_to: Cell<bool>,
 }
 
 impl Op {
@@ -443,6 +469,7 @@ impl Op {
             to: self.to.clone(),
             skipped: self.skipped.clone(),
             is_cleanup: true,
+            created_to: Cell::new(false),
         })
     }
 
@@ -455,7 +482,12 @@ impl Op {
                 crate::operation::actively_writing_add(self.to.clone());
                 let result = self.copy(ctx, progress).await;
 
-                if result.is_err() {
+                // Only a destination this copy created: an error also comes
+                // from a path that was already taken, such as a dangling
+                // symlink that `create_new` refuses to write through, and that
+                // one belongs to whoever put it there. Removing it would
+                // destroy it without ever asking about replacement.
+                if result.is_err() && self.created_to.get() {
                     _ = compio::fs::remove_file(&self.to).await;
                 }
 
@@ -500,6 +532,7 @@ impl Op {
                                 to: self.to.clone(),
                                 skipped: self.skipped.clone(),
                                 is_cleanup: self.is_cleanup,
+                                created_to: Cell::new(false),
                             };
                             return Box::pin(copy_op.run(ctx, progress)).await;
                         }
@@ -586,6 +619,12 @@ impl Op {
             }
         );
 
+        // Noted before anything can return: the two opens run side by side, so
+        // an exclusive create can have made the destination by the time the
+        // source open comes back with an error, and that empty file is this
+        // copy's to clear away.
+        self.created_to.set(to_file_open_result.is_ok());
+
         let from_file = from_file_open_result?;
 
         let mut to_file = match to_file_open_result {
@@ -598,8 +637,21 @@ impl Op {
                     .map_err(Into::into);
             }
             #[cfg(feature = "gvfs")]
-            Err(_why) => {
+            Err(why) => {
                 _ = from_file.close().await;
+                // A destination that is already taken is not something to push
+                // past. This fallback exists for the unsupported-operation
+                // errors that copying over MTP raises, but it removes whatever
+                // is at the destination and copies with `OVERWRITE`, so letting
+                // an `AlreadyExists` through would destroy a file — or a
+                // dangling symlink — that nobody agreed to replace.
+                if why.kind() == std::io::ErrorKind::AlreadyExists {
+                    return Err(why)
+                        .with_context(|| {
+                            format!("failed to open {} for writing", self.to.display())
+                        })
+                        .map_err(Into::into);
+                }
                 return self
                     .gio_file_copy(ctx, progress)
                     .await
@@ -643,8 +695,12 @@ impl Op {
                 }
             };
 
+            // `write_all_at`, not `write_at`: a single write is allowed to
+            // take fewer bytes than it was given, and advancing `pos` by the
+            // whole read would leave a hole in the copy and report success. A
+            // move would then delete the source of a file it had truncated.
             let BufResult(result, buf_out_slice) =
-                to_file.write_at(buf_out.slice(..count), pos).await;
+                to_file.write_all_at(buf_out.slice(..count), pos).await;
             let buf_out = buf_out_slice.into_inner();
 
             if let Err(why) = result {
@@ -729,6 +785,8 @@ impl Op {
         mut progress: Progress,
     ) -> Result<(), GioCopyError> {
         _ = compio::fs::remove_file(&self.to).await;
+        // Removed and written again here, so the destination is this copy's.
+        self.created_to.set(true);
 
         let from = gio::File::for_path(&self.from);
         let to = gio::File::for_path(&self.to);

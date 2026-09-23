@@ -3229,6 +3229,9 @@ impl fmt::Debug for SearchContextWrapper {
     }
 }
 
+/// Keeps only the items a host is willing to show; see [`Tab::item_filter`].
+pub(crate) type ItemFilter = Box<dyn Fn(&Item) -> bool>;
+
 pub struct Tab {
     pub location: Location,
     pub location_ancestors: Vec<(Location, String)>,
@@ -3237,6 +3240,14 @@ pub struct Tab {
     pub location_context_menu_index: Option<usize>,
     pub mode: Mode,
     pub scroll_opt: Option<AbsoluteOffset>,
+    /// Keeps only the items a host is willing to show, applied as they arrive
+    /// rather than afterwards.
+    ///
+    /// The file chooser's file type filter. Search results come in one at a
+    /// time and are capped, so a filter that ran after the fact would already
+    /// have let rejected results take the places of ones that would have been
+    /// shown, and move the cutoff that stops older results being sent at all.
+    pub(crate) item_filter: Option<ItemFilter>,
     pub size_opt: Cell<Option<Size>>,
     pub content_height_opt: Cell<Option<f32>>,
     pub viewport_opt: Option<Rectangle>,
@@ -3484,6 +3495,7 @@ impl Tab {
             resolving_network: None,
             listing: 0,
             navigation: 0,
+            item_filter: None,
             refresh_batch: 0,
             refreshed_at: FxHashMap::default(),
             details_reads: FxHashMap::default(),
@@ -4050,10 +4062,11 @@ impl Tab {
 
     /// The directory item a drag at `point` would drop into.
     ///
-    /// `point` and `Item::rect_opt` are both relative to the `MouseArea` reporting the
-    /// drag: `grid_view` and `list_view` lay out their rectangles in that space, so no
-    /// conversion is needed. Only directories accept drops; a drag over a file or a gap
-    /// between rows drops into the displayed directory.
+    /// `point` is in content coordinates, the space `grid_view` and `list_view`
+    /// lay their `Item::rect_opt` out in: measured from the top of the whole
+    /// listing, not from the top of what is on screen. See [`Self::scrolled_by`].
+    /// Only directories accept drops; a drag over a file or a gap between rows
+    /// drops into the displayed directory.
     fn drop_target(&self, point: Point) -> Option<usize> {
         self.items_opt.as_ref()?.iter().position(|item| {
             item.metadata.is_dir()
@@ -4151,6 +4164,13 @@ impl Tab {
             .map(|o| o.y.min(max_scroll_y).max(0.0))
             .unwrap_or(0.0);
         Rectangle::new(Point::new(0.0, scroll_y), size)
+    }
+
+    /// How far the listing is scrolled: what to add to a position measured from
+    /// the top of the visible area to get a content coordinate.
+    fn scrolled_by(&self) -> Point {
+        self.visible_rect(self.item_view_size_opt.get().unwrap_or_default())
+            .position()
     }
 
     /// Position of the first item on screen, where keyboard navigation starts
@@ -4758,7 +4778,17 @@ impl Tab {
                 }
             }
             Message::Dnd(dnd) => {
-                let target = dnd.position.and_then(|point| self.drop_target(point));
+                // A Wayland drag reports surface-local coordinates, so
+                // `dnd.position` is measured from the top of the visible area
+                // while item rectangles are in content coordinates. Add back
+                // what is scrolled out of sight above, or a drop after
+                // scrolling tests whatever happens to sit at the same distance
+                // from the top of the listing — a folder that may be offscreen.
+                let scrolled_by = self.scrolled_by();
+                let target = dnd
+                    .position
+                    .map(|point| Point::new(point.x + scrolled_by.x, point.y + scrolled_by.y))
+                    .and_then(|point| self.drop_target(point));
                 if target != self.dnd_target {
                     self.highlight_drop_target(target);
                 }
@@ -5566,6 +5596,14 @@ impl Tab {
 
                                 if index < max_results {
                                     let item = item_from_search_item(search_item, sizes);
+                                    // Before the cap and the cutoff below, not
+                                    // after them: a result that will not be
+                                    // shown must not take the place of one that
+                                    // would be, nor push the cutoff up so that
+                                    // older results are never sent.
+                                    if self.item_filter.as_ref().is_some_and(|keep| !keep(&item)) {
+                                        continue;
+                                    }
                                     items.insert(index, item);
                                 }
                                 // Ensure that updates make it to the GUI in a timely manner
@@ -9461,6 +9499,128 @@ mod tests {
             tab.resolving_network,
             Some(second),
             "an answer to a withdrawn request settled the one still waiting"
+        );
+        Ok(())
+    }
+
+    /// The chooser's file type filter has to meet search results as they
+    /// arrive. Applied afterwards, results it rejects would already have taken
+    /// the places of ones it admits, up to the cap, and pushed up the cutoff
+    /// that stops the search sending anything older.
+    #[test]
+    fn a_filter_keeps_rejected_search_results_out_of_the_listing() -> io::Result<()> {
+        use crate::tab::{SearchContext, SearchItem};
+        use std::sync::{Arc, RwLock, atomic};
+
+        let fs = empty_fs()?;
+        for name in ["one.txt", "two.txt", "keep.png"] {
+            fs::write(fs.path().join(name), b"x")?;
+        }
+        let mut tab = Tab::new(
+            Location::Path(fs.path().to_owned()),
+            TabConfig::default(),
+            ThumbCfg::default(),
+            None,
+            std::borrow::Cow::Borrowed("Undefined"),
+            None,
+        );
+        tab.set_items(Vec::new());
+        // One result is all the listing will hold, as a capped search is
+        tab.config.max_search_results = std::num::NonZeroU16::new(1).expect("nonzero");
+        tab.item_filter = Some(Box::new(|item: &super::Item| item.name.ends_with(".png")));
+
+        let (results_tx, results_rx) = tokio::sync::mpsc::channel(8);
+        for name in ["one.txt", "two.txt", "keep.png"] {
+            let path = fs.path().join(name);
+            let metadata = fs::metadata(&path)?;
+            results_tx
+                .try_send(SearchItem::Path(path, name.to_string(), metadata))
+                .expect("the channel holds them all");
+        }
+        drop(results_tx);
+        tab.search_context = Some(SearchContext {
+            results_rx,
+            ready: Arc::new(atomic::AtomicBool::new(true)),
+            last_modified_opt: Arc::new(RwLock::new(None)),
+        });
+
+        tab.update(Message::SearchReady(true), Modifiers::empty());
+
+        let names: Vec<&str> = tab
+            .items_opt
+            .as_deref()
+            .expect("the listing exists")
+            .iter()
+            .map(|item| item.name.as_str())
+            .collect();
+        assert_eq!(
+            names,
+            ["keep.png"],
+            "the rejected results must not have taken the one place there was"
+        );
+        Ok(())
+    }
+
+    /// A Wayland drag reports a surface-local position, measured from the top
+    /// of what is on screen, while item rectangles are laid out in content
+    /// coordinates. After scrolling the two differ by the scroll offset, and a
+    /// drop tested without it lands on whatever sits the same distance down the
+    /// listing — a folder that may not even be on screen.
+    #[test]
+    fn a_drop_after_scrolling_finds_the_folder_under_the_pointer() -> io::Result<()> {
+        use crate::ui::iced::{Point, Rectangle, Size};
+        use crate::ui::widget::scrollable::AbsoluteOffset;
+
+        let fs = empty_fs()?;
+        fs::create_dir(fs.path().join("first"))?;
+        fs::create_dir(fs.path().join("second"))?;
+        let location = Location::Path(fs.path().to_owned());
+        let (_parent, items) = location.scan(IconSizes::default());
+        let mut tab = Tab::new(
+            location,
+            TabConfig::default(),
+            ThumbCfg::default(),
+            None,
+            std::borrow::Cow::Borrowed("Undefined"),
+            None,
+        );
+        tab.set_items(items);
+
+        // Two rows of 100, in a view that shows one of them at a time
+        let rows = tab.items_opt.as_deref().expect("tab should be populated");
+        assert_eq!(rows.len(), 2, "the fixture has two folders");
+        for (i, item) in rows.iter().enumerate() {
+            item.rect_opt.set(Some(Rectangle::new(
+                Point::new(0.0, i as f32 * 100.0),
+                Size::new(200.0, 100.0),
+            )));
+        }
+        tab.content_height_opt.set(Some(200.0));
+        tab.item_view_size_opt.set(Some(Size::new(200.0, 100.0)));
+
+        let drag_to = |tab: &mut Tab, y: f32| {
+            tab.update(
+                Message::Dnd(crate::mouse_area::DndDrag {
+                    position: Some(Point::new(10.0, y)),
+                    dropped: false,
+                    ended: false,
+                }),
+                Modifiers::empty(),
+            );
+            tab.dnd_target
+        };
+
+        assert_eq!(
+            drag_to(&mut tab, 50.0),
+            Some(0),
+            "unscrolled, halfway down the view is the first row"
+        );
+
+        tab.scroll_opt = Some(AbsoluteOffset { x: 0.0, y: 100.0 });
+        assert_eq!(
+            drag_to(&mut tab, 50.0),
+            Some(1),
+            "scrolled a row down, the same place on screen is the second row"
         );
         Ok(())
     }

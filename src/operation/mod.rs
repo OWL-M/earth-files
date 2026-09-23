@@ -152,6 +152,14 @@ async fn copy_or_move(
             to.display()
         );
 
+        // The destination folder may be gone: undoing a move that emptied a
+        // source folder and removed it has to put the files back inside it.
+        // For any ordinary copy or move it is already there and this does
+        // nothing.
+        if let Err(err) = compio::fs::create_dir_all(&to).await {
+            log::warn!("failed to create {}: {err}", to.display());
+        }
+
         // Handle duplicate file names by renaming paths
         let from_to_pairs_iter = paths
             .into_iter()
@@ -180,18 +188,36 @@ async fn copy_or_move(
             if matches!(method, Method::Move { .. }) {
                 from_to_pairs_iter
                     .map(|(from, to)| async move {
-                        if to.exists() {
-                            return Ok((from, to));
-                        }
-
-                        match compio::fs::rename(&from, &to).await {
-                            Ok(()) => {
+                        // `rename_no_replace`, not `exists` and then `rename`:
+                        // `rename(2)` replaces whatever is at the destination,
+                        // and `exists` follows symlinks, so a dangling one read
+                        // as free and was overwritten with no conflict to
+                        // answer. `renameat2` makes the test and the move one
+                        // step, which also closes the gap between them where a
+                        // second move of the same name could land.
+                        let renamed = {
+                            let (from, to) = (from.clone(), to.clone());
+                            compio::runtime::spawn_blocking(move || rename_no_replace(&from, &to))
+                                .await
+                                .map_err(wrap_compio_spawn_error)
+                        };
+                        match renamed {
+                            Ok(Ok(())) => {
                                 log::info!("renamed {} to {}", from.display(), to.display());
                                 Err((from, to))
                             }
-                            Err(err) => {
+                            Ok(Err(err)) => {
                                 log::info!(
                                     "failed to rename {} to {}, fallback to recursive move: {}",
+                                    from.display(),
+                                    to.display(),
+                                    err
+                                );
+                                Ok((from, to))
+                            }
+                            Err(err) => {
+                                log::warn!(
+                                    "failed to run the rename of {} to {}, fallback to recursive move: {}",
                                     from.display(),
                                     to.display(),
                                     err
@@ -216,57 +242,67 @@ async fn copy_or_move(
                 (from_to_pairs_iter.collect(), Vec::new())
             };
 
-        let mut context = Context::new(controller.clone());
         // Renamed entries count as moved for the selection and for undo. The
         // rename is only taken when the destination did not exist, so each of
         // these is a genuine creation.
+        let mut op_sel = OperationSelection::default();
         for (from, to) in renamed {
-            context.op_sel.ignored.push(from);
-            context.op_sel.created.push(to.clone());
-            context.op_sel.selected.push(to);
+            op_sel.moved.push((from.clone(), to.clone()));
+            op_sel.ignored.push(from);
+            op_sel.created.push(to.clone());
+            op_sel.selected.push(to);
         }
 
-        {
-            let controller = controller.clone();
-            context = context.on_progress(move |_op, progress| {
-                let item_progress = match progress.total_bytes {
-                    Some(total_bytes) => {
-                        if total_bytes == 0 {
-                            1.0
-                        } else {
-                            progress.current_bytes as f32 / total_bytes as f32
-                        }
-                    }
-                    None => 0.0,
-                };
-                let total_progress =
-                    (item_progress + progress.current_ops as f32) / progress.total_ops as f32;
-                controller.set_progress(total_progress);
-            });
-        }
-
-        {
-            let msg_tx = msg_tx.clone();
-            context = context.on_replace(move |op, conflict_count| {
-                let msg_tx = msg_tx.clone();
-                Box::pin(handle_replace(
-                    msg_tx,
-                    op.from.clone(),
-                    op.to.clone(),
-                    true,
-                    conflict_count,
-                ))
-            });
-        }
-
-        context
-            .recursive_copy_or_move(from_to_pairs, method)
-            .await?;
-
-        Result::<OperationSelection, OperationError>::Ok(context.op_sel)
+        recursive_pairs(from_to_pairs, method, op_sel, msg_tx, controller).await
     })
     .await
     .map_err(wrap_compio_spawn_error)?
+}
+
+/// Copy or move exactly these `(from, to)` pairs, each `to` a whole
+/// destination path rather than a folder to go into.
+///
+/// `op_sel` is what the caller has already accounted for; the run adds to it.
+async fn recursive_pairs(
+    pairs: PathPairs,
+    method: Method,
+    op_sel: OperationSelection,
+    msg_tx: Arc<TokioMutex<Sender<Message>>>,
+    controller: Controller,
+) -> Result<OperationSelection, OperationError> {
+    let mut context = Context::new(controller.clone());
+    context.op_sel = op_sel;
+
+    context = context.on_progress(move |_op, progress| {
+        let item_progress = match progress.total_bytes {
+            Some(total_bytes) => {
+                if total_bytes == 0 {
+                    1.0
+                } else {
+                    progress.current_bytes as f32 / total_bytes as f32
+                }
+            }
+            None => 0.0,
+        };
+        let total_progress =
+            (item_progress + progress.current_ops as f32) / progress.total_ops as f32;
+        controller.set_progress(total_progress);
+    });
+
+    context = context.on_replace(move |op, conflict_count| {
+        let msg_tx = msg_tx.clone();
+        Box::pin(handle_replace(
+            msg_tx,
+            op.from.clone(),
+            op.to.clone(),
+            true,
+            conflict_count,
+        ))
+    });
+
+    context.recursive_copy_or_move(pairs, method).await?;
+
+    Ok(context.op_sel)
 }
 
 pub async fn sync_to_disk(
@@ -357,22 +393,45 @@ impl Operation {
                     vec![Self::BatchRename { renames }]
                 }
             }
-            Self::Move { paths, .. } => {
-                // Each moved item goes back to the folder it came from
+            Self::Move { .. } => {
+                // Each moved item goes back to the folder it came from, taken
+                // from the pairs the move recorded. Not by matching basenames
+                // against the sources: Keep Both renames the destination, so
+                // the name that matches is the file that was already there, and
+                // undoing would carry that one off instead.
+                //
+                // Outermost destination first, with anything inside one of
+                // those left to ride along with it. A merge into a folder that
+                // already existed records only the children it transferred, so
+                // what the folder held before stays where it is.
+                let mut moved = result.moved.clone();
+                moved.sort_by(|(_, a), (_, b)| a.cmp(b));
+                let mut roots: Vec<PathBuf> = Vec::with_capacity(moved.len());
                 let mut by_parent: FxOrderMap<PathBuf, Vec<PathBuf>> = FxOrderMap::default();
-                for moved in &result.selected {
-                    let parent = moved.file_name().and_then(|name| {
-                        paths
-                            .iter()
-                            .find(|from| from.file_name() == Some(name))
-                            .and_then(|from| from.parent())
-                    });
-                    if let Some(parent) = parent {
-                        by_parent
-                            .entry(parent.to_path_buf())
-                            .or_default()
-                            .push(moved.clone());
+                let mut renamed: Vec<Self> = Vec::new();
+                for (from, to) in moved {
+                    if roots.last().is_some_and(|root| to.starts_with(root)) {
+                        continue;
                     }
+                    if from.file_name() == to.file_name() {
+                        if let Some(parent) = from.parent() {
+                            by_parent
+                                .entry(parent.to_path_buf())
+                                .or_default()
+                                .push(to.clone());
+                        }
+                    } else {
+                        // Keep Both gave the destination a name of its own, and
+                        // a move into a folder cannot take that back, so this
+                        // one goes home as a rename to the whole path it came
+                        // from. On its own, because the parts of an undo all
+                        // run at once: none of them may wait on another.
+                        renamed.push(Self::Rename {
+                            from: to.clone(),
+                            to: from,
+                        });
+                    }
+                    roots.push(to);
                 }
                 by_parent
                     .into_iter()
@@ -381,6 +440,7 @@ impl Operation {
                         to,
                         cross_device_copy: false,
                     })
+                    .chain(renamed)
                     .collect()
             }
             // Only the paths the copy created are removed, and they go to the
@@ -432,7 +492,10 @@ impl Operation {
         match self {
             Self::Rename { from, .. } => from.exists(),
             Self::BatchRename { renames } => renames.iter().all(|(from, _)| from.exists()),
-            Self::Move { paths, to, .. } => to.is_dir() && paths.iter().all(|p| p.exists()),
+            // Not `to.is_dir()`: a move that emptied a folder removes it, and
+            // undoing that move has to put the folder back. Only a destination
+            // taken by a file is out of reach.
+            Self::Move { paths, to, .. } => !to.is_file() && paths.iter().all(|p| p.exists()),
             Self::PermanentlyDelete { paths } => paths.iter().all(|p| p.exists()),
             Self::Delete { paths } => paths.iter().all(|p| p.exists()),
             Self::Restore { items } => !items.is_empty(),
@@ -644,6 +707,11 @@ pub struct OperationSelection {
     /// else: a destination that already held the user's data is not ours to
     /// take away.
     pub created: Vec<PathBuf>,
+    /// What this operation moved, as `(source, destination)` pairs, for the
+    /// paths it brought into existence. Undo puts each destination back beside
+    /// its source. Recorded as pairs because the two cannot be matched up
+    /// afterwards: a Keep Both conflict gives the destination a different name.
+    pub moved: Vec<(PathBuf, PathBuf)>,
     /// The trash entries a [`Operation::Delete`] created, for restoring them
     pub trash_items: Vec<trash::TrashItem>,
 }
@@ -1001,6 +1069,7 @@ impl Operation {
                             ignored: paths.clone(),
                             selected: vec![to.clone()],
                             created: vec![to.clone()],
+                            moved: Vec::new(),
                             trash_items: Vec::new(),
                         };
 
@@ -1444,6 +1513,7 @@ impl Operation {
                         ignored: Vec::new(),
                         selected: vec![path.clone()],
                         created: vec![path],
+                        moved: Vec::new(),
                         trash_items: Vec::new(),
                     })
                 })
@@ -1473,6 +1543,7 @@ impl Operation {
                         ignored: Vec::new(),
                         selected: vec![path.clone()],
                         created: vec![path],
+                        moved: Vec::new(),
                         trash_items: Vec::new(),
                     })
                 })
@@ -1578,6 +1649,7 @@ impl Operation {
                         ignored: Vec::new(),
                         selected: vec![target.clone()],
                         created: vec![target],
+                        moved: Vec::new(),
                         trash_items: Vec::new(),
                     })
                 })
@@ -1586,6 +1658,7 @@ impl Operation {
             .map_err(wrap_compio_spawn_error)?,
             Self::Rename { from, to } => {
                 let controller_clone = controller.clone();
+                let msg_tx = msg_tx.clone();
 
                 compio::runtime::spawn(async move {
                     let controller = controller_clone;
@@ -1593,6 +1666,15 @@ impl Operation {
                         .check()
                         .await
                         .map_err(|s| OperationError::from_state(s, &controller))?;
+                    // The folder the file belongs in may be gone: undoing a
+                    // move that emptied a folder and removed it puts the file
+                    // back by its whole original path. For a rename the user
+                    // typed, this is the folder the file is already in.
+                    if let Some(parent) = to.parent()
+                        && let Err(err) = compio::fs::create_dir_all(parent).await
+                    {
+                        log::warn!("failed to create {}: {err}", parent.display());
+                    }
                     // `rename_no_replace`, not `rename`: `rename(2)` replaces
                     // the destination without a word, and a rename is a move
                     // the user asked for by name, not permission to destroy
@@ -1600,17 +1682,39 @@ impl Operation {
                     // taken name, but that warning is a snapshot of a folder
                     // anything else may write to, so the refusal belongs here.
                     // Restore and batch rename already work this way.
-                    compio::runtime::spawn_blocking({
+                    let renamed = compio::runtime::spawn_blocking({
                         let (from, to) = (from.clone(), to.clone());
                         move || rename_no_replace(&from, &to)
                     })
                     .await
-                    .map_err(wrap_compio_spawn_error)?
-                    .map_err(|e| OperationError::from_err(e, &controller))?;
+                    .map_err(wrap_compio_spawn_error)?;
+                    match renamed {
+                        Ok(()) => {}
+                        // `renameat2` cannot cross a filesystem. Undoing a move
+                        // that did cross one has to come back the way it went,
+                        // by copying and then removing what was copied.
+                        Err(err) if err.raw_os_error() == Some(libc::EXDEV) => {
+                            return recursive_pairs(
+                                vec![(from.clone(), to)],
+                                Method::Move {
+                                    cross_device_copy: false,
+                                },
+                                OperationSelection {
+                                    ignored: vec![from],
+                                    ..Default::default()
+                                },
+                                msg_tx,
+                                controller,
+                            )
+                            .await;
+                        }
+                        Err(err) => return Err(OperationError::from_err(err, &controller)),
+                    }
                     Result::<_, OperationError>::Ok(OperationSelection {
                         ignored: vec![from],
                         selected: vec![to],
                         created: Vec::new(),
+                        moved: Vec::new(),
                         trash_items: Vec::new(),
                     })
                 })
@@ -1691,6 +1795,7 @@ impl Operation {
                     ignored: Vec::new(),
                     selected: paths,
                     created: Vec::new(),
+                    moved: Vec::new(),
                     trash_items: Vec::new(),
                 })
             }
@@ -1750,6 +1855,7 @@ impl Operation {
                     ignored: Vec::new(),
                     selected: vec![path],
                     created: Vec::new(),
+                    moved: Vec::new(),
                     trash_items: Vec::new(),
                 })
             }
@@ -1841,6 +1947,66 @@ mod tests {
         };
 
         future::join(handle_messages, handle_copy).await.1
+    }
+
+    /// Run any [`Operation`], answering every replace dialog with `reply`.
+    async fn perform(
+        operation: Operation,
+        reply: ReplaceResult,
+    ) -> Result<OperationSelection, OperationError> {
+        let (tx, mut rx) = mpsc::channel(1);
+        let handle_operation = async move {
+            operation
+                .perform(&sync::Mutex::new(tx).into(), Controller::default())
+                .await
+        };
+        let handle_messages = async move {
+            while let Some(msg) = rx.next().await {
+                match msg {
+                    Message::DialogPush(DialogPage::Replace { tx, .. }, _id_to_focus) => {
+                        tx.send(reply)
+                            .await
+                            .expect("Sending a response to a replace request should succeed");
+                    }
+                    _ => unreachable!("unexpected message from operation"),
+                }
+            }
+        };
+        future::join(handle_messages, handle_operation).await.1
+    }
+
+    /// Run `[Operation::Move]`, answering every replace dialog with `reply`.
+    async fn operation_move(
+        paths: Vec<PathBuf>,
+        to: PathBuf,
+        reply: ReplaceResult,
+    ) -> Result<OperationSelection, OperationError> {
+        perform(
+            Operation::Move {
+                paths,
+                to,
+                cross_device_copy: false,
+            },
+            reply,
+        )
+        .await
+    }
+
+    /// Run everything a completed operation's undo produced, the way the app
+    /// does: it refuses the whole entry unless every part of it still applies.
+    async fn run_undo(undo: Vec<Operation>) -> Result<(), OperationError> {
+        assert!(
+            !undo.is_empty(),
+            "there was nothing to undo in the first place"
+        );
+        assert!(
+            undo.iter().all(Operation::is_applicable),
+            "the app skips an undo entry unless all of it applies: {undo:?}"
+        );
+        for operation in undo {
+            perform(operation, ReplaceResult::Cancel).await?;
+        }
+        Ok(())
     }
 
     /// Run `[Operation::Extract]`, answering every replace dialog with `reply`.
@@ -1960,6 +2126,294 @@ mod tests {
         assert!(
             fs::symlink_metadata(&target)?.file_type().is_symlink(),
             "the existing link is left alone"
+        );
+        Ok(())
+    }
+
+    /// A copy that cannot create its destination must leave whatever holds
+    /// that name alone. `create_new` refuses to write through a dangling
+    /// symlink, and error cleanup used to unlink it without replacing it and
+    /// without ever asking about replacement.
+    #[test(compio::test)]
+    async fn a_failed_copy_leaves_an_occupied_destination_alone() -> io::Result<()> {
+        let fs = empty_fs()?;
+        let path = fs.path();
+        let from = path.join("source");
+        fs::create_dir(&from)?;
+        fs::write(from.join("file.txt"), b"SOURCE")?;
+        let to = path.join("dest");
+        fs::create_dir(&to)?;
+        let occupied = to.join("file.txt");
+        std::os::unix::fs::symlink(path.join("missing"), &occupied)?;
+
+        let result = operation_copy(vec![from.join("file.txt")], to).await;
+        assert!(
+            result.is_err(),
+            "the copy cannot create a destination that is already taken"
+        );
+        assert!(
+            fs::symlink_metadata(&occupied)?.file_type().is_symlink(),
+            "a destination this copy did not create is not its to remove"
+        );
+        Ok(())
+    }
+
+    /// The fast move path must not replace anything. `rename(2)` overwrites
+    /// its destination, and `exists` follows symlinks, so a dangling one read
+    /// as a free name and was silently replaced.
+    #[test(compio::test)]
+    async fn a_move_does_not_overwrite_a_dangling_symlink() -> io::Result<()> {
+        let fs = empty_fs()?;
+        let path = fs.path();
+        let from = path.join("source");
+        fs::create_dir(&from)?;
+        let source = from.join("file.txt");
+        fs::write(&source, b"SOURCE")?;
+        let to = path.join("dest");
+        fs::create_dir(&to)?;
+        let occupied = to.join("file.txt");
+        std::os::unix::fs::symlink(path.join("missing"), &occupied)?;
+
+        let result = operation_move(vec![source.clone()], to, ReplaceResult::Cancel).await;
+        assert!(result.is_err(), "there is no free name to move to");
+        assert!(
+            fs::symlink_metadata(&occupied)?.file_type().is_symlink(),
+            "the link that was already there is left alone"
+        );
+        assert_eq!(fs::read(&source)?, b"SOURCE", "the source is still there");
+        Ok(())
+    }
+
+    /// Keeping both must record the file that was moved, not the one that was
+    /// already at the destination: the cleanup op still carries the name the
+    /// move was planned with, and undo used to carry that file off instead.
+    #[test(compio::test)]
+    async fn keeping_both_records_the_file_that_moved() -> io::Result<()> {
+        let fs = empty_fs()?;
+        let path = fs.path();
+        let from = path.join("source");
+        fs::create_dir(&from)?;
+        let source = from.join("file.txt");
+        fs::write(&source, b"SOURCE")?;
+        let to = path.join("dest");
+        fs::create_dir(&to)?;
+        let existing = to.join("file.txt");
+        fs::write(&existing, b"DESTINATION")?;
+
+        let result = operation_move(vec![source.clone()], to.clone(), ReplaceResult::KeepBoth)
+            .await
+            .expect("keeping both always has a free name to take");
+
+        assert_eq!(
+            fs::read(&existing)?,
+            b"DESTINATION",
+            "the file that was already there is untouched"
+        );
+        assert!(!source.exists(), "the source was moved away");
+        assert!(
+            !result.selected.contains(&existing),
+            "the selection names what moved, not what was already there: {:?}",
+            result.selected
+        );
+
+        let undo = Operation::Move {
+            paths: vec![source.clone()],
+            to,
+            cross_device_copy: false,
+        }
+        .undo(&result);
+        run_undo(undo).await.expect("the undo runs");
+
+        assert_eq!(
+            fs::read(&source)?,
+            b"SOURCE",
+            "the file comes back under the name it had, not the one the \
+             conflict gave it"
+        );
+        assert_eq!(
+            fs::read(&existing)?,
+            b"DESTINATION",
+            "and the file that was already there is still not touched"
+        );
+        Ok(())
+    }
+
+    /// Merging a folder into one that was already there transfers only its
+    /// children, so undoing must bring only those back: reversing the whole
+    /// destination folder used to carry off files that were never moved.
+    #[test(compio::test)]
+    async fn undoing_a_merge_leaves_the_destination_folder_alone() -> io::Result<()> {
+        let fs = empty_fs()?;
+        let path = fs.path();
+        let from = path.join("source");
+        fs::create_dir_all(from.join("folder"))?;
+        fs::write(from.join("folder/moved.txt"), b"MOVED")?;
+        let to = path.join("dest");
+        fs::create_dir_all(to.join("folder"))?;
+        let untouched = to.join("folder/existing.txt");
+        fs::write(&untouched, b"EXISTING")?;
+
+        let result = operation_move(vec![from.join("folder")], to.clone(), ReplaceResult::Cancel)
+            .await
+            .expect("nothing conflicts, the names inside the folders differ");
+
+        assert_eq!(fs::read(to.join("folder/moved.txt"))?, b"MOVED");
+        assert_eq!(fs::read(&untouched)?, b"EXISTING");
+
+        let undo = Operation::Move {
+            paths: vec![from.join("folder")],
+            to,
+            cross_device_copy: false,
+        }
+        .undo(&result);
+        assert_eq!(
+            undo,
+            vec![Operation::Move {
+                paths: vec![path.join("dest/folder/moved.txt")],
+                to: from.join("folder"),
+                cross_device_copy: false,
+            }],
+            "only the child that moved comes back"
+        );
+
+        // The forward move emptied the source folder and removed it, so the
+        // undo has to put it back before it can put anything into it
+        run_undo(undo).await.expect("the undo runs");
+        assert_eq!(fs::read(from.join("folder/moved.txt"))?, b"MOVED");
+        assert_eq!(
+            fs::read(&untouched)?,
+            b"EXISTING",
+            "never moved, never back"
+        );
+        assert!(
+            !path.join("dest/folder/moved.txt").exists(),
+            "the child is no longer at the destination"
+        );
+        Ok(())
+    }
+
+    /// Keeping both inside a folder that is merged into another leaves the
+    /// undo with a source folder the move itself removed, so putting the file
+    /// back has to put the folder back first.
+    #[test(compio::test)]
+    async fn keeping_both_inside_a_merge_can_still_be_undone() -> io::Result<()> {
+        let fs = empty_fs()?;
+        let path = fs.path();
+        let from = path.join("source");
+        fs::create_dir_all(from.join("folder"))?;
+        let source = from.join("folder/child.txt");
+        fs::write(&source, b"MOVED")?;
+        let to = path.join("dest");
+        fs::create_dir_all(to.join("folder"))?;
+        let existing = to.join("folder/child.txt");
+        fs::write(&existing, b"EXISTING")?;
+
+        let result = operation_move(
+            vec![from.join("folder")],
+            to.clone(),
+            ReplaceResult::KeepBoth,
+        )
+        .await
+        .expect("keeping both always has a free name to take");
+
+        assert_eq!(fs::read(&existing)?, b"EXISTING", "left where it was");
+        assert!(
+            !from.join("folder").exists(),
+            "the move emptied the source folder and removed it"
+        );
+
+        let undo = Operation::Move {
+            paths: vec![from.join("folder")],
+            to,
+            cross_device_copy: false,
+        }
+        .undo(&result);
+        run_undo(undo).await.expect("the undo runs");
+
+        assert_eq!(
+            fs::read(&source)?,
+            b"MOVED",
+            "the file is back in the folder it came from, under its own name"
+        );
+        assert_eq!(fs::read(&existing)?, b"EXISTING", "and still left alone");
+        Ok(())
+    }
+
+    /// Keeping both across a filesystem boundary has to come back across it
+    /// too: the rename that puts a file back by its whole original path cannot
+    /// cross one, so it falls back to the way the move went out.
+    #[test(compio::test)]
+    async fn keeping_both_across_filesystems_can_still_be_undone() -> io::Result<()> {
+        use std::os::unix::fs::MetadataExt;
+
+        let fs = empty_fs()?;
+        let from = fs.path().join("source");
+        fs::create_dir(&from)?;
+
+        // A second filesystem to move onto, or there is nothing to test here
+        let Ok(other) = tempfile::TempDir::new_in("/dev/shm") else {
+            return Ok(());
+        };
+        if fs::metadata(fs.path())?.dev() == fs::metadata(other.path())?.dev() {
+            return Ok(());
+        }
+        let to = other.path().to_path_buf();
+
+        let source = from.join("file.txt");
+        fs::write(&source, b"SOURCE")?;
+        let existing = to.join("file.txt");
+        fs::write(&existing, b"DESTINATION")?;
+
+        let result = operation_move(vec![source.clone()], to.clone(), ReplaceResult::KeepBoth)
+            .await
+            .expect("keeping both always has a free name to take");
+        assert!(!source.exists(), "the move crossed the boundary");
+
+        let undo = Operation::Move {
+            paths: vec![source.clone()],
+            to,
+            cross_device_copy: false,
+        }
+        .undo(&result);
+        run_undo(undo).await.expect("the undo runs");
+
+        assert_eq!(
+            fs::read(&source)?,
+            b"SOURCE",
+            "the file came back over the boundary, under the name it had"
+        );
+        assert_eq!(fs::read(&existing)?, b"DESTINATION", "still left alone");
+        Ok(())
+    }
+
+    /// A copy whose source cannot be read must not leave the destination it
+    /// opened behind. Both opens run at once, so the destination can already
+    /// exist by the time the source error comes back.
+    #[test(compio::test)]
+    async fn a_copy_that_cannot_read_its_source_leaves_nothing_behind() -> io::Result<()> {
+        use std::os::unix::fs::PermissionsExt;
+
+        let fs = empty_fs()?;
+        let path = fs.path();
+        let from = path.join("source");
+        fs::create_dir(&from)?;
+        let unreadable = from.join("file.txt");
+        fs::write(&unreadable, b"SOURCE")?;
+        fs::set_permissions(&unreadable, fs::Permissions::from_mode(0o000))?;
+        let to = path.join("dest");
+        fs::create_dir(&to)?;
+
+        if File::open(&unreadable).is_ok() {
+            // Running with privileges that ignore the mode, so there is no
+            // unreadable source here to test with
+            return Ok(());
+        }
+
+        let result = operation_copy(vec![unreadable], to.clone()).await;
+        assert!(result.is_err(), "the source cannot be read");
+        assert!(
+            !to.join("file.txt").exists(),
+            "the empty destination this copy opened is its own to clear away"
         );
         Ok(())
     }
@@ -2162,12 +2616,19 @@ mod tests {
         assert_eq!(batch.undo(&OperationSelection::default()).len(), 1);
 
         // Move sends each item back to its own source folder
+        let moved = |pairs: &[(&str, &str)]| OperationSelection {
+            moved: pairs
+                .iter()
+                .map(|(from, to)| (PathBuf::from(from), PathBuf::from(to)))
+                .collect(),
+            ..Default::default()
+        };
         let mv = Operation::Move {
             paths: vec!["/a/one".into(), "/b/two".into()],
             to: "/dest".into(),
             cross_device_copy: true,
         };
-        let undo = mv.undo(&sel(&["/dest/one", "/dest/two"]));
+        let undo = mv.undo(&moved(&[("/a/one", "/dest/one"), ("/b/two", "/dest/two")]));
         assert_eq!(undo.len(), 2);
         assert!(undo.contains(&Operation::Move {
             paths: vec!["/dest/one".into()],
@@ -2179,6 +2640,54 @@ mod tests {
             to: "/b".into(),
             cross_device_copy: false,
         }));
+
+        // Keep Both renamed the destination: the file that came back is the one
+        // that was moved, not the one that was already sitting there
+        let keep_both = Operation::Move {
+            paths: vec!["/a/file.txt".into()],
+            to: "/dest".into(),
+            cross_device_copy: false,
+        };
+        assert_eq!(
+            keep_both.undo(&moved(&[("/a/file.txt", "/dest/file (copy).txt")])),
+            vec![Operation::Rename {
+                from: "/dest/file (copy).txt".into(),
+                to: "/a/file.txt".into(),
+            }],
+            "the renamed destination goes back under the name it had, and the \
+             file it was kept alongside is left where it is"
+        );
+
+        // A merge into a folder that was already there records only the
+        // children it transferred, so undo leaves that folder's own files alone
+        let merge = Operation::Move {
+            paths: vec!["/a/folder".into()],
+            to: "/dest".into(),
+            cross_device_copy: false,
+        };
+        assert_eq!(
+            merge.undo(&moved(&[("/a/folder/moved.txt", "/dest/folder/moved.txt")])),
+            vec![Operation::Move {
+                paths: vec!["/dest/folder/moved.txt".into()],
+                to: "/a/folder".into(),
+                cross_device_copy: false,
+            }],
+            "only the merged child comes back, not the whole destination folder"
+        );
+
+        // A folder that the move created covers everything inside it
+        assert_eq!(
+            merge.undo(&moved(&[
+                ("/a/folder/moved.txt", "/dest/folder/moved.txt"),
+                ("/a/folder", "/dest/folder"),
+            ])),
+            vec![Operation::Move {
+                paths: vec!["/dest/folder".into()],
+                to: "/a".into(),
+                cross_device_copy: false,
+            }],
+            "a destination inside another destination rides along with it"
+        );
 
         // New items are deleted for good; copied, extracted and compressed
         // results go to the trash, and a copy reverses only what it created

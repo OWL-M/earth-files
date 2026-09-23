@@ -135,6 +135,30 @@ impl AsRef<str> for DialogFilter {
     }
 }
 
+/// The selected [`DialogFilter`], parsed once and ready to test items against.
+struct ItemFilter {
+    globs: Vec<glob::Pattern>,
+    mimes: Vec<Mime>,
+}
+
+impl ItemFilter {
+    fn admits(&self, item: &tab::Item) -> bool {
+        // Directories are always shown
+        item.metadata.is_dir()
+            // Check for mime type match (first because it is faster)
+            || self.mimes.iter().any(|filter_mime| {
+                if filter_mime.subtype() == mime::STAR {
+                    filter_mime.type_() == item.mime.type_()
+                } else {
+                    *filter_mime == item.mime
+                        || mime_icon::is_mime_subclass_of(&item.mime, filter_mime)
+                }
+            })
+            // Check for glob match (last because it is slower)
+            || self.globs.iter().any(|glob| glob.matches(&item.name))
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct DialogLabelSpan {
     pub text: String,
@@ -375,6 +399,7 @@ impl<M: Send + 'static> Dialog<M> {
         let mapper = Arc::clone(&self.mapper);
         self.shell.app.filters = filters.into();
         self.shell.app.filter_selected = filter_selected;
+        self.shell.app.update_item_filter();
         self.shell
             .app
             .rescan_tab(None)
@@ -577,6 +602,9 @@ struct App {
     dialog_text_input: widget::Id,
     filters: Vec<DialogFilter>,
     filter_selected: Option<usize>,
+    /// The folder a chosen search result came from, and the tab navigation it
+    /// was chosen in. See [`App::save_dir`].
+    save_dir_opt: Option<(u64, PathBuf)>,
     filename_id: widget::Id,
     modifiers: Modifiers,
     mounter_items: FxHashMap<MounterKey, MounterItems>,
@@ -771,6 +799,69 @@ impl App {
             }
         }
         widget::Column::with_children(children).into()
+    }
+
+    /// The selected file type filter, ready to test items against, or `None`
+    /// when every file is allowed through.
+    fn item_filter(&self) -> Option<ItemFilter> {
+        let filter = self.filters.get(self.filter_selected?)?;
+        let mut globs = Vec::new();
+        let mut mimes = Vec::new();
+        for pattern in &filter.patterns {
+            match pattern {
+                DialogFilterPattern::Glob(value) => match glob::Pattern::new(value) {
+                    Ok(glob) => globs.push(glob),
+                    Err(err) => log::warn!("failed to parse glob {value:?}: {err}"),
+                },
+                DialogFilterPattern::Mime(value) => match value.parse::<Mime>() {
+                    Ok(parsed) => mimes.push(parsed),
+                    Err(err) => log::warn!("failed to parse mime {value:?}: {err}"),
+                },
+            }
+        }
+        Some(ItemFilter { globs, mimes })
+    }
+
+    /// Hand the tab the filter to apply as items arrive.
+    ///
+    /// Not applied here afterwards: search results come in one at a time and
+    /// are capped, so results this filter rejects would already have taken the
+    /// places of ones it admits, and moved the cutoff that stops older results
+    /// being sent at all.
+    fn update_item_filter(&mut self) {
+        self.tab.item_filter = self
+            .item_filter()
+            .map(|filter| Box::new(move |item: &tab::Item| filter.admits(item)) as tab::ItemFilter);
+    }
+
+    /// Drop whatever the selected file type filter does not admit, for a whole
+    /// listing that arrived at once.
+    fn filter_items(&self, items: &mut Vec<tab::Item>) {
+        if let Some(keep) = self.tab.item_filter.as_ref() {
+            items.retain(|item| keep(item));
+        }
+    }
+
+    /// The folder a save lands in.
+    ///
+    /// Normally the location on screen. A search lists results from anywhere
+    /// beneath its root, though, so the name in the filename box belongs to the
+    /// folder the result that filled it came from; joining it to the root
+    /// instead would save beside the root and test a different file for
+    /// overwriting.
+    ///
+    /// Remembered rather than read back from the selection, which editing the
+    /// name clears: picking a result and then changing one letter of its name
+    /// would otherwise move the save to a different folder without a word. It
+    /// lasts until the tab goes somewhere else, which includes clearing or
+    /// changing the search.
+    fn save_dir(&self) -> Option<PathBuf> {
+        if let Some((navigation, dir)) = &self.save_dir_opt
+            && *navigation == self.tab.navigation()
+        {
+            return Some(dir.clone());
+        }
+        self.tab.location.path_opt().cloned()
     }
 
     fn rescan_tab(&self, selection_paths: Option<Vec<PathBuf>>) -> Task<Message> {
@@ -1127,6 +1218,7 @@ impl Application for App {
             dialog_text_input: widget::Id::new("Dialog Text Input"),
             filters: Vec::new(),
             filter_selected: None,
+            save_dir_opt: None,
             filename_id: widget::Id::new("Dialog Filename"),
             modifiers: Modifiers::empty(),
             mounter_items: FxHashMap::default(),
@@ -1528,6 +1620,28 @@ impl Application for App {
                 } else {
                     self.filter_selected = None;
                 }
+                self.update_item_filter();
+                // A search has no listing to rescan: `Location::scan` answers
+                // with nothing for one, because its results arrive from a
+                // subscription keyed on the location. A plain rescan would
+                // empty the view and leave it empty, the subscription having
+                // already finished and nothing restarting it. Ask the search
+                // again instead, so the results come back through the new
+                // filter.
+                if let Location::Search(search_location, term, options, _) = &self.tab.location {
+                    let location = Location::Search(
+                        search_location.clone(),
+                        term.clone(),
+                        *options,
+                        Instant::now(),
+                    );
+                    self.tab.change_location(&location, None);
+                    return Task::batch([
+                        self.update_title(),
+                        self.update_watcher(),
+                        self.rescan_tab(None),
+                    ]);
+                }
                 return self.rescan_tab(None);
             }
             Message::Key(modifiers, key, physical_key, text) => {
@@ -1730,7 +1844,10 @@ impl Application for App {
                             }
                         }
                     }
-                    if contains_change {
+                    // Not while searching: a rescan of a search location comes
+                    // back empty and would throw the results away, and nothing
+                    // would ask for them again.
+                    if contains_change && !matches!(self.tab.location, Location::Search(..)) {
                         return self.rescan_tab(None);
                     }
 
@@ -1914,7 +2031,7 @@ impl Application for App {
             Message::Save(replace) => {
                 if let DialogKind::SaveFile { filename } = &self.flags.kind
                     && !filename.is_empty()
-                    && let Some(tab_path) = self.tab.location.path_opt()
+                    && let Some(tab_path) = self.save_dir()
                 {
                     let path = tab_path.join(filename);
                     if path.is_dir() {
@@ -1979,7 +2096,6 @@ impl Application for App {
                     tab::Message::Click(click_i_opt) => click_i_opt,
                     _ => None,
                 };
-
                 let tab_commands = self.tab.update(tab_message, self.modifiers);
 
                 // Update filename box when anything is selected
@@ -1991,6 +2107,12 @@ impl Application for App {
                     && !item.metadata.is_dir()
                 {
                     filename.clone_from(&item.name);
+                    // The name alone does not say where it came from, and a
+                    // search lists results from any folder under its root
+                    self.save_dir_opt = item
+                        .path_opt()
+                        .and_then(|path| path.parent())
+                        .map(|parent| (self.tab.navigation(), parent.to_path_buf()));
                 }
 
                 let mut commands = Vec::new();
@@ -2093,47 +2215,7 @@ impl Application for App {
             }
             Message::TabRescan(location, parent_item_opt, mut items, selection_paths) => {
                 if location == self.tab.location {
-                    // Filter
-                    if let Some(filter_i) = self.filter_selected
-                        && let Some(filter) = self.filters.get(filter_i)
-                    {
-                        let mut parsed_globs = Vec::new();
-                        let mut mimes = Vec::new();
-                        for pattern in &filter.patterns {
-                            match pattern {
-                                DialogFilterPattern::Glob(value) => {
-                                    match glob::Pattern::new(value) {
-                                        Ok(glob) => parsed_globs.push(glob),
-                                        Err(err) => {
-                                            log::warn!("failed to parse glob {value:?}: {err}");
-                                        }
-                                    }
-                                }
-                                DialogFilterPattern::Mime(value) => match value.parse::<Mime>() {
-                                    Ok(parsed) => mimes.push(parsed),
-                                    Err(err) => {
-                                        log::warn!("failed to parse mime {value:?}: {err}");
-                                    }
-                                },
-                            }
-                        }
-
-                        items.retain(|item| {
-                            // Directories are always shown
-                            item.metadata.is_dir()
-                                // Check for mime type match (first because it is faster)
-                                    || mimes.iter().any(|filter_mime| {
-                                        if filter_mime.subtype() == mime::STAR {
-                                            filter_mime.type_() == item.mime.type_()
-                                        } else {
-                                            *filter_mime == item.mime
-                                                || mime_icon::is_mime_subclass_of(&item.mime, filter_mime)
-                                        }
-                                    })
-                                // Check for glob match (last because it is slower)
-                                    || parsed_globs.iter().any(|glob| glob.matches(&item.name))
-                        });
-                    }
+                    self.filter_items(&mut items);
 
                     // Select based on filename
                     if let DialogKind::SaveFile { filename } = &self.flags.kind {
