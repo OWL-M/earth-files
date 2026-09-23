@@ -477,6 +477,19 @@ impl Operation {
     /// This operation with what `done` already covers taken out, for
     /// retrying it after a failure part-way: trashing again what is already
     /// in the trash would fail as not found.
+    /// The undo for an operation that failed part-way: only what `partial`
+    /// says was done. An operation whose failure reports nothing done has
+    /// nothing to undo, even where its normal undo does not consult the
+    /// result (a refused compress must not schedule the archive that was
+    /// already there for the trash).
+    pub fn undo_after_failure(&self, partial: &OperationSelection) -> Vec<Operation> {
+        if partial.is_empty() {
+            Vec::new()
+        } else {
+            self.undo(partial)
+        }
+    }
+
     pub fn remaining(&self, done: &OperationSelection) -> Operation {
         match self {
             Self::Delete { paths } if !done.trash_items.is_empty() => Self::Delete {
@@ -736,6 +749,17 @@ pub struct OperationSelection {
     pub moved: Vec<(PathBuf, PathBuf)>,
     /// The trash entries a [`Operation::Delete`] created, for restoring them
     pub trash_items: Vec<trash::TrashItem>,
+}
+
+impl OperationSelection {
+    /// Nothing was selected, created, moved or trashed
+    pub fn is_empty(&self) -> bool {
+        self.ignored.is_empty()
+            && self.selected.is_empty()
+            && self.created.is_empty()
+            && self.moved.is_empty()
+            && self.trash_items.is_empty()
+    }
 }
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
@@ -2751,6 +2775,36 @@ mod tests {
             "nothing may land inside the subfolder: {entries:?}"
         );
         Ok(())
+    }
+
+    #[test]
+    fn a_failure_that_did_nothing_records_no_undo() {
+        let compress = Operation::Compress {
+            paths: vec![PathBuf::from("/a/one")],
+            to: PathBuf::from("/a/existing.zip"),
+            archive_type: crate::app::ArchiveType::Zip,
+            password: None,
+        };
+        assert!(
+            compress
+                .undo_after_failure(&OperationSelection::default())
+                .is_empty(),
+            "a refused compress must not schedule the archive already there for the trash"
+        );
+        for op in [
+            Operation::Rename {
+                from: PathBuf::from("/a/x"),
+                to: PathBuf::from("/a/y"),
+            },
+            Operation::NewFolder {
+                path: PathBuf::from("/a/new"),
+            },
+        ] {
+            assert!(
+                op.undo_after_failure(&OperationSelection::default())
+                    .is_empty()
+            );
+        }
     }
 
     #[test]

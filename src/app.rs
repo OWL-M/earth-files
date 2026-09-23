@@ -1908,7 +1908,7 @@ impl App {
             if let Some((op, controller)) = self.pending_operations.remove(&id) {
                 // What was done before the failure can be undone on its own,
                 // and a retry has only the rest to do
-                let undo = op.undo(&err.partial);
+                let undo = op.undo_after_failure(&err.partial);
                 self.record_undo(id, undo);
                 let op = op.remaining(&err.partial);
                 // Only show dialog if not cancelled
