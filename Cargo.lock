@@ -1573,7 +1573,6 @@ dependencies = [
  "tar",
  "tempfile",
  "test-log",
- "thiserror 2.0.20",
  "tikv-jemallocator",
  "tokio",
  "tracing",

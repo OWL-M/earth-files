@@ -24,13 +24,31 @@ use std::time::Instant;
 #[cfg(feature = "gvfs")]
 use gio::prelude::FileExtManual;
 
-#[derive(thiserror::Error, Debug)]
+#[derive(Debug)]
 pub enum GioCopyError {
-    #[error("controller state")]
     Controller(OperationError),
     #[cfg(feature = "gvfs")]
-    #[error("gio copy failed")]
-    GLib(#[from] glib::Error),
+    GLib(glib::Error),
+}
+
+impl std::fmt::Display for GioCopyError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Controller(_) => f.write_str("controller state"),
+            #[cfg(feature = "gvfs")]
+            Self::GLib(_) => f.write_str("gio copy failed"),
+        }
+    }
+}
+
+impl Error for GioCopyError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::Controller(_) => None,
+            #[cfg(feature = "gvfs")]
+            Self::GLib(err) => Some(err),
+        }
+    }
 }
 
 #[derive(Clone, Copy)]
