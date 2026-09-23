@@ -230,9 +230,9 @@ impl<'a, M: Clone + 'static> From<&'a DialogLabel> for Element<'a, M> {
 /// the host, whose default [`Application::title`](crate::ui::shell::Application::title)
 /// looks only in the host's `Core`.
 #[must_use]
-pub fn window_title<'a>(
+pub fn window_title<'a, S: std::hash::BuildHasher>(
     choosers: impl IntoIterator<Item = (window::Id, &'a str)>,
-    host: &'a HashMap<window::Id, String>,
+    host: &'a HashMap<window::Id, String, S>,
     id: window::Id,
 ) -> &'a str {
     choosers
