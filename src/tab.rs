@@ -1876,12 +1876,14 @@ impl Location {
         }
     }
 
-    pub fn ancestors(&self) -> Vec<(Self, String)> {
+    /// The breadcrumbs up to home or the root, named as [`folder_name`] does
+    /// for `look`.
+    pub fn ancestors(&self, look: bool) -> Vec<(Self, String)> {
         self.path_opt().map_or_else(Default::default, |path| {
             path.ancestors()
                 .scan(false, |found_home, ancestor| {
                     (!*found_home).then(|| {
-                        let (name, is_home) = folder_name(ancestor);
+                        let (name, is_home) = folder_name(ancestor, look);
                         *found_home = is_home;
                         (self.with_path(ancestor.to_path_buf()), name)
                     })
@@ -1952,15 +1954,16 @@ impl Location {
         (parent_item_opt, items)
     }
 
-    pub fn title(&self) -> String {
+    /// The tab's title, named as [`folder_name`] does for `look`.
+    pub fn title(&self, look: bool) -> String {
         match self {
             Self::Path(path) => {
-                let (name, _) = folder_name(path);
+                let (name, _) = folder_name(path, look);
                 name
             }
             Self::Search(location, term, ..) => {
                 let name = match location {
-                    SearchLocation::Path(path) => folder_name(path).0,
+                    SearchLocation::Path(path) => folder_name(path, look).0,
                     SearchLocation::Trash => fl!("trash"),
                     SearchLocation::Recents => fl!("recents"),
                 };
@@ -3413,7 +3416,14 @@ async fn calculate_checksums(path: &Path) -> Result<FileChecksums, String> {
     .map_err(|e| e.to_string())?
 }
 
-fn folder_name<P: AsRef<Path>>(path: P) -> (String, bool) {
+/// A folder's name for a breadcrumb or tab title, and whether it is home.
+///
+/// With `look`, the filesystem is asked, so a gvfs folder gets the display
+/// name its backend gives it; that is a blocking round trip per folder and
+/// belongs on a worker. Without it, the name is the one the path spells,
+/// which is the same thing for a local folder and stands in for a remote
+/// one until the worker's answer arrives.
+fn folder_name<P: AsRef<Path>>(path: P, look: bool) -> (String, bool) {
     let path = path.as_ref();
     let mut found_home = false;
     let name = match path.file_name() {
@@ -3422,11 +3432,15 @@ fn folder_name<P: AsRef<Path>>(path: P) -> (String, bool) {
                 found_home = true;
                 fl!("home")
             } else {
-                match (get_filename_from_path(path), fs::metadata(path)) {
-                    (Ok(name), Ok(metadata)) => {
+                match (
+                    get_filename_from_path(path),
+                    look.then(|| fs::metadata(path)),
+                ) {
+                    (Ok(name), Some(Ok(metadata))) => {
                         let is_gvfs = fs_kind(&metadata) == FsKind::Gvfs;
                         display_name_for_file(path, &name, is_gvfs, false)
                     }
+                    (Ok(name), None) => Item::display_name(&name),
                     _ => name.to_string_lossy().into_owned(),
                 }
             }
@@ -3484,8 +3498,10 @@ impl Tab {
             .copied()
             .unwrap_or((HeadingOptions::Name, true));
         let location = location.normalize();
-        let location_ancestors = location.ancestors();
-        let location_title = location.title();
+        // Named from the path alone; the rescan that follows names them from
+        // the filesystem, off this thread.
+        let location_ancestors = location.ancestors(false);
+        let location_title = location.title(false);
         let history = vec![location.clone()];
         Self {
             location,
@@ -4369,8 +4385,11 @@ impl Tab {
 
     pub fn change_location(&mut self, location: &Location, history_i_opt: Option<usize>) {
         self.location = location.normalize();
-        self.location_ancestors = self.location.ancestors();
-        self.location_title = self.location.title();
+        // Named from the path alone, so the tab turns at once even when the
+        // folder is on a mount that has stopped answering; the rescan that
+        // follows names them from the filesystem, off this thread.
+        self.location_ancestors = self.location.ancestors(false);
+        self.location_title = self.location.title(false);
         // Going somewhere answers the question the address field was asking.
         self.dismiss_edit_location();
         self.new_listing();
@@ -8470,6 +8489,19 @@ mod tests {
             result.is_err(),
             "a cancelled walk reported a size instead of stopping"
         );
+    }
+
+    /// The names a tab shows before its rescan answers are the ones the
+    /// path spells; for a local folder, that is what the filesystem says too.
+    #[test]
+    fn a_local_folder_is_named_the_same_with_or_without_looking() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("my_docs.v2");
+        std::fs::create_dir(&path).expect("mkdir");
+        let location = Location::Path(path);
+
+        assert_eq!(location.ancestors(false), location.ancestors(true));
+        assert_eq!(location.title(false), location.title(true));
     }
 
     #[tokio::test]

@@ -465,11 +465,16 @@ pub enum Message {
     TabConfig(TabConfig),
     TabMessage(Option<Entity>, tab::Message),
     TabNew,
+    /// A listing read on a worker: the normalized location it is of, its
+    /// parent item, the items, the breadcrumb names and the title, and the
+    /// paths to select once shown.
     TabRescan(
         Entity,
         Location,
         Option<Box<tab::Item>>,
         Vec<tab::Item>,
+        Vec<(Location, String)>,
+        String,
         Option<Vec<PathBuf>>,
     ),
     TabView(Option<Entity>, tab::View),
@@ -2010,9 +2015,19 @@ impl App {
         let mounter_items = self.mounter_items.clone();
 
         Task::future(async move {
-            let location2 = location.clone();
-            match tokio::task::spawn_blocking(move || location2.scan(icon_sizes)).await {
-                Ok((parent_item_opt, mut items)) => {
+            // Normalizing and naming ask the filesystem once per folder on
+            // the way up, which on a mount that has stopped answering is a
+            // stall per folder: worker's work, like the listing itself.
+            let read = tokio::task::spawn_blocking(move || {
+                let location = location.normalize();
+                let (parent_item_opt, items) = location.scan(icon_sizes);
+                let ancestors = location.ancestors(true);
+                let title = location.title(true);
+                (location, parent_item_opt, items, ancestors, title)
+            })
+            .await;
+            match read {
+                Ok((location, parent_item_opt, mut items, ancestors, title)) => {
                     #[cfg(feature = "gvfs")]
                     {
                         let mounter_paths: Box<[_]> = mounter_items
@@ -2033,6 +2048,8 @@ impl App {
                         location,
                         parent_item_opt,
                         items,
+                        ancestors,
+                        title,
                         selection_paths,
                     ))
                 }
@@ -3318,7 +3335,7 @@ impl Application for App {
                             tab
                         };
 
-                        let name = Location::Path(path.clone()).title();
+                        let name = Location::Path(path.clone()).title(true);
                         if let Location::Network(uri, _, _) = tab
                             .items_opt
                             .as_ref()
@@ -3333,7 +3350,9 @@ impl Application for App {
                             None
                         }
                     });
-                    let name = Location::Path(path.clone()).title();
+                    // A favourite is named once, on a click, and a network
+                    // one wants the name its backend gives.
+                    let name = Location::Path(path.clone()).title(true);
                     let favorite = if let Some((uri, _, _)) = is_network.clone() {
                         Favorite::Network { uri, name, path }
                     } else {
@@ -3359,16 +3378,23 @@ impl Application for App {
                     let to = destination.0.to_path_buf();
                     let name = destination.1.to_str().unwrap_or_default().to_string();
                     let archive_type = ArchiveType::default();
-                    return self.push_dialog(
-                        DialogPage::Compress {
-                            paths,
-                            to,
-                            name,
-                            archive_type,
-                            password: None,
-                        },
-                        Some(self.dialog_text_input.clone()),
-                    );
+                    // The name is already filled in, so ask about it as if
+                    // it had just been typed.
+                    let check =
+                        self.check_name(to.join(format!("{name}{}", archive_type.extension())));
+                    return Task::batch([
+                        self.push_dialog(
+                            DialogPage::Compress {
+                                paths,
+                                to,
+                                name,
+                                archive_type,
+                                password: None,
+                            },
+                            Some(self.dialog_text_input.clone()),
+                        ),
+                        check,
+                    ]);
                 }
             }
             Message::Config(config) => {
@@ -3731,6 +3757,14 @@ impl Application for App {
                     }
                     DialogPage::RenameItem { parent, name, .. } if !name.is_empty() => {
                         Some(parent.join(name))
+                    }
+                    DialogPage::Compress {
+                        to,
+                        name,
+                        archive_type,
+                        ..
+                    } if !name.is_empty() => {
+                        Some(to.join(format!("{name}{}", archive_type.extension())))
                     }
                     _ => None,
                 };
@@ -5426,76 +5460,93 @@ impl Application for App {
                 };
                 return self.open_tab(location, true, None);
             }
-            Message::TabRescan(entity, mut location, parent_item_opt, items, selection_paths) => {
-                location = location.normalize();
-                if let Some(tab) = self.tab_model.data_mut::<Tab>(entity) {
-                    tab.location = tab.location.normalize();
-                    if location == tab.location {
-                        tab.parent_item_opt = parent_item_opt;
-                        tab.set_items(items);
-                        let location_str = location.to_string();
-                        let sort = self
-                            .state
-                            .sort_names
-                            .get(&location_str)
-                            .or_else(|| SORT_OPTION_FALLBACK.get(&location_str))
-                            .unwrap_or(&(HeadingOptions::Name, true));
+            Message::TabRescan(
+                entity,
+                location,
+                parent_item_opt,
+                items,
+                ancestors,
+                title,
+                selection_paths,
+            ) => {
+                // Both sides were normalized already: the tab's location by
+                // `Tab::new` or `change_location`, this one on the worker.
+                if let Some(tab) = self.tab_model.data_mut::<Tab>(entity)
+                    && location == tab.location
+                {
+                    tab.parent_item_opt = parent_item_opt;
+                    tab.set_items(items);
+                    tab.location_ancestors = ancestors;
+                    let location_str = location.to_string();
+                    let sort = self
+                        .state
+                        .sort_names
+                        .get(&location_str)
+                        .or_else(|| SORT_OPTION_FALLBACK.get(&location_str))
+                        .unwrap_or(&(HeadingOptions::Name, true));
 
-                        tab.sort_name = sort.0;
-                        tab.sort_direction = sort.1;
+                    tab.sort_name = sort.0;
+                    tab.sort_direction = sort.1;
 
-                        let mut tasks = Vec::with_capacity(4);
+                    let mut tasks = Vec::with_capacity(4);
 
-                        // Resolve the icons this listing needs on a worker.
-                        // The listing is already on screen with placeholders;
-                        // this swaps in the real icons when they are ready.
-                        let sizes = tab.config.icon_sizes;
-                        let wanted = tab.refresh_icons(sizes);
-                        if !wanted.is_empty() {
-                            tasks.push(Task::future(async move {
-                                let warmed = tokio::task::spawn_blocking(move || {
-                                    tab::warm_icons(&wanted, sizes);
-                                })
-                                .await;
-                                if warmed.is_err() {
-                                    return crate::ui::action::none();
-                                }
-                                crate::ui::action::app(Message::TabMessage(
-                                    Some(entity),
-                                    tab::Message::IconsReady,
-                                ))
-                            }));
-                        }
+                    // Resolve the icons this listing needs on a worker.
+                    // The listing is already on screen with placeholders;
+                    // this swaps in the real icons when they are ready.
+                    let sizes = tab.config.icon_sizes;
+                    let wanted = tab.refresh_icons(sizes);
+                    if !wanted.is_empty() {
+                        tasks.push(Task::future(async move {
+                            let warmed = tokio::task::spawn_blocking(move || {
+                                tab::warm_icons(&wanted, sizes);
+                            })
+                            .await;
+                            if warmed.is_err() {
+                                return crate::ui::action::none();
+                            }
+                            crate::ui::action::app(Message::TabMessage(
+                                Some(entity),
+                                tab::Message::IconsReady,
+                            ))
+                        }));
+                    }
 
-                        // Apply a scroll offset restored from history, now that the
-                        // items exist
+                    // Apply a scroll offset restored from history, now that the
+                    // items exist
+                    tasks.push(Task::done(crate::ui::action::app(Message::TabMessage(
+                        Some(entity),
+                        tab::Message::ScrollRestore,
+                    ))));
+
+                    if let Some(selection_paths) = selection_paths {
+                        tab.select_paths(selection_paths);
+
+                        // Ensure selected path is scrolled to after redraw
                         tasks.push(Task::done(crate::ui::action::app(Message::TabMessage(
                             Some(entity),
-                            tab::Message::ScrollRestore,
+                            tab::Message::ScrollToFocused,
                         ))));
-
-                        if let Some(selection_paths) = selection_paths {
-                            tab.select_paths(selection_paths);
-
-                            // Ensure selected path is scrolled to after redraw
-                            tasks.push(Task::done(crate::ui::action::app(Message::TabMessage(
-                                Some(entity),
-                                tab::Message::ScrollToFocused,
-                            ))));
-                        }
-
-                        tasks.push(clipboard::read_data::<ClipboardPaste>().map(|p| {
-                            crate::ui::action::app(Message::CutPaths(match p {
-                                Some(s) => match s.kind {
-                                    ClipboardKind::Copy => Vec::new(),
-                                    ClipboardKind::Cut => s.paths,
-                                },
-                                None => Vec::new(),
-                            }))
-                        }));
-
-                        return Task::batch(tasks);
                     }
+
+                    tasks.push(clipboard::read_data::<ClipboardPaste>().map(|p| {
+                        crate::ui::action::app(Message::CutPaths(match p {
+                            Some(s) => match s.kind {
+                                ClipboardKind::Copy => Vec::new(),
+                                ClipboardKind::Cut => s.paths,
+                            },
+                            None => Vec::new(),
+                        }))
+                    }));
+
+                    // The tab has been titled from its path; the worker's
+                    // title is the one the filesystem gives.
+                    if tab.location_title != title {
+                        tab.location_title = title.clone();
+                        self.tab_model.text_set(entity, title);
+                        tasks.push(self.update_title());
+                    }
+
+                    return Task::batch(tasks);
                 }
             }
             Message::TabView(entity_opt, view) => {
@@ -6081,7 +6132,14 @@ impl Application for App {
                     let extension = archive_type.extension();
                     let name = format!("{name}{extension}");
                     let path = to.join(&name);
-                    if path.exists() {
+                    // Read, not looked up, for the reason `name_dialog` gives:
+                    // this runs on every frame the dialog is drawn.
+                    let taken = self
+                        .name_check
+                        .as_ref()
+                        .filter(|check| check.path == path)
+                        .and_then(|check| check.taken);
+                    if taken.is_some() {
                         dialog =
                             dialog.tertiary_action(widget::text::body(fl!("file-already-exists")));
                         None
