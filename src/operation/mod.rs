@@ -1108,18 +1108,21 @@ impl Operation {
                             }
                         }
 
+                        // `create_new`, not `create`: the dialog's existence
+                        // check ran a frame ago, so an archive of this name
+                        // may have appeared since and must not be truncated.
+                        let file = fs::OpenOptions::new()
+                            .write(true)
+                            .create_new(true)
+                            .open(&to)
+                            .map_err(|e| OperationError::from_err(e, &controller))?;
+                        let written = (|| -> Result<(), OperationError> {
                         match archive_type {
                             ArchiveType::Tgz => {
-                                let mut archive = fs::File::create(&to)
-                                    .map(io::BufWriter::new)
-                                    .map(|w| {
-                                        flate2::write::GzEncoder::new(
-                                            w,
-                                            flate2::Compression::default(),
-                                        )
-                                    })
-                                    .map(tar::Builder::new)
-                                    .map_err(|e| OperationError::from_err(e, &controller))?;
+                                let mut archive = tar::Builder::new(flate2::write::GzEncoder::new(
+                                    io::BufWriter::new(file),
+                                    flate2::Compression::default(),
+                                ));
 
                                 let total_paths = paths.len();
                                 for (i, path) in paths.iter().enumerate() {
@@ -1147,10 +1150,7 @@ impl Operation {
                                     .map_err(|e| OperationError::from_err(e, &controller))?;
                             }
                             ArchiveType::Zip => {
-                                let mut archive = fs::File::create(&to)
-                                    .map(io::BufWriter::new)
-                                    .map(zip::ZipWriter::new)
-                                    .map_err(|e| OperationError::from_err(e, &controller))?;
+                                let mut archive = zip::ZipWriter::new(io::BufWriter::new(file));
 
                                 let total_paths = paths.len();
                                 let mut buffer = vec![0; 4 * 1024 * 1024];
@@ -1255,6 +1255,15 @@ impl Operation {
                                     .map_err(|e| OperationError::from_err(e, &controller))?;
                             }
                         }
+                        Ok(())
+                        })();
+                        // A cancelled or failed compress leaves no partial
+                        // archive behind; the undo entry only exists once
+                        // the operation completes.
+                        if written.is_err() {
+                            let _ = fs::remove_file(&to);
+                        }
+                        written?;
 
                         Ok(op_sel)
                     },
@@ -2762,6 +2771,47 @@ mod tests {
             .is_empty(),
             "a trash operation with no recorded entries cannot be undone"
         );
+    }
+
+    #[test(compio::test)]
+    async fn compress_refuses_existing_archive_and_leaves_no_partial() -> io::Result<()> {
+        let fs = empty_fs()?;
+        let path = fs.path();
+        fs::write(path.join("one"), b"one")?;
+        let to = path.join("one.zip");
+        fs::write(&to, b"precious")?;
+
+        let compress = |paths: Vec<PathBuf>| {
+            perform(
+                Operation::Compress {
+                    paths,
+                    to: to.clone(),
+                    archive_type: crate::app::ArchiveType::Zip,
+                    password: None,
+                },
+                ReplaceResult::Cancel,
+            )
+        };
+
+        assert!(
+            compress(vec![path.join("one")]).await.is_err(),
+            "an archive that already exists must not be overwritten"
+        );
+        assert_eq!(
+            fs::read(&to)?,
+            b"precious",
+            "the existing archive is untouched"
+        );
+
+        fs::remove_file(&to)?;
+        assert!(
+            compress(vec![path.join("one"), path.join("missing")])
+                .await
+                .is_err(),
+            "a source that cannot be read fails the compress"
+        );
+        assert!(!to.exists(), "a failed compress leaves no partial archive");
+        Ok(())
     }
 
     #[test(compio::test)]
