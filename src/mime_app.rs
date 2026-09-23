@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 use crate::ui::widget;
-use bstr::{BString, ByteSlice, ByteVec};
 pub use mime_guess::Mime;
 #[cfg(feature = "desktop")]
 use notify_debouncer_full::notify;
@@ -96,17 +95,17 @@ pub fn exec_to_command(
         let mut field_code_used = false;
 
         for argument in arguments.iter().skip(1) {
-            let mut new_argument = BString::new(Vec::with_capacity(argument.capacity()));
+            let mut new_argument: Vec<u8> = Vec::with_capacity(argument.capacity());
             let mut chars = argument.chars();
             while let Some(char) = chars.next() {
                 // https://specifications.freedesktop.org/desktop-entry/latest/exec-variables.html
                 if char == '%' {
                     match chars.next() {
-                        Some('%') => new_argument.push_char(char),
-                        Some('c') => new_argument.push_str(entry_name),
+                        Some('%') => new_argument.push(b'%'),
+                        Some('c') => new_argument.extend_from_slice(entry_name.as_bytes()),
                         Some('k') => {
                             if let Some(path) = entry_path {
-                                new_argument.push_str(path.as_os_str().as_bytes());
+                                new_argument.extend_from_slice(path.as_os_str().as_bytes());
                             }
                         }
 
@@ -117,7 +116,7 @@ pub fn exec_to_command(
                             {
                                 batch_process = true;
                                 field_code_used = true;
-                                new_argument.push_str(path.as_bytes());
+                                new_argument.extend_from_slice(path.as_bytes());
                             }
                         }
 
@@ -125,14 +124,14 @@ pub fn exec_to_command(
                         Some('F') | Some('U') if !field_code_used && new_argument.is_empty() => {
                             field_code_used = true;
                             for path in path_opt.iter().map(AsRef::as_ref) {
-                                args.push(BString::new(path.as_bytes().to_owned()));
+                                args.push(path.as_bytes().to_owned());
                             }
                         }
 
                         _ => (),
                     }
                 } else {
-                    new_argument.push_char(char);
+                    new_argument.extend_from_slice(char.encode_utf8(&mut [0; 4]).as_bytes());
                 }
             }
 
@@ -144,15 +143,7 @@ pub fn exec_to_command(
         let mut command = process::Command::new(&arguments[0]);
 
         for arg in args {
-            match arg.to_os_str() {
-                Ok(arg) => {
-                    command.arg(arg);
-                }
-                Err(_) => {
-                    tracing::error!("invalid string encoding in command");
-                    return None;
-                }
-            }
+            command.arg(OsStr::from_bytes(&arg));
         }
 
         commands.push(command);

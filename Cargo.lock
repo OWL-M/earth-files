@@ -1525,7 +1525,6 @@ version = "1.9.0"
 dependencies = [
  "anyhow",
  "apply",
- "bstr",
  "bzip2",
  "compio",
  "cosmic-mime-apps",
