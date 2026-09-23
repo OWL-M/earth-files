@@ -1091,12 +1091,24 @@ impl Operation {
                 compio::runtime::spawn_blocking(
                     move || -> Result<OperationSelection, OperationError> {
                         let controller = controller_c;
-                        let Some(relative_root) = to.parent() else {
+                        // Entry names are relative to the deepest folder that
+                        // holds every selected item: a selection from search
+                        // results or Recents spans folders, so the archive's
+                        // own parent is not a prefix of all of them.
+                        let mut parents = paths.iter().filter_map(|path| path.parent());
+                        let Some(relative_root) = parents.next().map(|first| {
+                            parents.fold(first, |root, parent| {
+                                root.ancestors()
+                                    .find(|ancestor| parent.starts_with(ancestor))
+                                    .unwrap_or(root)
+                            })
+                        }) else {
                             return Err(OperationError::from_err(
-                                format!("path {} has no parent directory", to.display()),
+                                "nothing to compress".to_string(),
                                 &controller,
                             ));
                         };
+                        let relative_root = relative_root.to_path_buf();
 
                         let op_sel = OperationSelection {
                             ignored: paths.clone(),
@@ -1125,7 +1137,7 @@ impl Operation {
                         if matches!(archive_type, ArchiveType::Zip) {
                             for path in &paths {
                                 let relative = path
-                                    .strip_prefix(relative_root)
+                                    .strip_prefix(&relative_root)
                                     .map_err(|e| OperationError::from_err(e, &controller))?;
                                 if relative.to_str().is_none() {
                                     return Err(OperationError::from_err(
@@ -1172,7 +1184,7 @@ impl Operation {
                                     // tar stores raw bytes, so the name needs
                                     // no conversion and nothing is dropped
                                     let relative_path = path
-                                        .strip_prefix(relative_root)
+                                        .strip_prefix(&relative_root)
                                         .map_err(|e| OperationError::from_err(e, &controller))?;
                                     archive
                                         .append_path_with_name(path, relative_path)
@@ -1207,7 +1219,7 @@ impl Operation {
                                     }
                                     {
                                         let relative_path = path
-                                            .strip_prefix(relative_root)
+                                            .strip_prefix(&relative_root)
                                             .map_err(|e| OperationError::from_err(e, &controller))?
                                             .to_str()
                                             .ok_or_else(|| {
@@ -2518,6 +2530,44 @@ mod tests {
         assert!(result.is_err(), "renaming onto an existing file must fail");
         assert_eq!(fs::read(path.join("b.txt"))?, b"VICTIM");
         assert_eq!(fs::read(path.join("a.txt"))?, b"SOURCE");
+        Ok(())
+    }
+
+    /// A selection from search results or Recents spans folders; the archive
+    /// must hold every file under names relative to their common ancestor
+    #[test(compio::test)]
+    async fn compress_accepts_paths_from_different_folders() -> io::Result<()> {
+        let fs_ = empty_fs()?;
+        let path = fs_.path();
+        fs::create_dir(path.join("a"))?;
+        fs::create_dir(path.join("b"))?;
+        fs::write(path.join("a/one.txt"), b"one")?;
+        fs::write(path.join("b/two.txt"), b"two")?;
+
+        // The app picks the destination from the first selected path's parent
+        let to = path.join("a/one.tar.gz");
+        perform(
+            Operation::Compress {
+                paths: vec![path.join("a/one.txt"), path.join("b/two.txt")],
+                to: to.clone(),
+                archive_type: crate::app::ArchiveType::Tgz,
+                password: None,
+            },
+            ReplaceResult::Cancel,
+        )
+        .await
+        .expect("compressing files from two folders must succeed");
+
+        let mut archive = tar::Archive::new(flate2::read::GzDecoder::new(File::open(&to)?));
+        let mut names: Vec<PathBuf> = archive
+            .entries()?
+            .map(|entry| entry.and_then(|e| e.path().map(|p| p.into_owned())))
+            .collect::<io::Result<_>>()?;
+        names.sort();
+        assert_eq!(
+            names,
+            vec![PathBuf::from("a/one.txt"), PathBuf::from("b/two.txt")]
+        );
         Ok(())
     }
 
