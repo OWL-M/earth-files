@@ -28,7 +28,11 @@ impl<T: Default> Default for RcWrapper<T> {
 }
 
 impl<T> Clone for RcWrapper<T> {
+    /// # Panics
+    ///
+    /// Will panic if used outside of original thread.
     fn clone(&self) -> Self {
+        assert_eq!(self.thread_id, thread::current().id());
         Self {
             data: self.data.clone(),
             thread_id: self.thread_id,
@@ -36,6 +40,25 @@ impl<T> Clone for RcWrapper<T> {
     }
 }
 
+impl<T> Drop for RcWrapper<T> {
+    /// # Panics
+    ///
+    /// Will panic if dropped outside of original thread.
+    fn drop(&mut self) {
+        if !thread::panicking() {
+            assert_eq!(self.thread_id, thread::current().id());
+        }
+    }
+}
+
+// SAFETY: `Rc<RefCell<T>>` is neither `Send` nor `Sync`. These impls exist
+// only so a wrapper can ride inside a `surface::View` closure (`Arc<dyn Fn()
+// + Send + Sync>`) that a `Task` carries through the executor. The invariant
+// is that the wrapper is only ever *moved* between threads, never used there:
+// every operation that touches the `Rc` count or the `RefCell` (`clone`,
+// `drop`, `with_data`, `with_data_mut`, `overlay`) asserts it runs on the
+// thread that created the wrapper, so a violation is a panic, not a data
+// race.
 unsafe impl<M: 'static> Send for RcWrapper<M> {}
 unsafe impl<M: 'static> Sync for RcWrapper<M> {}
 
@@ -210,5 +233,27 @@ impl<Message: 'static> From<RcElementWrapper<Message>> for Element<'static, Mess
 impl<Message: 'static> From<Element<'static, Message>> for RcElementWrapper<Message> {
     fn from(e: Element<'static, Message>) -> Self {
         RcElementWrapper::new(e)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::RcWrapper;
+
+    #[test]
+    fn clone_and_drop_on_the_creating_thread_work() {
+        let w = RcWrapper::new(1u8);
+        let c = w.clone();
+        assert_eq!(c.with_data(|v| *v), 1);
+        drop(c);
+        assert_eq!(w.with_data(|v| *v), 1);
+    }
+
+    #[test]
+    fn drop_on_another_thread_panics() {
+        let w = RcWrapper::new(1u8);
+        let c = w.clone();
+        let joined = std::thread::spawn(move || drop(c)).join();
+        assert!(joined.is_err());
     }
 }
