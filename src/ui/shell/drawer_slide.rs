@@ -173,7 +173,10 @@ impl DrawerSlide {
         })
     }
 
-    /// Wraps `content` so it publishes `on_settled` once the drawer stops.
+    /// Wraps `content` so it publishes `on_settled` once each slide comes to
+    /// rest. `view_main` keeps one around a layer of the root tree, under
+    /// the host, so it sees each frame's value after the tick; inside an
+    /// overlay it would see it before.
     pub(crate) fn watch<'a, Message: Clone + 'a>(
         &self,
         on_settled: Message,
@@ -183,20 +186,7 @@ impl DrawerSlide {
             .into()
     }
 
-    /// The drawer as one texture moved by the slide, watched for the stop.
-    pub(crate) fn slid<'a, Message: Clone + 'a>(
-        &self,
-        on_settled: Message,
-        drawer: impl Into<Element<'a, Message>>,
-    ) -> Element<'a, Message> {
-        self.watch(
-            on_settled,
-            iced_texture_cache::cached(self.cache.clone(), drawer).translate(self.drawer.clone()),
-        )
-    }
-
-    /// The drawer as one texture moved by the slide, without the watcher:
-    /// for overlay mode, where the watcher goes outside `ContextDrawer`.
+    /// The drawer as one texture moved by the slide.
     pub(crate) fn translated<'a, Message: 'a>(
         &self,
         drawer: Element<'a, Message>,

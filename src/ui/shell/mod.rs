@@ -332,10 +332,16 @@ where
                         .map(crate::ui::Action::App);
                         if sliding {
                             // Only the drawer is wrapped, so the content's
-                            // tree keeps its shape when the slide ends.
-                            drawer = drawer.slide(|drawer| {
-                                slide.watch(on_settled.clone(), slide.translated(drawer))
-                            });
+                            // tree keeps its shape when an opening ends; at
+                            // the end of a close the content leaves
+                            // `ContextDrawer`, as it always did.
+                            //
+                            // Known limitation, not reached while the apps
+                            // set `context_is_overlay = false`:
+                            // `context_drawer::overlay` clips the drawer to
+                            // its own bounds, 8px in from the window edge,
+                            // so the last 8px of the slide are cut.
+                            drawer = drawer.slide(|drawer| slide.translated(drawer));
                         }
                         widgets.push(
                             drawer
@@ -398,14 +404,14 @@ where
                     });
                     match drawer {
                         Some(drawer) if drawer_inline => widgets.push(if sliding {
-                            slide.slid(on_settled.clone(), drawer)
+                            slide.translated(drawer)
                         } else {
                             drawer
                         }),
                         Some(drawer) => {
                             // Only reached while sliding: at rest a built
                             // drawer is always inline.
-                            floating_drawer = Some(slide.slid(on_settled.clone(), drawer));
+                            floating_drawer = Some(slide.translated(drawer));
                             // Keeps the widget tree shape stable
                             widgets.push(space::horizontal().width(Length::Shrink).into());
                         }
@@ -419,15 +425,20 @@ where
         });
 
         // Always a two-layer stack, so a drawer floating mid-slide never
-        // changes the shape of the tree above the main content.
+        // changes the shape of the tree above the main content. The second
+        // layer carries the slide's one settle watcher, always, in the root
+        // tree under the host; see `DrawerSlide::watch`.
         let content_row = widget::Stack::with_children(vec![
             content_row.into(),
-            widget::Row::with_children(vec![
-                space::horizontal().width(Length::Fill).into(),
-                floating_drawer.unwrap_or_else(|| space::horizontal().width(Length::Shrink).into()),
-            ])
-            .height(Length::Fill)
-            .into(),
+            slide.watch(
+                on_settled,
+                widget::Row::with_children(vec![
+                    space::horizontal().width(Length::Fill).into(),
+                    floating_drawer
+                        .unwrap_or_else(|| space::horizontal().width(Length::Shrink).into()),
+                ])
+                .height(Length::Fill),
+            ),
         ]);
 
         let content_col = widget::Column::with_capacity(2)
