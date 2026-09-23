@@ -1582,7 +1582,6 @@ dependencies = [
  "unicode-segmentation",
  "url",
  "uzers",
- "walkdir",
  "wayland-client",
  "xdg",
  "xdg-mime",

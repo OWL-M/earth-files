@@ -11,7 +11,6 @@ use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::{Mutex as TokioMutex, mpsc};
-use walkdir::WalkDir;
 use zip::AesMode::Aes256;
 
 pub use self::controller::{Controller, ControllerState};
@@ -1121,7 +1120,9 @@ impl Operation {
                         let mut paths = paths;
                         for path in &paths.clone() {
                             if path.is_dir() {
-                                let new_paths_it = WalkDir::new(path).into_iter();
+                                let new_paths_it = ignore::WalkBuilder::new(path)
+                                    .standard_filters(false)
+                                    .build();
                                 for entry in new_paths_it.skip(1) {
                                     let entry = entry
                                         .map_err(|e| OperationError::from_err(e, &controller))?;

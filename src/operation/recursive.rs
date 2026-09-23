@@ -20,7 +20,6 @@ use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::rc::Rc;
 use std::time::Instant;
-use walkdir::WalkDir;
 
 #[cfg(feature = "gvfs")]
 use gio::prelude::FileExtManual;
@@ -63,7 +62,10 @@ fn plan_tree(
     controller: &Controller,
 ) -> Result<Vec<PlannedOp>, OperationError> {
     let mut planned = Vec::new();
-    for entry in WalkDir::new(from_parent) {
+    for entry in ignore::WalkBuilder::new(from_parent)
+        .standard_filters(false)
+        .build()
+    {
         // Checked here, inside the work: nothing outside can interrupt a
         // blocking job, so a walk that is not watched from within would run to
         // the end of the tree after the user cancelled it.
@@ -87,14 +89,14 @@ fn plan_tree(
         })?;
         let file_type = entry.file_type();
         let from = entry.into_path();
-        let kind = if file_type.is_dir() {
+        let kind = if file_type.is_some_and(|t| t.is_dir()) {
             OpKind::Mkdir
-        } else if file_type.is_file() {
+        } else if file_type.is_some_and(|t| t.is_file()) {
             match method {
                 Method::Copy => OpKind::Copy,
                 Method::Move { cross_device_copy } => OpKind::Move { cross_device_copy },
             }
-        } else if file_type.is_symlink() {
+        } else if file_type.is_some_and(|t| t.is_symlink()) {
             let target = fs::read_link(&from).map_err(|err| {
                 OperationError::from_err(
                     format!("failed to read link {}: {}", from_parent.display(), err),

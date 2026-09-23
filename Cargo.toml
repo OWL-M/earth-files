@@ -47,7 +47,6 @@ tokio = { version = "1", features = ["process", "sync"] }
 trash = "5.2.6"
 url = "2.5"
 uzers = "0.12.2"
-walkdir = "2.5.0"
 # Wayland protocol support for `ui::dnd`. Required because this app only supports
 # Wayland.
 wayland-client = "0.31.14"

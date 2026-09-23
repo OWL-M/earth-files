@@ -43,7 +43,6 @@ use std::time::{Duration, Instant, SystemTime};
 use tempfile::NamedTempFile;
 use tokio::sync::mpsc;
 use trash::{TrashItem, TrashItemMetadata, TrashItemSize};
-use walkdir::WalkDir;
 
 use crate::app::{Action, PreviewItem, PreviewKind};
 use crate::config::{
@@ -3364,7 +3363,10 @@ async fn calculate_dir_size(path: &Path, controller: Controller) -> Result<u64, 
         let controller = controller.clone();
         bounded_blocking(Arc::clone(&DIR_SIZE_SEMAPHORE), move || {
             let mut total = 0;
-            for entry_res in WalkDir::new(&path) {
+            for entry_res in ignore::WalkBuilder::new(&path)
+                .standard_filters(false)
+                .build()
+            {
                 // Checked here, inside the work, for the same reason the permit
                 // is held here: nothing outside can interrupt it.
                 loop {
