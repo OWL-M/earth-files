@@ -7,16 +7,14 @@ use std::borrow::Cow;
 
 use crate::ui::convert::ToPixels;
 use crate::ui::theme;
-use crate::ui::widget::flex_row::{FlexRow, flex_row};
 use crate::ui::widget::list;
 use crate::ui::widget::text;
 use crate::ui::{Element, Renderer, Theme};
 use derive_setters::Setters;
+use iced::widget::Row;
 use iced::widget::space;
-use iced::widget::{Row, container};
 use iced_core::Length;
 use iced_core::text::Wrapping;
-use taffy::AlignContent;
 
 /// A settings item aligned in a row
 #[must_use]
@@ -47,41 +45,6 @@ pub fn item_row<Message>(children: Vec<Element<Message>>) -> Row<Message, Theme,
     crate::ui::widget::Row::with_children(children)
         .spacing(theme::spacing().space_xs.to_pixels())
         .align_y(iced::Alignment::Center)
-        .width(Length::Fill)
-}
-
-/// A settings item aligned in a flex row
-#[allow(clippy::module_name_repetitions)]
-pub fn flex_item<'a, Message: 'static>(
-    title: impl Into<Cow<'a, str>> + 'a,
-    widget: impl Into<Element<'a, Message>> + 'a,
-) -> FlexRow<'a, Message> {
-    #[inline(never)]
-    fn inner<'a, Message: 'static>(
-        title: Cow<'a, str>,
-        widget: Element<'a, Message>,
-    ) -> FlexRow<'a, Message> {
-        flex_item_row(vec![
-            text(title)
-                .wrapping(Wrapping::Word)
-                .width(Length::Fill)
-                .into(),
-            container(widget).width(Length::Shrink).into(),
-        ])
-        .width(Length::Fill)
-    }
-
-    inner(title.into(), widget.into())
-}
-
-/// A settings item aligned in a flex row
-#[allow(clippy::module_name_repetitions)]
-pub fn flex_item_row<Message>(children: Vec<Element<Message>>) -> FlexRow<Message> {
-    flex_row(children)
-        .spacing(theme::spacing().space_xs)
-        .min_item_width(200.0)
-        .justify_items(iced::Alignment::Center)
-        .justify_content(AlignContent::SPACE_BETWEEN)
         .width(Length::Fill)
 }
 
@@ -116,11 +79,6 @@ impl<'a, Message: Clone + 'static> Item<'a, Message> {
         widget: impl Into<Element<'a, Message>>,
     ) -> Row<'a, Message, Theme, Renderer> {
         item_row(self.control_(widget.into()))
-    }
-
-    /// Assigns a control which flexes.
-    pub fn flex_control(self, widget: impl Into<Element<'a, Message>>) -> FlexRow<'a, Message> {
-        flex_item_row(self.control_(widget.into()))
     }
 
     fn label(self) -> Element<'a, Message> {

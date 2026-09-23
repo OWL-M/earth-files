@@ -53,9 +53,6 @@ pub use context_menu::{ContextMenu, context_menu};
 pub mod dialog;
 pub use dialog::{Dialog, dialog};
 
-pub mod flex_row;
-pub use flex_row::{FlexRow, flex_row};
-
 pub mod divider;
 
 pub mod ellipsize;
