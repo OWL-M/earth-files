@@ -53,6 +53,12 @@ fn get_bool(options: &HashMap<String, OwnedValue>, key: &str) -> bool {
         .unwrap_or(false)
 }
 
+/// Whether a name the caller supplied can be joined onto the chosen folder
+/// without leaving it: one path component, not a path.
+fn is_plain_name(name: &[u8]) -> bool {
+    !name.is_empty() && name != b"." && name != b".." && !name.contains(&b'/')
+}
+
 fn get_string(options: &HashMap<String, OwnedValue>, key: &str) -> Option<String> {
     options
         .get(key)
@@ -205,6 +211,7 @@ impl Request {
                 // save-over request opens with an empty name and the accept
                 // button disabled until the user retypes it.
                 filename: get_string(options, "current_name")
+                    .filter(|name| is_plain_name(name.as_bytes()))
                     .or_else(|| suggested.clone())
                     .unwrap_or_default(),
             },
@@ -217,17 +224,18 @@ impl Request {
         };
 
         // Filesystem bytes, not text: converting them lossily would rename
-        // what the caller asked for, and could collapse two names into one
+        // what the caller asked for, and could collapse two names into one.
+        // A name that is really a path (`../x`) would land outside the folder
+        // the user chose, so it is not written anywhere.
         let save_names = options
             .get("files")
             .and_then(|value| <Vec<Vec<u8>>>::try_from(value.clone()).ok())
             .map(|names| {
                 names
                     .into_iter()
-                    .map(|name| {
-                        let name = name.strip_suffix(&[0]).unwrap_or(&name).to_vec();
-                        std::ffi::OsString::from_vec(name)
-                    })
+                    .map(|name| name.strip_suffix(&[0]).unwrap_or(&name).to_vec())
+                    .filter(|name| is_plain_name(name))
+                    .map(std::ffi::OsString::from_vec)
                     .collect()
             })
             .unwrap_or_default();
@@ -477,6 +485,34 @@ mod tests {
             b"a\xff.txt",
             "the bytes the caller gave must survive"
         );
+    }
+
+    #[test]
+    fn a_name_that_is_a_path_cannot_leave_the_chosen_folder() {
+        // The caller is sandboxed and is granted write access to whatever
+        // comes back, so a name with `/` or `..` in it must not be joined
+        // onto the folder the user chose
+        for name in ["../../.bashrc", "/etc/passwd", "a/b", "..", "."] {
+            let request = Request::from_options(
+                Method::SaveFile,
+                "Save",
+                &options(vec![("current_name", Value::from(name))]),
+            );
+            match request.kind {
+                DialogKind::SaveFile { filename } => assert_eq!(filename, "", "{name}"),
+                other => panic!("expected a save dialog, got {other:?}"),
+            }
+        }
+
+        let names: Vec<Vec<u8>> = vec![b"../escape".to_vec(), b"ok.txt".to_vec()];
+        let request = Request::from_options(
+            Method::SaveFiles,
+            "Save",
+            &options(vec![("files", Value::from(names))]),
+        );
+        let directory = PathBuf::from("/tmp/out");
+        let paths = request.selected_paths(vec![directory.clone()]);
+        assert_eq!(paths, vec![directory.join("ok.txt")]);
     }
 
     #[test]
