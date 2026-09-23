@@ -1123,6 +1123,9 @@ impl Operation {
                                     io::BufWriter::new(file),
                                     flate2::Compression::default(),
                                 ));
+                                // Store links as links: following them would
+                                // copy whatever they point at into the archive
+                                archive.follow_symlinks(false);
 
                                 let total_paths = paths.len();
                                 for (i, path) in paths.iter().enumerate() {
@@ -1185,10 +1188,9 @@ impl Operation {
                                                     &controller,
                                                 )
                                             })?;
-                                        let mut file = fs::File::open(path).map_err(|e| {
-                                            OperationError::from_err(e, &controller)
-                                        })?;
-                                        let metadata = file.metadata().map_err(|e| {
+                                        // Not followed: a link is stored as a
+                                        // link, never as what it points at
+                                        let metadata = fs::symlink_metadata(path).map_err(|e| {
                                             OperationError::from_err(e, &controller)
                                         })?;
 
@@ -1204,7 +1206,23 @@ impl Operation {
                                         let mode = metadata.mode();
                                         zip_options = zip_options.unix_permissions(mode);
 
-                                        if path.is_file() {
+                                        if metadata.is_symlink() {
+                                            let target = fs::read_link(path).map_err(|e| {
+                                                OperationError::from_err(e, &controller)
+                                            })?;
+                                            archive
+                                                .add_symlink_from_path(
+                                                    relative_path,
+                                                    target,
+                                                    zip_options,
+                                                )
+                                                .map_err(|e| {
+                                                    OperationError::from_err(e, &controller)
+                                                })?;
+                                        } else if metadata.is_file() {
+                                            let mut file = fs::File::open(path).map_err(|e| {
+                                                OperationError::from_err(e, &controller)
+                                            })?;
                                             let total = metadata.len();
                                             if total >= 4 * 1024 * 1024 * 1024 {
                                                 // The large file option must be enabled for files above 4 GiB
@@ -2811,6 +2829,63 @@ mod tests {
             "a source that cannot be read fails the compress"
         );
         assert!(!to.exists(), "a failed compress leaves no partial archive");
+        Ok(())
+    }
+
+    #[test(compio::test)]
+    async fn compress_stores_symlinks_as_symlinks() -> io::Result<()> {
+        // A link inside the compressed folder points outside it. The archive
+        // must hold the link itself, not a copy of the secret it points at.
+        let fs = empty_fs()?;
+        let path = fs.path();
+        let secret = path.join("secret.env");
+        fs::write(&secret, b"TOKEN=hunter2")?;
+        let project = path.join("project");
+        fs::create_dir(&project)?;
+        std::os::unix::fs::symlink(&secret, project.join("config"))?;
+
+        for archive_type in [crate::app::ArchiveType::Tgz, crate::app::ArchiveType::Zip] {
+            let to = path.join(format!("project{}", archive_type.extension()));
+            Operation::Compress {
+                paths: vec![project.clone()],
+                to: to.clone(),
+                archive_type,
+                password: None,
+            }
+            .perform(
+                &sync::Mutex::new(mpsc::channel(1).0).into(),
+                Controller::default(),
+            )
+            .await
+            .expect("Compress operation should have succeeded");
+
+            let bytes = fs::read(&to)?;
+            assert!(
+                !bytes.windows(7).any(|w| w == b"hunter2"),
+                "{} contains the symlink target's bytes",
+                to.display()
+            );
+            match archive_type {
+                crate::app::ArchiveType::Tgz => {
+                    let decoder = flate2::read::GzDecoder::new(File::open(&to)?);
+                    let mut found = false;
+                    for entry in tar::Archive::new(decoder).entries()? {
+                        let entry = entry?;
+                        if entry.path()?.ends_with("config") {
+                            assert!(entry.header().entry_type().is_symlink());
+                            assert_eq!(entry.link_name()?.as_deref(), Some(secret.as_path()));
+                            found = true;
+                        }
+                    }
+                    assert!(found, "tar has no config entry");
+                }
+                crate::app::ArchiveType::Zip => {
+                    let mut zip = zip::ZipArchive::new(File::open(&to)?)?;
+                    let file = zip.by_name("project/config")?;
+                    assert!(file.is_symlink(), "zip config entry is not a symlink");
+                }
+            }
+        }
         Ok(())
     }
 
