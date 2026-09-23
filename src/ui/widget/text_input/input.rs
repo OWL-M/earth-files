@@ -3075,7 +3075,11 @@ impl operation::TextInput for State {
     }
 
     fn text(&self) -> &str {
-        todo!()
+        // The laid-out paragraph holds the text as currently displayed (masked
+        // when secure); `tracked_value` is grapheme-split and cannot lend a
+        // `&str`. No iced 0.14 operation calls this today, but a `todo!()` in
+        // shipped code would panic the moment one does.
+        self.value.content()
     }
 
     #[inline]
