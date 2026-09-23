@@ -107,9 +107,6 @@ open-in-terminal = Otevřít v terminálu
 move-to-trash = Přesunout do koše
 restore-from-trash = Obnovit z koše
 remove-from-sidebar = Odstranit z postranního panelu
-sort-by-name = Seřadit podle názvu
-sort-by-modified = Seřadit podle data změny
-sort-by-size = Seřadit podle velikosti
 
 # Menu
 
@@ -154,12 +151,6 @@ notification-in-progress = Probíhají operace se soubory
 undo = Vrátit
 connect = Připojit
 today = Dnes
-desktop-view-options = Možnosti zobrazení plochy...
-show-on-desktop = Zobrazit na ploše
-desktop-folder-content = Obsah složky na ploše
-mounted-drives = Připojené disky
-trash-folder-icon = Ikona koše
-icon-size = Velikost ikony
 password = Heslo
 remove = Odstranit
 username = Uživatelské jméno
@@ -195,14 +186,11 @@ launch-anyway = Launch
 open-with = Otevřít pomocí
 other = Ostatní
 none = Žádné
-icon-size-and-spacing = Velikost a rozestupy ikon
-grid-spacing = Rozestupy mřížky
 deleting =
     Mazání { $items } { $items ->
         [one] položky
        *[other] položek
     } z koše ({ $progress })...
-sort-by-trashed = Seřadit podle času smazání
 deleted =
     { $items ->
         [one] Smazána
@@ -417,9 +405,6 @@ type-to-search-enter-path = Zadává cestu ke složce nebo souboru
 compress = Zabalit...
 eject = Vysunout
 extract-here = Rozbalit
-change-wallpaper = Změnit tapetu...
-desktop-appearance = Vzhled plochy...
-display-settings = Nastavení obrazovky...
 reload-folder = Znovu načíst složku
 sort-z-a = Z-A
 sort-newest-first = Nejnovější první

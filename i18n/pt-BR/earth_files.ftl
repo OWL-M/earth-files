@@ -13,14 +13,6 @@ search-title = Pesquisar "{$term}": {$name}
 undo = Desfazer
 today = Hoje
 # Desktop view options
-desktop-view-options = Opções de visualização da área de trabalho...
-show-on-desktop = Mostrar na Área de trabalho
-desktop-folder-content = Conteúdo da pasta da área de trabalho
-mounted-drives = Dispositivos montados
-trash-folder-icon = Ícone da lixeira
-icon-size-and-spacing = Tamanho e espaçamento do ícone
-icon-size = Tamanho do ícone
-grid-spacing = Espaçamento entre ícones
 # List view
 name = Nome
 modified = Modificado
@@ -392,17 +384,10 @@ move-to-trash = Mover para a lixeira
 restore-from-trash = Restaurar da lixeira
 remove-from-sidebar = Remover da barra lateral
 change-sidebar-label = Alterar legenda da barra lateral
-sort-by-name = Ordenar por nome
-sort-by-modified = Ordenar por data de modificação
-sort-by-size = Ordenar por tamanho
-sort-by-trashed = Ordernar por data de exclusão
 remove-from-recents = Remover dos itens recentes
 
 ## Desktop
 
-change-wallpaper = Alterar o plano de fundo...
-desktop-appearance = Aparência da área de trabalho...
-display-settings = Configurações da tela...
 
 # Menu
 

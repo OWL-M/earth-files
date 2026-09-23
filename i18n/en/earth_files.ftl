@@ -14,16 +14,6 @@ search-title = Search "{$term}": {$name}
 undo = Undo
 today = Today
 
-# Desktop view options
-desktop-view-options = Desktop view options...
-show-on-desktop = Show on Desktop
-desktop-folder-content = Desktop folder content
-mounted-drives = Mounted drives
-trash-folder-icon = Trash folder icon
-icon-size-and-spacing = Icon size and spacing
-icon-size = Icon size
-grid-spacing = Grid spacing
-
 # List view
 name = Name
 modified = Modified
@@ -386,16 +376,7 @@ move-to-trash = Move to trash
 restore-from-trash = Restore from trash
 remove-from-sidebar = Remove from sidebar
 change-sidebar-label = Change sidebar label
-sort-by-name = Sort by name
-sort-by-modified = Sort by modified
-sort-by-size = Sort by size
-sort-by-trashed = Sort by delete time
 remove-from-recents = Remove from recents
-
-## Desktop
-change-wallpaper = Change wallpaper...
-desktop-appearance = Desktop appearance...
-display-settings = Display settings...
 
 # Menu
 

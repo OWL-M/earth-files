@@ -107,9 +107,6 @@ open-in-terminal = افتح في الطرفية
 move-to-trash = انقل إلى المهملات
 restore-from-trash = استعِد من المهملات
 remove-from-sidebar = أزِل من الشريط الجانبي
-sort-by-name = رتّب حسب الاسم
-sort-by-modified = رتّب حسب التعديل
-sort-by-size = رتّب حسب الحجم
 
 # Menu
 
@@ -152,14 +149,6 @@ networks = الشبكات
 notification-in-progress = عمليات الملفات جارية
 undo = تراجع
 today = اليوم
-desktop-view-options = خيارات عرض سطح المكتب...
-show-on-desktop = أظهِر على سطح المكتب
-desktop-folder-content = محتوى مجلد سطح المكتب
-mounted-drives = محركات الأقراص المثبتة
-trash-folder-icon = أيقونة مجلد المهملات
-icon-size-and-spacing = حجم الأيقونة والتباعد
-icon-size = حجم الأيقونة
-grid-spacing = تباعد شبكي
 trashed-on = مهمل
 details = تفاصيل
 pause = ألبث
@@ -255,11 +244,7 @@ compress = اضغط...
 delete-permanently = احذف نهائيًا
 eject = أخرِج
 extract-here = استخرِج
-sort-by-trashed = رتّب حسب وقت الحذف
 remove-from-recents = أزِل من الحديثة
-change-wallpaper = غيِّر خلفية الشاشة...
-desktop-appearance = مظهر سطح المكتب...
-display-settings = إعدادات العرض...
 reload-folder = أعد تحميل المجلّد
 gallery-preview = معاينة المعرض
 sort = رتّب

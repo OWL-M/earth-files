@@ -167,9 +167,6 @@ open-in-terminal = Abrir no terminal
 move-to-trash = Mover para o lixo
 restore-from-trash = Restaurar do lixo
 remove-from-sidebar = Remover da barra lateral
-sort-by-name = Ordenar por nome
-sort-by-modified = Ordenar por data de modificação
-sort-by-size = Ordenar por tamanho
 
 # Menu
 
@@ -217,14 +214,6 @@ networks = Redes
 recents = Recentes
 search-title = Pesquisar "{$term}": {$name}
 today = Hoje
-desktop-view-options = Opções de visualização da área de trabalho...
-show-on-desktop = Mostrar na área de trabalho
-desktop-folder-content = Conteúdo da pasta da área de trabalho
-mounted-drives = Dispositivos montados
-trash-folder-icon = Ícone da pasta lixo
-icon-size-and-spacing = Tamanho e espaçamento do ícone
-icon-size = Tamanho do ícone
-grid-spacing = Espaçamento entre ícones
 trashed-on = Enviado para o lixo
 operations-running =
     { $running } { $running ->
@@ -363,11 +352,7 @@ type-to-search-enter-path = Insere o caminho do diretório ou ficheiro
 compress = Comprimir
 delete-permanently = Eliminar permanentemente
 eject = Ejetar
-sort-by-trashed = Ordenar por data de eliminação
 remove-from-recents = Remover dos itens recentes
-change-wallpaper = Alterar papel de parede...
-desktop-appearance = Aparência da área de trabalho...
-display-settings = Definições do ecrã...
 reload-folder = Recarregar pasta
 gallery-preview = Pré-visualizar
 sort = Ordenar

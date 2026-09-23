@@ -14,14 +14,6 @@ search-title = Keresés "{$term}": {$name}
 undo = Visszavonás
 today = Ma
 # Desktop view options
-desktop-view-options = Asztali nézet beállításai…
-show-on-desktop = Megjelenítés az asztalon
-desktop-folder-content = Asztal mappa tartalma
-mounted-drives = Csatolt meghajtók
-trash-folder-icon = Kuka ikon
-icon-size-and-spacing = Ikonméret és távolság
-icon-size = Ikonméret
-grid-spacing = Rácsköz
 # List view
 name = Név
 modified = Módosítva
@@ -385,17 +377,10 @@ open-in-terminal = Megnyitás a terminálban
 move-to-trash = Áthelyezés a Kukába
 restore-from-trash = Visszaállítás a Kukából
 remove-from-sidebar = Eltávolítás az oldalsávról
-sort-by-name = Név szerinti rendezés
-sort-by-modified = Módosítás szerinti rendezés
-sort-by-size = Méret szerinti rendezés
-sort-by-trashed = Törlés ideje szerinti rendezés
 remove-from-recents = Eltávolítás a legutóbbiak közül
 
 ## Desktop
 
-change-wallpaper = Háttérkép cseréje…
-desktop-appearance = Asztal megjelenése…
-display-settings = Kijelzőbeállítások…
 
 # Menu
 

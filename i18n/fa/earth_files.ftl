@@ -12,14 +12,6 @@ search-title = جستجوی "{$term}": {$name}
 undo = بازگردانی
 today = امروز
 # Desktop view options
-desktop-view-options = گزینه‌های نمایش دسکتاپ...
-show-on-desktop = نمایش در دسکتاپ
-desktop-folder-content = محتوای پوشه دسکتاپ
-mounted-drives = درایوهای متصل‌شده
-trash-folder-icon = آیکون پوشه زباله‌دان
-icon-size-and-spacing = اندازه و فاصله آیکون‌ها
-icon-size = اندازه آیکون
-grid-spacing = فاصله شبکه‌ای
 # List view
 name = نام
 modified = زمان تغییر
@@ -326,17 +318,10 @@ open-in-terminal = باز کردن در ترمینال
 move-to-trash = انتقال به زباله‌دان
 restore-from-trash = بازیابی از زباله‌دان
 remove-from-sidebar = حذف از نوار کناری
-sort-by-name = مرتب‌سازی بر اساس نام
-sort-by-modified = مرتب‌سازی بر اساس زمان تغییر
-sort-by-size = مرتب‌سازی بر اساس حجم
-sort-by-trashed = مرتب‌سازی بر اساس زمان حذف
 remove-from-recents = حذف از موارد اخیر
 
 ## Desktop
 
-change-wallpaper = تغییر تصویر پس‌زمینه...
-desktop-appearance = ظاهر دسکتاپ...
-display-settings = تنظیمات نمایش...
 
 # Menu
 

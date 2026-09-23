@@ -12,14 +12,6 @@ search-title = Пошук "{$term}": {$name}
 undo = Адрабіць
 today = Сёння
 # Desktop view options
-desktop-view-options = Параметры выгляду працоўнага стала...
-show-on-desktop = Паказваць на працоўным стале
-desktop-folder-content = Змесціва папкі "Працоўны стол"
-mounted-drives = Змантаваныя дыскі
-trash-folder-icon = Значок папкі "Сметніца"
-icon-size-and-spacing = Памер і інтэрвал значкоў
-icon-size = Памер значкоў
-grid-spacing = Інтэрвал сеткі
 # List view
 name = Назва
 modified = Зменена
@@ -399,16 +391,9 @@ open-in-terminal = Адкрыць у кансолі
 move-to-trash = Перамясціць у сметніцу
 restore-from-trash = Аднавіць са сметніцы
 remove-from-sidebar = Выдаліць з бакавой панэлі
-sort-by-name = Сартаваць па назве
-sort-by-modified = Сартаваць па даце змянення
-sort-by-size = Сартаваць па памеры
-sort-by-trashed = Сартаваць па часе выдалення
 
 ## Desktop
 
-change-wallpaper = Змяніць шпалеры...
-desktop-appearance = Выгляд працоўнага стала...
-display-settings = Налады дысплэя...
 
 # Menu
 

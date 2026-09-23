@@ -12,14 +12,6 @@ search-title = Cerca "{$term}": {$name}
 undo = Desfés
 today = Avui
 # Desktop view options
-desktop-view-options = Opcions de visualització de l'escriptori
-show-on-desktop = Mostra a l'escriptori
-desktop-folder-content = Contingut de la carpeta de l'escriptori
-mounted-drives = Unitats muntades
-trash-folder-icon = Icona de la paperera
-icon-size-and-spacing = Mida i espaiat de les icones
-icon-size = Mida de les icones
-grid-spacing = Espaiat de la quadrícula
 # List view
 name = Nom
 modified = Modificat
@@ -334,16 +326,9 @@ open-in-terminal = Obre al terminal
 move-to-trash = Mou a la paperera
 restore-from-trash = Restaura de la paperera
 remove-from-sidebar = Elimina de la barra lateral
-sort-by-name = Ordena per nom
-sort-by-modified = Ordena per data de modificació
-sort-by-size = Ordena per mida
-sort-by-trashed = Ordena per data de supressió
 
 ## Desktop
 
-change-wallpaper = Canvia el fons de pantalla...
-desktop-appearance = Aparença de l'escriptori...
-display-settings = Configuració de visualització...
 
 # Menu
 

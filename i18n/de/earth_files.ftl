@@ -12,14 +12,6 @@ search-title = Suche "{$term}": {$name}
 undo = Rückgängig
 today = Heute
 # Optionen für die Desktop-Ansicht
-desktop-view-options = Optionen für die Desktop-Ansicht ...
-show-on-desktop = Auf Desktop anzeigen
-desktop-folder-content = Inhalt des Desktop-Ordners
-mounted-drives = Eingehängte Laufwerke
-trash-folder-icon = Ordnersymbol des Papierkorbs
-icon-size-and-spacing = Symbolgröße und -abstand
-icon-size = Symbolgröße
-grid-spacing = Rasterabstand
 # Listenansicht
 name = Name
 modified = Geändert
@@ -364,16 +356,9 @@ open-in-terminal = Im Terminal öffnen
 move-to-trash = In den Papierkorb verschieben
 restore-from-trash = Aus dem Papierkorb wiederherstellen
 remove-from-sidebar = Aus der Seitenleiste entfernen
-sort-by-name = Nach Name sortieren
-sort-by-modified = Nach Änderung sortieren
-sort-by-size = Nach Größe sortieren
-sort-by-trashed = Nach Löschzeitpunkt sortieren
 
 ## Desktop
 
-change-wallpaper = Hintergrundbild ändern ...
-desktop-appearance = Desktop-Aussehen ...
-display-settings = Anzeigeeinstellungen ...
 
 # Menü
 

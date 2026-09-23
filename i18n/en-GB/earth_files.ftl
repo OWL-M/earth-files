@@ -27,7 +27,6 @@ paste = Paste
 view = View
 undo = Undo
 cut = Cut
-icon-size-and-spacing = Icon size and spacing
 earth-files = Earth Files
 trash = Rubbish
 empty-folder-hidden = Empty folder (has hidden items)
@@ -35,13 +34,8 @@ no-results = No results found
 empty-folder = Empty folder
 menu-settings = Settings...
 recents = Recents
-mounted-drives = Mounted drives
 filesystem = Filesystem
 home = Home
-desktop-view-options = Desktop view options...
-show-on-desktop = Show on Desktop
-trash-folder-icon = Bin folder icon
-desktop-folder-content = Desktop folder content
 networks = Networks
 today = Today
 notification-in-progress = File operations are in progress
@@ -53,14 +47,12 @@ trashed-on = Binned
 create-archive = Create archive
 pause = Pause
 resume = Resume
-grid-spacing = Grid spacing
 details = Details
 operations-running-finished =
     { $running } { $running ->
         [one] operation
        *[other] operations
     } running ({ $percent }%), { $finished } finished...
-icon-size = Icon size
 modified = Modified
 operations-running =
     { $running } { $running ->

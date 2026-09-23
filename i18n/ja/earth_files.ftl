@@ -213,9 +213,6 @@ open-in-terminal = 端末で開く
 move-to-trash = ゴミ箱に移動
 restore-from-trash = ゴミ箱から復元
 remove-from-sidebar = サイドバーから削除
-sort-by-name = 名前で並べ替え
-sort-by-modified = 更新日で並べ替え
-sort-by-size = サイズで並べ替え
 
 # Menu
 
@@ -268,14 +265,6 @@ repository = リポジトリ
 support = サポート
 remove = 削除
 today = 今日
-desktop-view-options = デスクトップの表示オプション…
-show-on-desktop = デスクトップの表示オプション
-desktop-folder-content = デスクトップフォルダの内容
-mounted-drives = マウント済みドライブ
-trash-folder-icon = ゴミ箱のアイコン
-icon-size-and-spacing = アイコンのサイズと間隔
-icon-size = アイコンサイズ
-grid-spacing = グリッドの間隔
 trashed-on = ゴミ箱に入れた日時
 details = 詳細
 dismiss = メッセージを閉じる
@@ -393,11 +382,7 @@ type-to-search-recursive = 現在のフォルダーとすべてのサブフォ�
 type-to-search-enter-path = ディレクトリーまたはファイルのパスを入力
 delete-permanently = 完全に削除する
 eject = 取り出し
-sort-by-trashed = 削除日時
 remove-from-recents = 最近の項目から削除
-change-wallpaper = 壁紙を変更…
-desktop-appearance = デスクトップの見た目…
-display-settings = ディスプレイの設定…
 reload-folder = フォルダーを再読み込み
 gallery-preview = ギャラリープレビュー
 

@@ -12,14 +12,6 @@ search-title = Cuardach "{$term}": {$name}
 undo = Cuir ar ceal
 today = Inniu
 # Desktop view options
-desktop-view-options = Roghanna radhairc deisce...
-show-on-desktop = Taispeáin ar an deasc
-desktop-folder-content = Ábhar fillteáin deisce
-mounted-drives = Tiomántáin mhonaithe
-trash-folder-icon = Deilbhín fillteáin bruscair
-icon-size-and-spacing = Méid agus spásáil na ndeilbhíní
-icon-size = Méid na ndeilbhíní
-grid-spacing = Spásáil an ghreille
 # List view
 name = Ainm
 modified = Mionathraithe
@@ -354,16 +346,9 @@ open-in-terminal = Oscail sa teirminéal
 move-to-trash = Bog go dtí an bruscar
 restore-from-trash = Athchóirigh ón mbruscar
 remove-from-sidebar = Bain ón mbarra taoibh
-sort-by-name = Sórtáil de réir ainm
-sort-by-modified = Sórtáil de réir modhnaithe
-sort-by-size = Sórtáil de réir méid
-sort-by-trashed = Sórtáil de réir am scriosta
 
 ## Desktop
 
-change-wallpaper = Athraigh cúlbhrat...
-desktop-appearance = Cuma deisce...
-display-settings = Socruithe taispeána...
 
 # Menu
 

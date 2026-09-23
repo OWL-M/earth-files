@@ -77,7 +77,6 @@ zoom-in = Μεγέθυνση
 select-all = Επιλογή όλων
 image-load-error = ⚠ {$error}
 loading-full-image = Loading higher resolution...
-icon-size-and-spacing = Μέγεθος και απόσταση εικονιδίων
 new-window = Νέο παράθυρο
 zoom-out = Σμίκρυνση
 default-size = Προεπιλεγμένο μέγεθος
@@ -87,13 +86,8 @@ rename-folder = Μετονομασία φακέλου
 folder-name = Όνομα φακέλου
 connect-anonymously = Ανώνυμη σύνδεση
 replace-with = Αντικατάσταση με
-mounted-drives = Προσαρτημένες μονάδες
-desktop-view-options = Επιλογές προβολής επιφάνειας εργασίας...
-show-on-desktop = Εμφάνιση στην επιφάνεια εργασίας
-trash-folder-icon = Εικονίδιο φακέλου απορριμμάτων
 open-with = Άνοιγμα με
 keep-both = Διατήρηση αμφότερων
-icon-size = Μέγεθος εικονιδίων
 open-with-title = Πώς θέλετε να ανοίξετε το «{ $name }»;
 extract-password-required = Απαιτείται κωδικός πρόσβασης
 rename-file = Μετονομασία αρχείου
@@ -157,7 +151,6 @@ create-new-folder = Δημιουργία νέου φακέλου
 original-file = Πρωτότυπο αρχείο
 read-write-execute = Ανάγνωση, εγγραφή και εκτέλεση
 set-permissions = Έγινε ορισμός των δικαιωμάτων για το «{ $name }» σε: { $mode }
-sort-by-size = Ταξινόμηση κατά μέγεθος
 item-size = Μέγεθος: { $size }
 permanently-deleting =
     Οριστική διαγραφή { $items } { $items ->
@@ -183,7 +176,6 @@ open-in-terminal = Άνοιγμα σε τερματικό
 open-multiple-folders = Άνοιγμα πολλαπλών φακέλων
 remember-password = Απομνημόνευση κωδικού πρόσβασης
 show-details = Εμφάνιση λεπτομερειών
-grid-spacing = Απόσταση πλέγματος
 extract-as-folder = Αποσυμπίεση σε φάκελο
 extract-to = Αποσυμπίεση σε...
 add-network-drive = Προσθήκη μονάδας δικτύου
@@ -194,7 +186,6 @@ copying =
     } από τον φάκελο «{ $from }» στον φάκελο «{ $to }» ({ $progress })...
 sort-oldest-first = Πρώτα τα παλαιότερα
 create-new-file = Δημιουργία νέου αρχείου
-sort-by-trashed = Ταξινόμηση κατά ημερομηνία διαγραφής
 replace-warning-operation = Θέλετε να το αντικαταστήσετε; Αυτό θα οδηγήσει στην αντικατάσταση του περιεχομένου του.
 try-again = Δοκιμή ξανά
 copied =
@@ -204,7 +195,6 @@ copied =
     } από τον φάκελο «{ $from }» στον φάκελο «{ $to }»
 other = Άλλο
 open-in-new-window = Άνοιγμα σε νέο παράθυρο
-sort-by-modified = Ταξινόμηση κατά ημερομηνία τροποποίησης
 list-directories-first = Παράθεση των καταλόγων πρώτα
 read-only = Μόνο ανάγνωση
 browse-store = Περιήγηση στο { $store }
@@ -216,7 +206,6 @@ moving =
         [one] στοιχείου
        *[other] στοιχείων
     } από τον φάκελο «{ $from }» στον φάκελο «{ $to }» ({ $progress })...
-change-wallpaper = Αλλαγή ταπετσαρίας...
 network-drive-description =
     Οι διευθύνσεις διακομιστών αποτελούνται από ένα πρόθεμα πρωτοκόλλου και μια διεύθυνση.
     Παραδείγματα: ssh://192.168.0.1, ftp://[2001:db8::1]
@@ -270,7 +259,6 @@ operations-running-finished =
         [one] διεργασίας
        *[other] διεργασιών
     } ({ $percent }%), { $finished } ολοκληρωμένες...
-sort-by-name = Ταξινόμηση κατά όνομα
 edit-history = Ιστορικό επεξεργασιών
 show-hidden-files = Εμφάνιση κρυφών αρχείων
 show-type-column = Εμφάνιση στήλης τύπου
@@ -289,7 +277,6 @@ permanently-deleted =
     }
 complete = Ολοκληρωμένες
 write-execute = Εγγραφή και εκτέλεση
-desktop-folder-content = Περιεχόμενο φακέλου επιφάνειας εργασίας
 renaming = Μετονομασία από «{ $from }» σε «{ $to }»
 renaming-many = Μετονομασία { item-count }
 renamed-many = Μετονομάστηκαν { item-count }
@@ -311,11 +298,9 @@ unknown-folder = άγνωστος φάκελος
 created = Έγινε δημιουργία του «{ $name }» στον φάκελο «{ $parent }»
 delete-permanently = Οριστική διαγραφή
 write-only = Μόνο εγγραφή
-display-settings = Ρυθμίσεις οθόνης...
 new-tab = Νέα καρτέλα
 failed = Αποτυχημένες
 modified = Ημερομηνία τροποποίησης
-desktop-appearance = Εμφάνιση επιφάνειας εργασίας...
 file-already-exists = Υπάρχει ήδη ένα αρχείο με αυτό το όνομα
 permanently-delete-warning = Θα διαγραφούν οριστικά τα εξής: { $target }. Δεν είναι δυνατή η αναίρεση αυτής της ενέργειας.
 favorite-path-error-description =

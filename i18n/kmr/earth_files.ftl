@@ -61,7 +61,6 @@ empty-trash-warning = Hêmanên di jêbirdankê de wê bi mayînde werin jêbiri
 other-apps = Bernameyên din
 set-permissions = Maf hatine sazkirin ji bo "{ $name }" bo { $mode }
 quit = Biqedîne
-sort-by-size = Li gorî mezinahiyê rêz bike
 rename = Navê biguhêrîne...
 empty-folder-hidden = Peldanka vala (tiştên veşartî tê de hene)
 keep = Bihêle
@@ -103,7 +102,6 @@ copying =
        *[other] hêman
     } tê jêgirtin ji "{ $from }" bo "{ $to }" ({ $progress })...
 create-new-file = Pelê nû biafrîne
-sort-by-trashed = Li gorî demê rêz bike
 support = Piştgirî
 try-again = Dîsa hewl bide
 eject = Biavêje
@@ -115,7 +113,6 @@ copied =
 open-in-new-window = Di çarçoveyeke nû de veke
 empty-folder = Peldanka vala
 empty-trash = Jêbirdankê vala bike
-sort-by-modified = Li gorî guhertinê rêz bike
 list-directories-first = Pêşî rêgehan lîste bike
 folder-name = Navê peldankê
 browse-store = { $store } bigere
@@ -128,7 +125,6 @@ moving =
         [one] hêman
        *[other] hêman
     } tê livandin ji "{ $from }" bo "{ $to }" ({ $progress })...
-change-wallpaper = Wêneyê dîwêr biguhêrîne...
 network-drive-description =
     Di nav navnîşanên rajekarê de pêşgira protokolekê û navnîşanek heye.
     Mînak: ssh://192.168.0.1, ftp://[2001:db8::1]
@@ -145,7 +141,6 @@ execute-only = Tenê xebitandin
 open-item-location = Cihê hêmanê veke
 type-to-search = Bo lêgerînê binivîse
 set-executable-and-launched = "{ $name }" wekî pelê xebitandinê hat sazkirin û xebitandin
-mounted-drives = Ajokarên siwarkirî
 sort-a-z = A-Z
 mount-error = Nikare bigihêje ajokerê
 extract-here = Derxîne
@@ -158,8 +153,6 @@ sort-z-a = Z-A
 type-to-search-recursive = Di peldank û binpeldankên heyî de digere
 history = Dîrok
 progress-paused = { $percent }%, hate rawestandin
-desktop-view-options = Vebijêrkên dîtina sermaseyê...
-show-on-desktop = Li ser sermaseyê nîşan bide
 cancelled = Têkbirî
 operation-failed-to-start = The file operation could not be started
 new-folder = Peldanka nû...
@@ -170,14 +163,11 @@ operations-running-finished =
         [one] pêvajo
        *[other] pêvajo
     } dixebite ({ $percent }%), { $finished } qediya...
-sort-by-name = Li gorî navê rêz bike
 edit-history = Dîrokê biguhêrînê
 show-hidden-files = Pelên veşartî nîşan bide
 show-type-column = Stûna cûreyê nîşan bide
 progress-failed = { $percent }%, têk çû
-trash-folder-icon = Îkona peldanka jêbirdankê
 extract-to-title = Derxîne bo peldankê
-icon-size = Mezinahiya îkonê
 open-with-title = Tu çawa dixwazî "{ $name }" vekî?
 extracting =
     { $items } { $items ->
@@ -189,7 +179,6 @@ complete = Qediya
 permanently-delete-question = Bi mayînde jê bibe?
 extract-password-required = Borînpeyv pêdivî ye
 pending = Li bendê ye
-desktop-folder-content = Naveroka peldanka sermaseyê
 no-history = Tu hêman di dîrok de tune ne.
 open-folder = Peldankê veke
 emptied-trash = { trash } hate valakirin
@@ -211,11 +200,9 @@ file-name = Navê pelê
 save-file = Pelê tomar bike
 created = "{ $name }" hate afirandin di "{ $parent }" de
 delete-permanently = Bi mayînde jê bibe
-display-settings = Sazkariyên dîmenderê...
 new-tab = Rûgera nû
 failed = Têk çû
 name-invalid = Nav nabe ku \"{ $filename }\" be
-desktop-appearance = Xuyanga sermaseyê...
 comment = Rêveberê pelê
 keywords = Rêveber;Peldank;
 filesystem = Pergala pelê
@@ -294,7 +281,6 @@ restoring =
         [one] hêman
        *[other] hêman
     } ji { trash } ({ $progress })...
-icon-size-and-spacing = Mezinahiya îkonan û valahiya di navbera wan de
 type-to-search-enter-path = Riya rêgehê yan jî pelê têdixîne
 menu-open-with = Veke bi riya...
 original-file = Pelê resen
@@ -311,7 +297,6 @@ item-count = {$count ->
 type = Cûre: { $mime }
 replace-warning = Tu dixwazî bi ya ku tu niha tomar dikî biguhêrînî? Naveroka berê wê were jêbirin.
 show-details = Hûrgiliyan nîşan bide
-grid-spacing = Valahiya torê
 sort-oldest-first = Pêşî ya herî kevn
 repository = Embar
 replace-warning-operation = Tu dixwazî biguherînî? Naveroka berê wê were jêbirin.

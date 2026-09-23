@@ -12,14 +12,6 @@ search-title = Căutare "{$term}": {$name}
 undo = Anulează
 today = Astăzi
 # Desktop view options
-desktop-view-options = Opțiuni de vizualizare desktop...
-show-on-desktop = Afișează pe desktop
-desktop-folder-content = Conținut dosar desktop
-mounted-drives = Unități montate
-trash-folder-icon = Pictogramă coș de gunoi
-icon-size-and-spacing = Dimensiune și spațiere pictograme
-icon-size = Dimensiune pictogramă
-grid-spacing = Spațiere grilă
 # List view
 name = Nume
 modified = Modificat
@@ -360,16 +352,9 @@ open-in-terminal = Deschide în terminal
 move-to-trash = Mută în coș
 restore-from-trash = Recuperează din coș
 remove-from-sidebar = Elimină din bara laterală
-sort-by-name = Sortează după nume
-sort-by-modified = Sortează după modificare
-sort-by-size = Sortează după dimensiune
-sort-by-trashed = Sortează după dată ștergere
 
 ## Desktop
 
-change-wallpaper = Schimbă fundalul...
-desktop-appearance = Aspect desktop...
-display-settings = Setări ecran...
 
 # Menu
 

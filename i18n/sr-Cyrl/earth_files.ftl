@@ -68,13 +68,6 @@ skip = Прескочи
 recents = Скорије
 undo = Поништи промену
 today = Данас
-desktop-view-options = Опције изгледа радне површине...
-show-on-desktop = Покажи на радној површини
-desktop-folder-content = Садржај директоријума радне површине
-mounted-drives = Приључена складишта података
-trash-folder-icon = Иконица корпе са отпаткама
-icon-size-and-spacing = Величина иконице и размак
-icon-size = Величина иконице
 
 close = Затвори
 

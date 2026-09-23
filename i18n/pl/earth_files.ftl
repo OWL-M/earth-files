@@ -14,14 +14,6 @@ search-title = Szukaj "{$term}": {$name}
 undo = Cofnij
 today = Dzisiaj
 # Desktop view options
-desktop-view-options = Opcje widoku pulpitu…
-show-on-desktop = Pokaż na Pulpicie
-desktop-folder-content = Zawartość katalogu Pulpit
-mounted-drives = Podpięte dyski
-trash-folder-icon = Ikona kosza
-icon-size-and-spacing = Rozmiar i rozstaw ikon
-icon-size = Rozmiar ikon
-grid-spacing = Rozstaw siatki
 # List view
 name = Nazwa
 modified = Zmodyfikowano
@@ -391,17 +383,10 @@ open-in-terminal = Otwórz w terminalu
 move-to-trash = Przenieś do kosza
 restore-from-trash = Przywróć z kosza
 remove-from-sidebar = Usuń z bocznego panelu
-sort-by-name = Uszereguj według nazwy
-sort-by-modified = Uszereguj według czasu modyfikacji
-sort-by-size = Uszereguj według rozmiaru
-sort-by-trashed = Uszereguj według czasu usunięcia
 remove-from-recents = Usuń z poprzednich
 
 ## Desktop
 
-change-wallpaper = Zmień tapetę…
-desktop-appearance = Wygląd pulpitu…
-display-settings = Ustawienia wyświetlacza…
 
 # Menu
 

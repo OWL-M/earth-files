@@ -12,13 +12,6 @@ search-title = ค้นหา "{$term}": {$name}
 undo = เลิกทำ
 today = วันนี้
 # Desktop view options
-desktop-view-options = ตัวเลือกมุมมองหน้าจอหลัก...
-show-on-desktop = แสดงบนหน้าจอหลัก
-desktop-folder-content = เนื้อหาแฟ้มหน้าจอหลัก
-mounted-drives = ไดร์ฟที่ใช้งานได้
-trash-folder-icon = ไอคอนแฟ้มถังขยะ
-icon-size-and-spacing = ขนาดและระยะห่างไอคอน
-icon-size = ขนาดไอคอน
 # List view
 name = ชื่อ
 modified = แก้ไขล่าสุด
@@ -277,16 +270,9 @@ open-in-terminal = เปิดในเทอร์มินัล
 move-to-trash = ย้ายไปถังขยะ
 restore-from-trash = เรียกคืนจากถังขยะ
 remove-from-sidebar = นำออกจากแถบด้านข้าง
-sort-by-name = เรียงตามชื่อ
-sort-by-modified = เรียงตามเวลาแก้ไขล่าสุด
-sort-by-size = เรียงตามขนาด
-sort-by-trashed = เรียงตามเวลาลบ
 
 ## Desktop
 
-change-wallpaper = เปลี่ยนภาพพื้นหลัง...
-desktop-appearance = ลักษณะหน้าจอหลัก...
-display-settings = การตั้งค่าหน้าจอแสดงผล...
 
 # Menu
 

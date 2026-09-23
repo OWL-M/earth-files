@@ -12,14 +12,6 @@ search-title = Recherche "{$term}" : {$name}
 undo = Annuler
 today = Aujourd'hui
 # Desktop view options
-desktop-view-options = Options d'affichage du bureau...
-show-on-desktop = Afficher sur le bureau
-desktop-folder-content = Contenu du dossier du bureau
-mounted-drives = Lecteurs montés
-trash-folder-icon = Icône du dossier Corbeille
-icon-size-and-spacing = Taille et espacement des icônes
-icon-size = Taille des icônes
-grid-spacing = Espacement de la grille
 # List view
 name = Nom
 modified = Modifié
@@ -368,16 +360,9 @@ open-in-terminal = Ouvrir dans le terminal
 move-to-trash = Déplacer vers la corbeille
 restore-from-trash = Restaurer depuis la corbeille
 remove-from-sidebar = Retirer de la barre latérale
-sort-by-name = Trier par nom
-sort-by-modified = Trier par date de modification
-sort-by-size = Trier par taille
-sort-by-trashed = Trier par date de suppression
 
 ## Desktop
 
-change-wallpaper = Changer le fond d'écran...
-desktop-appearance = Apparence du bureau...
-display-settings = Paramètres d'affichage...
 
 # Menu
 

@@ -12,14 +12,6 @@ search-title = Търсене "{$term}": {$name}
 undo = Отменяне
 today = Днес
 # Desktop view options
-desktop-view-options = Опции за изглед на работния плот...
-show-on-desktop = Покажи на работния плот
-desktop-folder-content = Съдържание на папката на работния плот
-mounted-drives = Монтирани устройства
-trash-folder-icon = Иконка на кошчето
-icon-size-and-spacing = Размер и разстояние между иконките
-icon-size = Размер
-grid-spacing = Разстояние
 # List view
 name = Име
 modified = Променян
@@ -401,17 +393,10 @@ open-in-terminal = Отваряне в терминала
 move-to-trash = Преместване в кошчето
 restore-from-trash = Възстановяване от кошчето
 remove-from-sidebar = Премахване от стр. лента
-sort-by-name = Подреждане по име
-sort-by-modified = Подреждане по дата на променяне
-sort-by-size = Подреждане по размер
-sort-by-trashed = Подреждане по дата на изтриване
 remove-from-recents = Премахване от скорошни
 
 ## Desktop
 
-change-wallpaper = Променяне на фона...
-desktop-appearance = Външен вид на работния плот...
-display-settings = Настройки на екрана...
 
 # Menu
 

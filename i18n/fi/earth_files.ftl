@@ -14,13 +14,6 @@ today = Tänään
 
 # Desktop view options
 
-desktop-view-options = Työpöytänäkymän asetukset…
-show-on-desktop = Näytä työpöydällä
-desktop-folder-content = Työpöytäkansion sisältö
-mounted-drives = Liitetyt asemat
-trash-folder-icon = Roskakorikansion kuvake
-icon-size-and-spacing = Kuvakkeen koko ja välistys
-icon-size = Kuvakkeen koko
 
 # List view
 
@@ -256,16 +249,9 @@ open-in-terminal = Avaa päätteessä
 move-to-trash = Siirrä roskakoriin
 restore-from-trash = Palauta roskakorista
 remove-from-sidebar = Poista sivupalkista
-sort-by-name = Järjestä nimen mukaan
-sort-by-modified = Järjestä muokkausajan mukaan
-sort-by-size = Järjestä koon mukaan
-sort-by-trashed = Järjestä poistamisajan mukaan
 
 ## Desktop
 
-change-wallpaper = Vaihda taustakuvaa…
-desktop-appearance = Työpöydän ulkoasu…
-display-settings = Näytön asetukset…
 
 # Menu
 
@@ -371,7 +357,6 @@ show-recents = Viimeaikaisten kansio sivupalkissa
 copy-to = Kopioi…
 move-to = Siirrä…
 details = Yksityiskohdat
-grid-spacing = Ruudukkovälit
 none = Ei mitään
 favorite-path-error = Virhe avattaessa kansiota
 favorite-path-error-description =

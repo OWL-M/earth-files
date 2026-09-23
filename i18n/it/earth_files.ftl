@@ -14,14 +14,6 @@ search-title = Cerca "{$term}": {$name}
 undo = Annulla
 today = Oggi
 # Desktop view options
-desktop-view-options = Impostazioni visualizzazione Desktop...
-show-on-desktop = Mostra sul Desktop
-desktop-folder-content = Contenuto cartella del Desktop
-mounted-drives = Dispositivi montati
-trash-folder-icon = Icona del cestino
-icon-size-and-spacing = Dimensioni e spaziatura icona
-icon-size = Dimensione icona
-grid-spacing = Spaziatura griglia
 # List view
 name = Nome
 modified = Modificato
@@ -380,17 +372,10 @@ open-in-terminal = Apri nel terminale
 move-to-trash = Sposta nel cestino
 restore-from-trash = Ripristina dal cestino
 remove-from-sidebar = Rimuovi dalla barra laterale
-sort-by-name = Ordina per nome
-sort-by-modified = Ordina per data di modifica
-sort-by-size = Ordina per dimensione
-sort-by-trashed = Ordina per data di eliminazione
 remove-from-recents = Rimuovi da recenti
 
 ## Desktop
 
-change-wallpaper = Modifica sfondo...
-desktop-appearance = Aspetto del Desktop...
-display-settings = Impostazioni del display...
 
 # Menu
 

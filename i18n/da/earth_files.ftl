@@ -12,13 +12,6 @@ search-title = Søg "{$term}": {$name}
 undo = Fortryd
 today = I dag
 # Desktop view options
-desktop-view-options = Valgmuligheder for skrivebordsvisning...
-show-on-desktop = Vis på Skrivebord
-desktop-folder-content = Skrivebords-mappeindhold
-mounted-drives = Monterede drev
-trash-folder-icon = Papirkurv-ikon
-icon-size-and-spacing = Ikonstørrelse og -afstand
-icon-size = Ikonstørrelse
 # List view
 name = Navn
 modified = Ændret
@@ -281,16 +274,9 @@ open-in-terminal = Åbn i terminal
 move-to-trash = Flyt til skraldespand
 restore-from-trash = Genopret fra skraldespand
 remove-from-sidebar = Fjern fra sidebjælke
-sort-by-name = Sortér efter navn
-sort-by-modified = Sortér efter ændret
-sort-by-size = Sortér efter størrelse
-sort-by-trashed = Sortér efter sletningsdato
 
 ## Desktop
 
-change-wallpaper = Skift baggrundsbillede...
-desktop-appearance = Skrivebordsudseende...
-display-settings = Skærmindstillinger...
 
 # Menu
 
@@ -343,7 +329,6 @@ sort-type-z-a = Type Z-A
 delete = Slet
 run = Kør
 repository = Pakkearkiv
-grid-spacing = Gitter-afstand
 extract-password-required = Adgangskode påkrævet
 extract-as-folder = Udpak til mappe
 extract-to = Udpak Til...

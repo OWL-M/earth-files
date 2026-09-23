@@ -12,14 +12,6 @@ search-title = Zoeken "{$term}": {$name}
 undo = Ongedaan maken
 today = Vandaag
 # Desktop view options
-desktop-view-options = Opties voor bureaubladweergave…
-show-on-desktop = Op bureaublad weergeven
-desktop-folder-content = Bestanden in de Bureablad-map
-mounted-drives = Aangekoppelde schijven
-trash-folder-icon = Pictogram van de Prullenbak-map
-icon-size-and-spacing = Pictogramgrootte en -afstand
-icon-size = Pictogramgrootte
-grid-spacing = Rasterafstand
 # List view
 name = Naam
 modified = Gewijzigd
@@ -387,16 +379,9 @@ open-in-terminal = In terminal openen
 move-to-trash = Naar prullenbak verplaatsen
 restore-from-trash = Uit prullenbak terugzetten
 remove-from-sidebar = Favoriet uit zijbalk verwijderen
-sort-by-name = Sorteren op naam
-sort-by-modified = Sorteren op laatst bewerkt
-sort-by-size = Sorteren op grootte
-sort-by-trashed = Sorteren op tijdstip van verwijderen
 
 ## Desktop
 
-change-wallpaper = Schermachtergrond wijzigen...
-desktop-appearance = Uiterlijk van het bureaublad…
-display-settings = Beeldschermbeheer...
 
 # Menu
 

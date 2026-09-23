@@ -12,13 +12,6 @@ search-title = Buscar "{$term}": {$name}
 undo = Deshacer
 today = Hoy
 # Desktop view options
-desktop-view-options = Opciones de vista del escritorio...
-show-on-desktop = Mostrar en el escritorio
-desktop-folder-content = Contenido de la carpeta del escritorio
-mounted-drives = Unidades montadas
-trash-folder-icon = Icono de la papelera
-icon-size-and-spacing = Tamaño y espaciado de los iconos
-icon-size = Tamaño del icono
 # List view
 name = Nombre
 modified = Modificado
@@ -261,16 +254,9 @@ open-in-terminal = Abrir en una terminal
 move-to-trash = Mover a la papelera
 restore-from-trash = Restaurar de la papelera
 remove-from-sidebar = Quitar de la barra lateral
-sort-by-name = Ordenar por nombre
-sort-by-modified = Ordenar por modificado
-sort-by-size = Ordenar por tamaño
-sort-by-trashed = Ordenar por fecha de eliminación
 
 ## Desktop
 
-change-wallpaper = Cambiar fondo de pantalla...
-desktop-appearance = Apariencia del escritorio...
-display-settings = Configuración de pantalla...
 
 # Menu
 
@@ -327,7 +313,6 @@ dismiss = Descartar mensaje
 remove = Eliminar
 cancelled = Canceladas
 operation-failed-to-start = The file operation could not be started
-grid-spacing = Espaciado de cuadrícula
 operations-running =
     { $running ->
         [one] Operación de { $running }

@@ -14,14 +14,6 @@ search-title = Buscar "{$term}": {$name}
 undo = Deshacer
 today = Hoy
 # Desktop view options
-desktop-view-options = Opciones de vista del escritorio...
-show-on-desktop = Mostrar en el escritorio
-desktop-folder-content = Contenido de la carpeta del escritorio
-mounted-drives = Unidades montadas
-trash-folder-icon = Icono de la papelera
-icon-size-and-spacing = Tamaño y espaciado de los iconos
-icon-size = Tamaño del icono
-grid-spacing = Espaciado de la cuadrícula
 # List view
 name = Nombre
 modified = Modificado
@@ -390,17 +382,10 @@ open-in-terminal = Abrir en la consola
 move-to-trash = Mover a la papelera
 restore-from-trash = Restaurar de la papelera
 remove-from-sidebar = Quitar de la barra lateral
-sort-by-name = Ordenar por nombre
-sort-by-modified = Ordenar por fecha de modificación
-sort-by-size = Ordenar por tamaño
-sort-by-trashed = Ordenar por fecha de eliminación
 remove-from-recents = Quitar de recientes
 
 ## Desktop
 
-change-wallpaper = Cambiar fondo de pantalla...
-desktop-appearance = Apariencia del escritorio...
-display-settings = Configuración de pantalla...
 
 # Menu
 

@@ -217,10 +217,6 @@ open-in-terminal = Открыть в терминале
 move-to-trash = Переместить в корзину
 restore-from-trash = Восстановить из корзины
 remove-from-sidebar = Убрать с боковой панели
-sort-by-name = Сорт. по имени
-sort-by-modified = Сорт. по дате изменения
-sort-by-size = Сорт. по размеру
-sort-by-trashed = Сорт. по дате удаления
 
 # Menu
 
@@ -276,14 +272,6 @@ operation-failed-to-start = The file operation could not be started
 details = Сведения
 dismiss = Скрыть сообщение
 remove = Убрать
-desktop-view-options = Параметры вида рабочего стола…
-show-on-desktop = Показывать на рабочем столе
-desktop-folder-content = Содержимое папки рабочего стола
-mounted-drives = Подключённые диски
-trash-folder-icon = Значок папки корзины
-icon-size-and-spacing = Размер и отступы значков
-icon-size = Размер значка
-grid-spacing = Отступ по сетке
 pause = Приостановить
 resume = Продолжить
 extract-password-required = Требуется пароль
@@ -350,9 +338,6 @@ type-to-search-enter-path = Ввод пути к каталогу или фай�
 delete-permanently = Удалить навсегда
 eject = Извлечь
 remove-from-recents = Убрать из недавних
-change-wallpaper = Изменить фон...
-desktop-appearance = Параметры оформления…
-display-settings = Параметры экрана…
 reload-folder = Обновить папку
 gallery-preview = Галерея предпросмотра
 operations-running =

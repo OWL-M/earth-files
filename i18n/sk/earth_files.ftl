@@ -14,14 +14,6 @@ search-title = Hľadať "{$term}": {$name}
 undo = Späť
 today = Dnes
 # Desktop view options
-desktop-view-options = Možnosti zobrazenia pracovnej plochy...
-show-on-desktop = Zobraziť na pracovnej ploche
-desktop-folder-content = Obsah priečinka Pracovná plocha
-mounted-drives = Pripojené disky
-trash-folder-icon = Ikona priečinka Kôš
-icon-size-and-spacing = Veľkosť ikon a rozostupy
-icon-size = Veľkosť ikon
-grid-spacing = Rozostupy mriežky
 # List view
 name = Názov
 modified = Upravené
@@ -439,17 +431,10 @@ open-in-terminal = Otvoriť v termináli
 move-to-trash = Presunúť do koša
 restore-from-trash = Obnoviť z koša
 remove-from-sidebar = Odstrániť z bočného panela
-sort-by-name = Zoradiť podľa názvu
-sort-by-modified = Zoradiť podľa úpravy
-sort-by-size = Zoradiť podľa veľkosti
-sort-by-trashed = Zoradiť podľa času odstránenia
 remove-from-recents = Odstrániť z nedávnych
 
 ## Desktop
 
-change-wallpaper = Zmeniť tapetu...
-desktop-appearance = Vzhľad pracovnej plochy...
-display-settings = Nastavenia zobrazenia...
 
 # Menu
 

@@ -13,14 +13,6 @@ recents = Senaste
 search-title = Sök "{$term}": {$name}
 undo = Ångra
 today = Idag
-# Skrivbordsvyalternativ
-desktop-view-options = Skrivbordsvyalternativ...
-show-on-desktop = Visa på skrivbord
-desktop-folder-content = Skrivbordsmappinnehåll
-mounted-drives = Monterade enheter
-trash-folder-icon = Ikon för papperskorgen
-icon-size-and-spacing = Ikonstorlek och mellanrum
-icon-size = Ikonstorlek
 
 # Dialogruta
 
@@ -298,16 +290,9 @@ open-in-terminal = Öppna i terminal
 move-to-trash = Flytta till papperskorg
 restore-from-trash = Återställ från papperskorgen
 remove-from-sidebar = Ta bort från sidofält
-sort-by-name = Sortera efter namn
-sort-by-modified = Sortera efter senast ändrad
-sort-by-size = Sortera efter storlek
-sort-by-trashed = Sortera efter borttagningstid
 
 ## Skrivbord
 
-change-wallpaper = Byt bakgrund...
-desktop-appearance = Skrivbordsutseende...
-display-settings = Skärminställningar...
 
 # Meny
 
@@ -360,7 +345,6 @@ sort-type-z-a = Typ Ö-A
 remove = Ta bort
 repository = Källkod
 support = Support
-grid-spacing = Rutnätsmellanrum
 extract-password-required = Lösenord krävs
 extract-as-folder = Packa upp till mapp
 extract-to = Packa upp till...

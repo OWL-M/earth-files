@@ -12,13 +12,6 @@ search-title = Ara "{$term}": {$name}
 undo = Geri al
 today = Bugün
 # Desktop view options
-desktop-view-options = Masaüstü görünüm seçenekleri...
-show-on-desktop = Masaüstünde göster
-desktop-folder-content = Masaüstü klasörü içeriği
-mounted-drives = Bağlı sürücüler
-trash-folder-icon = Çöp klasörü simgesi
-icon-size-and-spacing = Simge boyutu ve boşluğu
-icon-size = Simge boyutu
 # List view
 name = Ad
 modified = Değiştirildi
@@ -296,16 +289,9 @@ open-in-terminal = Uçbirimde aç
 move-to-trash = Çöpe taşı
 restore-from-trash = Çöpten geri yükle
 remove-from-sidebar = Kenar çubuğundan kaldır
-sort-by-name = Ada göre sırala
-sort-by-modified = Düzenlenme tarihine göre sırala
-sort-by-size = Boyuta göre sırala
-sort-by-trashed = Silme tarihine göre sırala
 
 ## Desktop
 
-change-wallpaper = Arka planı değiştir...
-desktop-appearance = Masaüstü görünümü...
-display-settings = Görüntü ayarları...
 
 # Menu
 
@@ -358,7 +344,6 @@ sort-type-z-a = Tür Z-A
 repository = Depo
 support = Destek
 remove = Kaldır
-grid-spacing = Izgara aralığı
 extract-password-required = Parola gerekli
 extract-as-folder = Klasöre Çıkar
 extract-to = Buraya Çıkar…

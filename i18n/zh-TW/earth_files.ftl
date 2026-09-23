@@ -218,9 +218,6 @@ open-in-terminal = 在終端機中開啟
 move-to-trash = 丟入垃圾桶
 restore-from-trash = 從垃圾桶還原
 remove-from-sidebar = 從側邊欄移除
-sort-by-name = 依名稱排序
-sort-by-modified = 依修改日期排序
-sort-by-size = 依大小排序
 
 # Menu
 
@@ -300,15 +297,7 @@ removed-from-recents =
        *[other] 項目
     }
 repository = 軟體庫
-desktop-view-options = 桌面檢視選項...
-show-on-desktop = 顯示在桌面
-desktop-folder-content = 桌面資料夾內容
-mounted-drives = 已經掛載的磁碟機
-trash-folder-icon = 垃圾桶圖示
 trashed-on = 丟入時間
-icon-size-and-spacing = 圖示大小與間距
-icon-size = 圖示大小
-grid-spacing = 網格間距
 details = 詳細資訊
 dismiss = 關閉訊息
 delete = 刪除
@@ -376,7 +365,6 @@ comment = 檔案管理器
 pasted-image = 已經貼上的圖片
 pasted-text = 已經貼上的文字
 pasted-video = 已經貼上的影片
-sort-by-trashed = 依丟入時間排序
 calculating = 計算中...
 single-click = 點按以開啟
 type-to-search = 輸入進行搜尋
@@ -385,9 +373,6 @@ type-to-search-enter-path = 輸入目錄或檔案的目錄
 delete-permanently = 永久刪除
 eject = 彈出
 remove-from-recents = 從最近項目中移除
-change-wallpaper = 變更桌布...
-desktop-appearance = 桌面外觀...
-display-settings = 顯示設定...
 reload-folder = 重新載入資料夾
 gallery-preview = 圖庫預覽
 type = 類型：{ $mime }

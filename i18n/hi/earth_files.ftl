@@ -12,13 +12,6 @@ search-title = खोज "{$term}": {$name}
 undo = पूर्ववत करें
 today = आज
 # Desktop view options
-desktop-view-options = डेस्कटॉप दृश्य विकल्प...
-show-on-desktop = डेस्कटॉप पर दिखाएं
-desktop-folder-content = डेस्कटॉप फ़ोल्डर सामग्री
-mounted-drives = माउंट किए गए ड्राइव
-trash-folder-icon = कचरा फ़ोल्डर आइकन
-icon-size-and-spacing = आइकन आकार और अंतर
-icon-size = आइकन आकार
 # List view
 name = नाम
 modified = संशोधित तिथि
@@ -250,16 +243,9 @@ open-in-terminal = टर्मिनल में खोलें
 move-to-trash = कचरे में भेजें
 restore-from-trash = कचरे से पुनर्स्थापित करें
 remove-from-sidebar = साइडबार से निकालें
-sort-by-name = नाम से क्रमबद्ध करें
-sort-by-modified = संशोधित तिथि द्वारा क्रमबद्ध करें
-sort-by-size = आकार द्वारा क्रमबद्ध करें
-sort-by-trashed = कचरे में डालने की तिथि द्वारा क्रमबद्ध करें
 
 ## Desktop
 
-change-wallpaper = वॉलपेपर बदलें...
-desktop-appearance = डेस्कटॉप रूप...
-display-settings = डिस्प्ले सेटिंग्स...
 
 # Menu
 
@@ -338,7 +324,6 @@ permanently-deleting =
 read-write = पढ़ें और लिखें
 none = कोई नहीं
 resume = फिर से शुरू करें
-grid-spacing = ग्रिड स्पेसिंग
 extract-as-folder = फ़ोल्डर में निकालें
 extract-to = इस रूप में निकालें..।
 delete = हटाएं

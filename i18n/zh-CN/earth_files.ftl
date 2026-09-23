@@ -12,14 +12,6 @@ search-title = 搜索 "{$term}": {$name}
 undo = 撤销
 today = 今天
 # Desktop view options
-desktop-view-options = 桌面视图选项…
-show-on-desktop = 在桌面显示
-desktop-folder-content = 桌面文件夹内容
-mounted-drives = 已装载驱动器
-trash-folder-icon = 回收站图标
-icon-size-and-spacing = 图标大小与间距
-icon-size = 图标大小
-grid-spacing = 网格间距
 # List view
 name = 名称
 modified = 修改时间
@@ -382,17 +374,10 @@ open-in-terminal = 在终端模拟器中打开
 move-to-trash = 移动到回收站
 restore-from-trash = 从回收站中还原
 remove-from-sidebar = 从侧边栏中移除
-sort-by-name = 按名称排序
-sort-by-modified = 按修改时间排序
-sort-by-size = 按文件大小排序
-sort-by-trashed = 按删除时间排序
 remove-from-recents = 从最近访问中移除
 
 ## Desktop
 
-change-wallpaper = 更改壁纸…
-desktop-appearance = 桌面外观…
-display-settings = 显示设置…
 
 # Menu
 

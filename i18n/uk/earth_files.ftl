@@ -157,9 +157,6 @@ open-in-terminal = Відкрити у терміналі
 move-to-trash = Пересунути до смітника
 restore-from-trash = Відновити зі смітника
 remove-from-sidebar = Вилучити з бічної панелі
-sort-by-name = Упорядкувати за назвою
-sort-by-modified = Упорядкувати за зміною
-sort-by-size = Упорядкувати за розміром
 
 # Menu
 
@@ -207,14 +204,6 @@ no-results = Нічого не знайдено
 networks = Мережі
 notification-in-progress = Триває обробка файлів
 today = Сьогодні
-desktop-view-options = Параметри вигляду стільниці...
-show-on-desktop = Показувати на стільниці
-desktop-folder-content = Вміст теки Стільниця
-mounted-drives = Змонтовані диски
-trash-folder-icon = Піктограма Смітника
-icon-size-and-spacing = Розмір піктограм і відстань між ними
-icon-size = Розмір піктограм
-grid-spacing = Відстань між піктограмами
 trashed-on = У смітнику
 operations-running =
     { $running } { $running ->
@@ -354,11 +343,7 @@ compress = Стиснути...
 delete-permanently = Остаточно видалити
 eject = Безпечно вилучити
 extract-here = Видобути
-sort-by-trashed = Упорядкувати за часом видалення
 remove-from-recents = Вилучити з нещодавніх
-change-wallpaper = Змінити зображення тла...
-desktop-appearance = Вигляд стільниці...
-display-settings = Налаштування дисплея...
 reload-folder = Оновити теку
 gallery-preview = Попередній перегляд галереї
 sort = Упорядкувати

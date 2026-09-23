@@ -12,13 +12,6 @@ search-title = ಹುಡುಕಾಟ "{$term}": {$name}
 undo = ಹಿಂತಿರುಗಿಸು
 today = ಇಂದು
 # Desktop view options
-desktop-view-options = ಡೆಸ್ಕ್‌ಟಾಪ್ ವೀಕ್ಷಣೆಯ ಆಯ್ಕೆಗಳು...
-show-on-desktop = ಡೆಸ್ಕ್‌ಟಾಪ್‌ನಲ್ಲಿ ತೋರಿಸಿ
-desktop-folder-content = ಡೆಸ್ಕ್‌ಟಾಪ್ ಫೋಲ್ಡರ್ ವಿಷಯ
-mounted-drives = ಮೌಂಟ್ ಮಾಡಿರುವ ಡ್ರೈವ್‌ಗಳು
-trash-folder-icon = ಕಸದ ಫೋಲ್ಡರ್ ಐಕಾನ್
-icon-size-and-spacing = ಐಕಾನ್ ಗಾತ್ರ ಮತ್ತು ಅಂತರ
-icon-size = ಐಕಾನ್ ಗಾತ್ರ
 # List view
 name = ಹೆಸರು
 modified = ಮಾರ್ಪಡಿಸಿದ ದಿನಾಂಕ
@@ -267,16 +260,9 @@ open-in-terminal = ಟರ್ಮಿನಲ್‌ನಲ್ಲಿ ತೆರೆಯಿ
 move-to-trash = ಕಸಕ್ಕೆ ಸರಿಸಿ
 restore-from-trash = ಕಸದಿಂದ ಮರುಸ್ಥಾಪಿಸಿ
 remove-from-sidebar = ಸೈಡ್‌ಬಾರ್‌ನಿಂದ ತೆಗೆಯಿರಿ
-sort-by-name = ಹೆಸರಿನಿಂದ ವಿಂಗಡಿಸಿ
-sort-by-modified = ತಿದ್ದುಪಡಿ ಮಾಡಿದ ದಿನಾಂಕದಿಂದ ವಿಂಗಡಿಸಿ
-sort-by-size = ಗಾತ್ರದಿಂದ ವಿಂಗಡಿಸಿ
-sort-by-trashed = ಅಳಿಸಿದ ದಿನಾಂಕದಿಂದ ವಿಂಗಡಿಸಿ
 
 ## Desktop
 
-change-wallpaper = ವಾಲ್‌ಪೇಪರ್ ಬದಲಾಯಿಸಿ...
-desktop-appearance = ಡೆಸ್ಕ್‌ಟಾಪ್ ಕಾಣಿಕೆ...
-display-settings = ಡಿಸ್ಪ್ಲೇ ಸೆಟ್ಟಿಂಗ್‌ಗಳು...
 
 # Menu
 

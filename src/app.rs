@@ -115,9 +115,6 @@ pub enum Action {
     CopyPath,
     CopyTo,
     Cut,
-    CosmicSettingsDesktop,
-    CosmicSettingsDisplays,
-    CosmicSettingsWallpaper,
     Delete,
     EditHistory,
     EditLocation,
@@ -190,9 +187,6 @@ impl Action {
             Self::CopyPath => Message::CopyPath(entity_opt),
             Self::CopyTo => Message::CopyTo(entity_opt),
             Self::Cut => Message::Cut(entity_opt),
-            Self::CosmicSettingsDesktop => Message::CosmicSettings("desktop"),
-            Self::CosmicSettingsDisplays => Message::CosmicSettings("displays"),
-            Self::CosmicSettingsWallpaper => Message::CosmicSettings("wallpaper"),
             Self::Delete => Message::Delete(entity_opt),
             Self::EditHistory => Message::ToggleContextPage(ContextPage::EditHistory),
             Self::EditLocation => Message::TabMessage(entity_opt, tab::Message::EditLocationEnable),
@@ -325,7 +319,6 @@ pub enum Message {
     CopyPath(Option<Entity>),
     CopyTo(Option<Entity>),
     CopyToResult(DialogResult),
-    CosmicSettings(&'static str),
     Cut(Option<Entity>),
     Delete(Option<Entity>),
     DesktopDialogs(bool),
@@ -3482,16 +3475,6 @@ impl Application for App {
                     return self.update(Message::CancelOpening(request));
                 }
                 self.toasts.remove(id);
-            }
-            Message::CosmicSettings(arg) => {
-                let mut command = process::Command::new("cosmic-settings");
-                command.arg(arg);
-                match spawn_detached(&mut command) {
-                    Ok(()) => {}
-                    Err(err) => {
-                        log::warn!("failed to run cosmic-settings {arg}: {err}");
-                    }
-                }
             }
             Message::Delete(entity_opt) => {
                 let entity = entity_opt.unwrap_or_else(|| self.tab_model.active());
