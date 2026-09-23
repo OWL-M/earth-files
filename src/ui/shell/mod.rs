@@ -125,6 +125,14 @@ where
         Task::none()
     }
 
+    /// Whether the main content can follow a drawer slide by moving its
+    /// list columns alone, `extent` being the width the drawer takes and
+    /// `opening` which way it goes. See `crate::ui::shell::drawer_slide`.
+    fn drawer_slide_fits_columns(&self, extent: f32, opening: bool) -> bool {
+        let _ = (extent, opening);
+        false
+    }
+
     /// Called when the escape key is pressed.
     fn on_escape(&mut self) -> Task<Self::Message> {
         Task::none()

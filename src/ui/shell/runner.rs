@@ -387,10 +387,33 @@ impl<App: Application> Shell<App> {
             task = self.drain_text_context_popups(task);
         }
 
+        self.sync_drawer_slide();
+
         #[cfg(all(target_env = "gnu", not(target_os = "windows")))]
         super::malloc::trim(0);
 
         task
+    }
+
+    /// Starts, turns round or latches the drawer's slide from
+    /// `show_context`, which several sites write directly.
+    fn sync_drawer_slide(&mut self) {
+        self.app.core_mut().is_condensed_update();
+        let core = self.app.core();
+        let shown = core.window.show_context;
+        let condensed = core.is_condensed();
+        let (extent, columns_fit) = if core.drawer_slide.starts_slide(shown) {
+            let extent = core.drawer_extent(self.app.nav_bar().is_some());
+            let columns_fit = !core.window.context_is_overlay
+                && self.app.drawer_slide_fits_columns(extent, shown);
+            (extent, columns_fit)
+        } else {
+            (0.0, false)
+        };
+        self.app
+            .core_mut()
+            .drawer_slide
+            .sync(shown, condensed, extent, columns_fit);
     }
 
     /// Drain the text context-menu popup queues.
@@ -604,6 +627,10 @@ impl<App: Application> Shell<App> {
                 // drops the view and the animation state.
                 return iced::Task::done(crate::ui::action::exwl::remove_window(id));
             }
+
+            // Nothing to do: the update itself is what rebuilds the view,
+            // which now lays the drawer out at rest.
+            Action::DrawerSlideSettled => {}
 
             Action::ToggleNavBar => {
                 self.app.core_mut().nav_bar_toggle();

@@ -43,6 +43,8 @@ pub enum Action {
     NavBarResizeEnd,
     /// A popup has finished collapsing and its surface can go.
     PopupExitFinished(window::Id),
+    /// The context drawer's slide has come to rest; rebuild the layout.
+    DrawerSlideSettled,
     /// A new window was opened.
     Opened(window::Id),
     /// Set scaling factor.
