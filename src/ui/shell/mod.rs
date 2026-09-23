@@ -189,7 +189,7 @@ where
         use crate::ui::app::Action;
         use crate::ui::iced::Length;
         use crate::ui::shell::drawer_slide::SlidePath;
-        use crate::ui::widget::{container, id_container, space};
+        use crate::ui::widget::{container, id_container};
         use crate::ui::{Apply, widget};
 
         let core = self.core();
@@ -219,7 +219,7 @@ where
         // is still full width; see `drawer_slide`.
         let drawer_inline = show_context && !(sliding && slide.path() == SlidePath::Columns);
         let on_settled = crate::ui::Action::Cosmic(Action::DrawerSlideSettled);
-        let mut floating_drawer = None;
+        let mut drawer_layer = None;
 
         let main_content_padding = if content_container {
             let right_padding = if drawer_inline { 0 } else { border_padding };
@@ -330,19 +330,17 @@ where
                             context_width,
                         )
                         .map(crate::ui::Action::App);
-                        if sliding {
-                            // Only the drawer is wrapped, so the content's
-                            // tree keeps its shape when an opening ends; at
-                            // the end of a close the content leaves
-                            // `ContextDrawer`, as it always did.
-                            //
-                            // Known limitation, not reached while the apps
-                            // set `context_is_overlay = false`:
-                            // `context_drawer::overlay` clips the drawer to
-                            // its own bounds, 8px in from the window edge,
-                            // so the last 8px of the slide are cut.
-                            drawer = drawer.slide(|drawer| slide.translated(drawer));
-                        }
+                        // Wrapped whether or not it slides, so it keeps its
+                        // place in the tree, and so its state, when a slide
+                        // starts or ends. At the end of a close the content
+                        // leaves `ContextDrawer`, as it always did.
+                        //
+                        // Known limitation, not reached while the apps set
+                        // `context_is_overlay = false`:
+                        // `context_drawer::overlay` clips the drawer to its
+                        // own bounds, 8px in from the window edge, so the
+                        // last 8px of the slide are cut.
+                        drawer = drawer.slide(|drawer| slide.translated(drawer));
                         widgets.push(
                             drawer
                                 .apply(|drawer| {
@@ -402,42 +400,35 @@ where
                         )
                         .apply(Element::from)
                     });
-                    match drawer {
-                        Some(drawer) if drawer_inline => widgets.push(if sliding {
-                            slide.translated(drawer)
+                    // The drawer lives in the stack layer above this row
+                    // whether it is inline or floating, so it keeps its
+                    // place in the tree, and its state, through a slide. The
+                    // row only keeps its width free when it is inline.
+                    let slot_width = context_width
+                        + if content_container {
+                            2.0 * f32::from(border_padding)
                         } else {
-                            drawer
-                        }),
-                        Some(drawer) => {
-                            // Only reached while sliding: at rest a built
-                            // drawer is always inline.
-                            floating_drawer = Some(slide.translated(drawer));
-                            // Keeps the widget tree shape stable
-                            widgets.push(space::horizontal().width(Length::Shrink).into());
-                        }
-                        // Keeps the widget tree shape stable when there is no drawer
-                        None => widgets.push(space::horizontal().width(Length::Shrink).into()),
-                    }
+                            0.0
+                        };
+                    let (slot, layer) = slide.place(drawer, drawer_inline, slot_width);
+                    widgets.push(slot);
+                    drawer_layer = Some(layer);
                 }
             }
 
             widgets
         });
 
-        // Always a two-layer stack, so a drawer floating mid-slide never
-        // changes the shape of the tree above the main content. The second
-        // layer carries the slide's one settle watcher, always, in the root
-        // tree under the host; see `DrawerSlide::watch`.
+        // Always a two-layer stack, so the drawer's layer never changes the
+        // shape of the tree above the main content. The second layer holds
+        // the inline drawer (see `DrawerSlide::place`) and the slide's one
+        // settle watcher, always, in the root tree under the host; see
+        // `DrawerSlide::watch`.
         let content_row = widget::Stack::with_children(vec![
             content_row.into(),
             slide.watch(
                 on_settled,
-                widget::Row::with_children(vec![
-                    space::horizontal().width(Length::Fill).into(),
-                    floating_drawer
-                        .unwrap_or_else(|| space::horizontal().width(Length::Shrink).into()),
-                ])
-                .height(Length::Fill),
+                drawer_layer.unwrap_or_else(|| slide.place(None, false, 0.0).1),
             ),
         ]);
 

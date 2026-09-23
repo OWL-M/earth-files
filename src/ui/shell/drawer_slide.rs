@@ -47,7 +47,6 @@ pub struct ColumnSlide {
 #[derive(Clone)]
 pub(crate) struct DrawerSlide {
     motion: Motion,
-    cache: TextureCache,
     drawer_key: MotionKey,
     columns_key: MotionKey,
     /// The drawer's offset from its resting place: `+extent` is off-screen.
@@ -67,7 +66,6 @@ impl DrawerSlide {
     pub(crate) fn new() -> Self {
         Self {
             motion: Motion::new(),
-            cache: TextureCache::new(),
             drawer_key: MotionKey::unique(),
             columns_key: MotionKey::unique(),
             drawer: Anim::constant(Vector::ZERO),
@@ -183,14 +181,51 @@ impl DrawerSlide {
             .into()
     }
 
-    /// The drawer as one texture moved by the slide.
+    /// The drawer, moved by the slide. It stays wrapped at rest as well, drawn
+    /// live then, so starting or ending a slide never changes the drawer's
+    /// place in the tree — which would cost it its scroll offsets and focus.
+    /// While it moves it is one texture, recorded from a fresh cache on every
+    /// view build, so it always shows what the drawer shows now.
     pub(crate) fn translated<'a, Message: 'a>(
         &self,
         drawer: Element<'a, Message>,
     ) -> Element<'a, Message> {
-        iced_texture_cache::cached(self.cache.clone(), drawer)
+        iced_texture_cache::cached(TextureCache::new(), drawer)
             .translate(self.drawer.clone())
+            .live_at_rest(true)
             .into()
+    }
+
+    /// Places a built drawer: returns the slot for the content row and the
+    /// content of the stack layer above it.
+    ///
+    /// The drawer itself is always in the layer, right-aligned: one place in
+    /// the tree however it is laid out. `inline` only decides whether the row
+    /// keeps `slot_width` free for it — the width the drawer covers at the
+    /// row's end — or lays the content out underneath it.
+    pub(crate) fn place<'a, Message: 'a>(
+        &self,
+        drawer: Option<Element<'a, Message>>,
+        inline: bool,
+        slot_width: f32,
+    ) -> (Element<'a, Message>, Element<'a, Message>) {
+        use crate::ui::iced::Length;
+        use crate::ui::widget::{Row, space};
+
+        let slot = if inline && drawer.is_some() {
+            Length::Fixed(slot_width)
+        } else {
+            Length::Shrink
+        };
+        let drawer = drawer.map_or_else(
+            || space::horizontal().width(Length::Shrink).into(),
+            |drawer| self.translated(drawer),
+        );
+        let layer =
+            Row::with_children(vec![space::horizontal().width(Length::Fill).into(), drawer])
+                .height(Length::Fill)
+                .into();
+        (space::horizontal().width(slot).into(), layer)
     }
 
     /// The key of the running (or last) slide's drawer track.
@@ -355,5 +390,106 @@ mod tests {
 
         let _ = clock.run_until_settled();
         assert!(close(slide.drawer.get().x, 300.0));
+    }
+
+    /// Scrolls every scrollable it meets to `to`, if set, and records the
+    /// vertical offset each one had.
+    struct Scroll {
+        to: Option<f32>,
+        seen: Vec<f32>,
+    }
+
+    impl iced_core::widget::Operation for Scroll {
+        fn traverse(&mut self, operate: &mut dyn FnMut(&mut dyn iced_core::widget::Operation)) {
+            operate(self);
+        }
+
+        fn scrollable(
+            &mut self,
+            _id: Option<&iced_core::widget::Id>,
+            _bounds: iced_core::Rectangle,
+            _content_bounds: iced_core::Rectangle,
+            translation: Vector,
+            state: &mut dyn iced_core::widget::operation::Scrollable,
+        ) {
+            self.seen.push(translation.y);
+            if let Some(y) = self.to {
+                state.scroll_to(iced_core::widget::operation::scrollable::AbsoluteOffset {
+                    x: None,
+                    y: Some(y),
+                });
+            }
+        }
+    }
+
+    /// A window holding a content row and, above it, a scrollable drawer
+    /// placed by `slide` as `view_main` places it.
+    fn window(slide: &DrawerSlide, shown: bool) -> Element<'static, ()> {
+        use crate::ui::iced::Length;
+        use crate::ui::widget::{Row, Stack, scrollable, space};
+
+        let inline = shown && !(slide.is_moving() && slide.path() == SlidePath::Columns);
+        let drawer = scrollable(space::vertical().height(Length::Fixed(400.0)))
+            .width(Length::Fixed(100.0))
+            .height(Length::Fixed(100.0));
+        let (slot, layer) = slide.place(Some(drawer.into()), inline, 100.0);
+        Stack::with_children(vec![
+            Row::with_children(vec![space::horizontal().width(Length::Fill).into(), slot]).into(),
+            layer,
+        ])
+        .into()
+    }
+
+    #[test]
+    fn the_drawer_keeps_its_scroll_through_a_slide_and_its_end() {
+        use iced_runtime::user_interface::{Cache, UserInterface};
+
+        let mut renderer = iced_texture_cache::testing::headless_tiny_skia();
+        let size = iced_core::Size::new(300.0, 100.0);
+        let offset = |ui: &mut UserInterface<'_, (), _, _>, renderer: &_| {
+            let mut read = Scroll {
+                to: None,
+                seen: Vec::new(),
+            };
+            ui.operate(renderer, &mut read);
+            read.seen
+        };
+
+        let mut slide = DrawerSlide::new();
+        let mut clock = FrameClock::new(slide.motion());
+        slide.sync(false, false, 0.0, false);
+        slide.sync(true, false, 100.0, false);
+        assert!(slide.is_moving(), "opening");
+
+        let mut ui =
+            UserInterface::build(window(&slide, true), size, Cache::default(), &mut renderer);
+        ui.operate(
+            &renderer,
+            &mut Scroll {
+                to: Some(50.0),
+                seen: Vec::new(),
+            },
+        );
+        assert_eq!(offset(&mut ui, &renderer), vec![50.0], "scrolled mid-slide");
+
+        let _ = clock.run_until_settled();
+        assert!(!slide.is_moving(), "open, at rest");
+        let mut ui =
+            UserInterface::build(window(&slide, true), size, ui.into_cache(), &mut renderer);
+        assert_eq!(
+            offset(&mut ui, &renderer),
+            vec![50.0],
+            "after the opening settles"
+        );
+
+        slide.sync(false, false, 100.0, false);
+        assert!(slide.is_moving(), "closing");
+        let mut ui =
+            UserInterface::build(window(&slide, false), size, ui.into_cache(), &mut renderer);
+        assert_eq!(
+            offset(&mut ui, &renderer),
+            vec![50.0],
+            "as the close starts"
+        );
     }
 }
