@@ -11,7 +11,6 @@ use std::borrow::Cow;
 pub mod menu;
 pub use menu::Menu;
 
-pub mod multi;
 
 mod widget;
 pub use widget::*;
