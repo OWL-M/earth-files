@@ -241,8 +241,14 @@ fn zip_extract<R: io::Read + io::Seek, P: AsRef<Path>>(
         }
 
         if file.is_symlink() {
-            let mut target = Vec::with_capacity(file.size() as usize);
-            file.read_to_end(&mut target)?;
+            // The declared size comes from the archive, so never size a
+            // buffer by it; a link target is at most PATH_MAX anyway, and
+            // symlink(2) refuses one that long, so a cut-off target cannot
+            // be created silently
+            let mut target = Vec::new();
+            (&mut file)
+                .take(libc::PATH_MAX as u64)
+                .read_to_end(&mut target)?;
             use std::os::unix::ffi::OsStringExt;
             let target = OsString::from_vec(target);
             if target_escapes(root, &outpath, Path::new(&target)) {
@@ -421,6 +427,46 @@ mod tests {
         let _ = extract(&zip_path, &dest, &None, &Controller::default());
         assert_eq!(fs::metadata(&outside).unwrap().modified().unwrap(), before);
         assert_eq!(fs::read_to_string(&outside).unwrap(), "ORIGINAL");
+    }
+
+    /// A symlink entry whose header claims an absurd uncompressed size must
+    /// not make the extractor allocate that much before reading a byte
+    #[test]
+    fn zip_symlink_declared_size_is_not_trusted() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dest = tmp.path().join("dest");
+        fs::create_dir(&dest).unwrap();
+
+        let zip_path = tmp.path().join("huge.zip");
+        let mut writer = zip::ZipWriter::new(fs::File::create(&zip_path).unwrap());
+        writer
+            .add_symlink("link", "a.txt", zip_options().large_file(true))
+            .unwrap();
+        writer.finish().unwrap();
+
+        // `large_file` puts the sizes in zip64 extra fields, whose layout is
+        // id 0x0001, length 16, uncompressed size, compressed size (u64 LE);
+        // claim u64::MAX uncompressed in each, leaving the real data alone
+        let mut bytes = fs::read(&zip_path).unwrap();
+        let mut marker = vec![0x01, 0x00, 0x10, 0x00];
+        marker.extend_from_slice(&("a.txt".len() as u64).to_le_bytes());
+        let mut patched = 0;
+        let mut i = 0;
+        while i + marker.len() <= bytes.len() {
+            if bytes[i..i + marker.len()] == marker[..] {
+                bytes[i + 4..i + 12].copy_from_slice(&u64::MAX.to_le_bytes());
+                patched += 1;
+            }
+            i += 1;
+        }
+        assert!(patched > 0, "zip64 size fields not found");
+        fs::write(&zip_path, &bytes).unwrap();
+
+        extract(&zip_path, &dest, &None, &Controller::default()).unwrap();
+        assert_eq!(
+            fs::read_link(dest.join("link")).unwrap(),
+            Path::new("a.txt")
+        );
     }
 
     /// An ordinary archive, including a symlink that stays inside, still works
