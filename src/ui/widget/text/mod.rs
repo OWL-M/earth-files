@@ -102,32 +102,6 @@ pub enum Typography {
     Title4,
 }
 
-/// [`Text`] widget with the Title 1 typography preset.
-pub fn title1<'a>(text: impl Into<Cow<'a, str>> + 'a) -> Text<'a, crate::ui::Theme, Renderer> {
-    #[inline(never)]
-    fn inner(text: Cow<str>) -> Text<crate::ui::Theme, Renderer> {
-        Text::new(text)
-            .size(35.0)
-            .line_height(LineHeight::Absolute(52.0.into()))
-            .font(crate::ui::font::semibold())
-    }
-
-    inner(text.into())
-}
-
-/// [`Text`] widget with the Title 2 typography preset.
-pub fn title2<'a>(text: impl Into<Cow<'a, str>> + 'a) -> Text<'a, crate::ui::Theme, Renderer> {
-    #[inline(never)]
-    fn inner(text: Cow<str>) -> Text<crate::ui::Theme, Renderer> {
-        Text::new(text)
-            .size(29.0)
-            .line_height(LineHeight::Absolute(43.0.into()))
-            .font(crate::ui::font::semibold())
-    }
-
-    inner(text.into())
-}
-
 /// [`Text`] widget with the Title 3 typography preset.
 pub fn title3<'a>(text: impl Into<Cow<'a, str>> + 'a) -> Text<'a, crate::ui::Theme, Renderer> {
     #[inline(never)]
@@ -162,21 +136,6 @@ pub fn heading<'a>(text: impl Into<Cow<'a, str>> + 'a) -> Text<'a, crate::ui::Th
             .size(14.0)
             .line_height(LineHeight::Absolute(iced::Pixels(21.0)))
             .font(crate::ui::font::bold())
-    }
-
-    inner(text.into())
-}
-
-/// [`Text`] widget with the Caption Heading typography preset.
-pub fn caption_heading<'a>(
-    text: impl Into<Cow<'a, str>> + 'a,
-) -> Text<'a, crate::ui::Theme, Renderer> {
-    #[inline(never)]
-    fn inner(text: Cow<str>) -> Text<crate::ui::Theme, Renderer> {
-        Text::new(text)
-            .size(12.0)
-            .line_height(LineHeight::Absolute(iced::Pixels(17.0)))
-            .font(crate::ui::font::semibold())
     }
 
     inner(text.into())

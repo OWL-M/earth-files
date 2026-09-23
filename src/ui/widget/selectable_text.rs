@@ -511,12 +511,9 @@ macro_rules! selectable_preset {
     };
 }
 
-selectable_preset!(title1);
-selectable_preset!(title2);
 selectable_preset!(title3);
 selectable_preset!(title4);
 selectable_preset!(heading);
-selectable_preset!(caption_heading);
 selectable_preset!(body);
 selectable_preset!(caption);
 selectable_preset!(monotext);

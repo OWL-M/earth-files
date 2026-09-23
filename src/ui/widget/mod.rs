@@ -132,10 +132,7 @@ pub use text_input::{
 pub mod tab_bar;
 
 pub mod text;
-pub use text::{
-    Text, Typography, body, caption, caption_heading, heading, monotext, text, title1, title2,
-    title3, title4,
-};
+pub use text::{Text, Typography, body, caption, heading, monotext, text, title3, title4};
 
 pub mod toaster;
 pub use toaster::{ToastId, toaster};
