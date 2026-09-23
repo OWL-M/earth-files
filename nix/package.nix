@@ -85,6 +85,12 @@ rustPlatform.buildRustPackage rec {
     cp -r res/icons "$out/share/icons"
     desktop-file-validate "$out/share/applications/${appId}.desktop"
 
+    # The portal's own class, so compositors and docks find an icon for its
+    # file chooser windows; hidden from launchers.
+    install -Dm644 res/com.owlm.EarthFilesPortal.desktop \
+      "$out/share/applications/com.owlm.EarthFilesPortal.desktop"
+    desktop-file-validate "$out/share/applications/com.owlm.EarthFilesPortal.desktop"
+
     # The xdg-desktop-portal file chooser backend. Three files, matching what
     # every other backend ships: what the bus should start, what systemd
     # should run, and which interfaces this backend answers for.

@@ -1,0 +1,8 @@
+[Desktop Entry]
+Name=Earth Files
+Comment=File chooser
+Exec=earth-files-portal
+Terminal=false
+Type=Application
+NoDisplay=true
+Icon=com.owlm.EarthFiles
