@@ -1278,12 +1278,20 @@ impl Operation {
                                             let target = fs::read_link(path).map_err(|e| {
                                                 OperationError::from_err(e, &controller)
                                             })?;
-                                            archive
-                                                .add_symlink_from_path(
-                                                    relative_path,
-                                                    target,
-                                                    zip_options,
+                                            // `add_symlink`, not `add_symlink_from_path`:
+                                            // the latter normalises the target like an
+                                            // entry name, turning `../x` into `x`
+                                            let target = target.to_str().ok_or_else(|| {
+                                                OperationError::from_err(
+                                                    format!(
+                                                        "cannot store the link {} in a zip archive: its target is not valid UTF-8",
+                                                        path.display()
+                                                    ),
+                                                    &controller,
                                                 )
+                                            })?;
+                                            archive
+                                                .add_symlink(relative_path, target, zip_options)
                                                 .map_err(|e| {
                                                     OperationError::from_err(e, &controller)
                                                 })?;
@@ -3062,6 +3070,37 @@ mod tests {
             "a source that cannot be read fails the compress"
         );
         assert!(!to.exists(), "a failed compress leaves no partial archive");
+        Ok(())
+    }
+
+    #[test(compio::test)]
+    async fn zip_keeps_a_relative_link_target_verbatim() -> io::Result<()> {
+        let fs = empty_fs()?;
+        let path = fs.path();
+        let project = path.join("project");
+        fs::create_dir_all(project.join("sub"))?;
+        fs::write(project.join("target"), b"t")?;
+        std::os::unix::fs::symlink("../target", project.join("sub").join("link"))?;
+        let to = path.join("project.zip");
+        Operation::Compress {
+            paths: vec![project.clone()],
+            to: to.clone(),
+            archive_type: crate::app::ArchiveType::Zip,
+            password: None,
+        }
+        .perform(
+            &sync::Mutex::new(mpsc::channel(1).0).into(),
+            Controller::default(),
+        )
+        .await
+        .expect("Compress operation should have succeeded");
+
+        let mut zip = zip::ZipArchive::new(File::open(&to)?)?;
+        let mut file = zip.by_name("project/sub/link")?;
+        assert!(file.is_symlink());
+        let mut target = Vec::new();
+        std::io::Read::read_to_end(&mut file, &mut target)?;
+        assert_eq!(target, b"../target", "the link target is stored as written");
         Ok(())
     }
 
