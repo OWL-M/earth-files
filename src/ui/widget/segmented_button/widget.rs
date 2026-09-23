@@ -1311,20 +1311,13 @@ where
         // `Self::poll_tab_drag`, called above, turns a tab-drag drop into
         // `on_reorder` using `ui::dnd`'s own `wl_data_device`.
 
+        // Counted before this event is applied, so a lift still counts its own
+        // finger. Tracked for every event, not only those over the widget; see
+        // `context_menu::track_fingers`.
+        let fingers_pressed = state.fingers_pressed.len();
+        crate::ui::widget::context_menu::track_fingers(&mut state.fingers_pressed, event);
+
         if cursor_position.is_over(my_bounds) {
-            let fingers_pressed = state.fingers_pressed.len();
-
-            match event {
-                Event::Touch(touch::Event::FingerPressed { id, .. }) => {
-                    state.fingers_pressed.insert(*id);
-                }
-
-                Event::Touch(touch::Event::FingerLifted { id, .. }) => {
-                    state.fingers_pressed.remove(id);
-                }
-                _ => (),
-            }
-
             // Check for clicks on the previous and next tab buttons, when tabs are collapsed.
             if state.collapsed {
                 // Check if the prev tab button was clicked.

@@ -523,21 +523,14 @@ impl<Message: 'static + Clone> Widget<Message, crate::ui::Theme, crate::ui::Rend
             });
         }
 
+        // Counted before this event is applied, so a lift still counts its own
+        // finger. Tracked for every event, not only those over the widget: a
+        // finger pressed inside and lifted outside would otherwise stay in the
+        // set for good, and every later single tap would count as two fingers.
+        let fingers_pressed = state.fingers_pressed.len();
+        track_fingers(&mut state.fingers_pressed, event);
+
         if !was_open && cursor.is_over(bounds) {
-            let fingers_pressed = state.fingers_pressed.len();
-
-            match event {
-                Event::Touch(touch::Event::FingerPressed { id, .. }) => {
-                    state.fingers_pressed.insert(*id);
-                }
-
-                Event::Touch(touch::Event::FingerLifted { id, .. }) => {
-                    state.fingers_pressed.remove(id);
-                }
-
-                _ => (),
-            }
-
             // Present a context menu on a right click event.
             if !was_open
                 && self.context_menu.is_some()
@@ -714,9 +707,72 @@ fn touch_lifted(event: &Event) -> bool {
     matches!(event, Event::Touch(touch::Event::FingerLifted { .. }))
 }
 
+/// Keeps `fingers` at the set of fingers currently down. A lost finger is
+/// forgotten like a lifted one, or a cancelled touch would be counted forever.
+pub(crate) fn track_fingers(fingers: &mut HashSet<Finger>, event: &Event) {
+    match event {
+        Event::Touch(touch::Event::FingerPressed { id, .. }) => {
+            fingers.insert(*id);
+        }
+        Event::Touch(
+            touch::Event::FingerLifted { id, .. } | touch::Event::FingerLost { id, .. },
+        ) => {
+            fingers.remove(id);
+        }
+        _ => (),
+    }
+}
+
 pub struct LocalState {
     context_cursor: Point,
     fingers_pressed: HashSet<Finger>,
     menu_bar_state: MenuBarState,
     reported_open: bool,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A finger pressed over the widget and lifted elsewhere, or lost, must
+    /// not be counted for the rest of the widget's life; it made every later
+    /// single tap look like a two-finger tap and open the context menu.
+    #[test]
+    fn a_finger_lifted_or_lost_anywhere_is_forgotten() {
+        let mut fingers = HashSet::new();
+        let at = Point::ORIGIN;
+        let (a, b) = (Finger(1), Finger(2));
+
+        track_fingers(
+            &mut fingers,
+            &Event::Touch(touch::Event::FingerPressed {
+                id: a,
+                position: at,
+            }),
+        );
+        track_fingers(
+            &mut fingers,
+            &Event::Touch(touch::Event::FingerPressed {
+                id: b,
+                position: at,
+            }),
+        );
+        assert_eq!(fingers.len(), 2);
+
+        track_fingers(
+            &mut fingers,
+            &Event::Touch(touch::Event::FingerLifted {
+                id: a,
+                position: at,
+            }),
+        );
+        track_fingers(
+            &mut fingers,
+            &Event::Touch(touch::Event::FingerLost {
+                id: b,
+                position: at,
+            }),
+        );
+        assert!(fingers.is_empty());
+    }
 }
