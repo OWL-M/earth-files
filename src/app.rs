@@ -2797,6 +2797,16 @@ impl Application for App {
         &mut self.core
     }
 
+    fn title(&self, id: WindowId) -> &str {
+        crate::dialog::window_title(
+            self.file_dialog_opt
+                .iter()
+                .map(|dialog| (dialog.window_id(), dialog.title())),
+            &self.core.title,
+            id,
+        )
+    }
+
     /// Creates the application, and optionally emits command on initialize.
     fn init(mut core: Core, flags: Self::Flags) -> (Self, Task<Self::Message>) {
         core.window.context_is_overlay = false;

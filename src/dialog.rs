@@ -223,6 +223,24 @@ impl<'a, M: Clone + 'static> From<&'a DialogLabel> for Element<'a, M> {
     }
 }
 
+/// The title of window `id` for a host that owns choosers: a chooser's own
+/// when `id` is its window, the host's otherwise.
+///
+/// A chooser keeps its title in its own nested shell, but the compositor asks
+/// the host, whose default [`Application::title`](crate::ui::shell::Application::title)
+/// looks only in the host's `Core`.
+#[must_use]
+pub fn window_title<'a>(
+    choosers: impl IntoIterator<Item = (window::Id, &'a str)>,
+    host: &'a HashMap<window::Id, String>,
+    id: window::Id,
+) -> &'a str {
+    choosers
+        .into_iter()
+        .find_map(|(window, title)| (window == id).then_some(title))
+        .unwrap_or_else(|| host.get(&id).map_or("", String::as_str))
+}
+
 pub struct DialogSettings {
     app_id: String,
     kind: DialogKind,
@@ -463,6 +481,12 @@ impl<M: Send + 'static> Dialog<M> {
 
     pub const fn window_id(&self) -> window::Id {
         self.shell.app.flags.window_id
+    }
+
+    /// The chooser's current title.
+    #[must_use]
+    pub fn title(&self) -> &str {
+        &self.shell.app.title
     }
 
     pub fn contains_surface(&self, id: &window::Id) -> bool {
@@ -2493,5 +2517,35 @@ impl Application for App {
         }));
 
         Subscription::batch(subscriptions)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_chooser_answers_for_its_own_window() {
+        let chooser = window::Id::unique();
+        let main = window::Id::unique();
+        let host: HashMap<window::Id, String> = [(main, "Home — Earth Files".to_owned())].into();
+
+        assert_eq!(
+            window_title([(chooser, "Open File")], &host, chooser),
+            "Open File"
+        );
+    }
+
+    #[test]
+    fn other_windows_keep_the_hosts_title() {
+        let chooser = window::Id::unique();
+        let main = window::Id::unique();
+        let host: HashMap<window::Id, String> = [(main, "Home — Earth Files".to_owned())].into();
+
+        assert_eq!(
+            window_title([(chooser, "Open File")], &host, main),
+            "Home — Earth Files"
+        );
+        assert_eq!(window_title([], &host, window::Id::unique()), "", "unknown");
     }
 }

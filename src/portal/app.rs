@@ -220,6 +220,16 @@ impl Application for App {
         &mut self.core
     }
 
+    fn title(&self, id: window::Id) -> &str {
+        crate::dialog::window_title(
+            self.sessions
+                .values()
+                .map(|session| (session.dialog.window_id(), session.dialog.title())),
+            &self.core.title,
+            id,
+        )
+    }
+
     fn init(core: Core, flags: Self::Flags) -> (Self, Task<Message>) {
         (
             Self {
