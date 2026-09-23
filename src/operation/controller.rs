@@ -1,7 +1,6 @@
-use atomic_float::AtomicF32;
 use num_enum::{IntoPrimitive, TryFromPrimitive};
 use std::sync::Arc;
-use std::sync::atomic::{self, AtomicU16};
+use std::sync::atomic::{self, AtomicU16, AtomicU32};
 use tokio::sync::Notify;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, IntoPrimitive, TryFromPrimitive)]
@@ -16,7 +15,8 @@ pub enum ControllerState {
 #[derive(Debug)]
 struct ControllerInner {
     state: AtomicU16,
-    progress: AtomicF32,
+    /// `f32` progress stored as its bit pattern.
+    progress: AtomicU32,
     notify: Notify,
 }
 
@@ -32,7 +32,7 @@ impl Default for Controller {
             primary: true,
             inner: Arc::new(ControllerInner {
                 state: AtomicU16::new(ControllerState::Running.into()),
-                progress: AtomicF32::new(0.0),
+                progress: AtomicU32::new(0.0f32.to_bits()),
                 notify: Notify::new(),
             }),
         }
@@ -54,13 +54,13 @@ impl Controller {
     }
 
     pub fn progress(&self) -> f32 {
-        self.inner.progress.load(atomic::Ordering::Relaxed)
+        f32::from_bits(self.inner.progress.load(atomic::Ordering::Relaxed))
     }
 
     pub fn set_progress(&self, progress: f32) {
         self.inner
             .progress
-            .swap(progress, atomic::Ordering::Relaxed);
+            .swap(progress.to_bits(), atomic::Ordering::Relaxed);
     }
 
     pub fn state(&self) -> ControllerState {
@@ -167,5 +167,14 @@ mod tests {
         controller.pause();
         controller.unpause();
         assert_eq!(controller.state(), ControllerState::Running);
+    }
+
+    #[test]
+    fn progress_round_trips_through_bits() {
+        let controller = Controller::default();
+        assert_eq!(controller.progress(), 0.0);
+        controller.set_progress(0.375);
+        assert_eq!(controller.progress(), 0.375);
+        assert_eq!(controller.clone().progress(), 0.375);
     }
 }
