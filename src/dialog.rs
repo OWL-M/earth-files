@@ -6,7 +6,7 @@ use crate::ui::app::Task;
 use crate::ui::iced::futures::{self, SinkExt};
 use crate::ui::iced::keyboard::key::{Named, Physical};
 use crate::ui::iced::keyboard::{Event as KeyEvent, Key, Modifiers};
-use crate::ui::iced::{self, Alignment, Event, Length, Size, Subscription, event, stream, window};
+use crate::ui::iced::{self, Alignment, Event, Length, Subscription, event, stream, window};
 use crate::ui::iced_core::SmolStr;
 use crate::ui::iced_core::widget::Operation;
 use crate::ui::iced_core::widget::operation;
@@ -300,16 +300,6 @@ impl<M: Send + 'static> Dialog<M> {
         crate::ui::font::set_families(&config);
         crate::ui::icon_theme::set_from_config(&config);
 
-        let settings = window::Settings {
-            decorations: false,
-            exit_on_close_request: false,
-            min_size: Some(Size::new(360.0, 180.0)),
-            resizable: true,
-            size: Size::new(1024.0, 640.0),
-            transparent: true,
-            ..Default::default()
-        };
-
         // Create the surface through exwlshell's action, as `ui::shell::runner` does
         // for the main window. `iced_exwlshell`'s `Action::Window` dispatcher has no
         // `Open` arm and ends in `_ => {}`, so it silently discards `window::open`
@@ -319,12 +309,9 @@ impl<M: Send + 'static> Dialog<M> {
         let window_command = iced::Task::done(crate::ui::action::exwl::base_window(
             window_id,
             iced_exwlshell::actions::IcedXdgWindowSettings {
-                size: Some(iced_exwlshell::reexport::PixelSize::px(
-                    settings.size.width.max(1.0) as u32,
-                    settings.size.height.max(1.0) as u32,
-                )),
-                // `settings.decorations = false` above asks for no server-side
-                // decorations, i.e. this window draws its own header bar.
+                size: Some(iced_exwlshell::reexport::PixelSize::px(1024, 640)),
+                // The chooser draws its own header bar, hence client-side
+                // decorations.
                 client_side_decorations: true,
             },
         ));
