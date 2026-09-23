@@ -8,7 +8,6 @@ pub mod anim;
 pub mod app;
 pub mod clipboard;
 pub mod command;
-pub mod config;
 pub mod convert;
 pub mod dnd;
 pub mod font;

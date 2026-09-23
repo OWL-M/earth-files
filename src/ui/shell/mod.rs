@@ -430,11 +430,11 @@ where
                         header = header.on_close(crate::ui::Action::Cosmic(Action::Close));
                     }
 
-                    if core.window.show_maximize && crate::ui::config::show_maximize() {
+                    if core.window.show_maximize {
                         header = header.on_maximize(crate::ui::Action::Cosmic(Action::Maximize));
                     }
 
-                    if core.window.show_minimize && crate::ui::config::show_minimize() {
+                    if core.window.show_minimize {
                         header = header.on_minimize(crate::ui::Action::Cosmic(Action::Minimize));
                     }
 
