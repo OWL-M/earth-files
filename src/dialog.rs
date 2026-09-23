@@ -242,7 +242,6 @@ pub fn window_title<'a, S: std::hash::BuildHasher>(
 }
 
 pub struct DialogSettings {
-    app_id: String,
     kind: DialogKind,
     path_opt: Option<PathBuf>,
 }
@@ -250,11 +249,6 @@ pub struct DialogSettings {
 impl DialogSettings {
     pub fn new() -> Self {
         Default::default()
-    }
-
-    pub fn app_id(mut self, app_id: String) -> Self {
-        self.app_id = app_id;
-        self
     }
 
     pub fn kind(mut self, kind: DialogKind) -> Self {
@@ -271,7 +265,6 @@ impl DialogSettings {
 impl Default for DialogSettings {
     fn default() -> Self {
         Self {
-            app_id: App::APP_ID.to_string(),
             kind: DialogKind::OpenFile,
             path_opt: None,
         }
@@ -307,7 +300,7 @@ impl<M: Send + 'static> Dialog<M> {
         crate::ui::font::set_families(&config);
         crate::ui::icon_theme::set_from_config(&config);
 
-        let mut settings = window::Settings {
+        let settings = window::Settings {
             decorations: false,
             exit_on_close_request: false,
             min_size: Some(Size::new(360.0, 180.0)),
@@ -316,8 +309,6 @@ impl<M: Send + 'static> Dialog<M> {
             transparent: true,
             ..Default::default()
         };
-
-        settings.platform_specific.application_id = dialog_settings.app_id;
 
         // Create the surface through exwlshell's action, as `ui::shell::runner` does
         // for the main window. `iced_exwlshell`'s `Action::Window` dispatcher has no
