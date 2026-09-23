@@ -4,9 +4,9 @@
 //! Vendored from pop-os/libcosmic, src/widget/button/text.rs
 
 use super::{Builder, ButtonClass};
+use crate::ui::Apply;
 use crate::ui::widget::icon;
 use crate::ui::widget::tooltip;
-use apply::Apply;
 
 use crate::ui::Element;
 use crate::ui::convert::{PushMaybe, ToPixels};

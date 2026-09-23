@@ -17,7 +17,6 @@ cosmic-mime-apps = { git = "https://github.com/pop-os/cosmic-mime-apps.git", opt
 derive_setters = "0.1.9"
 dirs = "7.0.0"
 freedesktop-desktop-entry = "0.8"
-apply = "0.3.0"
 # Icon-theme lookup for the vendored `ui::widget::icon`.
 freedesktop-icons = { git = "https://github.com/id3v1669/freedesktop-icons" }
 gio = { version = "0.22", optional = true }

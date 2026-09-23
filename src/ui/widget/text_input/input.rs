@@ -14,8 +14,8 @@ pub use super::cursor::Cursor;
 use super::editor::Editor;
 pub use super::value::Value;
 
+use crate::ui::Apply;
 use crate::ui::convert::{ToColor, ToRadius};
-use apply::Apply;
 use cosmic_text::Affinity;
 use iced_core::event::Event;
 use iced_core::input_method::{self, InputMethod, Preedit};

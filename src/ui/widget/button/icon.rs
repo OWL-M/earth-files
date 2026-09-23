@@ -4,11 +4,11 @@
 //! Vendored from pop-os/libcosmic, src/widget/button/icon.rs
 
 use super::{Builder, ButtonClass};
+use crate::ui::Apply;
 use crate::ui::Element;
 use crate::ui::convert::ToPixels;
 use crate::ui::widget::icon::Handle;
 use crate::ui::widget::tooltip;
-use apply::Apply;
 use iced_core::font::Weight;
 use iced_core::text::LineHeight;
 use iced_core::widget::Id;

@@ -9,8 +9,8 @@ use iced::widget::container::Catalog;
 use iced::widget::space::vertical;
 use iced::{Length, Padding};
 
+use crate::ui::Apply;
 use crate::ui::widget::{container, row};
-use apply::Apply;
 
 use crate::ui::Element;
 

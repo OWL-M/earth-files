@@ -5,7 +5,7 @@
 
 use std::collections::HashMap;
 
-use apply::Apply;
+use crate::ui::Apply;
 
 use crate::ui::Element;
 use crate::ui::shell::Core;

@@ -7,7 +7,7 @@
 //!
 //! For details on the model, see the [`segmented_button`] module.
 
-use apply::Apply;
+use crate::ui::Apply;
 use iced::advanced::graphics::text::Paragraph as GraphicsParagraph;
 use iced::advanced::text::{Alignment, LineHeight, Paragraph as _, Shaping, Text, Wrapping};
 use iced::{Background, Length, Padding, Pixels, Size, window};

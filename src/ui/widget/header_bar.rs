@@ -9,12 +9,12 @@
 //! [`crate::ui::widget::ellipsize::Ellipsize`] widget, given the same size,
 //! line height and font as `text::heading`.
 
+use crate::ui::Apply;
 use crate::ui::convert::{PushMaybe, ToPadding, ToPixels};
 use crate::ui::theme::{Density, Spacing};
 use crate::ui::widget::Row;
 use crate::ui::widget::ellipsize::{Ellipsize, Mode as EllipsizeMode};
 use crate::ui::{Element, theme, widget};
-use apply::Apply;
 use derive_setters::Setters;
 use iced_core::widget::tree;
 use iced_core::{Length, Size, Vector, Widget, layout, text};

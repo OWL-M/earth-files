@@ -24,10 +24,19 @@ pub use iced;
 // `iced::core` / `iced::runtime` are private in `iced`; the crates themselves
 // are direct dependencies instead.
 pub use action::Action;
-pub use apply::Apply;
 pub use iced::Task;
 pub use iced_core;
 pub use iced_runtime;
+
+/// The `apply` combinator: `x.apply(f)` is `f(x)`, so a value can be
+/// threaded through a function in the middle of a builder chain.
+pub trait Apply: Sized {
+    fn apply<R>(self, f: impl FnOnce(Self) -> R) -> R {
+        f(self)
+    }
+}
+
+impl<T> Apply for T {}
 
 /// The renderer every widget in this app draws through.
 ///

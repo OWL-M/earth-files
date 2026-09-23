@@ -6,11 +6,11 @@
 //! Hyperlink button widget
 
 use super::{Builder, ButtonClass};
+use crate::ui::Apply;
 use crate::ui::Element;
 use crate::ui::convert::{PushMaybe, ToPixels};
 use crate::ui::widget::icon::{self, Handle};
 use crate::ui::widget::{button, tooltip};
-use apply::Apply;
 use iced_core::font::Weight;
 use iced_core::text::LineHeight;
 use iced_core::widget::Id;
