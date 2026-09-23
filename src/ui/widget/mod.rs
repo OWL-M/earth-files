@@ -125,9 +125,7 @@ pub mod text_editor;
 pub use text_editor::{TextEditor, text_editor};
 
 pub mod text_input;
-pub use text_input::{
-    TextInput, editable_input, inline_input, search_input, secure_input, text_input,
-};
+pub use text_input::{TextInput, search_input, secure_input, text_input};
 
 pub mod tab_bar;
 

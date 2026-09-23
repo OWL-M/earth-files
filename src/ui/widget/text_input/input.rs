@@ -80,29 +80,6 @@ where
     TextInput::new(placeholder, value)
 }
 
-/// A text label which can transform into a text input on activation.
-pub fn editable_input<'a, Message: Clone + 'static>(
-    placeholder: impl Into<Cow<'a, str>>,
-    text: impl Into<Cow<'a, str>>,
-    editing: bool,
-    on_toggle_edit: impl Fn(bool) -> Message + 'a,
-) -> TextInput<'a, Message> {
-    // The trailing icon is a placeholder; diff() rebuilds it reactively
-    // based on the current is_read_only state and value content.
-    TextInput::new(placeholder, text)
-        .style(crate::ui::theme::TextInput::EditableText)
-        .editable()
-        .editing(editing)
-        .on_toggle_edit(on_toggle_edit)
-        .trailing_icon(
-            crate::ui::widget::icon::from_name("edit-symbolic")
-                .size(16)
-                .apply(crate::ui::widget::container)
-                .padding(8)
-                .into(),
-        )
-}
-
 /// Creates a new search [`TextInput`].
 ///
 /// [`TextInput`]: widget::TextInput
@@ -169,23 +146,6 @@ where
     } else {
         input
     }
-}
-
-/// Creates a new inline [`TextInput`].
-///
-/// [`TextInput`]: widget::TextInput
-pub fn inline_input<'a, Message>(
-    placeholder: impl Into<Cow<'a, str>>,
-    value: impl Into<Cow<'a, str>>,
-) -> TextInput<'a, Message>
-where
-    Message: Clone + 'static,
-{
-    let spacing = crate::ui::theme::spacing().space_xxs;
-
-    TextInput::new(placeholder, value)
-        .style(crate::ui::theme::TextInput::Inline)
-        .padding(spacing)
 }
 
 pub(crate) const SUPPORTED_TEXT_MIME_TYPES: &[&str; 6] = &[
@@ -332,13 +292,6 @@ where
     #[inline]
     pub const fn password(mut self) -> Self {
         self.is_secure = true;
-        self
-    }
-
-    /// Applies behaviors unique to the `editable_input` variable.
-    #[inline]
-    pub(crate) const fn editable(mut self) -> Self {
-        self.is_editable_variant = true;
         self
     }
 
