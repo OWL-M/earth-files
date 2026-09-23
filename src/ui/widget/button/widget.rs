@@ -83,41 +83,6 @@ impl<'a, Message: Clone + 'a> Button<'a, Message> {
         }
     }
 
-    pub fn new_image(
-        content: impl Into<crate::ui::Element<'a, Message>>,
-        on_remove: Option<Message>,
-    ) -> Self {
-        Self {
-            id: Id::unique(),
-            #[cfg(feature = "a11y")]
-            name: None,
-            #[cfg(feature = "a11y")]
-            description: None,
-            force_enabled: false,
-            #[cfg(feature = "a11y")]
-            label: None,
-            content: content.into(),
-            on_press: None,
-            on_press_down: None,
-            width: Length::Shrink,
-            height: Length::Shrink,
-            padding: Padding::new(5.0),
-            selected: false,
-            style: crate::ui::theme::Button::default(),
-            variant: Variant::Image {
-                on_remove,
-                close_icon: crate::ui::widget::icon::from_name("window-close-symbolic")
-                    .size(8)
-                    .icon()
-                    .into_svg_handle()
-                    .unwrap_or_else(|| {
-                        let bytes: &'static [u8] = &[];
-                        iced_core::svg::Handle::from_memory(bytes)
-                    }),
-            },
-        }
-    }
-
     /// Sets the [`Id`] of the [`Button`].
     #[inline]
     pub fn id(mut self, id: Id) -> Self {

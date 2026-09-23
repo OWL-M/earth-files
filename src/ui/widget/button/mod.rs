@@ -20,12 +20,6 @@ pub use icon::Button as IconButton;
 #[doc(inline)]
 pub use icon::icon;
 
-mod image;
-#[doc(inline)]
-pub use image::Button as ImageButton;
-#[doc(inline)]
-pub use image::image;
-
 mod style;
 #[doc(inline)]
 pub use style::{Catalog, Style};
@@ -50,14 +44,6 @@ pub fn custom<'a, Message: Clone + 'a>(
     content: impl Into<crate::ui::Element<'a, Message>>,
 ) -> Button<'a, Message> {
     Button::new(content.into())
-}
-
-/// An image button which may contain any widget as its content.
-pub fn custom_image_button<'a, Message: Clone + 'a>(
-    content: impl Into<crate::ui::Element<'a, Message>>,
-    on_remove: Option<Message>,
-) -> Button<'a, Message> {
-    Button::new_image(content.into(), on_remove)
 }
 
 /// A builder for constructing a custom [`Button`].
