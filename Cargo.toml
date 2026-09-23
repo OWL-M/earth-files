@@ -160,12 +160,14 @@ version = "0.15"
 # TinySkiaRenderer>`, where each half delegates every renderer trait to
 # iced's own, so with no `Cached` in the widget tree nothing changes.
 #
-# The genie warp lives on luminate's `jinn` branch. `iced_animate` comes with
-# it: it is a member of the same workspace, so the one git reference resolves
-# both, and `Cargo.lock` pins the revision either way.
+# Luminate's `jinn` branch, taken from a local checkout beside this one: the
+# drawer slide needs `Cached::live_at_rest`, which is not on the remote yet.
+# `iced_animate` comes with it as a member of the same workspace. This does
+# not build under `nix build`, whose sandbox has no `../luminate`; return to
+# `git = "https://github.com/sonata-ltd/luminate"`, `branch = "jinn"` once
+# the branch is pushed.
 [dependencies.iced_texture_cache]
-git = "https://github.com/sonata-ltd/luminate"
-branch = "jinn"
+path = "../luminate/texture_cache"
 default-features = false
 # Mirrors the `iced` feature list above. `image` is the same switch as our
 # `iced/image-without-codecs`: both reach `iced_renderer/image`, and the
