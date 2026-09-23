@@ -479,3 +479,4 @@ remove-from-recents = Выдаліць з нядаўніх
 close = Закрыць
 
 opening-files = Opening…
+into-itself = A folder cannot be moved or copied into itself

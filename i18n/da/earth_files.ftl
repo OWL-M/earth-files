@@ -457,3 +457,4 @@ favorite-path-error-description =
 single-click = Enkelt klik for at åbne
 
 opening-files = Opening…
+into-itself = A folder cannot be moved or copied into itself

@@ -64,3 +64,4 @@ zoom-out = Umanji
 close = Zatvori
 
 opening-files = Opening…
+into-itself = A folder cannot be moved or copied into itself

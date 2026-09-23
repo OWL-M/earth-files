@@ -438,3 +438,4 @@ batch-rename-conflicts = {$count ->
 close = أغلِق
 
 opening-files = Opening…
+into-itself = A folder cannot be moved or copied into itself

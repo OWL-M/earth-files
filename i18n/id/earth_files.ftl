@@ -376,3 +376,4 @@ change-sidebar-label = Ubah label bilah sisi
 close = Tutup
 
 opening-files = Opening…
+into-itself = A folder cannot be moved or copied into itself

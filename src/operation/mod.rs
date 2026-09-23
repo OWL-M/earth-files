@@ -152,6 +152,14 @@ async fn copy_or_move(
             to.display()
         );
 
+        // A folder cannot go inside itself. The rename fails with EINVAL, and
+        // the recursive fallback would then copy the tree into its own
+        // subfolder and be unable to remove the source it had just filled.
+        if let Some(from) = paths.iter().find(|from| to.starts_with(from)) {
+            log::warn!("refusing to put {} inside itself", from.display());
+            return Err(OperationError::from_err(fl!("into-itself"), &controller));
+        }
+
         // The destination folder may be gone: undoing a move that emptied a
         // source folder and removed it has to put the files back inside it.
         // For any ordinary copy or move it is already there and this does
@@ -2704,6 +2712,31 @@ mod tests {
         let free = dir.path().join("free");
         rename_no_replace(&from, &free).unwrap();
         assert_eq!(fs::read(&free).unwrap(), b"new");
+    }
+
+    /// Moving a folder into one of its own subfolders can never complete:
+    /// it must be refused up front, leaving the tree exactly as it was.
+    #[test(compio::test)]
+    async fn moving_a_folder_into_its_own_subfolder_is_refused() -> io::Result<()> {
+        let fs = empty_fs()?;
+        let b = fs.path().join("a/b");
+        let c = b.join("c");
+        fs::create_dir_all(&c)?;
+        fs::write(b.join("file.txt"), b"KEEP")?;
+
+        let result = operation_move(vec![b.clone()], c.clone(), ReplaceResult::Cancel).await;
+        assert!(
+            result.is_err(),
+            "a move into its own subfolder must be refused: {result:?}"
+        );
+
+        assert_eq!(fs::read(b.join("file.txt"))?, b"KEEP");
+        let entries: Vec<_> = fs::read_dir(&c)?.collect::<io::Result<_>>()?;
+        assert!(
+            entries.is_empty(),
+            "nothing may land inside the subfolder: {entries:?}"
+        );
+        Ok(())
     }
 
     #[test]

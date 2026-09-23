@@ -445,3 +445,4 @@ change-sidebar-label = Изменить подпись
 close = Закрыть
 
 opening-files = Opening…
+into-itself = A folder cannot be moved or copied into itself

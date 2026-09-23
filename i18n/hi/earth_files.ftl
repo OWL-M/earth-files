@@ -425,3 +425,4 @@ pasted-video = चिपकाया गया वीडियो
 close = बंद करें
 
 opening-files = Opening…
+into-itself = A folder cannot be moved or copied into itself

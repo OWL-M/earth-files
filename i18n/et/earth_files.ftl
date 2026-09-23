@@ -260,3 +260,4 @@ sort-type-z-a = Tüüp Z-A
 close = Sulge
 
 opening-files = Opening…
+into-itself = A folder cannot be moved or copied into itself

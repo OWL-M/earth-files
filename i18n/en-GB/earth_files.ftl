@@ -103,3 +103,4 @@ move-to-button-label = Move
 context-action = Context action
 
 opening-files = Opening…
+into-itself = A folder cannot be moved or copied into itself

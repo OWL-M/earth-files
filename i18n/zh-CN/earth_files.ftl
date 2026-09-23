@@ -492,3 +492,4 @@ search-application = 使用应用名称搜索
 change-sidebar-label = 更改侧边栏标签
 
 opening-files = Opening…
+into-itself = A folder cannot be moved or copied into itself

@@ -409,3 +409,4 @@ keywords = Carpeta;Fitxers;Arxius;Gestor;Explorador;
 close = Tancar
 
 opening-files = Opening…
+into-itself = A folder cannot be moved or copied into itself

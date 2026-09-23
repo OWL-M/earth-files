@@ -237,6 +237,7 @@ username = Username
 ## Operations
 cancelled = Cancelled
 operation-failed-to-start = The file operation could not be started
+into-itself = A folder cannot be moved or copied into itself
 edit-history = Edit history
 history = History
 no-history = No items in history.

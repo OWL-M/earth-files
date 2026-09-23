@@ -466,3 +466,4 @@ sort-type-z-a = Вид Я→А
 close = Затваряне
 
 opening-files = Opening…
+into-itself = A folder cannot be moved or copied into itself

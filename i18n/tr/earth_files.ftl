@@ -446,3 +446,4 @@ show-recents = Kenar çubuğundaki son kullanılanlar klasörü
 close = Kapat
 
 opening-files = Opening…
+into-itself = A folder cannot be moved or copied into itself

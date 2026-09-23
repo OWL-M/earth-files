@@ -498,3 +498,4 @@ change-sidebar-label = Changer le libellé de la barre latérale
 close = Fermer
 
 opening-files = Opening…
+into-itself = A folder cannot be moved or copied into itself

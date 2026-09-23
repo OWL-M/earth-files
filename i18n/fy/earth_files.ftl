@@ -11,3 +11,4 @@ empty-folder-hidden = Lege map (mei ferburgen bestannen)
 no-results = Gjin resultaten fûn
 
 opening-files = Opening…
+into-itself = A folder cannot be moved or copied into itself

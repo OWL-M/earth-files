@@ -489,3 +489,4 @@ search-application = Nach App-Name suchen
 close = Schließen
 
 opening-files = Opening…
+into-itself = A folder cannot be moved or copied into itself

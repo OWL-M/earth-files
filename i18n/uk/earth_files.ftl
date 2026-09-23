@@ -444,3 +444,4 @@ change-sidebar-label = Змінити назву бічної панелі
 close = Закрити
 
 opening-files = Opening…
+into-itself = A folder cannot be moved or copied into itself

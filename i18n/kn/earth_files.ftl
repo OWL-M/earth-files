@@ -327,3 +327,4 @@ sort-type-a-z = ಪ್ರಕಾರ ಅ-ಆ ಕ್ರಮದಲ್ಲಿ ವಿಂ
 sort-type-z-a = ಪ್ರಕಾರ ಆ-ಅ ಕ್ರಮದಲ್ಲಿ ವಿಂಗಡಿಸಿ
 
 opening-files = Opening…
+into-itself = A folder cannot be moved or copied into itself
