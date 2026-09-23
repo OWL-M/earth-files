@@ -1197,7 +1197,7 @@ where
             if cursor_position.is_over(leading_icon_layout.bounds()) {
                 return leading_icon.as_widget().mouse_interaction(
                     tree,
-                    layout,
+                    leading_icon_layout,
                     cursor_position,
                     viewport,
                     renderer,
@@ -1225,7 +1225,7 @@ where
                 {
                     return trailing_icon.as_widget().mouse_interaction(
                         tree,
-                        layout,
+                        trailing_icon_layout,
                         cursor_position,
                         viewport,
                         renderer,
