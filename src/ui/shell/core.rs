@@ -39,9 +39,9 @@ pub struct Window {
     pub context_is_overlay: bool,
     /// Whether the context drawer is shown.
     ///
-    /// Three sites write it directly: `src/app.rs:2062`, `src/app.rs:3758` and
-    /// `src/dialog.rs:820`. They bypass [`Core::set_show_context`] and its
-    /// `is_condensed` recompute.
+    /// Several sites write it directly and bypass [`Core::set_show_context`]
+    /// and its `is_condensed` recompute; the drawer's slide observes it after
+    /// every update instead (`Shell::sync_drawer_slide`).
     pub show_context: bool,
     pub show_headerbar: bool,
     pub show_window_menu: bool,
@@ -87,6 +87,10 @@ pub struct Core {
     /// `crate::ui::widget::responsive_menu_bar`, which panics when it has
     /// decided to collapse and finds no entry here. Never cleared.
     pub(crate) menu_bars: HashMap<crate::ui::widget::Id, (Limits, Size)>,
+
+    /// The context drawer's slide in and out; see
+    /// [`crate::ui::shell::drawer_slide`].
+    pub(crate) drawer_slide: crate::ui::shell::drawer_slide::DrawerSlide,
 }
 
 impl Default for Core {
@@ -124,6 +128,7 @@ impl Default for Core {
             main_window: None,
             exit_on_main_window_closed: true,
             menu_bars: HashMap::new(),
+            drawer_slide: crate::ui::shell::drawer_slide::DrawerSlide::new(),
         }
     }
 }
@@ -213,6 +218,24 @@ impl Core {
         // Keep the content at least 360px wide until the drawer hits its 344px
         // minimum; never let the drawer exceed 480px.
         (window_width - reserved_width).min(480.0).max(344.0)
+    }
+
+    /// How much width the drawer takes from the main content, which is how
+    /// far it slides.
+    ///
+    /// Inline, the main content gives up its right padding and the drawer
+    /// brings its own on both sides (see `view_main`), so a content
+    /// container adds one padding. In overlay mode the drawer sits 8px in
+    /// from the edge (`context_drawer::overlay`).
+    pub fn drawer_extent(&self, has_nav: bool) -> f32 {
+        let width = self.context_width(has_nav);
+        if self.window.context_is_overlay {
+            width + 8.0
+        } else if self.window.content_container {
+            width + f32::from(self.window.border_padding.unwrap_or(7))
+        } else {
+            width
+        }
     }
 
     pub fn set_show_context(&mut self, show: bool) {
@@ -561,5 +584,22 @@ mod tests {
         let core = core();
         assert!((core.nav_bar_effective_width(200.0) - 200.0).abs() < f32::EPSILON);
         assert!((core.nav_bar_effective_width(260.0) - 260.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn the_drawer_takes_its_width_plus_what_its_padding_adds() {
+        // 1600 wide, no nav: the drawer is at its 480px maximum.
+        let mut core = core();
+
+        core.window.context_is_overlay = false;
+        core.window.content_container = true;
+        core.window.border_padding = None;
+        assert!((core.drawer_extent(false) - 487.0).abs() < f32::EPSILON);
+
+        core.window.content_container = false;
+        assert!((core.drawer_extent(false) - 480.0).abs() < f32::EPSILON);
+
+        core.window.context_is_overlay = true;
+        assert!((core.drawer_extent(false) - 488.0).abs() < f32::EPSILON);
     }
 }
