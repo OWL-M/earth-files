@@ -303,7 +303,9 @@ fn zip_extract<R: io::Read + io::Seek, P: AsRef<Path>>(
         files_by_unix_mode.sort_by_key(|(path, _)| Reverse(path.components().count()));
     }
     for (path, mode) in files_by_unix_mode {
-        fs::set_permissions(&path, fs::Permissions::from_mode(mode))?;
+        // Only the permission bits: the archive author does not get to hand
+        // out setuid, setgid or sticky
+        fs::set_permissions(&path, fs::Permissions::from_mode(mode & 0o777))?;
     }
 
     for (path, last_modified, is_symlink) in files_by_last_modified {
@@ -444,5 +446,41 @@ mod tests {
         assert_eq!(fs::read_to_string(dest.join("a.txt")).unwrap(), "hello");
         assert_eq!(fs::read_to_string(dest.join("sub/b.txt")).unwrap(), "world");
         assert_eq!(fs::read_to_string(dest.join("inside")).unwrap(), "hello");
+    }
+
+    /// A setuid bit chosen by the archive author must not survive extraction
+    #[test]
+    fn zip_setuid_bit_is_dropped() {
+        use std::os::unix::fs::PermissionsExt;
+        let tmp = tempfile::tempdir().unwrap();
+        let dest = tmp.path().join("dest");
+        fs::create_dir(&dest).unwrap();
+
+        let zip_path = tmp.path().join("suid.zip");
+        let mut writer = zip::ZipWriter::new(fs::File::create(&zip_path).unwrap());
+        writer
+            .start_file("tool", zip_options().unix_permissions(0o755))
+            .unwrap();
+        writer.write_all(b"#!/bin/sh").unwrap();
+        writer.finish().unwrap();
+
+        // The writer masks permissions to 0o777, so plant the setuid bit in the
+        // central directory's external attributes by hand (offset 38 of the
+        // 0x02014b50 header)
+        let mut bytes = fs::read(&zip_path).unwrap();
+        let header = bytes
+            .windows(4)
+            .position(|w| w == [0x50, 0x4b, 0x01, 0x02])
+            .unwrap();
+        let attrs = ((0o100000u32 | 0o4755) << 16).to_le_bytes();
+        bytes[header + 38..header + 42].copy_from_slice(&attrs);
+        fs::write(&zip_path, bytes).unwrap();
+
+        extract(&zip_path, &dest, &None, &Controller::default()).unwrap();
+        let mode = fs::metadata(dest.join("tool"))
+            .unwrap()
+            .permissions()
+            .mode();
+        assert_eq!(mode & 0o7777, 0o755, "got {mode:o}");
     }
 }
