@@ -483,7 +483,7 @@ impl<M: Send + 'static> Dialog<M> {
         self.shell.app.flags.window_id
     }
 
-    /// The chooser's current title.
+    /// The chooser's current title: as last set with [`Dialog::set_title`], else its kind's default.
     #[must_use]
     pub fn title(&self) -> &str {
         &self.shell.app.title
@@ -2528,11 +2528,16 @@ mod tests {
     fn a_chooser_answers_for_its_own_window() {
         let chooser = window::Id::unique();
         let main = window::Id::unique();
-        let host: HashMap<window::Id, String> = [(main, "Home — Earth Files".to_owned())].into();
+        let host: HashMap<window::Id, String> = [
+            (main, "Home — Earth Files".to_owned()),
+            (chooser, "stale".to_owned()),
+        ]
+        .into();
 
         assert_eq!(
             window_title([(chooser, "Open File")], &host, chooser),
-            "Open File"
+            "Open File",
+            "the chooser's own title wins"
         );
     }
 
@@ -2546,6 +2551,10 @@ mod tests {
             window_title([(chooser, "Open File")], &host, main),
             "Home — Earth Files"
         );
-        assert_eq!(window_title([], &host, window::Id::unique()), "", "unknown");
+        assert_eq!(
+            window_title([], &host, window::Id::unique()),
+            "",
+            "an unknown window has no title"
+        );
     }
 }
