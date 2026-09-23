@@ -1865,10 +1865,7 @@ impl App {
                     ref paths, ref to, ..
                 } = op
                 {
-                    let path_changes: Box<[_]> = paths
-                        .iter()
-                        .filter_map(|from| from.file_name().map(|name| (from, to.join(name))))
-                        .collect();
+                    let path_changes = move_path_changes(&op_sel_pending.moved, paths, to);
                     if self.update_favorites(&path_changes) {
                         commands.push(self.update_config());
                     }
@@ -7636,6 +7633,51 @@ impl Application for App {
 // Utilities to build a temporary file hierarchy for tests.
 //
 // Ideally, tests would use the cap-std crate which limits path traversal.
+/// Where each path a move took went, for rewriting favorites. The pairs the
+/// operation recorded come first: a Keep Both conflict gives the destination
+/// another name, and guessing `to/name` would point the favorite at the file
+/// that was already there. The guesses are kept after them for a folder merged
+/// into one that already existed, which records only its children.
+fn move_path_changes(
+    moved: &[(PathBuf, PathBuf)],
+    paths: &[PathBuf],
+    to: &Path,
+) -> Vec<(PathBuf, PathBuf)> {
+    moved
+        .iter()
+        .cloned()
+        .chain(
+            paths
+                .iter()
+                .filter_map(|from| from.file_name().map(|name| (from.clone(), to.join(name)))),
+        )
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn keep_both_move_points_favorites_at_the_renamed_item() {
+        let from = PathBuf::from("/src/file.txt");
+        let to = Path::new("/dest");
+        let renamed = to.join("file (copy).txt");
+        let moved = vec![(from.clone(), renamed.clone())];
+
+        let changes = move_path_changes(&moved, std::slice::from_ref(&from), to);
+
+        let (_, first) = changes
+            .iter()
+            .find(|(f, _)| from.starts_with(f))
+            .expect("the moved path is rewritten");
+        assert_eq!(
+            first, &renamed,
+            "the recorded pair wins over the basename guess"
+        );
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::fs;
