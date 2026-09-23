@@ -428,16 +428,6 @@ impl Default for State {
     }
 }
 
-impl super::operation::Dropdown for State {
-    fn close(&mut self) {
-        self.close_operation = true;
-    }
-
-    fn open(&mut self) {
-        self.open_operation = true;
-    }
-}
-
 /// Computes the layout of a [`Dropdown`].
 #[allow(clippy::too_many_arguments)]
 pub fn layout(
