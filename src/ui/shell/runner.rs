@@ -90,12 +90,14 @@ fn preload_fonts() {
 
 /// Split [`super::Settings`] into what the daemon takes and what the shell keeps.
 ///
-/// `IcedXdgWindowSettings` carries a size and a decoration mode and nothing
-/// else. The application id becomes the daemon's namespace.
+/// The daemon takes iced's own settings and the Wayland ones apart.
+/// `IcedXdgWindowSettings` carries a size, a decoration mode and an app id,
+/// left to default to the daemon's namespace, the application id.
 fn split_settings<App: Application>(
     settings: super::Settings,
 ) -> (
-    iced_exwlshell::settings::Settings,
+    iced::Settings,
+    iced_exwlshell::settings::ExWlSettings,
     Core,
     iced_exwlshell::actions::IcedXdgWindowSettings,
     Theme,
@@ -119,11 +121,17 @@ fn split_settings<App: Application>(
         core.main_window = Some(crate::ui::window::none());
     }
 
-    let mut exwl = iced_exwlshell::settings::Settings {
+    let iced_settings = iced::Settings {
         id: Some(App::APP_ID.to_owned()),
         antialiasing: settings.antialiasing,
         default_font: settings.default_font,
         default_text_size: iced::Pixels(settings.default_text_size),
+        // The fonts are already in the shared font system via
+        // `preload_fonts`; handing them over twice would only re-parse them.
+        fonts: Vec::new(),
+        ..Default::default()
+    };
+    let exwl = iced_exwlshell::settings::ExWlSettings {
         layer_settings: iced_exwlshell::settings::LayerShellSettings {
             // This is a normal windowed application, not a panel.
             //
@@ -141,11 +149,11 @@ fn split_settings<App: Application>(
             start_mode: iced_exwlshell::settings::StartMode::Background,
             ..Default::default()
         },
+        // Stops and per-scroll details for `ui::widget::scrollable`, which
+        // coasts a touchpad fling once the fingers lift.
+        scroll_frames: true,
         ..Default::default()
     };
-    // The fonts are already in the shared font system via `preload_fonts`;
-    // handing them over twice would only re-parse them.
-    exwl.fonts = Vec::new();
 
     core.exit_on_main_window_closed = settings.exit_on_close;
 
@@ -155,9 +163,10 @@ fn split_settings<App: Application>(
             settings.size.height.max(1.0) as u32,
         )),
         client_side_decorations: settings.client_decorations,
+        app_id: None,
     };
 
-    (exwl, core, window_settings, settings.theme)
+    (iced_settings, exwl, core, window_settings, settings.theme)
 }
 
 /// Launch an application with the given [`Settings`](super::Settings).
@@ -181,7 +190,8 @@ pub fn run<App: Application>(
     // non-Wayland paths for the first few frames.
     _ = WINDOWING_SYSTEM.set(WindowingSystem::Wayland);
 
-    let (mut exwl_settings, mut core, window_settings, theme) = split_settings::<App>(settings);
+    let (iced_settings, mut exwl_settings, mut core, window_settings, theme) =
+        split_settings::<App>(settings);
 
     // Own the connection rather than letting exwlshell open one, so
     // `ui::dnd` can put a second event queue on the same connection and bind
@@ -230,7 +240,8 @@ pub fn run<App: Application>(
         Shell::<App>::update,
         Shell::<App>::view,
     )
-    .settings(exwl_settings)
+    .settings(iced_settings)
+    .wl_settings(exwl_settings)
     .subscription(Shell::<App>::subscription)
     .title(|shell: &Shell<App>, id| Some(shell.title(id)))
     .style(|shell: &Shell<App>, theme: &Theme| shell.style(theme))

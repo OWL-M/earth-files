@@ -5083,7 +5083,7 @@ impl Tab {
                 }
                 if let Some(offset) = self.select_focus_scroll() {
                     commands.push(Command::Iced(
-                        scrollable::scroll_to(
+                        scrollable::glide_to(
                             self.scrollable_id.clone(),
                             AbsoluteOffset {
                                 x: Some(offset.x),
@@ -5154,7 +5154,7 @@ impl Tab {
                     }
                     if let Some(offset) = self.select_focus_scroll() {
                         commands.push(Command::Iced(
-                            scrollable::scroll_to(
+                            scrollable::glide_to(
                                 self.scrollable_id.clone(),
                                 AbsoluteOffset {
                                     x: Some(offset.x),
@@ -5198,7 +5198,7 @@ impl Tab {
                 }
                 if let Some(offset) = self.select_focus_scroll() {
                     commands.push(Command::Iced(
-                        scrollable::scroll_to(
+                        scrollable::glide_to(
                             self.scrollable_id.clone(),
                             AbsoluteOffset {
                                 x: Some(offset.x),
@@ -5242,7 +5242,7 @@ impl Tab {
                 }
                 if let Some(offset) = self.select_focus_scroll() {
                     commands.push(Command::Iced(
-                        scrollable::scroll_to(
+                        scrollable::glide_to(
                             self.scrollable_id.clone(),
                             AbsoluteOffset {
                                 x: Some(offset.x),
@@ -5300,7 +5300,7 @@ impl Tab {
                     }
                     if let Some(offset) = self.select_focus_scroll() {
                         commands.push(Command::Iced(
-                            scrollable::scroll_to(
+                            scrollable::glide_to(
                                 self.scrollable_id.clone(),
                                 AbsoluteOffset {
                                     x: Some(offset.x),
@@ -5342,7 +5342,7 @@ impl Tab {
                     }
                     if let Some(offset) = self.select_focus_scroll() {
                         commands.push(Command::Iced(
-                            scrollable::scroll_to(
+                            scrollable::glide_to(
                                 self.scrollable_id.clone(),
                                 AbsoluteOffset {
                                     x: Some(offset.x),
@@ -5387,7 +5387,7 @@ impl Tab {
                     }
                     if let Some(offset) = self.select_focus_scroll() {
                         commands.push(Command::Iced(
-                            scrollable::scroll_to(
+                            scrollable::glide_to(
                                 self.scrollable_id.clone(),
                                 AbsoluteOffset {
                                     x: Some(offset.x),
@@ -5724,7 +5724,7 @@ impl Tab {
                 if self.select_position(0, 0, mod_shift) {
                     if let Some(offset) = self.select_focus_scroll() {
                         commands.push(Command::Iced(
-                            scrollable::scroll_to(
+                            scrollable::glide_to(
                                 self.scrollable_id.clone(),
                                 AbsoluteOffset {
                                     x: Some(offset.x),
@@ -5746,7 +5746,7 @@ impl Tab {
                 {
                     if let Some(offset) = self.select_focus_scroll() {
                         commands.push(Command::Iced(
-                            scrollable::scroll_to(
+                            scrollable::glide_to(
                                 self.scrollable_id.clone(),
                                 AbsoluteOffset {
                                     x: Some(offset.x),

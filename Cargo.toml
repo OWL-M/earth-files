@@ -141,7 +141,7 @@ version = "0.14"
 version = "0.14"
 
 [dependencies.iced_exwlshell]
-version = "0.20.1"
+version = "0.21.0-dev"
 
 # `iced_core 0.14` does not re-export `cosmic_text::Affinity`, so it is used
 # directly. `cargo tree -i cosmic-text` shows one `v0.15.0`, used by
@@ -160,7 +160,8 @@ version = "0.15"
 # TinySkiaRenderer>`, where each half delegates every renderer trait to
 # iced's own, so with no `Cached` in the widget tree nothing changes.
 #
-# The genie warp and `Cached::live_at_rest` live on luminate's `jinn` branch.
+# The genie warp, `Cached::live_at_rest` and the widget-owned `Spring` and
+# `Decay` the smooth scroll uses live on luminate's `jinn` branch.
 # `iced_animate` comes with it: it is a member of the same workspace, so the
 # one git reference resolves both, and `Cargo.lock` pins the revision either
 # way.
@@ -243,9 +244,9 @@ test-log = "0.2"
 tokio = { version = "1", features = ["rt", "macros"] }
 
 [patch.crates-io]
-exwlshellev             = { git = "https://github.com/waycrate/exwlshelleventloop", branch = "master" }
-iced_exwlshell          = { git = "https://github.com/waycrate/exwlshelleventloop", branch = "master" }
-iced_exwlshell_macros   = { git = "https://github.com/waycrate/exwlshelleventloop", branch = "master" }
-iced_wayland_subscriber = { git = "https://github.com/waycrate/exwlshelleventloop", branch = "master" }
-iced_exdevtools         = { git = "https://github.com/waycrate/exwlshelleventloop", branch = "master" }
-waycrate_xkbkeycode     = { git = "https://github.com/waycrate/exwlshelleventloop", branch = "master" }
+exwlshellev             = { git = "https://github.com/id3v1669/exwlshelleventloop", branch = "xxas" }
+iced_exwlshell          = { git = "https://github.com/id3v1669/exwlshelleventloop", branch = "xxas" }
+iced_exwlshell_macros   = { git = "https://github.com/id3v1669/exwlshelleventloop", branch = "xxas" }
+iced_wayland_subscriber = { git = "https://github.com/id3v1669/exwlshelleventloop", branch = "xxas" }
+iced_exdevtools         = { git = "https://github.com/id3v1669/exwlshelleventloop", branch = "xxas" }
+waycrate_xkbkeycode     = { git = "https://github.com/id3v1669/exwlshelleventloop", branch = "xxas" }

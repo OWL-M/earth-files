@@ -3,14 +3,11 @@
 
 //! Vendored from pop-os/libcosmic, src/widget/scrollable/scrollable.rs
 
-use crate::ui::Renderer;
-
+use super::Smooth;
 use crate::ui::Element;
 use iced::widget;
 
-pub fn scrollable<'a, Message>(
-    element: impl Into<Element<'a, Message>>,
-) -> widget::Scrollable<'a, Message, crate::ui::Theme, Renderer> {
+pub fn scrollable<'a, Message>(element: impl Into<Element<'a, Message>>) -> Smooth<'a, Message> {
     vertical(element)
 }
 
@@ -20,20 +17,16 @@ pub fn scrollable<'a, Message>(
 // vertical scrollbar track runs the full height. Insetting it by 8px at each
 // end would mean vendoring iced's ~2,600-line `scrollable`; it is not
 // approximated here.
-pub fn vertical<'a, Message>(
-    element: impl Into<Element<'a, Message>>,
-) -> widget::Scrollable<'a, Message, crate::ui::Theme, Renderer> {
-    widget::scrollable(element).direction(widget::scrollable::Direction::Vertical(
+pub fn vertical<'a, Message>(element: impl Into<Element<'a, Message>>) -> Smooth<'a, Message> {
+    Smooth::new(widget::scrollable(element)).direction(widget::scrollable::Direction::Vertical(
         widget::scrollable::Scrollbar::new()
             .width(8.0)
             .scroller_width(8.0),
     ))
 }
 
-pub fn horizontal<'a, Message>(
-    element: impl Into<Element<'a, Message>>,
-) -> widget::Scrollable<'a, Message, crate::ui::Theme, Renderer> {
-    widget::scrollable(element).direction(widget::scrollable::Direction::Horizontal(
+pub fn horizontal<'a, Message>(element: impl Into<Element<'a, Message>>) -> Smooth<'a, Message> {
+    Smooth::new(widget::scrollable(element)).direction(widget::scrollable::Direction::Horizontal(
         widget::scrollable::Scrollbar::new()
             .width(8.0)
             .scroller_width(8.0),

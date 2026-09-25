@@ -108,7 +108,10 @@ impl PopupSettings {
             size: pixel_size(width as i32, height as i32),
             parent: Some(self.parent),
             placement: PopupPlacement::Anchored {
-                position: (rect.x, rect.y),
+                position: iced_exwlshell::reexport::Position {
+                    x: rect.x,
+                    y: rect.y,
+                },
                 size: pixel_size(rect.width, rect.height),
             },
             anchor: self.positioner.anchor,

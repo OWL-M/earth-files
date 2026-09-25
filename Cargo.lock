@@ -1744,8 +1744,8 @@ dependencies = [
 
 [[package]]
 name = "exwlshellev"
-version = "0.20.1"
-source = "git+https://github.com/waycrate/exwlshelleventloop?branch=master#f0ac124cb840a585025da53f668e5e6c63a99b0e"
+version = "0.21.0-dev"
+source = "git+https://github.com/id3v1669/exwlshelleventloop?branch=xxas#45ae3780313121c91eed7371156d94a91f99b162"
 dependencies = [
  "calloop 0.14.4",
  "calloop-wayland-source 0.4.1",
@@ -2671,7 +2671,7 @@ dependencies = [
 [[package]]
 name = "iced_animate"
 version = "0.1.0"
-source = "git+https://github.com/sonata-ltd/luminate?branch=jinn#2ab57a20bfce106c7c28b20ac94b9de28c552256"
+source = "git+https://github.com/sonata-ltd/luminate?branch=jinn#7ebf67d9b3070f7d03e4651d23a3fa82540436ff"
 dependencies = [
  "iced_core",
  "log",
@@ -2720,8 +2720,8 @@ dependencies = [
 
 [[package]]
 name = "iced_exdevtools"
-version = "0.20.1"
-source = "git+https://github.com/waycrate/exwlshelleventloop?branch=master#f0ac124cb840a585025da53f668e5e6c63a99b0e"
+version = "0.21.0-dev"
+source = "git+https://github.com/id3v1669/exwlshelleventloop?branch=xxas#45ae3780313121c91eed7371156d94a91f99b162"
 dependencies = [
  "iced_debug",
  "iced_devtools",
@@ -2733,8 +2733,8 @@ dependencies = [
 
 [[package]]
 name = "iced_exwlshell"
-version = "0.20.1"
-source = "git+https://github.com/waycrate/exwlshelleventloop?branch=master#f0ac124cb840a585025da53f668e5e6c63a99b0e"
+version = "0.21.0-dev"
+source = "git+https://github.com/id3v1669/exwlshelleventloop?branch=xxas#45ae3780313121c91eed7371156d94a91f99b162"
 dependencies = [
  "enumflags2",
  "exwlshellev",
@@ -2759,8 +2759,8 @@ dependencies = [
 
 [[package]]
 name = "iced_exwlshell_macros"
-version = "0.20.1"
-source = "git+https://github.com/waycrate/exwlshelleventloop?branch=master#f0ac124cb840a585025da53f668e5e6c63a99b0e"
+version = "0.21.0-dev"
+source = "git+https://github.com/id3v1669/exwlshelleventloop?branch=xxas#45ae3780313121c91eed7371156d94a91f99b162"
 dependencies = [
  "darling 0.24.1",
  "manyhow",
@@ -2845,7 +2845,7 @@ dependencies = [
 [[package]]
 name = "iced_texture_cache"
 version = "0.1.0"
-source = "git+https://github.com/sonata-ltd/luminate?branch=jinn#2ab57a20bfce106c7c28b20ac94b9de28c552256"
+source = "git+https://github.com/sonata-ltd/luminate?branch=jinn#7ebf67d9b3070f7d03e4651d23a3fa82540436ff"
 dependencies = [
  "bytemuck",
  "iced_animate",
@@ -2879,8 +2879,8 @@ dependencies = [
 
 [[package]]
 name = "iced_wayland_subscriber"
-version = "0.20.1"
-source = "git+https://github.com/waycrate/exwlshelleventloop?branch=master#f0ac124cb840a585025da53f668e5e6c63a99b0e"
+version = "0.21.0-dev"
+source = "git+https://github.com/id3v1669/exwlshelleventloop?branch=xxas#45ae3780313121c91eed7371156d94a91f99b162"
 dependencies = [
  "futures",
  "iced_core",
@@ -7353,8 +7353,8 @@ dependencies = [
 
 [[package]]
 name = "waycrate_xkbkeycode"
-version = "0.20.1"
-source = "git+https://github.com/waycrate/exwlshelleventloop?branch=master#f0ac124cb840a585025da53f668e5e6c63a99b0e"
+version = "0.21.0-dev"
+source = "git+https://github.com/id3v1669/exwlshelleventloop?branch=xxas#45ae3780313121c91eed7371156d94a91f99b162"
 dependencies = [
  "calloop 0.14.4",
  "log",

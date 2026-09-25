@@ -313,6 +313,7 @@ impl<M: Send + 'static> Dialog<M> {
                 // The chooser draws its own header bar, hence client-side
                 // decorations.
                 client_side_decorations: true,
+                app_id: None,
             },
         ));
 
@@ -1703,7 +1704,7 @@ impl Application for App {
 
                             self.tab.select_by_prefix(&self.type_select_prefix);
                             if let Some(offset) = self.tab.select_focus_scroll() {
-                                return scrollable::scroll_to(
+                                return scrollable::glide_to(
                                     self.tab.scrollable_id.clone(),
                                     AbsoluteOffset {
                                         x: Some(offset.x),
