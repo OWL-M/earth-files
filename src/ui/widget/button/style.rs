@@ -3,7 +3,7 @@
 
 //! Vendored from pop-os/libcosmic, src/widget/button/style.rs
 //!
-//! Change the apperance of a button.
+//! Change the appearance of a button.
 use iced_core::border::Radius;
 use iced_core::{Background, Color, Vector};
 

@@ -1,22 +1,30 @@
-name: Cargo Build & Test
+name: cargo
 
-on:
-  push:
-    branches:
-    - master
-  pull_request:
+on: [push, pull_request]
 
-env:
-  CARGO_TERM_COLOR: always
+permissions:
+  contents: read
 
 jobs:
   test:
-    name: earth-files - latest
     runs-on: ubuntu-latest
+
     steps:
-      - uses: actions/checkout@v4
-      - run: sudo apt-get update; sudo apt-get install libclang-dev libglib2.0-dev libxkbcommon-dev
-      - run: rustup update stable && rustup default stable
-      - run: cargo test --verbose --no-default-features
-      - run: cargo test --verbose
-      - run: cargo test --verbose --all-features
+      - uses: actions/checkout@v7
+
+      - uses: cachix/install-nix-action@v31
+
+      - uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: cargo-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'flake.lock') }}
+          restore-keys: cargo-${{ runner.os }}-
+
+      - name: Build
+        run: nix develop --command cargo build
+
+      - name: Test
+        run: nix develop --command cargo test

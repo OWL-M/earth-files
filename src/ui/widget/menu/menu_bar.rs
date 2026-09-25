@@ -118,7 +118,7 @@ where
         .map(|root| {
             let mut tree = Tree::empty();
             let flat = root
-                .flattern()
+                .flatten()
                 .iter()
                 .map(|mt| Tree::new(mt.item.clone()))
                 .collect();
@@ -141,7 +141,7 @@ where
         .zip(menu_roots.iter())
         .for_each(|(t, root)| {
             let flat = root
-                .flattern()
+                .flatten()
                 .iter()
                 .map(|mt| &mt.item as &dyn Widget<Message, crate::ui::Theme, Renderer>)
                 .collect::<Vec<_>>();
@@ -153,7 +153,7 @@ where
         let extended = menu_roots[tree.children.len()..].iter().map(|root| {
             let mut tree = Tree::empty();
             let flat = root
-                .flattern()
+                .flatten()
                 .iter()
                 .map(|mt| Tree::new(mt.item.clone()))
                 .collect();

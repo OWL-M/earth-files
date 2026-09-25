@@ -10,6 +10,7 @@
   rust-analyzer,
   just,
   nixfmt-tree,
+  typos,
   xdg-utils,
   libxkbcommon,
   wayland,
@@ -37,6 +38,7 @@ mkShell {
     rust-analyzer
     just
     nixfmt-tree
+    typos
     xdg-utils
   ];
 

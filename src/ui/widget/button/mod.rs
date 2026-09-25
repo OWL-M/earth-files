@@ -85,7 +85,7 @@ pub struct Builder<'a, Message, Variant> {
     /// Sets the preferred size of icons.
     icon_size: u16,
 
-    /// Sets the prefered font line height.
+    /// Sets the preferred font line height.
     line_height: u16,
 
     /// Sets the preferred font size.

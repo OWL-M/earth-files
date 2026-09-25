@@ -277,7 +277,7 @@ impl<Message: 'static + Clone> Widget<Message, crate::ui::Theme, crate::ui::Rend
                 .map(|root| {
                     let mut tree = Tree::empty();
                     let flat = root
-                        .flattern()
+                        .flatten()
                         .iter()
                         .map(|mt| Tree::new(mt.item.clone()))
                         .collect();

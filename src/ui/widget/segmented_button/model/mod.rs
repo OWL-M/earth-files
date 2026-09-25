@@ -56,7 +56,7 @@ pub struct Model<SelectionMode: Default> {
     pub(super) items: SlotMap<Entity, Settings>,
 
     /// Divider optionally-defined for each item.
-    pub(super) divider_aboves: SecondaryMap<Entity, bool>,
+    pub(super) dividers_above: SecondaryMap<Entity, bool>,
 
     /// Icons optionally-defined for each item.
     pub(super) icons: SecondaryMap<Entity, Icon>,
@@ -208,7 +208,7 @@ where
 
     #[inline]
     pub fn divider_above(&self, id: Entity) -> Option<bool> {
-        self.divider_aboves.get(id).copied()
+        self.dividers_above.get(id).copied()
     }
 
     pub fn divider_above_set(&mut self, id: Entity, divider_above: bool) -> Option<bool> {
@@ -216,12 +216,12 @@ where
             return None;
         }
 
-        self.divider_aboves.insert(id, divider_above)
+        self.dividers_above.insert(id, divider_above)
     }
 
     #[inline]
     pub fn divider_above_remove(&mut self, id: Entity) -> Option<bool> {
-        self.divider_aboves.remove(id)
+        self.dividers_above.remove(id)
     }
 
     /// Enable or disable an item.

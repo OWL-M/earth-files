@@ -2595,7 +2595,7 @@ impl ItemThumbnail {
             };
 
             // It's preferable to create the tempfile in the same directory as the final cached
-            // thumbnail to ensure that no copies across filesytems need to be made. However,
+            // thumbnail to ensure that no copies across filesystems need to be made. However,
             // the apparmor config for evince-thumbnailer does not allow this, so we need to
             // fallback to the system tempdir.
             let dir = if is_evince { None } else { thumbnail_dir };
@@ -9218,7 +9218,7 @@ mod tests {
     /// Setting the query of a running search keeps that search's scope, even
     /// when the config has since moved on -- the Back-then-type case.
     #[test]
-    fn editing_a_query_keeps_the_searchs_scope() -> io::Result<()> {
+    fn editing_a_query_keeps_the_searches_scope() -> io::Result<()> {
         use crate::tab::{SearchLocation, SearchOptions};
         use std::time::Instant;
 

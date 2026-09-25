@@ -1,0 +1,7 @@
+[files]
+extend-exclude = ["i18n/"]
+
+[default.extend-words]
+overlayed = "overlayed"
+leafs = "leafs"
+thumbnailers = "thumbnailers"

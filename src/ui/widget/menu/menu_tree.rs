@@ -95,7 +95,7 @@ impl<Message: Clone + 'static> MenuTree<Message> {
         self
     }
 
-    /* Keep `set_index()` and `flattern()` recurse in the same order */
+    /* Keep `set_index()` and `flatten()` recurse in the same order */
 
     /// Set the index of each item
     pub(crate) fn set_index(&mut self) {
@@ -117,7 +117,7 @@ impl<Message: Clone + 'static> MenuTree<Message> {
     }
 
     /// Flatten the menu tree
-    pub(crate) fn flattern(&self) -> Vec<&Self> {
+    pub(crate) fn flatten(&self) -> Vec<&Self> {
         /// Inner flattening function
         fn rec<'a, Message: Clone + 'static>(
             mt: &'a MenuTree<Message>,
@@ -254,7 +254,7 @@ impl<A, L> Entry<A, L> {
         self
     }
 
-    /// Show a check column, ticked when `checked` is true, empty sapce when false
+    /// Show a check column, ticked when `checked` is true, empty space when false
     #[must_use]
     pub fn checked(mut self, checked: bool) -> Self {
         self.checked = Some(checked);

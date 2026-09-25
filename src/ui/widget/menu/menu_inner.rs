@@ -132,14 +132,14 @@ impl Aod {
         1. to the right
                     o-----oo----------o
 
-        2. to the right but allow overlaping
+        2. to the right but allow overlapping
                     o-----o
                     o----------o
 
         3. to the left
         o----------oo-----o
 
-        4. to the left but allow overlaping
+        4. to the left but allow overlapping
                     o-----o
                o----------o
 
@@ -814,7 +814,7 @@ impl<'b, Message: Clone + 'static> Menu<'b, Message> {
                             };
                             let menu_color = styling.background;
                             r.fill_quad(menu_quad, menu_color);
-                            // draw path hightlight
+                            // draw path highlight
                             if let (true, Some(active)) = (draw_path, ms.index)
                                 && let Some(active_layout) = children_layout
                                     .children()
@@ -1482,7 +1482,7 @@ where
                 // no menus left
                 // keep state.open when the cursor is still inside the menu bar
                 // this allows the overlay to keep drawing when the cursor is
-                // moving aroung the menu bar
+                // moving around the menu bar
                 if !menu.bar_bounds.contains(overlay_cursor) {
                     state.open = false;
                 }

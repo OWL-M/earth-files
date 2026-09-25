@@ -228,7 +228,7 @@ impl ThumbnailCacher {
             Ok(m) => m,
             Err(err) => {
                 log::warn!(
-                    "failed to get metatdata of {}: {}",
+                    "failed to get metadata of {}: {}",
                     self.file_path.display(),
                     err
                 );
@@ -246,7 +246,7 @@ impl ThumbnailCacher {
                 Ok(m) => m,
                 Err(err) => {
                     log::warn!(
-                        "failed to get modified from metatdata of {}, {}",
+                        "failed to get modified from metadata of {}, {}",
                         self.file_path.display(),
                         err
                     );

@@ -151,7 +151,7 @@ mod tests {
     }
 
     #[test]
-    fn unparseable_file_yields_none() {
+    fn unparsable_file_yields_none() {
         let dir = tempdir().unwrap();
         let path = dir.path().join("does-not-exist.desktop");
 

@@ -14,7 +14,7 @@ use iced_core::{
     overlay, renderer,
 };
 
-/// Responsively generates rows and columns of widgets based on its dimmensions.
+/// Responsively generates rows and columns of widgets based on its dimensions.
 #[must_use]
 #[derive(Setters)]
 pub struct Grid<'a, Message> {
