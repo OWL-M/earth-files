@@ -58,6 +58,10 @@ pub(crate) struct MenuBarStateInner {
     pub(crate) leaving: HashMap<window::Id, window::Id>,
     pub(crate) pressed: bool,
     pub(crate) bar_pressed: bool,
+    /// A context menu opened on a right press that is still held. The
+    /// release that ends it is the end of the opening click, not a click on
+    /// the menu, and must neither choose an item nor close the menu.
+    pub(crate) opening_press_held: bool,
     pub(crate) view_cursor: Cursor,
     pub(crate) open: bool,
     pub(crate) active_root: Vec<usize>,
@@ -80,6 +84,7 @@ impl MenuBarStateInner {
         self.open = false;
         self.active_root = Vec::new();
         self.menu_states.clear();
+        self.opening_press_held = false;
     }
 }
 impl Default for MenuBarStateInner {
@@ -96,6 +101,7 @@ impl Default for MenuBarStateInner {
             popup_id: HashMap::new(),
             leaving: HashMap::new(),
             bar_pressed: false,
+            opening_press_held: false,
         }
     }
 }

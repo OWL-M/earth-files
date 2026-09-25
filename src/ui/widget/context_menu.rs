@@ -84,6 +84,30 @@ impl<Message: Clone + 'static> ContextMenu<'_, Message> {
         }
     }
 
+    /// Presents the menu at `cursor`.
+    fn open_menu(
+        &mut self,
+        tree: &mut Tree,
+        layout: iced_core::Layout<'_>,
+        cursor: iced_core::mouse::Cursor,
+        renderer: &crate::ui::Renderer,
+        shell: &mut iced_core::Shell<'_, Message>,
+        viewport: &iced::Rectangle,
+    ) {
+        let state = tree.state.downcast_mut::<LocalState>();
+        state.context_cursor = cursor.position().unwrap_or_default();
+        let right_held = state.right_held;
+        state.menu_bar_state.inner.with_data_mut(|state| {
+            state.open = true;
+            state.view_cursor = cursor;
+            state.opening_press_held = right_held;
+        });
+        if matches!(windowing_system(), Some(WindowingSystem::Wayland)) {
+            self.create_popup(layout, cursor, renderer, shell, viewport, state);
+        }
+        shell.request_redraw();
+    }
+
     #[allow(clippy::too_many_lines)]
     fn create_popup(
         &mut self,
@@ -258,6 +282,8 @@ impl<Message: 'static + Clone> Widget<Message, crate::ui::Theme, crate::ui::Rend
         #[allow(clippy::default_trait_access)]
         tree::State::new(LocalState {
             context_cursor: Point::default(),
+            pending_open: None,
+            right_held: false,
             fingers_pressed: Default::default(),
             menu_bar_state: Default::default(),
             reported_open: false,
@@ -295,6 +321,11 @@ impl<Message: 'static + Clone> Widget<Message, crate::ui::Theme, crate::ui::Rend
     fn diff(&self, tree: &mut Tree) {
         tree.diff_children(std::slice::from_ref(&self.content));
         let state = tree.state.downcast_mut::<LocalState>();
+        // This is the rebuild a pending open was waiting for: `self` now
+        // carries the menu built from what the press changed.
+        if let Some(pending) = state.pending_open.as_mut() {
+            pending.awaiting_rebuild = false;
+        }
         if let Some(context_menu) = self.context_menu.as_ref() {
             state.menu_bar_state.inner.with_data_mut(|inner| {
                 // While a popup is up for this window, leave `inner.tree` alone.
@@ -496,9 +527,8 @@ impl<Message: 'static + Clone> Widget<Message, crate::ui::Theme, crate::ui::Rend
                     {
                         let surface_action = self.on_surface_action.as_ref().unwrap();
 
-                        // A right press is about to open a replacement on its
-                        // release, and two popups cannot share the one menu
-                        // tree. Everything else is a plain dismissal and may
+                        // A right press is about to open a replacement, and
+                        // two popups cannot share the one menu tree. Everything else is a plain dismissal and may
                         // collapse on its way out, which means its surface
                         // outlives this request — so the tree has to stay
                         // frozen until it is really gone.
@@ -530,30 +560,45 @@ impl<Message: 'static + Clone> Widget<Message, crate::ui::Theme, crate::ui::Rend
         let fingers_pressed = state.fingers_pressed.len();
         track_fingers(&mut state.fingers_pressed, event);
 
-        if !was_open && cursor.is_over(bounds) {
-            // Present a context menu on a right click event.
-            if !was_open
-                && self.context_menu.is_some()
-                && (right_button_released(event) || (touch_lifted(event) && fingers_pressed == 2))
-            {
-                state.context_cursor = cursor.position().unwrap_or_default();
-                let state = tree.state.downcast_mut::<LocalState>();
-                state.menu_bar_state.inner.with_data_mut(|state| {
-                    state.open = true;
-                    state.view_cursor = cursor;
-                });
-                if matches!(windowing_system(), Some(WindowingSystem::Wayland)) {
-                    self.create_popup(layout, cursor, renderer, shell, viewport, state);
-                }
+        // A right press opens the menu, but not within this event: see
+        // `PendingOpen`. Nothing is captured, so the content still sees the
+        // press, and that is what selects the item under the pointer.
+        if right_button_pressed(event) {
+            state.right_held = true;
+        } else if right_button_released(event) {
+            state.right_held = false;
+            // Reaching this window, the release did not reach the menu.
+            state
+                .menu_bar_state
+                .inner
+                .with_data_mut(|d| d.opening_press_held = false);
+        }
 
-                shell.request_redraw();
+        if self.context_menu.is_some() && cursor.is_over(bounds) && right_button_pressed(event) {
+            state.pending_open = Some(PendingOpen {
+                position: cursor.position().unwrap_or_default(),
+                awaiting_rebuild: true,
+            });
+            shell.request_redraw();
+        } else if key_closes
+            || matches!(
+                event,
+                Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left))
+                    | Event::Touch(touch::Event::FingerPressed { .. })
+            )
+        {
+            // Whatever would close the menu also stops one about to open.
+            state.pending_open = None;
+        }
+
+        if !was_open && cursor.is_over(bounds) {
+            // A two-finger tap presents the menu when it lifts.
+            if self.context_menu.is_some() && touch_lifted(event) && fingers_pressed == 2 {
+                self.open_menu(tree, layout, cursor, renderer, shell, viewport);
                 shell.capture_event();
                 self.report_open_state(tree.state.downcast_mut::<LocalState>(), shell);
                 return;
-            } else if !was_open && right_button_released(event)
-                || (touch_lifted(event))
-                || left_button_released(event)
-            {
+            } else if touch_lifted(event) || left_button_released(event) {
                 state.menu_bar_state.inner.with_data_mut(|state| {
                     was_open = true;
                     state.menu_states.clear();
@@ -585,6 +630,28 @@ impl<Message: 'static + Clone> Widget<Message, crate::ui::Theme, crate::ui::Rend
             shell,
             viewport,
         );
+
+        let state = tree.state.downcast_mut::<LocalState>();
+        if let Some(pending) = state.pending_open.as_mut() {
+            // Messages published so far will rebuild the view, and the menu
+            // may be built from what they change. With none, `self` already
+            // carries the menu to show.
+            if right_button_pressed(event) {
+                pending.awaiting_rebuild = !shell.is_empty();
+            }
+            if !pending.awaiting_rebuild {
+                let position = pending.position;
+                state.pending_open = None;
+                self.open_menu(
+                    tree,
+                    layout,
+                    mouse::Cursor::Available(position),
+                    renderer,
+                    shell,
+                    viewport,
+                );
+            }
+        }
         self.report_open_state(tree.state.downcast_mut::<LocalState>(), shell);
     }
 
@@ -689,10 +756,17 @@ fn is_modifier_key(key: &keyboard::Key) -> bool {
     )
 }
 
+fn right_button_pressed(event: &Event) -> bool {
+    matches!(
+        event,
+        Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Right))
+    )
+}
+
 fn right_button_released(event: &Event) -> bool {
     matches!(
         event,
-        Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Right,))
+        Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Right))
     )
 }
 
@@ -725,14 +799,163 @@ pub(crate) fn track_fingers(fingers: &mut HashSet<Finger>, event: &Event) {
 
 pub struct LocalState {
     context_cursor: Point,
+    pending_open: Option<PendingOpen>,
+    /// Whether the right button is down, so an open can tell the menu that
+    /// the release still to come ends the opening click.
+    right_held: bool,
     fingers_pressed: HashSet<Finger>,
     menu_bar_state: MenuBarState,
     reported_open: bool,
 }
 
+/// A menu asked for by a right press and not yet presented.
+///
+/// It opens on the press rather than the release, so it does not wait for the
+/// button to come up. It cannot open within the press itself: the press is
+/// also what selects the item under the pointer, and the menu is built from
+/// the selection. The popup takes a snapshot of `self`'s menu, which is still
+/// the one built before the press. So it opens on the first event after the
+/// view has been rebuilt, normally the redraw that follows.
+struct PendingOpen {
+    /// Where the press was, which is where the menu opens.
+    position: Point,
+    /// Set while a rebuild is still to come; `diff` clears it.
+    awaiting_rebuild: bool,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use iced_core::clipboard;
+    use iced_runtime::user_interface::{Cache, UserInterface};
+    use std::time::Instant;
+
+    const WINDOW: Size = Size::new(200.0, 200.0);
+    const INSIDE: Point = Point::new(50.0, 50.0);
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    enum Msg {
+        /// What the content publishes on a right press, as a file item
+        /// selects itself.
+        Selected,
+        Opened,
+        Closed,
+    }
+
+    /// A 100×100 area with a context menu. With `selects`, a right press on
+    /// it publishes `Selected`, which the application would rebuild the menu
+    /// from.
+    fn view(selects: bool) -> crate::ui::Element<'static, Msg> {
+        let area = crate::mouse_area::MouseArea::new(
+            crate::ui::widget::space::horizontal()
+                .width(Length::Fixed(100.0))
+                .height(Length::Fixed(100.0)),
+        );
+        let area = if selects {
+            area.on_right_press(|_| Msg::Selected)
+        } else {
+            area
+        };
+        context_menu(
+            area,
+            Some(vec![menu::Tree::new(crate::ui::Element::from(
+                crate::ui::widget::text("item"),
+            ))]),
+        )
+        .on_open(Msg::Opened)
+        .on_close(Msg::Closed)
+        .into()
+    }
+
+    struct Harness {
+        selects: bool,
+        renderer: crate::ui::Renderer,
+        cache: Option<Cache>,
+    }
+
+    impl Harness {
+        fn new(selects: bool) -> Self {
+            Self {
+                selects,
+                renderer: iced_texture_cache::testing::headless_tiny_skia(),
+                cache: Some(Cache::default()),
+            }
+        }
+
+        /// Builds the view afresh, as the runtime does after messages, and
+        /// hands it `events` as one batch.
+        fn send(&mut self, events: &[Event]) -> Vec<Msg> {
+            let mut messages = Vec::new();
+            let mut ui = UserInterface::build(
+                view(self.selects),
+                WINDOW,
+                self.cache.take().unwrap(),
+                &mut self.renderer,
+            );
+            let _ = ui.update(
+                events,
+                mouse::Cursor::Available(INSIDE),
+                &mut self.renderer,
+                &mut clipboard::Null,
+                &mut messages,
+            );
+            self.cache = Some(ui.into_cache());
+            messages
+        }
+    }
+
+    fn right_press() -> Event {
+        Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Right))
+    }
+
+    fn right_release() -> Event {
+        Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Right))
+    }
+
+    fn redraw() -> Event {
+        Event::Window(window::Event::RedrawRequested(Instant::now()))
+    }
+
+    /// The press selects the item under the pointer, and the menu is built
+    /// from the selection. Opening before the view is rebuilt would show the
+    /// menu for whatever was selected before.
+    #[test]
+    fn a_right_press_opens_the_menu_once_the_view_is_rebuilt() {
+        let mut ui = Harness::new(true);
+
+        // A redraw in the same batch as the press still sees the old view.
+        assert_eq!(ui.send(&[right_press(), redraw()]), [Msg::Selected]);
+        // The next event after the rebuild opens it, button still down.
+        assert_eq!(ui.send(&[redraw()]), [Msg::Opened]);
+    }
+
+    #[test]
+    fn a_right_press_that_changes_nothing_opens_at_once() {
+        let mut ui = Harness::new(false);
+
+        assert_eq!(ui.send(&[right_press()]), [Msg::Opened]);
+    }
+
+    #[test]
+    fn the_release_after_the_opening_press_leaves_the_menu_open() {
+        let mut ui = Harness::new(true);
+        ui.send(&[right_press()]);
+        assert_eq!(ui.send(&[redraw()]), [Msg::Opened]);
+
+        assert_eq!(ui.send(&[right_release()]), []);
+        assert_eq!(ui.send(&[redraw()]), []);
+    }
+
+    #[test]
+    fn a_left_press_before_the_menu_opens_cancels_it() {
+        let mut ui = Harness::new(true);
+        ui.send(&[right_press()]);
+
+        ui.send(&[Event::Mouse(mouse::Event::ButtonPressed(
+            mouse::Button::Left,
+        ))]);
+        assert_eq!(ui.send(&[redraw()]), []);
+    }
 
     /// A finger pressed over the widget and lifted elsewhere, or lost, must
     /// not be counted for the rest of the widget's life; it made every later

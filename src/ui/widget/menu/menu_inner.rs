@@ -655,6 +655,12 @@ impl<'b, Message: Clone + 'static> Menu<'b, Message> {
                 self.tree.inner.with_data_mut(|state| {
                     state.pressed = false;
 
+                    if matches!(event, Mouse(ButtonReleased(mouse::Button::Right)))
+                        && std::mem::take(&mut state.opening_press_held)
+                    {
+                        return;
+                    }
+
                     // process close condition
                     if state.open
                         && state

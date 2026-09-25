@@ -1476,10 +1476,13 @@ where
                             }
                         }
 
-                        // Present a context menu on a right click event.
+                        // Present a context menu on a right press, without waiting
+                        // for the release. Every entity's menu is already in
+                        // `self.context_menu`, so nothing the press publishes
+                        // changes the one shown and it can open right away.
                         if self.context_menu.is_some()
                             && let Some(on_context) = self.on_context.as_ref()
-                            && (right_button_released(event)
+                            && (right_button_pressed(event)
                                 || (touch_lifted(event) && fingers_pressed == 2))
                         {
                             state.show_context = Some(key);
@@ -1490,6 +1493,7 @@ where
                                 data.reset();
                                 data.open = true;
                                 data.view_cursor = cursor_position;
+                                data.opening_press_held = right_button_pressed(event);
                             });
 
                             shell.publish(on_context(key));
@@ -1627,7 +1631,21 @@ where
             }
         }
 
-        if (matches!(event, Event::Mouse(mouse::Event::ButtonReleased(_))) || (touch_lifted(event)))
+        // The release that ends the press which opened the menu is not a
+        // click away from it.
+        let ends_opening_press = right_button_released(event)
+            && state
+                .menu_state
+                .inner
+                .with_data_mut(|ms| std::mem::take(&mut ms.opening_press_held));
+
+        // A right press reaching here did not open this menu, and may be
+        // opening another widget's: close now rather than on its release, or
+        // both popups would be up while the button is held.
+        if !ends_opening_press
+            && (matches!(event, Event::Mouse(mouse::Event::ButtonReleased(_)))
+                || right_button_pressed(event)
+                || (touch_lifted(event)))
             && let Some(_id) = state
                 .menu_state
                 .inner
@@ -2522,13 +2540,14 @@ mod tests {
             )
         }
 
+        /// Fills its limits, so a test can point at the evenly split items.
         fn variant_layout(
             &self,
             _state: &mut LocalState,
             _renderer: &crate::ui::Renderer,
-            _limits: &layout::Limits,
+            limits: &layout::Limits,
         ) -> Size {
-            Size::ZERO
+            limits.max()
         }
     }
 
@@ -2601,6 +2620,74 @@ mod tests {
             .expect("hint");
         assert_eq!(after.entity, ids[2]);
         assert!(matches!(after.side, DropSide::After));
+    }
+
+    /// Sends `events` as one batch to a button over `model` with a context
+    /// menu per entity, and returns what it published.
+    fn send_to_button_with_menu(
+        model: &segmented_button::SingleSelectModel,
+        cache: iced_runtime::user_interface::Cache,
+        cursor: Point,
+        events: &[Event],
+    ) -> (
+        Vec<segmented_button::Entity>,
+        iced_runtime::user_interface::Cache,
+    ) {
+        let menus = model
+            .order
+            .iter()
+            .map(|_| menu::Tree::new(crate::ui::Element::from(crate::ui::widget::text("item"))))
+            .collect::<Vec<_>>();
+        let button = SegmentedButton::<TestVariant, segmented_button::SingleSelect, _>::new(model)
+            .on_context(|entity| entity)
+            .context_menu(Some(vec![menu::Tree::with_children(
+                crate::ui::Element::from(crate::ui::widget::Row::new()),
+                menus,
+            )]));
+        let mut renderer = iced_texture_cache::testing::headless_tiny_skia();
+        let mut ui = iced_runtime::user_interface::UserInterface::build(
+            crate::ui::Element::from(button),
+            Size::new(300.0, 30.0),
+            cache,
+            &mut renderer,
+        );
+        let mut published = Vec::new();
+        let _ = ui.update(
+            events,
+            mouse::Cursor::Available(cursor),
+            &mut renderer,
+            &mut iced_core::clipboard::Null,
+            &mut published,
+        );
+        (published, ui.into_cache())
+    }
+
+    #[test]
+    fn a_right_press_opens_the_context_menu_without_waiting_for_the_release() {
+        let (model, ids) = sample_model();
+        let over_first = Point::new(10.0, 15.0);
+
+        let (published, cache) = send_to_button_with_menu(
+            &model,
+            iced_runtime::user_interface::Cache::default(),
+            over_first,
+            &[Event::Mouse(mouse::Event::ButtonPressed(
+                mouse::Button::Right,
+            ))],
+        );
+        assert_eq!(published, [ids[0]]);
+
+        // The release ends the opening click: it neither opens the menu a
+        // second time nor dismisses it.
+        let (published, _) = send_to_button_with_menu(
+            &model,
+            cache,
+            over_first,
+            &[Event::Mouse(mouse::Event::ButtonReleased(
+                mouse::Button::Right,
+            ))],
+        );
+        assert_eq!(published, []);
     }
 }
 
@@ -2773,6 +2860,13 @@ fn left_button_released(event: &Event) -> bool {
     matches!(
         event,
         Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left,))
+    )
+}
+
+fn right_button_pressed(event: &Event) -> bool {
+    matches!(
+        event,
+        Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Right))
     )
 }
 
