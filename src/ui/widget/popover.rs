@@ -155,6 +155,35 @@ where
         if self.popup.is_some() {
             if self.modal {
                 if matches!(event, Event::Mouse(_) | Event::Touch(_)) {
+                    // A dialog can appear while a button is held on the
+                    // content (a double click that opens one), and the content
+                    // must still see that press end: a file item would
+                    // otherwise start a drag on the first move after the dialog
+                    // closes. It gets no cursor, and what it publishes is
+                    // dropped, because a release is not inert even then (a
+                    // mouse area's `on_release` does not look at the cursor).
+                    if ends_gesture(event) {
+                        let mut discarded = Vec::new();
+                        let mut content_shell = Shell::new(&mut discarded);
+                        self.content.as_widget_mut().update(
+                            content_tree_mut(tree),
+                            event,
+                            layout,
+                            mouse::Cursor::Unavailable,
+                            renderer,
+                            clipboard,
+                            &mut content_shell,
+                            viewport,
+                        );
+                        if content_shell.is_layout_invalid() {
+                            shell.invalidate_layout();
+                        }
+                        if content_shell.are_widgets_invalid() {
+                            shell.invalidate_widgets();
+                        }
+                        shell.request_redraw_at(content_shell.redraw_request());
+                        return;
+                    }
                     shell.capture_event();
                     return;
                 }
@@ -399,7 +428,12 @@ where
                     &layout.bounds(),
                 );
             }
-            shell.capture_event();
+            // Unless the popup took it, the end of a gesture goes on to the
+            // content beneath, which may have seen the press before the popup
+            // appeared; see `Popover::update`.
+            if !ends_gesture(event) {
+                shell.capture_event();
+            }
             return;
         }
 
@@ -469,6 +503,16 @@ where
     }
 }
 
+/// Whether `event` ends a press or touch, however it ends: released, lost, or
+/// with the pointer gone from the window.
+fn ends_gesture(event: &Event) -> bool {
+    matches!(
+        event,
+        Event::Mouse(mouse::Event::ButtonReleased(_) | mouse::Event::CursorLeft)
+            | Event::Touch(touch::Event::FingerLifted { .. } | touch::Event::FingerLost { .. })
+    )
+}
+
 /// The local state of a [`Popover`].
 #[derive(Debug, Default)]
 struct State {
@@ -483,4 +527,145 @@ fn content_tree(tree: &Tree) -> &Tree {
 /// The first child in [`Popover::children`] is always the wrapped content.
 fn content_tree_mut(tree: &mut Tree) -> &mut Tree {
     &mut tree.children[0]
+}
+
+#[cfg(test)]
+mod tests {
+    use iced_core::clipboard;
+    use iced_runtime::user_interface::{Cache, UserInterface};
+
+    use super::*;
+
+    const WINDOW: Size = Size::new(200.0, 200.0);
+    /// On the item, and clear of the 20×20 dialog centred in the window.
+    const ON_ITEM: Point = Point::new(50.0, 50.0);
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    enum Msg {
+        Pressed,
+        Released,
+        /// What a file item publishes as it starts a file drag.
+        Dragged,
+    }
+
+    /// A 100×100 item that can be dragged, beneath a modal popover that shows
+    /// a dialog when `dialog` is set.
+    fn view(dialog: bool) -> crate::ui::Element<'static, Msg> {
+        let item = crate::mouse_area::MouseArea::new(
+            crate::ui::widget::space::horizontal()
+                .width(Length::Fixed(100.0))
+                .height(Length::Fixed(100.0)),
+        )
+        .on_press(|_| Msg::Pressed)
+        .on_release(|_| Msg::Released)
+        .on_drag(|_| Msg::Dragged);
+        let popover = popover(
+            iced::widget::container(item)
+                .width(Length::Fill)
+                .height(Length::Fill),
+        )
+        .modal(true);
+        if dialog {
+            popover
+                .popup(
+                    crate::ui::widget::space::horizontal()
+                        .width(Length::Fixed(20.0))
+                        .height(Length::Fixed(20.0)),
+                )
+                .into()
+        } else {
+            popover.into()
+        }
+    }
+
+    struct Harness {
+        renderer: crate::ui::Renderer,
+        cache: Option<Cache>,
+    }
+
+    impl Harness {
+        fn new() -> Self {
+            Self {
+                renderer: iced_texture_cache::testing::headless_tiny_skia(),
+                cache: Some(Cache::default()),
+            }
+        }
+
+        /// Builds the view afresh, as the runtime does after messages, and
+        /// hands it `event` with the pointer at `cursor`.
+        fn send(&mut self, dialog: bool, cursor: Point, event: Event) -> Vec<Msg> {
+            let mut messages = Vec::new();
+            let mut ui = UserInterface::build(
+                view(dialog),
+                WINDOW,
+                self.cache.take().unwrap(),
+                &mut self.renderer,
+            );
+            let _ = ui.update(
+                &[event],
+                mouse::Cursor::Available(cursor),
+                &mut self.renderer,
+                &mut clipboard::Null,
+                &mut messages,
+            );
+            self.cache = Some(ui.into_cache());
+            messages
+        }
+    }
+
+    fn press() -> Event {
+        Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left))
+    }
+
+    fn release() -> Event {
+        Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left))
+    }
+
+    fn moved(position: Point) -> Event {
+        Event::Mouse(mouse::Event::CursorMoved { position })
+    }
+
+    /// The press lands on the item, then a dialog opens before the release
+    /// (as one opened by a double click does).
+    fn press_then_open_dialog(ui: &mut Harness) {
+        assert_eq!(ui.send(false, ON_ITEM, press()), [Msg::Pressed]);
+    }
+
+    #[test]
+    fn a_release_under_a_dialog_ends_the_press_beneath_it() {
+        let mut ui = Harness::new();
+        press_then_open_dialog(&mut ui);
+        ui.send(true, ON_ITEM, release());
+
+        // The dialog closes and the pointer moves on: no drag starts.
+        let away = Point::new(80.0, 80.0);
+        assert_eq!(ui.send(false, away, moved(away)), []);
+    }
+
+    #[test]
+    fn a_release_over_the_dialog_ends_the_press_beneath_it() {
+        let mut ui = Harness::new();
+        press_then_open_dialog(&mut ui);
+        let on_dialog = Point::new(100.0, 100.0);
+        ui.send(true, on_dialog, release());
+
+        let away = Point::new(80.0, 80.0);
+        assert_eq!(ui.send(false, away, moved(away)), []);
+    }
+
+    #[test]
+    fn a_release_under_a_dialog_activates_nothing_beneath_it() {
+        let mut ui = Harness::new();
+        press_then_open_dialog(&mut ui);
+
+        assert_eq!(ui.send(true, ON_ITEM, release()), []);
+    }
+
+    #[test]
+    fn a_press_under_a_dialog_still_reaches_nothing_beneath_it() {
+        let mut ui = Harness::new();
+
+        assert_eq!(ui.send(true, ON_ITEM, press()), []);
+        assert_eq!(ui.send(true, ON_ITEM, release()), []);
+    }
 }

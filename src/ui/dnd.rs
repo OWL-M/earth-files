@@ -365,9 +365,9 @@ pub fn start_drag(mime: &str) -> bool {
 /// Begin a drag offering everything `contents` advertises, from the surface the
 /// pointer is on.
 ///
-/// Returns `false` when there is no data device, no pressed-button serial to
-/// grab with, or a drag is already running; the caller then simply does not
-/// enter its dragging state.
+/// Returns `false` when there is no data device, no held button (and so no
+/// serial of a live press) to grab with, or a drag is already running; the
+/// caller then simply does not enter its dragging state.
 #[must_use]
 pub fn start_drag_data(contents: Arc<dyn AsMimeTypes + Send + Sync>) -> bool {
     let mut shared = shared().lock().unwrap();
@@ -405,11 +405,16 @@ pub fn start_drag_data(contents: Arc<dyn AsMimeTypes + Send + Sync>) -> bool {
             .wait_timeout_while(shared, PRESS_WAIT, |shared| !shared.button_pressed)
             .unwrap();
         shared = guard;
+        // Still up: the button may already have been released, and the
+        // serial left on hand is then that of a press that is over. A drag
+        // needs a held button, so none starts; the caller asks again on the
+        // next pointer movement if one is still being made.
         if wait.timed_out() {
             log::warn!(
-                "drag: no pointer button press reached the data device thread within \
-                 {PRESS_WAIT:?}; starting with whatever serial is on hand"
+                "drag refused: no pointer button is held as far as the data device \
+                 thread knows ({PRESS_WAIT:?} wait)"
             );
+            return false;
         }
     }
 

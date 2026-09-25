@@ -559,6 +559,17 @@ impl<Message: 'static + Clone> Widget<Message, crate::ui::Theme, crate::ui::Rend
         // set for good, and every later single tap would count as two fingers.
         let fingers_pressed = state.fingers_pressed.len();
         track_fingers(&mut state.fingers_pressed, event);
+        let ends_opening_tap = state.menu_bar_state.inner.with_data_mut(|d| match event {
+            Event::Touch(
+                touch::Event::FingerLifted { id, .. } | touch::Event::FingerLost { id, .. },
+            ) => d.opening_fingers.remove(id),
+            // A new touch is a new gesture, whatever is still down.
+            Event::Touch(touch::Event::FingerPressed { .. }) => {
+                d.opening_fingers.clear();
+                false
+            }
+            _ => false,
+        });
 
         // A right press opens the menu, but not within this event: see
         // `PendingOpen`. Nothing is captured, so the content still sees the
@@ -594,11 +605,17 @@ impl<Message: 'static + Clone> Widget<Message, crate::ui::Theme, crate::ui::Rend
         if !was_open && cursor.is_over(bounds) {
             // A two-finger tap presents the menu when it lifts.
             if self.context_menu.is_some() && touch_lifted(event) && fingers_pressed == 2 {
+                let opening_fingers = state.fingers_pressed.clone();
                 self.open_menu(tree, layout, cursor, renderer, shell, viewport);
+                tree.state
+                    .downcast_mut::<LocalState>()
+                    .menu_bar_state
+                    .inner
+                    .with_data_mut(|d| d.opening_fingers = opening_fingers);
                 shell.capture_event();
                 self.report_open_state(tree.state.downcast_mut::<LocalState>(), shell);
                 return;
-            } else if touch_lifted(event) || left_button_released(event) {
+            } else if (touch_lifted(event) && !ends_opening_tap) || left_button_released(event) {
                 state.menu_bar_state.inner.with_data_mut(|state| {
                     was_open = true;
                     state.menu_states.clear();
@@ -954,6 +971,32 @@ mod tests {
         ui.send(&[Event::Mouse(mouse::Event::ButtonPressed(
             mouse::Button::Left,
         ))]);
+        assert_eq!(ui.send(&[redraw()]), []);
+    }
+
+    fn finger(id: u64, pressed: bool) -> Event {
+        let (id, position) = (Finger(id), INSIDE);
+        Event::Touch(if pressed {
+            touch::Event::FingerPressed { id, position }
+        } else {
+            touch::Event::FingerLifted { id, position }
+        })
+    }
+
+    /// The menu opens on the first finger up; the second finger's lift is
+    /// the rest of the same tap and must not close it again.
+    ///
+    /// Headless, the menu is an overlay `Menu`, which sees the lift before
+    /// this widget, so both read `opening_fingers`; on Wayland the lift goes
+    /// to the surface the finger went down on, not the popup.
+    #[test]
+    fn a_two_finger_tap_leaves_the_menu_open() {
+        let mut ui = Harness::new(false);
+        assert_eq!(ui.send(&[finger(1, true)]), []);
+        assert_eq!(ui.send(&[finger(2, true)]), []);
+
+        assert_eq!(ui.send(&[finger(1, false)]), [Msg::Opened]);
+        assert_eq!(ui.send(&[finger(2, false)]), []);
         assert_eq!(ui.send(&[redraw()]), []);
     }
 

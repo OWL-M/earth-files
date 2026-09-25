@@ -286,16 +286,32 @@ impl<'a, Message> Widget<Message, crate::ui::Theme, crate::ui::Renderer> for Tog
         }
 
         match event {
-            Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left))
-            | Event::Touch(touch::Event::FingerLifted { .. }) => {
-                let mouse_over = cursor_position.is_over(layout.bounds());
-
-                if mouse_over {
-                    shell.publish((on_toggle)(!self.is_toggled));
-                    state.anim.changed(self.duration);
-                    state.prev_toggled = !self.is_toggled;
+            // Capturing the press keeps an enclosing button (a settings row)
+            // from arming on it; the toggler's release would otherwise be
+            // taken from that button, leaving it armed for a later release.
+            Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left))
+            | Event::Touch(touch::Event::FingerPressed { .. }) => {
+                if cursor_position.is_over(layout.bounds()) {
+                    state.is_pressed = true;
                     shell.capture_event();
                 }
+            }
+            // Only a release that completes this toggler's own press toggles,
+            // and only that release is captured; any other belongs to the
+            // widget that got its press.
+            Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left))
+            | Event::Touch(touch::Event::FingerLifted { .. }) => {
+                if std::mem::take(&mut state.is_pressed) {
+                    if cursor_position.is_over(layout.bounds()) {
+                        shell.publish((on_toggle)(!self.is_toggled));
+                        state.anim.changed(self.duration);
+                        state.prev_toggled = !self.is_toggled;
+                    }
+                    shell.capture_event();
+                }
+            }
+            Event::Touch(touch::Event::FingerLost { .. }) => {
+                state.is_pressed = false;
             }
             Event::Window(window::Event::RedrawRequested(now)) => {
                 state.anim.anim_done(self.duration);
@@ -491,4 +507,138 @@ pub struct State {
     anim: anim::State,
     prev_toggled: bool,
     hovered: bool,
+    /// Whether the current press started over the toggler.
+    is_pressed: bool,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use iced::Point;
+    use iced_core::clipboard;
+    use iced_runtime::user_interface::{Cache, UserInterface};
+
+    const WINDOW: Size = Size::new(200.0, 200.0);
+    /// Over the toggler's 48×24 track.
+    const TOGGLER: Point = Point::new(10.0, 10.0);
+    /// Over the enclosing button, beside the toggler.
+    const BUTTON: Point = Point::new(100.0, 10.0);
+    /// Over nothing.
+    const ELSEWHERE: Point = Point::new(150.0, 150.0);
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    enum Msg {
+        Toggled(bool),
+        Button,
+    }
+
+    /// A toggler inside a button that also toggles, as a settings row is.
+    fn view() -> crate::ui::Element<'static, Msg> {
+        let content = iced::widget::row![
+            toggler(false).on_toggle(Msg::Toggled),
+            crate::ui::widget::space::horizontal()
+                .width(Length::Fixed(100.0))
+                .height(Length::Fixed(24.0)),
+        ];
+        crate::ui::widget::button::custom(content)
+            .padding(0)
+            .on_press(Msg::Button)
+            .into()
+    }
+
+    struct Harness {
+        renderer: crate::ui::Renderer,
+        cache: Option<Cache>,
+    }
+
+    impl Harness {
+        fn new() -> Self {
+            Self {
+                renderer: iced_texture_cache::testing::headless_tiny_skia(),
+                cache: Some(Cache::default()),
+            }
+        }
+
+        fn send(&mut self, event: Event, at: Point) -> Vec<Msg> {
+            let mut messages = Vec::new();
+            let mut ui = UserInterface::build(
+                view(),
+                WINDOW,
+                self.cache.take().unwrap(),
+                &mut self.renderer,
+            );
+            let _ = ui.update(
+                &[event],
+                mouse::Cursor::Available(at),
+                &mut self.renderer,
+                &mut clipboard::Null,
+                &mut messages,
+            );
+            self.cache = Some(ui.into_cache());
+            messages
+        }
+
+        fn press(&mut self, at: Point) -> Vec<Msg> {
+            self.send(
+                Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)),
+                at,
+            )
+        }
+
+        fn release(&mut self, at: Point) -> Vec<Msg> {
+            self.send(
+                Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)),
+                at,
+            )
+        }
+    }
+
+    #[test]
+    fn a_click_toggles() {
+        let mut ui = Harness::new();
+
+        assert_eq!(ui.press(TOGGLER), []);
+        assert_eq!(ui.release(TOGGLER), [Msg::Toggled(true)]);
+    }
+
+    #[test]
+    fn a_release_without_a_press_does_not_toggle() {
+        let mut ui = Harness::new();
+
+        assert_eq!(ui.press(ELSEWHERE), []);
+        assert_eq!(ui.release(TOGGLER), []);
+    }
+
+    /// A press that leaves the toggler cancels its click, as a button's does.
+    #[test]
+    fn a_press_released_elsewhere_does_not_toggle() {
+        let mut ui = Harness::new();
+
+        assert_eq!(ui.press(TOGGLER), []);
+        assert_eq!(ui.release(ELSEWHERE), []);
+        assert_eq!(ui.press(ELSEWHERE), []);
+        assert_eq!(ui.release(TOGGLER), []);
+    }
+
+    /// Clicking the toggler must not leave the enclosing button armed, or a
+    /// later release over the row fires the button without its own press.
+    #[test]
+    fn a_click_on_the_toggler_leaves_the_enclosing_button_unarmed() {
+        let mut ui = Harness::new();
+        ui.press(TOGGLER);
+        ui.release(TOGGLER);
+
+        assert_eq!(ui.press(ELSEWHERE), []);
+        assert_eq!(ui.release(BUTTON), []);
+    }
+
+    /// A press on the row beside the toggler is the button's click, wherever
+    /// over the row it is released.
+    #[test]
+    fn a_press_beside_the_toggler_released_over_it_is_the_buttons_click() {
+        let mut ui = Harness::new();
+
+        assert_eq!(ui.press(BUTTON), []);
+        assert_eq!(ui.release(TOGGLER), [Msg::Button]);
+    }
 }

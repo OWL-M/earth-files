@@ -6,7 +6,7 @@
 //! Vendored from pop-os/libcosmic, src/widget/menu/menu_bar.rs
 //!
 //! A widget that handles menu trees
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use super::menu_inner::{
@@ -62,6 +62,12 @@ pub(crate) struct MenuBarStateInner {
     /// release that ends it is the end of the opening click, not a click on
     /// the menu, and must neither choose an item nor close the menu.
     pub(crate) opening_press_held: bool,
+    /// Fingers of the two-finger tap that opened a context menu, still down
+    /// when it opened on the first lift. Their lifts end that tap, as
+    /// `opening_press_held` is for a right click. The context menu takes
+    /// them out; the menu only reads the set, since on the overlay path it
+    /// sees the lift first.
+    pub(crate) opening_fingers: HashSet<iced_core::touch::Finger>,
     pub(crate) view_cursor: Cursor,
     pub(crate) open: bool,
     pub(crate) active_root: Vec<usize>,
@@ -85,6 +91,7 @@ impl MenuBarStateInner {
         self.active_root = Vec::new();
         self.menu_states.clear();
         self.opening_press_held = false;
+        self.opening_fingers.clear();
     }
 }
 impl Default for MenuBarStateInner {
@@ -102,6 +109,7 @@ impl Default for MenuBarStateInner {
             leaving: HashMap::new(),
             bar_pressed: false,
             opening_press_held: false,
+            opening_fingers: HashSet::new(),
         }
     }
 }
@@ -643,7 +651,15 @@ where
                         state.open = false;
                         {
                             let surface_action = self.on_surface_action.as_ref().unwrap();
-                            shell.capture_event();
+                            // Closing the menu is a side effect: a release
+                            // elsewhere belongs to what it is over. Captured,
+                            // it would never reach that widget — a file
+                            // pressed while a menu was open never saw its
+                            // release, and started a drag on the next
+                            // pointer movement.
+                            if view_cursor.is_over(layout.bounds()) {
+                                shell.capture_event();
+                            }
 
                             shell.publish(surface_action(
                                 crate::ui::surface::action::destroy_popup(_id),
@@ -852,5 +868,68 @@ fn process_root_events<Message>(
             shell,
             viewport,
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use iced_core::{Event, Size, clipboard};
+
+    #[derive(Clone, Debug)]
+    enum Msg {
+        Surface(crate::ui::surface::Action<Msg>),
+    }
+
+    /// A release away from the bar while its menu is open closes the menu,
+    /// but belongs to whatever it is over: a file item pressed there must
+    /// see it, or it drags on the next pointer movement.
+    #[test]
+    fn a_release_elsewhere_closes_the_menu_without_capturing() {
+        let mut element = crate::ui::Element::from(
+            MenuBar::new(vec![MenuTree::new(crate::ui::Element::from(
+                crate::ui::widget::text("File"),
+            ))])
+            .on_surface_action(Msg::Surface),
+        );
+        let renderer = iced_texture_cache::testing::headless_tiny_skia();
+        let mut tree = Tree::new(&element);
+        let window = Size::new(200.0, 200.0);
+        let node =
+            element
+                .as_widget_mut()
+                .layout(&mut tree, &renderer, &Limits::new(Size::ZERO, window));
+        let layout = Layout::new(&node);
+        let below = Point::new(100.0, 150.0);
+        assert!(!layout.bounds().contains(below));
+
+        // Only a Wayland popup records itself here; stand in for one
+        let popup = window::Id::unique();
+        tree.state
+            .downcast_mut::<MenuBarState>()
+            .inner
+            .with_data_mut(|d| {
+                d.popup_id.insert(crate::ui::window::reserved(), popup);
+                d.open = true;
+            });
+
+        let mut messages = Vec::new();
+        let mut shell = Shell::new(&mut messages);
+        element.as_widget_mut().update(
+            &mut tree,
+            &Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)),
+            layout,
+            Cursor::Available(below),
+            &renderer,
+            &mut clipboard::Null,
+            &mut shell,
+            &Rectangle::with_size(window),
+        );
+
+        assert!(!shell.is_event_captured());
+        assert!(messages.iter().any(|m| matches!(
+            m,
+            Msg::Surface(crate::ui::surface::Action::DestroyPopup { id, .. }) if *id == popup
+        )));
     }
 }

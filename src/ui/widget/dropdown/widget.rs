@@ -515,7 +515,12 @@ pub fn update<
                 // bounds or on the drop-down, either way we close the overlay.
                 state.is_open.store(false, Ordering::Relaxed);
                 shell.request_redraw();
-                shell.capture_event();
+                // Closing is a side effect: a press elsewhere belongs to what
+                // it is over. Captured, it never reached widgets after this
+                // one, so a dialog's Save or Cancel took two clicks.
+                if cursor.is_over(layout.bounds()) {
+                    shell.capture_event();
+                }
             } else if cursor.is_over(layout.bounds()) {
                 open(shell, state, on_selected);
                 shell.capture_event();
@@ -715,5 +720,79 @@ pub fn draw<'a, S>(
             style.text_color,
             *viewport,
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use iced_core::{Point, clipboard};
+    use iced_runtime::user_interface::{Cache, UserInterface};
+
+    use crate::ui::widget::{button, space};
+
+    #[derive(Debug, Clone, PartialEq)]
+    enum Msg {
+        Selected(usize),
+        Pressed,
+    }
+
+    const WINDOW: Size = Size::new(400.0, 300.0);
+    /// Inside the dropdown, which spans x 0..100 at the top of the window.
+    const ON_DROPDOWN: Point = Point::new(50.0, 10.0);
+    /// Inside the button laid out right after the dropdown, beside its list.
+    const ON_BUTTON: Point = Point::new(130.0, 10.0);
+
+    fn view() -> crate::ui::Element<'static, Msg> {
+        iced::widget::row![
+            Dropdown::<_, Msg, Msg>::new(Cow::Borrowed(&["a", "b"][..]), None, Msg::Selected)
+                .width(Length::Fixed(100.0)),
+            button::custom(
+                space::horizontal()
+                    .width(Length::Fixed(60.0))
+                    .height(Length::Fixed(30.0))
+            )
+            .on_press(Msg::Pressed),
+        ]
+        .into()
+    }
+
+    fn click(
+        renderer: &mut crate::ui::Renderer,
+        cache: Cache,
+        at: Point,
+        messages: &mut Vec<Msg>,
+    ) -> Cache {
+        let mut cache = cache;
+        for event in [
+            Event::Mouse(mouse::Event::CursorMoved { position: at }),
+            Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)),
+            Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)),
+        ] {
+            // Rebuilt per event, as the runtime does, so the list opened by
+            // a press is part of the tree the next event is routed through.
+            let mut ui = UserInterface::build(view(), WINDOW, cache, renderer);
+            let _ = ui.update(
+                &[event],
+                mouse::Cursor::Available(at),
+                renderer,
+                &mut clipboard::Null,
+                messages,
+            );
+            cache = ui.into_cache();
+        }
+        cache
+    }
+
+    #[test]
+    fn a_click_that_closes_the_list_still_reaches_the_widget_under_it() {
+        let mut renderer = iced_texture_cache::testing::headless_tiny_skia();
+        let mut messages = Vec::new();
+
+        let cache = click(&mut renderer, Cache::default(), ON_DROPDOWN, &mut messages);
+        assert!(messages.is_empty(), "opening the list publishes nothing");
+
+        let _ = click(&mut renderer, cache, ON_BUTTON, &mut messages);
+        assert_eq!(messages, vec![Msg::Pressed]);
     }
 }

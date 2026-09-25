@@ -8,7 +8,7 @@ use crate::ui::Theme;
 use crate::ui::theme;
 use iced::border;
 use iced_core::event::Event;
-use iced_core::widget::tree::Tree;
+use iced_core::widget::tree::{self, Tree};
 use iced_core::{
     Border, Clipboard, Element, Layout, Length, Pixels, Rectangle, Shell, Size, Vector, Widget,
     layout, mouse, overlay, renderer, touch,
@@ -176,11 +176,25 @@ where
     }
 }
 
+/// Whether a press landed on the radio and has not been released yet.
+#[derive(Default)]
+struct State {
+    is_pressed: bool,
+}
+
 impl<Message, Renderer> Widget<Message, Theme, Renderer> for Radio<'_, Message, Renderer>
 where
     Message: Clone,
     Renderer: iced_core::Renderer,
 {
+    fn tag(&self) -> tree::Tag {
+        tree::Tag::of::<State>()
+    }
+
+    fn state(&self) -> tree::State {
+        tree::State::new(State::default())
+    }
+
     fn children(&self) -> Vec<Tree> {
         if let Some(label) = &self.label {
             vec![Tree::new(label)]
@@ -265,13 +279,33 @@ where
         }
 
         if !shell.is_event_captured() {
+            let state = tree.state.downcast_mut::<State>();
             match event {
-                Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left))
-                | Event::Touch(touch::Event::FingerLifted { .. })
+                // Capture the press so an enclosing button (the settings item
+                // row) does not arm too: it would never see the release this
+                // radio captures, and fire on some later stray one.
+                Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left))
+                | Event::Touch(touch::Event::FingerPressed { .. })
                     if cursor.is_over(layout.bounds()) =>
                 {
-                    shell.publish(self.on_click.clone());
+                    state.is_pressed = true;
                     shell.capture_event();
+                }
+                // Only a release completing our own press selects; one ending
+                // a drag begun elsewhere belongs to whoever took that press.
+                Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left))
+                | Event::Touch(touch::Event::FingerLifted { .. })
+                    if state.is_pressed =>
+                {
+                    state.is_pressed = false;
+                    if cursor.is_over(layout.bounds()) {
+                        shell.publish(self.on_click.clone());
+                    }
+                    shell.capture_event();
+                }
+                Event::Mouse(mouse::Event::CursorLeft)
+                | Event::Touch(touch::Event::FingerLost { .. }) => {
+                    state.is_pressed = false;
                 }
                 _ => {}
             }
@@ -418,5 +452,124 @@ where
 {
     fn from(radio: Radio<'a, Message, Renderer>) -> Element<'a, Message, Theme, Renderer> {
         Element::new(radio)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use iced_core::{Point, clipboard};
+    use iced_runtime::user_interface::{Cache, UserInterface};
+
+    use crate::ui::{Renderer, widget::space};
+
+    const WINDOW: Size = Size::new(200.0, 100.0);
+    const RADIO: u8 = 1;
+    const BUTTON: u8 = 2;
+
+    /// A 16 px radio at the origin, followed by 100 px of plain space; with
+    /// `in_button`, both sit in an unpadded button — the settings item shape.
+    fn view(in_button: bool) -> Element<'static, u8, Theme, Renderer> {
+        let row = iced::widget::row![
+            Radio::new_no_label(RADIO, None, |v| v),
+            space::horizontal().width(Length::Fixed(100.0)),
+        ];
+        if in_button {
+            crate::ui::widget::button::custom(row)
+                .padding(0)
+                .on_press(BUTTON)
+                .into()
+        } else {
+            row.into()
+        }
+    }
+
+    struct Harness {
+        in_button: bool,
+        renderer: Renderer,
+        cache: Option<Cache>,
+        cursor: mouse::Cursor,
+    }
+
+    impl Harness {
+        fn new(in_button: bool) -> Self {
+            Self {
+                in_button,
+                renderer: iced_texture_cache::testing::headless_tiny_skia(),
+                cache: Some(Cache::default()),
+                cursor: mouse::Cursor::Unavailable,
+            }
+        }
+
+        fn send(&mut self, event: Event) -> Vec<u8> {
+            let mut messages = Vec::new();
+            let cache = self.cache.take().unwrap();
+            let mut ui =
+                UserInterface::build(view(self.in_button), WINDOW, cache, &mut self.renderer);
+            let _ = ui.update(
+                &[event],
+                self.cursor,
+                &mut self.renderer,
+                &mut clipboard::Null,
+                &mut messages,
+            );
+            self.cache = Some(ui.into_cache());
+            messages
+        }
+
+        fn move_to(&mut self, x: f32, y: f32) -> Vec<u8> {
+            let position = Point::new(x, y);
+            self.cursor = mouse::Cursor::Available(position);
+            self.send(Event::Mouse(mouse::Event::CursorMoved { position }))
+        }
+
+        fn press(&mut self) -> Vec<u8> {
+            self.send(Event::Mouse(mouse::Event::ButtonPressed(
+                mouse::Button::Left,
+            )))
+        }
+
+        fn release(&mut self) -> Vec<u8> {
+            self.send(Event::Mouse(mouse::Event::ButtonReleased(
+                mouse::Button::Left,
+            )))
+        }
+    }
+
+    #[test]
+    fn release_without_press_does_not_select() {
+        let mut h = Harness::new(false);
+        // A drag that started elsewhere, released over the radio.
+        h.move_to(8.0, 8.0);
+        assert_eq!(h.release(), Vec::<u8>::new());
+    }
+
+    #[test]
+    fn click_selects() {
+        let mut h = Harness::new(false);
+        h.move_to(8.0, 8.0);
+        assert_eq!(h.press(), Vec::<u8>::new());
+        assert_eq!(h.release(), vec![RADIO]);
+    }
+
+    #[test]
+    fn press_dragged_off_does_not_select() {
+        let mut h = Harness::new(false);
+        h.move_to(8.0, 8.0);
+        h.press();
+        h.move_to(60.0, 8.0);
+        assert_eq!(h.release(), Vec::<u8>::new());
+    }
+
+    #[test]
+    fn click_in_button_leaves_button_unarmed() {
+        let mut h = Harness::new(true);
+        h.move_to(8.0, 8.0);
+        h.press();
+        assert_eq!(h.release(), vec![RADIO]);
+        // Were the button still armed by that press, a later bare release
+        // over it would fire it.
+        h.move_to(60.0, 8.0);
+        assert_eq!(h.release(), Vec::<u8>::new());
     }
 }

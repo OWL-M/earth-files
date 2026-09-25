@@ -266,6 +266,11 @@ struct State {
     last_auto_scroll: Option<f32>,
     last_position: Option<Point>,
     last_virtual_position: Option<Point>,
+    /// Where the cursor last was, in the terms of `drag_initiated`. Not
+    /// `last_virtual_position`: that is offset by the area's place in its
+    /// viewport, for auto-scroll, and measured against a press it invents a
+    /// drag of that offset.
+    last_cursor_position: Option<Point>,
     drag_initiated: Option<Point>,
     /// How far the content has scrolled under the pointer since the press that
     /// started the gesture in progress. See [`State::drag_distance`].
@@ -281,10 +286,10 @@ struct State {
 }
 
 impl State {
-    /// Where the cursor is for the purposes of a drag, with the fallback this
-    /// has always used for when iced has no cursor to give.
+    /// Where the cursor is for the purposes of a drag: where it last was
+    /// when iced has none to give, such as while an overlay holds it.
     fn drag_position(&self, cursor: mouse::Cursor) -> Option<Point> {
-        cursor.position().or(self.last_virtual_position)
+        cursor.position().or(self.last_cursor_position)
     }
 
     fn drag_rect(&self, cursor: mouse::Cursor) -> Option<Rectangle> {
@@ -577,6 +582,9 @@ fn update<Message: Clone>(
     // nothing in this app enables.
     let offset = iced_core::Vector::ZERO;
     let layout_bounds = layout.bounds();
+    if let Some(position) = cursor.position() {
+        state.last_cursor_position = Some(position);
+    }
 
     // Poll Wayland file drags before handling hover and cursor events; see
     // `MouseArea::on_dnd`. Iced has no cursor while the data device holds the pointer
@@ -781,7 +789,7 @@ fn update<Message: Clone>(
         // The header bar's `on_drag` requests an interactive move
         // (`xdg_toplevel.move`). The compositor takes the grab and sends
         // `wl_pointer.leave`. Without this arm, `drag_initiated` stays set and
-        // `drag_rect` falls back to `last_virtual_position`. Each subsequent event then
+        // `drag_rect` falls back to `last_cursor_position`. Each subsequent event then
         // republishes `on_drag` and requests another redraw. A single header drag
         // caused about 55 xdg_toplevel.move requests per second and 50-85% CPU usage
         // until the app was killed.
@@ -809,6 +817,14 @@ fn update<Message: Clone>(
         }
         if state.drag_initiated.take().is_some() {
             shell.request_redraw();
+        }
+        // Without a cursor over the area (an overlay above it holding the
+        // pointer, which it may have carried away while taking its movement)
+        // the release still ends the press, but nothing says it happened
+        // here, so it is not a click on it.
+        if !cursor.is_over(layout_bounds) {
+            state.prev_click = None;
+            return;
         }
         if let Some(message) = widget.on_release.as_ref() {
             shell.publish(message(cursor.position_in(layout_bounds)));
@@ -1014,6 +1030,70 @@ mod tests {
 
     const fn released() -> Event {
         Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left))
+    }
+
+    /// An event with no cursor (an overlay holds the pointer) falls back on
+    /// where the pointer last was, and that has to be in the same terms as
+    /// the press: an area lower down its scrollable than the top saw the
+    /// pointer stand still and yet reported a drag of its whole offset.
+    #[test]
+    fn a_press_with_the_cursor_gone_is_not_a_drag() {
+        let mut widget = MouseArea::new(space::vertical()).on_drag(Msg::Drag);
+        let mut state = State::default();
+
+        let node = layout::Node::new(AREA).move_to(Point::new(0.0, 100.0));
+        let viewport = Rectangle::new(Point::ORIGIN, Size::new(200.0, 400.0));
+        let at = Point::new(50.0, 120.0);
+        let mut send = |state: &mut State, event: Event, cursor: Cursor| {
+            let mut messages = Vec::new();
+            update(
+                &mut widget,
+                &event,
+                Layout::new(&node),
+                cursor,
+                &mut Shell::new(&mut messages),
+                state,
+                &viewport,
+            );
+            messages
+        };
+
+        send(&mut state, moved_to(at), Cursor::Available(at));
+        send(&mut state, pressed(), Cursor::Available(at));
+
+        let redraw = Event::Window(window::Event::RedrawRequested(Instant::now()));
+        assert_eq!(send(&mut state, redraw, Cursor::Unavailable), []);
+    }
+
+    /// A release with no cursor (an overlay over the area holds the pointer)
+    /// ends the press, but is not a click on the area: nothing says it
+    /// happened over it.
+    #[test]
+    fn a_release_without_a_cursor_ends_the_press_without_a_click() {
+        let mut widget = MouseArea::new(space::vertical())
+            .on_drag(Msg::Drag)
+            .on_release(|_| Msg::Release);
+        let mut state = State::default();
+
+        let at = Point::new(10.0, 10.0);
+        feed(&mut widget, &mut state, &moved_to(at), at);
+        feed(&mut widget, &mut state, &pressed(), at);
+
+        let node = layout::Node::new(AREA);
+        let mut messages = Vec::new();
+        update(
+            &mut widget,
+            &released(),
+            Layout::new(&node),
+            Cursor::Unavailable,
+            &mut Shell::new(&mut messages),
+            &mut state,
+            &Rectangle::new(Point::ORIGIN, AREA),
+        );
+        assert_eq!(messages, []);
+
+        let away = Point::new(60.0, 60.0);
+        assert_eq!(feed(&mut widget, &mut state, &moved_to(away), away), []);
     }
 
     /// An enclosing scrollable hands its content a cursor shifted by the scroll

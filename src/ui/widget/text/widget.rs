@@ -515,7 +515,11 @@ where
         match event {
             Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left))
             | Event::Touch(touch::Event::FingerPressed { .. }) => {
-                if state.context_menu_position.take().is_some() {
+                // Any left press dismisses the menu, but only one on this
+                // text is spent doing so. A press elsewhere belongs to
+                // whatever is under the pointer, e.g. a file item selecting
+                // itself.
+                if state.context_menu_position.take().is_some() && cursor.is_over(bounds) {
                     shell.capture_event();
                     return;
                 }
@@ -971,5 +975,92 @@ fn is_jump_modifier(modifiers: keyboard::Modifiers) -> bool {
         modifiers.alt()
     } else {
         modifiers.control()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use iced_core::{Event, Length, Point, Size, clipboard, mouse};
+    use iced_runtime::user_interface::{Cache, UserInterface};
+
+    const WINDOW: Size = Size::new(200.0, 300.0);
+    /// On the text, which sits at the top of the column.
+    const ON_TEXT: Point = Point::new(5.0, 5.0);
+    /// On the area below the text and the gap.
+    const ON_AREA: Point = Point::new(50.0, 120.0);
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    enum Msg {
+        /// What the area publishes on a left press, as a file item selects
+        /// itself.
+        Pressed,
+    }
+
+    /// Selectable text above a 100×100 area that publishes `Pressed`. The
+    /// menu is off so nothing clears the position the right press records:
+    /// with it on, the headless overlay menu (no Wayland here) takes the next
+    /// press itself, before the text sees it.
+    fn view() -> crate::ui::Element<'static, Msg> {
+        crate::ui::widget::column![
+            crate::ui::widget::selectable_text("hello").context_menu(false),
+            crate::ui::widget::space::vertical().height(Length::Fixed(50.0)),
+            crate::mouse_area::MouseArea::new(
+                crate::ui::widget::space::horizontal()
+                    .width(Length::Fixed(100.0))
+                    .height(Length::Fixed(100.0)),
+            )
+            .on_press(|_| Msg::Pressed),
+        ]
+        .into()
+    }
+
+    struct Harness {
+        renderer: crate::ui::Renderer,
+        cache: Option<Cache>,
+    }
+
+    impl Harness {
+        fn new() -> Self {
+            Self {
+                renderer: iced_texture_cache::testing::headless_tiny_skia(),
+                cache: Some(Cache::default()),
+            }
+        }
+
+        fn send(&mut self, at: Point, event: Event) -> Vec<Msg> {
+            let mut messages = Vec::new();
+            let mut ui = UserInterface::build(
+                view(),
+                WINDOW,
+                self.cache.take().unwrap(),
+                &mut self.renderer,
+            );
+            let _ = ui.update(
+                &[event],
+                mouse::Cursor::Available(at),
+                &mut self.renderer,
+                &mut clipboard::Null,
+                &mut messages,
+            );
+            self.cache = Some(ui.into_cache());
+            messages
+        }
+    }
+
+    fn press(button: mouse::Button) -> Event {
+        Event::Mouse(mouse::Event::ButtonPressed(button))
+    }
+
+    fn release(button: mouse::Button) -> Event {
+        Event::Mouse(mouse::Event::ButtonReleased(button))
+    }
+
+    #[test]
+    fn a_right_click_on_the_text_does_not_steal_the_next_press_elsewhere() {
+        let mut ui = Harness::new();
+        assert_eq!(ui.send(ON_TEXT, press(mouse::Button::Right)), []);
+        assert_eq!(ui.send(ON_TEXT, release(mouse::Button::Right)), []);
+
+        assert_eq!(ui.send(ON_AREA, press(mouse::Button::Left)), [Msg::Pressed]);
     }
 }

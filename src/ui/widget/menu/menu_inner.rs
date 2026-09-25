@@ -660,6 +660,11 @@ impl<'b, Message: Clone + 'static> Menu<'b, Message> {
                     {
                         return;
                     }
+                    if let Touch(FingerLifted { id, .. }) = event
+                        && state.opening_fingers.contains(id)
+                    {
+                        return;
+                    }
 
                     // process close condition
                     if state.open

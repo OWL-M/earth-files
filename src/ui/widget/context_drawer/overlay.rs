@@ -66,15 +66,30 @@ where
             shell,
             &layout.bounds(),
         );
+        // Releases and lifts are left uncaptured: a captured event never
+        // reaches the base tree, so a press made there (a rubber-band
+        // selection, a file drag) and released over the drawer would leave
+        // that gesture armed. While the pointer is over the drawer,
+        // `mouse_interaction` is never `None`, so the runtime hands the base
+        // tree an unavailable cursor; a widget beneath must then only end its
+        // gesture, not treat the release as a click (see `MouseArea`, whose
+        // `on_release` needs the cursor over it).
         match event {
-            Event::Mouse(e) if !matches!(e, mouse::Event::CursorLeft) => {
+            Event::Mouse(e)
+                if !matches!(
+                    e,
+                    mouse::Event::CursorLeft | mouse::Event::ButtonReleased(_)
+                ) =>
+            {
                 if cursor.is_over(layout.bounds()) {
                     shell.capture_event();
                 }
             }
             Event::Touch(e)
-                if !matches!(e, touch::Event::FingerLost { .. })
-                    && cursor.is_over(layout.bounds()) =>
+                if !matches!(
+                    e,
+                    touch::Event::FingerLost { .. } | touch::Event::FingerLifted { .. }
+                ) && cursor.is_over(layout.bounds()) =>
             {
                 shell.capture_event();
             }
@@ -147,5 +162,140 @@ where
             viewport,
             iced::Vector::default(),
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::ui::widget::context_drawer::context_drawer;
+    use iced::{Event, Length, Point, Size, mouse};
+    use iced_core::clipboard;
+    use iced_runtime::user_interface::{Cache, UserInterface};
+
+    const WINDOW: Size = Size::new(800.0, 400.0);
+
+    #[derive(Debug, Clone, PartialEq)]
+    enum Msg {
+        Pressed,
+        Released,
+        Drag,
+        DragEnd,
+        Close,
+    }
+
+    fn view() -> crate::ui::Element<'static, Msg> {
+        let list = crate::mouse_area::MouseArea::new(
+            crate::ui::widget::space::horizontal()
+                .width(Length::Fill)
+                .height(Length::Fill),
+        )
+        .on_press(|_| Msg::Pressed)
+        .on_release(|_| Msg::Released)
+        .on_drag(|_| Msg::Drag)
+        .on_drag_end(|_| Msg::DragEnd);
+        context_drawer(
+            None,
+            None,
+            None,
+            None,
+            Msg::Close,
+            list,
+            crate::ui::widget::text("details"),
+            200.0,
+        )
+        .into()
+    }
+
+    struct Harness {
+        renderer: crate::ui::Renderer,
+        cache: Option<Cache>,
+    }
+
+    impl Harness {
+        fn new() -> Self {
+            Self {
+                renderer: iced_texture_cache::testing::headless_tiny_skia(),
+                cache: Some(Cache::default()),
+            }
+        }
+
+        fn send(&mut self, at: Point, event: Event) -> Vec<Msg> {
+            let mut messages = Vec::new();
+            let mut ui = UserInterface::build(
+                view(),
+                WINDOW,
+                self.cache.take().unwrap(),
+                &mut self.renderer,
+            );
+            let _ = ui.update(
+                &[event],
+                mouse::Cursor::Available(at),
+                &mut self.renderer,
+                &mut clipboard::Null,
+                &mut messages,
+            );
+            self.cache = Some(ui.into_cache());
+            messages
+        }
+    }
+
+    fn moved(h: &mut Harness, at: Point) -> Vec<Msg> {
+        h.send(at, Event::Mouse(mouse::Event::CursorMoved { position: at }))
+    }
+
+    fn pressed(h: &mut Harness, at: Point) -> Vec<Msg> {
+        h.send(
+            at,
+            Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)),
+        )
+    }
+
+    fn released(h: &mut Harness, at: Point) -> Vec<Msg> {
+        h.send(
+            at,
+            Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)),
+        )
+    }
+
+    /// The overlay spans the content but for an 8px margin at the window's
+    /// right and bottom edges, the only place the list below can be pressed.
+    const LIST: Point = Point::new(796.0, 200.0);
+    const DRAWER: Point = Point::new(700.0, 250.0);
+
+    #[test]
+    fn a_list_drag_released_over_the_drawer_ends() {
+        let mut h = Harness::new();
+        moved(&mut h, LIST);
+        assert_eq!(pressed(&mut h, LIST), [Msg::Pressed]);
+        assert_eq!(moved(&mut h, Point::new(796.0, 230.0)), [Msg::Drag]);
+        moved(&mut h, DRAWER);
+
+        assert_eq!(released(&mut h, DRAWER), [Msg::DragEnd]);
+        // Back over the list with no button held: no rubber band follows.
+        assert_eq!(moved(&mut h, Point::new(796.0, 395.0)), []);
+    }
+
+    /// The drawer takes the pointer's movement over it, so the list never
+    /// sees the press travel away: to the list the release looks like one on
+    /// the spot. It must end the press without counting as a click on it.
+    #[test]
+    fn a_list_press_released_over_the_drawer_is_not_a_click() {
+        let mut h = Harness::new();
+        moved(&mut h, LIST);
+        assert_eq!(pressed(&mut h, LIST), [Msg::Pressed]);
+        assert_eq!(moved(&mut h, DRAWER), []);
+
+        assert_eq!(released(&mut h, DRAWER), []);
+        // Back over the list with no button held: nothing is left armed.
+        assert_eq!(moved(&mut h, Point::new(796.0, 395.0)), []);
+    }
+
+    #[test]
+    fn a_click_on_the_drawer_does_not_reach_the_list() {
+        let mut h = Harness::new();
+        moved(&mut h, DRAWER);
+        assert_eq!(pressed(&mut h, DRAWER), []);
+        assert_eq!(released(&mut h, DRAWER), []);
+        assert_eq!(moved(&mut h, LIST), []);
     }
 }

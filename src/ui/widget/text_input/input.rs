@@ -966,6 +966,7 @@ where
             state.is_focused = None;
             state.context_menu_position = None;
             state.dragging_state = None;
+            state.pressed = false;
             if let Some(on_unfocus) = self.on_unfocus.as_ref() {
                 shell.publish(on_unfocus.clone());
             }
@@ -1527,6 +1528,7 @@ pub fn update<'a, Message: Clone + 'static>(
         state.is_focused = None;
         state.context_menu_position = None;
         state.dragging_state = None;
+        state.pressed = false;
         if let Some(on_unfocus) = on_unfocus {
             shell.publish(on_unfocus.clone());
         }
@@ -1548,6 +1550,8 @@ pub fn update<'a, Message: Clone + 'static>(
         Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left))
         | Event::Touch(touch::Event::FingerPressed { .. }) => {
             cold();
+            // Presses outside returned above, so this one is over the input.
+            state.pressed = true;
 
             if state.context_menu_position.take().is_some() {
                 shell.capture_event();
@@ -1798,7 +1802,10 @@ pub fn update<'a, Message: Clone + 'static>(
                 }
             }
             state.dragging_state = None;
-            if cursor.is_over(layout.bounds()) {
+            // Only the release of a press this input received is its own. A
+            // gesture begun elsewhere, such as a rubber band dragged up over
+            // the input, must still hear its release, or it never ends.
+            if std::mem::take(&mut state.pressed) && cursor.is_over(layout.bounds()) {
                 shell.capture_event();
             }
         }
@@ -2765,6 +2772,9 @@ pub struct State {
     double_click_select_delimiter: Option<char>,
     is_focused: Option<Focus>,
     dragging_state: Option<DraggingState>,
+    /// Whether the left button or a finger went down on this input and has not
+    /// been released yet.
+    pressed: bool,
     is_pasting: Option<Value>,
     last_click: Option<mouse::Click>,
     cursor: Cursor,
@@ -2849,6 +2859,7 @@ impl State {
             select_on_focus: false,
             double_click_select_delimiter: None,
             dragging_state: None,
+            pressed: false,
             is_pasting: None,
             last_click: None,
             cursor: Cursor::default(),
@@ -3257,5 +3268,124 @@ impl<Message: Clone + 'static> crate::ui::widget::text::HasSelectableText
         let filtered: String = text.chars().filter(|c| !c.is_control()).collect();
         let state = tree.state.downcast_mut::<State>();
         Some(state.paste_text(&filtered))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use iced_core::{Point, clipboard, event};
+    use iced_runtime::user_interface::{Cache, UserInterface};
+
+    use super::*;
+    use crate::mouse_area::MouseArea;
+    use crate::ui::widget::space;
+
+    const WINDOW: Size = Size::new(200.0, 400.0);
+    /// Inside the input, which sits at the top of the column.
+    const OVER_INPUT: Point = Point::new(50.0, 5.0);
+    /// Inside the area laid out below the input.
+    const OVER_AREA: Point = Point::new(50.0, 150.0);
+
+    #[derive(Debug, Clone, PartialEq)]
+    enum Msg {
+        Input(String),
+        Press,
+        Drag,
+        DragEnd,
+    }
+
+    /// An input above a rubber-band area, as the location bar sits above the
+    /// file list: the input comes first in tree order, so it sees every event
+    /// before the area does.
+    fn view() -> Element<'static, Msg, crate::ui::Theme, crate::ui::Renderer> {
+        let area = MouseArea::new(
+            space::vertical()
+                .width(Length::Fill)
+                .height(Length::Fixed(200.0)),
+        )
+        .on_press(|_| Msg::Press)
+        .on_drag(|_| Msg::Drag)
+        .on_drag_end(|_| Msg::DragEnd);
+        crate::ui::widget::Column::new()
+            .push(text_input("", "abc").on_input(Msg::Input))
+            .push(area)
+            .into()
+    }
+
+    struct Harness {
+        renderer: crate::ui::Renderer,
+        cache: Option<Cache>,
+        cursor: mouse::Cursor,
+    }
+
+    impl Harness {
+        fn new() -> Self {
+            Self {
+                renderer: iced_texture_cache::testing::headless_tiny_skia(),
+                cache: Some(Cache::default()),
+                cursor: mouse::Cursor::Unavailable,
+            }
+        }
+
+        fn send(&mut self, event: Event) -> (event::Status, Vec<Msg>) {
+            let cache = self.cache.take().unwrap();
+            let mut ui = UserInterface::build(view(), WINDOW, cache, &mut self.renderer);
+            let mut messages = Vec::new();
+            let (_, statuses) = ui.update(
+                &[event],
+                self.cursor,
+                &mut self.renderer,
+                &mut clipboard::Null,
+                &mut messages,
+            );
+            self.cache = Some(ui.into_cache());
+            (statuses[0], messages)
+        }
+
+        fn move_to(&mut self, position: Point) {
+            self.cursor = mouse::Cursor::Available(position);
+            self.send(Event::Mouse(mouse::Event::CursorMoved { position }));
+        }
+
+        fn press(&mut self) -> (event::Status, Vec<Msg>) {
+            self.send(Event::Mouse(mouse::Event::ButtonPressed(
+                mouse::Button::Left,
+            )))
+        }
+
+        fn release(&mut self) -> (event::Status, Vec<Msg>) {
+            self.send(Event::Mouse(mouse::Event::ButtonReleased(
+                mouse::Button::Left,
+            )))
+        }
+    }
+
+    /// A rubber band begun below the input and let go over it still ends:
+    /// the release belongs to the area's gesture, not the input's.
+    #[test]
+    fn release_over_input_of_a_press_elsewhere_is_not_captured() {
+        let mut h = Harness::new();
+        h.move_to(OVER_AREA);
+        assert!(h.press().1.contains(&Msg::Press));
+        h.move_to(OVER_INPUT);
+
+        let (status, messages) = h.release();
+        assert_eq!(status, event::Status::Ignored);
+        assert!(
+            messages.contains(&Msg::DragEnd),
+            "the area never heard its drag end: {messages:?}"
+        );
+    }
+
+    /// The input's own click still keeps its release from the widgets after it.
+    #[test]
+    fn release_of_a_press_on_the_input_is_captured() {
+        let mut h = Harness::new();
+        h.move_to(OVER_INPUT);
+        assert_eq!(h.press().0, event::Status::Captured);
+
+        let (status, messages) = h.release();
+        assert_eq!(status, event::Status::Captured);
+        assert!(messages.is_empty(), "{messages:?}");
     }
 }

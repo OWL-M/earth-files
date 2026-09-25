@@ -1191,6 +1191,7 @@ where
             wheel_timestamp: Default::default(),
             fingers_pressed: Default::default(),
             pressed_item: None,
+            close_pressed: None,
             tab_drag_candidate: None,
             dragging_tab: None,
             drop_hint: None,
@@ -1340,6 +1341,19 @@ where
         let fingers_pressed = state.fingers_pressed.len();
         crate::ui::widget::context_menu::track_fingers(&mut state.fingers_pressed, event);
 
+        // Every press, release and leave ends whatever gesture was on a close
+        // button, wherever it happens; a press on one starts a new gesture
+        // below. Taken here, before any early return, so a release that is
+        // not over this widget still clears it.
+        let close_pressed = if is_pressed(event)
+            || is_lifted(event)
+            || matches!(event, Event::Mouse(mouse::Event::CursorLeft))
+        {
+            state.close_pressed.take()
+        } else {
+            state.close_pressed
+        };
+
         if cursor_position.is_over(my_bounds) {
             // Check for clicks on the previous and next tab buttons, when tabs are collapsed.
             if state.collapsed {
@@ -1403,7 +1417,17 @@ where
                         if self.model.items[key].closable {
                             // Emit close message if the close button is pressed.
                             if let Some(on_close) = self.on_close.as_ref() {
+                                if over_close_button && is_pressed(event) {
+                                    state.close_pressed = Some(key);
+                                }
+
+                                // Only when the press began on this close
+                                // button. A release that ends another widget's
+                                // gesture here (a rubber band in the file
+                                // list) is that widget's, and capturing it
+                                // would leave that gesture armed.
                                 if over_close_button
+                                    && close_pressed == Some(key)
                                     && (left_button_released(event)
                                         || (touch_lifted(event) && fingers_pressed == 1))
                                 {
@@ -1680,7 +1704,14 @@ where
         {
             {
                 let surface_action = self.on_surface_action.as_ref().unwrap();
-                shell.capture_event();
+                // Closing the menu is a side effect: a click elsewhere
+                // belongs to what it is over. Captured, it would never reach
+                // that widget — a file pressed after a nav menu opened
+                // never saw its release, and started a drag on the next
+                // pointer movement.
+                if cursor_position.is_over(my_bounds) {
+                    shell.capture_event();
+                }
 
                 // Nothing here replaces it with another popup of this widget,
                 // which opens through `create_popup` and returns before this,
@@ -2484,6 +2515,9 @@ pub struct LocalState {
     fingers_pressed: HashSet<Finger>,
     /// The currently pressed item
     pressed_item: Option<Item>,
+    /// The entity whose close button the current left press or touch began
+    /// on, so only a click on that button closes it.
+    close_pressed: Option<Entity>,
     /// Pending tab drag candidate data
     tab_drag_candidate: Option<TabDragCandidate>,
     /// Currently dragging tab entity
@@ -2615,6 +2649,7 @@ mod tests {
             wheel_timestamp: None,
             fingers_pressed: HashSet::new(),
             pressed_item: None,
+            close_pressed: None,
             tab_drag_candidate: None,
             dragging_tab: Some(dragging),
             drop_hint: None,
@@ -2719,6 +2754,84 @@ mod tests {
             ))],
         );
         assert_eq!(published, []);
+    }
+
+    /// Sends `events` as one batch to a button over `model` that closes its
+    /// entities, and returns what it published and whether each event was
+    /// captured.
+    fn send_to_closable_button(
+        model: &segmented_button::SingleSelectModel,
+        cursor: Point,
+        events: &[Event],
+    ) -> (Vec<segmented_button::Entity>, Vec<iced_core::event::Status>) {
+        let button = SegmentedButton::<TestVariant, segmented_button::SingleSelect, _>::new(model)
+            .on_close(|entity| entity);
+        let mut renderer = iced_texture_cache::testing::headless_tiny_skia();
+        let mut ui = iced_runtime::user_interface::UserInterface::build(
+            crate::ui::Element::from(button),
+            Size::new(300.0, 30.0),
+            iced_runtime::user_interface::Cache::default(),
+            &mut renderer,
+        );
+        let mut published = Vec::new();
+        let (_, statuses) = ui.update(
+            events,
+            mouse::Cursor::Available(cursor),
+            &mut renderer,
+            &mut iced_core::clipboard::Null,
+            &mut published,
+        );
+        (published, statuses)
+    }
+
+    /// The centre of the first entity's close button in a 300x30 button over
+    /// three entities, mirroring `TestVariant::variant_bounds`.
+    fn first_close_button_centre(model: &segmented_button::SingleSelectModel) -> Point {
+        let button =
+            SegmentedButton::<TestVariant, segmented_button::SingleSelect, TestMessage>::new(model);
+        let padding = button.padding;
+        let first = Rectangle {
+            x: padding.left,
+            y: padding.top,
+            width: (300.0 - padding.left - padding.right) / model.order.len() as f32,
+            height: 30.0 - padding.top - padding.bottom,
+        };
+        close_bounds(first, f32::from(button.close_icon.size)).center()
+    }
+
+    #[test]
+    fn a_release_over_the_close_button_without_its_press_is_left_alone() {
+        let mut ids = Vec::new();
+        let model = segmented_button::Model::builder()
+            .insert(|b| b.text("One").closable().with_id(|id| ids.push(id)))
+            .insert(|b| b.text("Two").closable().with_id(|id| ids.push(id)))
+            .insert(|b| b.text("Three").closable().with_id(|id| ids.push(id)))
+            .build();
+        let over_close = first_close_button_centre(&model);
+
+        // A gesture begun elsewhere (a rubber band in the file list) ending
+        // over the close button: neither closes the tab nor captures the
+        // release that gesture's owner is waiting for.
+        let (published, statuses) = send_to_closable_button(
+            &model,
+            over_close,
+            &[Event::Mouse(mouse::Event::ButtonReleased(
+                mouse::Button::Left,
+            ))],
+        );
+        assert_eq!(published, []);
+        assert_eq!(statuses, [iced_core::event::Status::Ignored]);
+
+        // A click on the close button still closes.
+        let (published, _) = send_to_closable_button(
+            &model,
+            over_close,
+            &[
+                Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)),
+                Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)),
+            ],
+        );
+        assert_eq!(published, [ids[0]]);
     }
 }
 
