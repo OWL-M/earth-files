@@ -1726,6 +1726,10 @@ pub fn scan_network(uri: &str, sizes: IconSizes) -> Vec<Item> {
 pub struct EditLocation {
     pub location: Location,
     pub completions: Option<Vec<(String, PathBuf)>>,
+    /// The previous list, shown while this edit's own list is being looked
+    /// up, so the dropdown does not vanish and unroll again on every
+    /// keystroke. It is for show only: never chosen from, never submitted.
+    pub stale: Option<Vec<(String, PathBuf)>>,
     pub selected: Option<usize>,
 }
 
@@ -1755,6 +1759,20 @@ impl EditLocation {
             Location::Network(uri, ..) => Some(uri),
             _ => None,
         }
+    }
+
+    /// The list the dropdown shows, and whether its rows can be chosen.
+    ///
+    /// A stale list is only ever a stand-in for one being looked up, so this
+    /// edit's own list wins whenever there is one, even an empty one: an
+    /// empty answer means there is nothing to offer.
+    pub fn shown(&self) -> Option<(&[(String, PathBuf)], bool)> {
+        let (list, choosable) = match (&self.completions, &self.stale) {
+            (Some(completions), _) => (completions, true),
+            (None, Some(stale)) => (stale, false),
+            (None, None) => return None,
+        };
+        (!list.is_empty()).then_some((list.as_slice(), choosable))
     }
 
     pub fn select(&mut self, forwards: bool) {
@@ -1829,6 +1847,7 @@ impl From<Location> for EditLocation {
         Self {
             location,
             completions: None,
+            stale: None,
             selected: None,
         }
     }
@@ -2115,6 +2134,10 @@ pub enum Message {
     EditLocation(Option<EditLocation>),
     EditLocationComplete(usize),
     EditLocationEnable,
+    /// A press on a row of the stale list shown while the field's own list is
+    /// looked up. Taken by the row so it neither falls through to the list
+    /// underneath nor closes the field, and it chooses nothing.
+    EditLocationStalePressed,
     EditLocationSubmit,
     EditLocationTab,
     OpenInNewTab(PathBuf),
@@ -4899,7 +4922,27 @@ impl Tab {
                     self.end_file_drag();
                 }
             }
-            Message::EditLocation(edit_location) => {
+            Message::EditLocation(mut edit_location) => {
+                // A keystroke's edit has no list yet; its own is looked up in
+                // the background. Until it arrives the previous list stays on
+                // show, inert, so the dropdown is not torn down and unrolled
+                // again on every keystroke. Only where the typed text is the
+                // path that is looked up: in a network share the field holds
+                // a URI, the lookup stays keyed on the mount path, and no list
+                // would come to replace the stale one. Putting the field away
+                // carries nothing.
+                if let Some(new) = &mut edit_location
+                    && new.completions.is_none()
+                    && matches!(
+                        new.location,
+                        Location::Path(_) | Location::Search(SearchLocation::Path(_), ..)
+                    )
+                {
+                    new.stale = self
+                        .edit_location
+                        .take()
+                        .and_then(|old| old.completions.or(old.stale));
+                }
                 // Typing something else, or putting the field away, withdraws
                 // whatever it was last asked to resolve.
                 self.dismiss_edit_location();
@@ -4918,6 +4961,8 @@ impl Tab {
                     cd = edit_location.resolve();
                 }
             }
+            // Swallowed on purpose; see the variant.
+            Message::EditLocationStalePressed => {}
             Message::EditLocationEnable => {
                 commands.push(Command::Iced(
                     widget::text_input::focus(self.edit_location_id.clone()).into(),
@@ -5802,10 +5847,18 @@ impl Tab {
                 }
             }
             Message::TabComplete(path, completions) => {
+                // Compared as text, not as paths: `PathBuf` equality ignores a
+                // trailing separator, but `tab_complete` does not -- with one
+                // it lists a folder's children, without one its matching
+                // siblings -- so an answer for one form is wrong for the other.
                 if let Some(edit_location) = &mut self.edit_location
-                    && edit_location.location.path_opt() == Some(&path)
+                    && edit_location
+                        .location
+                        .path_opt()
+                        .is_some_and(|current| current.as_os_str() == path.as_os_str())
                 {
                     edit_location.completions = Some(completions);
+                    edit_location.stale = None;
                     commands.push(Command::Iced(
                         widget::text_input::focus(self.edit_location_id.clone()).into(),
                     ));
@@ -6698,15 +6751,14 @@ impl Tab {
                 );
                 let mut popover =
                     widget::popover(text_input).position(widget::popover::Position::Bottom);
-                if let Some(completions) = &edit_location.completions
-                    && !completions.is_empty()
-                {
+                if let Some((completions, choosable)) = edit_location.shown() {
                     let mut column =
                         widget::Column::with_capacity(completions.len()).padding(space_xxs);
                     for (i, (name, _path)) in completions.iter().enumerate() {
-                        let selected = edit_location.selected == Some(i);
-                        column = column.push(
-                            widget::button::custom(widget::text::body(name))
+                        let text = widget::text::body(name);
+                        let item: Element<_> = if choosable {
+                            let selected = edit_location.selected == Some(i);
+                            widget::button::custom(text)
                                 .class(if selected {
                                     Button::Standard
                                 } else {
@@ -6714,14 +6766,49 @@ impl Tab {
                                 })
                                 .on_press(Message::EditLocationComplete(i))
                                 .padding(space_xxs)
-                                .width(Length::Fill),
-                        );
+                                .width(Length::Fill)
+                                .into()
+                        } else {
+                            // The previous list, on show until this edit's own
+                            // arrives. Drawn exactly like an unselected real
+                            // row, so nothing changes colour or size when the
+                            // real list lands, but never highlighted. Its press
+                            // is taken and does nothing: without a handler a
+                            // button is drawn disabled, and a row that did not
+                            // take the press would let it through to the list
+                            // underneath and to the field, which closes on a
+                            // press outside it.
+                            //
+                            // Wrapped so the row is a different widget from a
+                            // real one in the same place. A button remembers a
+                            // press until the release; if the real list lands
+                            // in between, the same button state would carry
+                            // over and the release would choose a row the user
+                            // never saw. A column rather than a container: a
+                            // container shares its content's widget state, so
+                            // it changes nothing, while a column holds its
+                            // children under a node of its own. With no
+                            // padding or spacing, and drawing nothing itself,
+                            // it looks and measures as the bare button would.
+                            widget::Column::new()
+                                .push(
+                                    widget::button::custom(text)
+                                        .class(Button::HeaderBar)
+                                        .on_press(Message::EditLocationStalePressed)
+                                        .padding(space_xxs)
+                                        .width(Length::Fill),
+                                )
+                                .into()
+                        };
+                        column = column.push(item);
                     }
-                    popover = popover.popup(
+                    // Unrolls on a spring, and springs to each new height as
+                    // typing changes how many completions there are.
+                    popover = popover.popup(widget::spring_height(
                         widget::container(column)
                             .class(Container::Dropdown)
                             .max_width(size.width - 140.0),
-                    );
+                    ));
                 }
                 row = row.push(popover);
                 let mut column = widget::Column::with_capacity(4).padding([0, space_s]);
@@ -8373,58 +8460,8 @@ impl Tab {
             .edit_location
             .as_ref()
             .and_then(|x| x.location.path_opt())
-            .cloned()
         {
-            subscriptions.push(Subscription::run_with(
-                ("tab_complete", path.clone()),
-                |(_, path)| {
-                    let path = path.clone();
-                    stream::channel(
-                        1,
-                        |mut output: futures::channel::mpsc::Sender<_>| async move {
-                            let message = {
-                                let path = path.clone();
-                                tokio::task::spawn_blocking(move || {
-                                    let start = Instant::now();
-                                    match tab_complete(&path) {
-                                        Ok(completions) => {
-                                            log::info!(
-                                                "tab completed {} in {:?}",
-                                                path.display(),
-                                                start.elapsed()
-                                            );
-                                            Message::TabComplete(path.clone(), completions)
-                                        }
-                                        Err(err) => {
-                                            log::warn!(
-                                                "failed to tab complete {}: {}",
-                                                path.display(),
-                                                err
-                                            );
-                                            Message::TabComplete(path.clone(), Vec::new())
-                                        }
-                                    }
-                                })
-                                .await
-                                .unwrap()
-                            };
-
-                            match output.send(message).await {
-                                Ok(()) => {}
-                                Err(err) => {
-                                    log::warn!(
-                                        "failed to send tab completion for {}: {}",
-                                        path.display(),
-                                        err
-                                    );
-                                }
-                            }
-
-                            std::future::pending().await
-                        },
-                    )
-                },
-            ));
+            subscriptions.push(tab_complete_subscription(path));
         }
 
         Subscription::batch(subscriptions)
@@ -8433,6 +8470,66 @@ impl Tab {
     const fn format_time(&self, time: SystemTime) -> FormatTime<'_> {
         format_time(time, &self.date_time_formatter, &self.time_formatter)
     }
+}
+
+/// Looks up the completions for `path` once, answering with `TabComplete`.
+///
+/// Keyed on the path's text rather than the `PathBuf`. The runtime restarts a
+/// subscription only when its key hashes differently, and a `PathBuf` hashes
+/// the same with or without a trailing separator -- yet `tab_complete` answers
+/// the two differently (a folder's children, or its matching siblings), so
+/// typing `/` after a folder has to start a new lookup.
+fn tab_complete_subscription(path: &Path) -> Subscription<Message> {
+    Subscription::run_with(
+        ("tab_complete", path.as_os_str().to_owned()),
+        |(_, text)| {
+            let path = PathBuf::from(text);
+            stream::channel(
+                1,
+                |mut output: futures::channel::mpsc::Sender<_>| async move {
+                    let message = {
+                        let path = path.clone();
+                        tokio::task::spawn_blocking(move || {
+                            let start = Instant::now();
+                            match tab_complete(&path) {
+                                Ok(completions) => {
+                                    log::info!(
+                                        "tab completed {} in {:?}",
+                                        path.display(),
+                                        start.elapsed()
+                                    );
+                                    Message::TabComplete(path.clone(), completions)
+                                }
+                                Err(err) => {
+                                    log::warn!(
+                                        "failed to tab complete {}: {}",
+                                        path.display(),
+                                        err
+                                    );
+                                    Message::TabComplete(path.clone(), Vec::new())
+                                }
+                            }
+                        })
+                        .await
+                        .unwrap()
+                    };
+
+                    match output.send(message).await {
+                        Ok(()) => {}
+                        Err(err) => {
+                            log::warn!(
+                                "failed to send tab completion for {}: {}",
+                                path.display(),
+                                err
+                            );
+                        }
+                    }
+
+                    std::future::pending().await
+                },
+            )
+        },
+    )
 }
 
 pub fn respond_to_scroll_direction(delta: ScrollDelta, modifiers: &Modifiers) -> Option<Message> {
@@ -9601,6 +9698,536 @@ mod tests {
             );
         }
         Ok(())
+    }
+
+    /// A tab in `root` whose address field holds `path`, with `completions`
+    /// already looked up for it.
+    fn tab_editing(
+        root: &std::path::Path,
+        path: PathBuf,
+        completions: Option<Vec<(String, PathBuf)>>,
+    ) -> Tab {
+        let mut tab = Tab::new(
+            Location::Path(root.to_owned()),
+            TabConfig::default(),
+            ThumbCfg::default(),
+            None,
+            std::borrow::Cow::Borrowed("Undefined"),
+            None,
+        );
+        let mut edit_location: super::EditLocation = Location::Path(path).into();
+        edit_location.completions = completions;
+        tab.edit_location = Some(edit_location);
+        tab
+    }
+
+    /// What typing `path` into the address field sends.
+    fn type_path(tab: &mut Tab, path: PathBuf) {
+        tab.update(
+            Message::EditLocation(Some(Location::Path(path).into())),
+            Modifiers::empty(),
+        );
+    }
+
+    /// Two folders, `alpha` and `beta`, and the list the field shows for the
+    /// root with a trailing separator: both of them.
+    fn two_folders() -> io::Result<(TempDir, Vec<(String, PathBuf)>)> {
+        let fs = empty_fs()?;
+        fs::create_dir(fs.path().join("alpha"))?;
+        fs::create_dir(fs.path().join("beta"))?;
+        let list = super::tab_complete(&fs.path().join(""))
+            .map_err(|err| io::Error::other(err.to_string()))?;
+        assert_eq!(list.len(), 2, "the fixture should list both folders");
+        Ok((fs, list))
+    }
+
+    #[test]
+    fn typing_keeps_the_previous_list_on_show_but_not_choosable() -> io::Result<()> {
+        let (fs, list) = two_folders()?;
+        let mut tab = tab_editing(fs.path(), fs.path().join(""), Some(list.clone()));
+
+        type_path(&mut tab, fs.path().join("b"));
+
+        let edit_location = tab.edit_location.as_ref().expect("the field is still open");
+        assert_eq!(
+            edit_location.completions, None,
+            "the new list is not looked up yet"
+        );
+        assert_eq!(edit_location.stale, Some(list.clone()));
+        assert_eq!(edit_location.shown(), Some((list.as_slice(), false)));
+        Ok(())
+    }
+
+    #[test]
+    fn nothing_stale_is_submitted() -> io::Result<()> {
+        use crate::tab::Command;
+
+        let (fs, list) = two_folders()?;
+        let mut tab = tab_editing(fs.path(), fs.path().join(""), Some(list));
+        let typed = fs.path().join("b");
+        type_path(&mut tab, typed.clone());
+
+        // With a list of its own, a path that does not exist would go to the
+        // list's first entry. With only a stale list it is taken as typed: it
+        // is not a folder, so the tab stays in its parent with it selected.
+        let commands = tab.update(Message::EditLocationSubmit, Modifiers::empty());
+        let went_to = commands.iter().find_map(|command| match command {
+            Command::ChangeLocation(_, location, selected) => {
+                Some((location.clone(), selected.clone()))
+            }
+            _ => None,
+        });
+        assert_eq!(
+            went_to,
+            Some((Location::Path(fs.path().to_owned()), Some(vec![typed])))
+        );
+        assert_eq!(tab.location, Location::Path(fs.path().to_owned()));
+        Ok(())
+    }
+
+    #[test]
+    fn the_looked_up_list_replaces_the_stale_one() -> io::Result<()> {
+        let (fs, list) = two_folders()?;
+        let mut tab = tab_editing(fs.path(), fs.path().join(""), Some(list.clone()));
+        let typed = fs.path().join("b");
+        type_path(&mut tab, typed.clone());
+        assert_eq!(
+            tab.edit_location.as_ref().and_then(|x| x.stale.clone()),
+            Some(list.clone()),
+            "the old list should be on show until the new one arrives"
+        );
+
+        let looked_up = vec![list[1].clone()];
+        tab.update(
+            Message::TabComplete(typed, looked_up.clone()),
+            Modifiers::empty(),
+        );
+
+        let edit_location = tab.edit_location.as_ref().expect("the field is still open");
+        assert_eq!(edit_location.completions, Some(looked_up));
+        assert_eq!(edit_location.stale, None);
+        Ok(())
+    }
+
+    #[test]
+    fn a_stale_list_is_carried_across_several_keystrokes() -> io::Result<()> {
+        let (fs, list) = two_folders()?;
+        let mut tab = tab_editing(fs.path(), fs.path().join(""), Some(list.clone()));
+
+        type_path(&mut tab, fs.path().join("b"));
+        type_path(&mut tab, fs.path().join("be"));
+
+        let edit_location = tab.edit_location.as_ref().expect("the field is still open");
+        assert_eq!(edit_location.completions, None);
+        assert_eq!(edit_location.stale, Some(list));
+        Ok(())
+    }
+
+    #[test]
+    fn dismissing_the_address_field_carries_no_list_over() -> io::Result<()> {
+        let (fs, list) = two_folders()?;
+        let mut tab = tab_editing(fs.path(), fs.path().join(""), Some(list));
+
+        tab.update(Message::EditLocation(None), Modifiers::empty());
+        type_path(&mut tab, fs.path().join(""));
+
+        let edit_location = tab.edit_location.as_ref().expect("the field is open again");
+        assert_eq!(edit_location.stale, None);
+        Ok(())
+    }
+
+    #[test]
+    fn a_network_location_does_not_inherit_a_stale_list() -> io::Result<()> {
+        let (fs, list) = two_folders()?;
+        let mut tab = tab_editing(fs.path(), fs.path().join(""), Some(list));
+
+        let uri = "smb://example/share/".to_owned();
+        tab.update(
+            Message::EditLocation(Some(Location::Network(uri.clone(), uri, None).into())),
+            Modifiers::empty(),
+        );
+
+        let edit_location = tab.edit_location.as_ref().expect("the field is still open");
+        assert_eq!(edit_location.stale, None);
+        Ok(())
+    }
+
+    /// Inside a browsed share the field holds a URI, and what is typed into it
+    /// never changes the mount path the lookup is keyed on, so no list would
+    /// ever come to replace a stale one.
+    #[test]
+    fn a_network_share_with_a_mount_path_does_not_inherit_a_stale_list() -> io::Result<()> {
+        let (fs, list) = two_folders()?;
+        let mut tab = tab_editing(fs.path(), fs.path().join(""), None);
+        let share = |uri: &str| {
+            Location::Network(uri.to_owned(), uri.to_owned(), Some(fs.path().to_owned()))
+        };
+        let mut edit_location: super::EditLocation = share("smb://example/share/").into();
+        edit_location.completions = Some(list);
+        tab.edit_location = Some(edit_location);
+
+        tab.update(
+            Message::EditLocation(Some(share("smb://example/share/x").into())),
+            Modifiers::empty(),
+        );
+
+        let edit_location = tab.edit_location.as_ref().expect("the field is still open");
+        assert_eq!(edit_location.stale, None);
+        Ok(())
+    }
+
+    /// The tab's location bar, laid out headless the way the app runs it: one
+    /// widget cache carried from each build to the next, so widget state
+    /// survives the tab changing in between.
+    struct LocationBar {
+        renderer: crate::ui::Renderer,
+        cache: Option<crate::ui::iced_runtime::user_interface::Cache>,
+        now: std::time::Instant,
+    }
+
+    impl LocationBar {
+        const WINDOW: crate::ui::iced::Size = crate::ui::iced::Size::new(800.0, 600.0);
+
+        /// Builds it and lets the dropdown unroll to its full height.
+        fn settled(tab: &Tab) -> Self {
+            use crate::ui::iced_core::{Event, mouse, window};
+
+            tab.size_opt.set(Some(Self::WINDOW));
+            let mut bar = Self {
+                renderer: iced_texture_cache::testing::headless_tiny_skia(),
+                cache: Some(Default::default()),
+                now: std::time::Instant::now(),
+            };
+            for frame in 0.. {
+                assert!(frame < 200, "the dropdown never settled");
+                bar.now += std::time::Duration::from_millis(16);
+                let (_, redraw) = bar.send(
+                    tab,
+                    Event::Window(window::Event::RedrawRequested(bar.now)),
+                    mouse::Cursor::Unavailable,
+                );
+                if !redraw {
+                    break;
+                }
+            }
+            bar
+        }
+
+        /// Sends one event, returning what it published and whether another
+        /// frame was asked for.
+        fn send(
+            &mut self,
+            tab: &Tab,
+            event: crate::ui::iced_core::Event,
+            cursor: crate::ui::iced_core::mouse::Cursor,
+        ) -> (Vec<Message>, bool) {
+            use crate::ui::iced_core::{clipboard, window};
+            use crate::ui::iced_runtime::user_interface::{State, UserInterface};
+
+            let mut messages = Vec::new();
+            let mut ui = UserInterface::build(
+                tab.location_view(None),
+                Self::WINDOW,
+                self.cache.take().expect("the cache is put back"),
+                &mut self.renderer,
+            );
+            let (state, _) = ui.update(
+                &[event],
+                cursor,
+                &mut self.renderer,
+                &mut clipboard::Null,
+                &mut messages,
+            );
+            self.cache = Some(ui.into_cache());
+            let redraw = matches!(
+                state,
+                State::Updated {
+                    redraw_request: window::RedrawRequest::NextFrame,
+                    ..
+                }
+            );
+            (messages, redraw)
+        }
+
+        /// The middle of the dropdown's first row: the shortest box below the
+        /// field.
+        fn first_row(&mut self, tab: &Tab) -> crate::ui::iced_core::mouse::Cursor {
+            use crate::ui::iced_core::widget::{Id, Operation};
+            use crate::ui::iced_core::{Point, Rectangle, mouse};
+            use crate::ui::iced_runtime::user_interface::UserInterface;
+
+            struct Containers(Vec<(Option<Id>, Rectangle)>);
+            impl Operation for Containers {
+                fn traverse(&mut self, operate: &mut dyn FnMut(&mut dyn Operation)) {
+                    operate(self);
+                }
+                fn container(&mut self, id: Option<&Id>, bounds: Rectangle) {
+                    self.0.push((id.cloned(), bounds));
+                }
+            }
+
+            let mut containers = Containers(Vec::new());
+            let mut ui = UserInterface::build(
+                tab.location_view(None),
+                Self::WINDOW,
+                self.cache.take().expect("the cache is put back"),
+                &mut self.renderer,
+            );
+            ui.operate(&self.renderer, &mut containers);
+            self.cache = Some(ui.into_cache());
+            let field = containers
+                .0
+                .iter()
+                .find(|(id, _)| id.as_ref() == Some(&tab.edit_location_id))
+                .expect("the field is laid out")
+                .1;
+            let row = containers
+                .0
+                .iter()
+                .map(|(_, bounds)| *bounds)
+                .filter(|bounds| bounds.y >= field.y + field.height && bounds.height > 0.0)
+                .min_by(|a, b| a.height.total_cmp(&b.height).then(a.y.total_cmp(&b.y)))
+                .expect("the dropdown has rows");
+            mouse::Cursor::Available(Point::new(
+                row.x + row.width / 2.0,
+                row.y + row.height / 2.0,
+            ))
+        }
+
+        fn button(
+            &mut self,
+            tab: &Tab,
+            cursor: crate::ui::iced_core::mouse::Cursor,
+            pressed: bool,
+        ) -> Vec<Message> {
+            use crate::ui::iced_core::{Event, mouse};
+
+            let button = mouse::Button::Left;
+            let event = if pressed {
+                mouse::Event::ButtonPressed(button)
+            } else {
+                mouse::Event::ButtonReleased(button)
+            };
+            self.send(tab, Event::Mouse(event), cursor).0
+        }
+    }
+
+    /// Presses and releases the middle of the dropdown's first row once it
+    /// has unrolled, returning what that published.
+    fn press_first_dropdown_row(tab: &Tab) -> Vec<Message> {
+        let mut bar = LocationBar::settled(tab);
+        let row = bar.first_row(tab);
+        let mut published = bar.button(tab, row, true);
+        published.extend(bar.button(tab, row, false));
+        published
+    }
+
+    /// The list arriving between the press and the release does not turn the
+    /// press into a choice: the user pressed a row they could not choose, and
+    /// the row now under the pointer is one they have not seen.
+    #[test]
+    fn a_press_on_a_stale_row_released_after_the_list_arrives_chooses_nothing() -> io::Result<()> {
+        let (fs, list) = two_folders()?;
+        let mut tab = tab_editing(fs.path(), fs.path().join(""), Some(list.clone()));
+        tab.config.view = super::View::Grid;
+        let typed = fs.path().join("b");
+        type_path(&mut tab, typed.clone());
+
+        let mut bar = LocationBar::settled(&tab);
+        let row = bar.first_row(&tab);
+        let mut published = bar.button(&tab, row, true);
+        tab.update(
+            Message::TabComplete(typed, vec![list[1].clone()]),
+            Modifiers::empty(),
+        );
+        assert!(
+            tab.edit_location
+                .as_ref()
+                .is_some_and(|x| x.completions.is_some()),
+            "the list should have arrived"
+        );
+        published.extend(bar.button(&tab, row, false));
+
+        assert!(
+            !published.iter().any(|message| matches!(
+                message,
+                Message::EditLocationComplete(_) | Message::EditLocation(None)
+            )),
+            "{published:?}"
+        );
+        Ok(())
+    }
+
+    /// A press on a stale row neither closes the field nor reaches whatever
+    /// lies under the dropdown: it is taken by the row, and chooses nothing.
+    #[test]
+    fn a_press_on_a_stale_row_is_swallowed() -> io::Result<()> {
+        let (fs, list) = two_folders()?;
+        let mut tab = tab_editing(fs.path(), fs.path().join(""), Some(list));
+        tab.config.view = super::View::Grid;
+        type_path(&mut tab, fs.path().join("b"));
+
+        let published = press_first_dropdown_row(&tab);
+
+        assert!(
+            matches!(published.as_slice(), [Message::EditLocationStalePressed]),
+            "{published:?}"
+        );
+        Ok(())
+    }
+
+    /// The same press on a looked-up row chooses it, so the press above did
+    /// land on a row.
+    #[test]
+    fn a_press_on_a_looked_up_row_chooses_it() -> io::Result<()> {
+        let (fs, list) = two_folders()?;
+        let mut tab = tab_editing(fs.path(), fs.path().join(""), Some(list));
+        tab.config.view = super::View::Grid;
+
+        let published = press_first_dropdown_row(&tab);
+
+        assert!(
+            matches!(published.as_slice(), [Message::EditLocationComplete(0)]),
+            "{published:?}"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_press_on_a_stale_row_changes_nothing() -> io::Result<()> {
+        let (fs, list) = two_folders()?;
+        let mut tab = tab_editing(fs.path(), fs.path().join(""), Some(list.clone()));
+        let typed = fs.path().join("b");
+        type_path(&mut tab, typed.clone());
+        let before = tab.location.clone();
+
+        let commands = tab.update(Message::EditLocationStalePressed, Modifiers::empty());
+
+        assert!(commands.is_empty(), "{commands:?}");
+        assert_eq!(tab.location, before);
+        let edit_location = tab.edit_location.as_ref().expect("the field is still open");
+        assert_eq!(edit_location.location, Location::Path(typed));
+        assert_eq!(edit_location.completions, None);
+        assert_eq!(edit_location.stale, Some(list));
+        assert_eq!(edit_location.selected, None);
+        Ok(())
+    }
+
+    #[test]
+    fn the_dropdown_shows_the_looked_up_list_over_a_stale_one() {
+        let fresh = vec![("fresh".to_owned(), PathBuf::from("/fresh"))];
+        let stale = vec![("stale".to_owned(), PathBuf::from("/stale"))];
+        let mut edit_location: super::EditLocation = Location::Path(PathBuf::from("/")).into();
+
+        edit_location.stale = Some(stale.clone());
+        assert_eq!(edit_location.shown(), Some((stale.as_slice(), false)));
+
+        edit_location.completions = Some(fresh.clone());
+        assert_eq!(edit_location.shown(), Some((fresh.as_slice(), true)));
+    }
+
+    #[test]
+    fn an_empty_list_shows_no_dropdown() {
+        let stale = vec![("stale".to_owned(), PathBuf::from("/stale"))];
+        let mut edit_location: super::EditLocation = Location::Path(PathBuf::from("/")).into();
+        assert_eq!(
+            edit_location.shown(),
+            None,
+            "nothing looked up, nothing stale"
+        );
+
+        edit_location.completions = Some(Vec::new());
+        assert_eq!(edit_location.shown(), None);
+
+        // An empty answer is the answer, even with an old list to hand.
+        edit_location.stale = Some(stale);
+        assert_eq!(edit_location.shown(), None);
+
+        edit_location.completions = None;
+        edit_location.stale = Some(Vec::new());
+        assert_eq!(edit_location.shown(), None);
+    }
+
+    /// A trailing separator changes what is looked up -- a folder's children
+    /// rather than its matching siblings -- so an answer for one form is
+    /// foreign to the other.
+    #[test]
+    fn a_list_for_a_path_is_not_taken_for_it_with_a_trailing_separator() -> io::Result<()> {
+        let (fs, list) = two_folders()?;
+        let bare = fs.path().join("alpha");
+        let with_sep = fs.path().join("alpha/");
+
+        for (field, answered) in [(&with_sep, &bare), (&bare, &with_sep)] {
+            let mut tab = tab_editing(fs.path(), field.clone(), None);
+            tab.update(
+                Message::TabComplete(answered.clone(), list.clone()),
+                Modifiers::empty(),
+            );
+            let edit_location = tab.edit_location.as_ref().expect("the field is still open");
+            assert_eq!(
+                edit_location.completions, None,
+                "the answer for {answered:?} was taken for {field:?}"
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn typing_a_separator_after_a_folder_lists_its_children() -> io::Result<()> {
+        let (fs, _) = two_folders()?;
+        fs::create_dir(fs.path().join("alpha").join("inner"))?;
+        let bare = fs.path().join("alpha");
+        let with_sep = fs.path().join("alpha/");
+        let lookup = |path: &PathBuf| {
+            super::tab_complete(path).map_err(|err| io::Error::other(err.to_string()))
+        };
+        let siblings = lookup(&bare)?;
+        let children = lookup(&with_sep)?;
+        assert_ne!(
+            siblings, children,
+            "the fixture should answer the two forms differently"
+        );
+
+        let mut tab = tab_editing(fs.path(), bare, Some(siblings.clone()));
+        type_path(&mut tab, with_sep.clone());
+        let edit_location = tab.edit_location.as_ref().expect("the field is still open");
+        assert_eq!(edit_location.completions, None);
+        assert_eq!(edit_location.stale, Some(siblings));
+
+        tab.update(
+            Message::TabComplete(with_sep, children.clone()),
+            Modifiers::empty(),
+        );
+        let edit_location = tab.edit_location.as_ref().expect("the field is still open");
+        assert_eq!(edit_location.completions, Some(children));
+        assert_eq!(edit_location.stale, None);
+        Ok(())
+    }
+
+    /// The runtime keeps a subscription running for as long as its hash is
+    /// unchanged, so the lookup restarts only if the two forms hash apart.
+    #[test]
+    fn a_trailing_separator_restarts_the_completion_lookup() {
+        use crate::ui::iced::advanced::subscription::{Hasher, into_recipes};
+        use std::hash::Hasher as _;
+
+        let id = |path: &str| -> Vec<u64> {
+            into_recipes(super::tab_complete_subscription(std::path::Path::new(path)))
+                .iter()
+                .map(|recipe| {
+                    let mut hasher = Hasher::default();
+                    recipe.hash(&mut hasher);
+                    hasher.finish()
+                })
+                .collect()
+        };
+
+        assert_eq!(
+            id("/home/user"),
+            id("/home/user"),
+            "the same text is the same lookup"
+        );
+        assert_ne!(id("/home/user"), id("/home/user/"));
     }
 
     /// The same address submitted twice: the first answer settles only the

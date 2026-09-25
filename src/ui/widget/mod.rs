@@ -99,6 +99,9 @@ pub use popover::{Popover, popover};
 pub mod popup_genie;
 pub use popup_genie::{PopupGenie, popup_genie};
 
+pub mod spring_height;
+pub use spring_height::{SpringHeight, spring_height};
+
 pub mod settle_watch;
 pub use settle_watch::{SettleWatch, settle_watch};
 
