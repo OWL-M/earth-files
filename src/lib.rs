@@ -22,6 +22,7 @@ pub mod config;
 mod context_action;
 pub mod desktop_entry;
 pub mod dialog;
+mod exit_gate;
 pub mod file_category;
 mod hex;
 mod inhibit;

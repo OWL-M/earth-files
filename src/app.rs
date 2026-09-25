@@ -47,6 +47,7 @@ use crate::clipboard::{
 };
 use crate::config::{AppTheme, Config, Favorite, IconSizes, State, Store, TabConfig, TypeToSearch};
 use crate::dialog::{Dialog, DialogKind, DialogMessage, DialogResult, DialogSettings};
+use crate::exit_gate::{ExitGate, Step};
 use crate::key_bind::key_binds;
 use crate::localize::LANGUAGE_SORTER;
 use crate::mime_app::{self, MimeApp, MimeAppCache, MimeAppMatch};
@@ -95,6 +96,13 @@ static MOUNT_ERROR_TRY_AGAIN_BUTTON_ID: LazyLock<widget::Id> =
 
 pub(crate) static REPLACE_BUTTON_ID: LazyLock<widget::Id> =
     LazyLock::new(|| widget::Id::new("replace-button"));
+
+/// The progress notification shown while a closed window's operations run.
+/// A `Mutex` because messages are `Clone` and the handle is not.
+#[cfg(feature = "notify")]
+type ProgressNotice = Arc<Mutex<notify_rust::NotificationHandle>>;
+#[cfg(not(feature = "notify"))]
+type ProgressNotice = ();
 
 #[derive(Clone, Debug)]
 pub struct Flags {
@@ -359,8 +367,12 @@ pub enum Message {
     NetworkDriveSubmit,
     NetworkResult(MounterKey, String, Result<bool, String>),
     NewItem(Option<Entity>, bool),
+    /// The progress notification is up, or could not be shown.
     #[cfg(feature = "notify")]
-    Notification(Arc<Mutex<notify_rust::NotificationHandle>>),
+    NotificationShown(Option<ProgressNotice>),
+    /// The progress notification was taken down.
+    #[cfg(feature = "notify")]
+    NotificationClosed,
     NotifyEvents(Vec<DebouncedEvent>),
     NotifyWatcher(WatcherWrapper),
     OpenTerminal(Option<Entity>),
@@ -828,8 +840,9 @@ pub struct App {
     must_save_sort_names: bool,
     network_drive_connecting: Option<(MounterKey, String)>,
     network_drive_input: String,
-    #[cfg(feature = "notify")]
-    notification_opt: Option<Arc<Mutex<notify_rust::NotificationHandle>>>,
+    /// Where the progress notification is, which decides when a closed
+    /// window's process may exit.
+    exit_gate: ExitGate<ProgressNotice>,
     pending_operation_id: u64,
     pending_operations: BTreeMap<u64, (Operation, Controller)>,
     progress_operations: BTreeSet<u64>,
@@ -1880,7 +1893,7 @@ impl App {
             self.progress_operations.clear();
         }
         // Potentially show a notification
-        commands.push(self.update_notification());
+        commands.push(self.maybe_exit());
         // Rescan and select based on operation
         commands.push(self.rescan_operation_selection(op_sel));
         // Manually rescan any trash tabs after any operation is completed
@@ -1950,6 +1963,8 @@ impl App {
         {
             self.progress_operations.clear();
         }
+        // A failure can be the last operation a closed window was waiting on
+        tasks.push(self.maybe_exit());
         // Manually rescan any trash tabs after any operation is completed
         tasks.push(self.rescan_trash());
         Task::batch(tasks)
@@ -2382,32 +2397,68 @@ impl App {
         }
     }
 
-    fn update_notification(&mut self) -> Task<Message> {
-        // Handle closing notification if there are no operations
-        if self.pending_operations.is_empty() {
+    /// With the window closed, moves towards exiting: shows the progress
+    /// notification while operations run, takes it down once they are done,
+    /// and exits once nothing is left in flight. Every exit goes through here;
+    /// see [`ExitGate`].
+    fn maybe_exit(&mut self) -> Task<Message> {
+        if self.core.main_window_id().is_some() {
+            return Task::none();
+        }
+        let pending = !self.pending_operations.is_empty();
+        match self.exit_gate.step(pending, cfg!(feature = "notify")) {
+            Step::Wait => Task::none(),
             #[cfg(feature = "notify")]
-            if let Some(notification_arc) = self.notification_opt.take() {
-                return Task::future(async move {
-                    let closed = tokio::task::spawn_blocking(move || {
-                        // Closing consumes the handle, so it must be the last reference
-                        match Arc::try_unwrap(notification_arc).map(Mutex::into_inner) {
-                            Ok(Ok(notification)) => {
-                                notification.close();
-                                true
-                            }
-                            _ => false,
-                        }
-                    })
-                    .await;
-                    if !matches!(closed, Ok(true)) {
-                        log::warn!("progress notification could not be closed");
+            Step::Show => Task::future(async move {
+                let shown = tokio::task::spawn_blocking(|| {
+                    notify_rust::Notification::new()
+                        .summary(&fl!("notification-in-progress"))
+                        .timeout(notify_rust::Timeout::Never)
+                        .show()
+                        .map_err(|err| err.to_string())
+                })
+                .await
+                .map_err(|err| err.to_string())
+                .and_then(|shown| shown);
+                let notice = match shown {
+                    Ok(notification) => Some(Arc::new(Mutex::new(notification))),
+                    Err(err) => {
+                        log::warn!("failed to create notification: {err}");
+                        None
                     }
-                    crate::ui::action::app(Message::MaybeExit)
-                });
+                };
+                crate::ui::action::app(Message::NotificationShown(notice))
+            }),
+            #[cfg(feature = "notify")]
+            Step::Close(notice) => Task::future(async move {
+                let closed = tokio::task::spawn_blocking(move || {
+                    // Closing consumes the handle, so it must be the last reference
+                    match Arc::try_unwrap(notice).map(Mutex::into_inner) {
+                        Ok(Ok(notification)) => {
+                            notification.close();
+                            true
+                        }
+                        _ => false,
+                    }
+                })
+                .await;
+                if !matches!(closed, Ok(true)) {
+                    log::warn!("progress notification could not be closed");
+                }
+                crate::ui::action::app(Message::NotificationClosed)
+            }),
+            // `can_notify` is false, so the gate never asks for either
+            #[cfg(not(feature = "notify"))]
+            Step::Show | Step::Close(()) => Task::none(),
+            Step::Exit => {
+                // Settings and recents are written by worker threads, and
+                // `process::exit` runs nothing on the way out, so what is
+                // still queued has to be waited for here rather than after
+                // the loop returns -- which this never lets happen.
+                crate::shut_down();
+                process::exit(0);
             }
         }
-
-        Task::none()
     }
 
     fn update_title(&mut self) -> Task<Message> {
@@ -2883,8 +2934,7 @@ impl Application for App {
             must_save_sort_names: false,
             network_drive_connecting: None,
             network_drive_input: String::new(),
-            #[cfg(feature = "notify")]
-            notification_opt: None,
+            exit_gate: ExitGate::default(),
             pending_operation_id: 0,
             pending_operations: BTreeMap::new(),
             progress_operations: BTreeSet::new(),
@@ -3910,15 +3960,7 @@ impl Application for App {
                 }
             }
             Message::MaybeExit => {
-                if self.core.main_window_id().is_none() && self.pending_operations.is_empty() {
-                    // Exit if window is closed and there are no pending operations.
-                    // Settings and recents are written by worker threads, and
-                    // `process::exit` runs nothing on the way out, so what is
-                    // still queued has to be waited for here rather than after
-                    // the loop returns -- which this never lets happen.
-                    crate::shut_down();
-                    process::exit(0);
-                }
+                return self.maybe_exit();
             }
             Message::LaunchUrl(url) => match open::that_detached(&url) {
                 Ok(()) => {}
@@ -4127,8 +4169,15 @@ impl Application for App {
                 }
             }
             #[cfg(feature = "notify")]
-            Message::Notification(notification) => {
-                self.notification_opt = Some(notification);
+            Message::NotificationShown(notice) => {
+                self.exit_gate.shown(notice);
+                // The operations may have finished while it was being shown
+                return self.maybe_exit();
+            }
+            #[cfg(feature = "notify")]
+            Message::NotificationClosed => {
+                self.exit_gate.closed();
+                return self.maybe_exit();
             }
             Message::NotifyEvents(events) => {
                 log::debug!("{events:?}");
@@ -5656,6 +5705,11 @@ impl Application for App {
             }
             Message::WindowCloseRequested(id) => {
                 self.remove_window(&id);
+                // Exits now, or once the operations still running finish or
+                // fail (`maybe_exit`).
+                if main_window_closed(&mut self.core, id) {
+                    return Task::future(async move { crate::ui::action::app(Message::MaybeExit) });
+                }
             }
             Message::WindowMaximize(id, maximized) => {
                 return window::maximize(id, maximized);
@@ -7635,47 +7689,6 @@ impl Application for App {
                             .map(|_| Message::None),
                     );
                 }
-            } else {
-                // Handle notification when window is closed and operations are in progress
-                #[cfg(feature = "notify")]
-                {
-                    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-                    struct NotificationSubscription;
-                    subscriptions.push(Subscription::run_with(
-                        TypeId::of::<NotificationSubscription>(),
-                        |_| {
-                            stream::channel(
-                                1,
-                                move |mut msg_tx: futures::channel::mpsc::Sender<_>| async move {
-                                    tokio::task::spawn_blocking(move || {
-                                        match notify_rust::Notification::new()
-                                            .summary(&fl!("notification-in-progress"))
-                                            .timeout(notify_rust::Timeout::Never)
-                                            .show()
-                                        {
-                                            Ok(notification) => {
-                                                let _ = futures::executor::block_on(async {
-                                                    msg_tx
-                                                        .send(Message::Notification(Arc::new(
-                                                            Mutex::new(notification),
-                                                        )))
-                                                        .await
-                                                });
-                                            }
-                                            Err(err) => {
-                                                log::warn!("failed to create notification: {err}");
-                                            }
-                                        }
-                                    })
-                                    .await
-                                    .unwrap();
-
-                                    std::future::pending().await
-                                },
-                            )
-                        },
-                    ));
-                }
             }
         }
 
@@ -7727,9 +7740,45 @@ fn move_path_changes(
         .collect()
 }
 
+/// Lets go of the main window when the compositor closed `id` and it was the
+/// main one, returning whether it was.
+///
+/// A close from the compositor — a keybind, a server-side titlebar — never
+/// reaches `Message::WindowClose`: exwlshell tears the surface down itself and
+/// reports only `window::Event::Closed`, and its event loop keeps running with
+/// no windows left because the shell starts in `StartMode::Background`. So
+/// this is where the process learns it may exit.
+fn main_window_closed(core: &mut Core, id: window::Id) -> bool {
+    if core.main_window_id() != Some(id) {
+        return false;
+    }
+    core.set_main_window_id(None);
+    true
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_compositor_closing_the_main_window_lets_go_of_it() {
+        let main = window::Id::unique();
+        let mut core = Core::default();
+        core.set_main_window_id(Some(main));
+
+        assert!(
+            !main_window_closed(&mut core, window::Id::unique()),
+            "another window"
+        );
+        assert_eq!(core.main_window_id(), Some(main));
+
+        assert!(main_window_closed(&mut core, main));
+        assert_eq!(core.main_window_id(), None);
+
+        // `WindowClose` let go of it before asking for the close, so the
+        // `Closed` that follows is not a second exit request.
+        assert!(!main_window_closed(&mut core, main));
+    }
 
     #[test]
     fn keep_both_move_points_favorites_at_the_renamed_item() {
