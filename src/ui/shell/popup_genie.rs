@@ -71,15 +71,12 @@ impl PopupGenie {
         self.exiting
     }
 
-    /// The shape it collapses with.
-    ///
-    /// `corner_radius` is the menu's own, read from the live theme rather
-    /// than stored, so a theme change is picked up by an open popup.
-    pub(crate) fn shape(&self, corner_radius: f32) -> GenieShape {
+    /// The shape it collapses with. Its corners are the `Cached`'s
+    /// `border_radius`.
+    pub(crate) fn shape(&self) -> GenieShape {
         GenieShape {
             anchor: self.anchor,
             target_width: self.target_width,
-            corner_radius,
             ..GenieShape::default()
         }
     }

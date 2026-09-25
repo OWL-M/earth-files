@@ -12,9 +12,9 @@
 
 pub mod context_drawer;
 pub mod core;
-pub mod drawer_slide;
 #[cfg(all(target_env = "gnu", not(target_os = "windows")))]
 pub mod malloc;
+pub mod panel_slide;
 pub(crate) mod popup_genie;
 pub mod runner;
 pub mod settings;
@@ -86,7 +86,8 @@ where
         Vec::new()
     }
 
-    /// The nav bar widget, when one should be drawn.
+    /// The nav bar widget, when one should be drawn. Built whether or not
+    /// it is active: the shell asks for it while it slides out as well.
     fn nav_bar(&self) -> Option<Element<'_, crate::ui::Action<Self::Message>>> {
         None
     }
@@ -127,7 +128,7 @@ where
 
     /// Whether the main content can follow a drawer slide by moving its
     /// list columns alone, `extent` being the width the drawer takes and
-    /// `opening` which way it goes. See `crate::ui::shell::drawer_slide`.
+    /// `opening` which way it goes. See `crate::ui::shell::panel_slide`.
     fn drawer_slide_fits_columns(&self, extent: f32, opening: bool) -> bool {
         let _ = (extent, opening);
         false
@@ -188,7 +189,7 @@ where
     fn view_main(&self) -> Element<'_, crate::ui::Action<Self::Message>> {
         use crate::ui::app::Action;
         use crate::ui::iced::Length;
-        use crate::ui::shell::drawer_slide::SlidePath;
+        use crate::ui::shell::panel_slide::SlidePath;
         use crate::ui::widget::{container, id_container};
         use crate::ui::{Apply, widget};
 
@@ -216,10 +217,18 @@ where
         let slide = &core.drawer_slide;
         let sliding = slide.is_moving();
         // Mid-slide on the column path the drawer floats over a layout that
-        // is still full width; see `drawer_slide`.
+        // is still full width; see `panel_slide`.
         let drawer_inline = show_context && !(sliding && slide.path() == SlidePath::Columns);
-        let on_settled = crate::ui::Action::Cosmic(Action::DrawerSlideSettled);
+        let on_settled = crate::ui::Action::Cosmic(Action::SlideSettled);
         let mut drawer_layer = None;
+
+        let nav_slide = &core.nav_slide;
+        let nav_sliding = nav_slide.is_moving();
+        let nav_shown = nav_bar_active && self.nav_model().is_some();
+        // Condensed, the nav covers the file view; while it slides in, the
+        // file view stays laid out full width underneath it.
+        let nav_inline = nav_shown && !(is_condensed && nav_sliding);
+        let nav_panel;
 
         let main_content_padding = if content_container {
             let right_padding = if drawer_inline { 0 } else { border_padding };
@@ -233,8 +242,16 @@ where
         let content_row = widget::Row::with_children({
             let mut widgets = Vec::with_capacity(3);
 
-            // Insert nav bar onto the left side of the window.
-            let has_nav = if let Some(nav) = self.nav_bar() {
+            // The nav bar, on the left. It is built while shown and while
+            // sliding out, and lives in the stack layer above this row (see
+            // `PanelSlide::place`); the row keeps a slot free for it.
+            let has_nav = nav_shown;
+            let nav = if nav_shown || nav_sliding {
+                self.nav_bar()
+            } else {
+                None
+            };
+            let nav = nav.map(|nav| {
                 let nav = id_container(nav, widget::Id::new("COSMIC_nav_bar"));
                 // A fixed width pins the limits, which carry it down through
                 // the panel's own containers, so its entries grow with it.
@@ -261,7 +278,7 @@ where
                 if is_condensed {
                     // The panel covers the window and has nothing to be
                     // dragged against.
-                    widgets.push(panel.into());
+                    Element::from(panel)
                 } else {
                     // Laid over the panel's trailing edge rather than beside
                     // it, so what is grabbed is the boundary itself: the
@@ -289,25 +306,29 @@ where
                         .on_drag_end(|_| crate::ui::Action::Cosmic(Action::NavBarResizeEnd))
                         .on_release(|_| crate::ui::Action::Cosmic(Action::NavBarResizeEnd)),
                     );
-                    widgets.push(
-                        widget::Stack::with_children(vec![
-                            panel.into(),
-                            widget::Row::with_children(vec![
-                                widget::space::horizontal().width(Length::Fill).into(),
-                                handle.into(),
-                            ])
-                            .height(Length::Fill)
-                            .into(),
+                    widget::Stack::with_children(vec![
+                        panel.into(),
+                        widget::Row::with_children(vec![
+                            widget::space::horizontal().width(Length::Fill).into(),
+                            handle.into(),
                         ])
+                        .height(Length::Fill)
                         .into(),
-                    );
+                    ])
+                    .into()
                 }
-                true
+            });
+            let slot = if is_condensed {
+                Length::Fill
             } else {
-                false
+                Length::Fixed(core.nav_extent(self.nav_bar_min_width()))
             };
+            let (nav_slot, panel) = nav_slide.place(nav, nav_inline, slot);
+            widgets.push(nav_slot);
+            nav_panel = panel;
 
-            if self.nav_model().is_none() || core.show_content() {
+            // Built under a nav sliding over it as well, condensed.
+            if self.nav_model().is_none() || core.show_content() || nav_sliding {
                 let main_content = self.view();
 
                 let context_width = core.context_width(has_nav);
@@ -410,26 +431,31 @@ where
                         } else {
                             0.0
                         };
-                    let (slot, layer) = slide.place(drawer, drawer_inline, slot_width);
+                    let (slot, panel) =
+                        slide.place(drawer, drawer_inline, Length::Fixed(slot_width));
                     widgets.push(slot);
-                    drawer_layer = Some(layer);
+                    drawer_layer = Some(panel);
                 }
             }
 
             widgets
         });
 
-        // Always a two-layer stack, so the drawer's layer never changes the
-        // shape of the tree above the main content. The second layer holds
-        // the inline drawer (see `DrawerSlide::place`) and the slide's one
-        // settle watcher, always, in the root tree under the host; see
-        // `DrawerSlide::watch`.
+        // Always a three-layer stack, so the panels' layers never change the
+        // shape of the tree above the main content. The layers above it hold
+        // the nav and the drawer (see `PanelSlide::place` and
+        // `panel_slide::layers`), each with its slide's settle watcher,
+        // always, in the root tree under the host; see `PanelSlide::watch`.
+        let drawer_panel =
+            drawer_layer.unwrap_or_else(|| slide.place(None, false, Length::Shrink).1);
+        // Condensed, a nav that is there covers the window.
+        let nav_fills = is_condensed && (nav_shown || nav_sliding);
+        let (nav_layer, drawer_layer) =
+            crate::ui::shell::panel_slide::layers(nav_panel, nav_fills, drawer_panel);
         let content_row = widget::Stack::with_children(vec![
             content_row.into(),
-            slide.watch(
-                on_settled,
-                drawer_layer.unwrap_or_else(|| slide.place(None, false, 0.0).1),
-            ),
+            nav_slide.watch(on_settled.clone(), nav_layer),
+            slide.watch(on_settled, drawer_layer),
         ]);
 
         let content_col = widget::Column::with_capacity(2)

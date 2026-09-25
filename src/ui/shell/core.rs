@@ -89,12 +89,16 @@ pub struct Core {
     pub(crate) menu_bars: HashMap<crate::ui::widget::Id, (Limits, Size)>,
 
     /// The context drawer's slide in and out; see
-    /// [`crate::ui::shell::drawer_slide`].
-    pub(crate) drawer_slide: crate::ui::shell::drawer_slide::DrawerSlide,
+    /// [`crate::ui::shell::panel_slide`].
+    pub(crate) drawer_slide: crate::ui::shell::panel_slide::PanelSlide,
+    /// The nav bar's slide in and out, on the drawer's engine: one `Motion`
+    /// per window, ticked by the one host around the view.
+    pub(crate) nav_slide: crate::ui::shell::panel_slide::PanelSlide,
 }
 
 impl Default for Core {
     fn default() -> Self {
+        let motion = iced_texture_cache::iced_animate::Motion::new();
         Self {
             debug: false,
             is_condensed: false,
@@ -128,7 +132,8 @@ impl Default for Core {
             main_window: None,
             exit_on_main_window_closed: true,
             menu_bars: HashMap::new(),
-            drawer_slide: crate::ui::shell::drawer_slide::DrawerSlide::new(),
+            drawer_slide: crate::ui::shell::panel_slide::PanelSlide::drawer(motion.clone()),
+            nav_slide: crate::ui::shell::panel_slide::PanelSlide::nav(motion),
         }
     }
 }
@@ -250,6 +255,18 @@ impl Core {
             width + f32::from(self.border_padding())
         } else {
             width
+        }
+    }
+
+    /// How far the nav bar slides: the whole panel, its left padding and the
+    /// gap after it (see `view_main`), so it starts out of sight. Condensed,
+    /// the panel covers the window, so the window's width.
+    #[must_use]
+    pub fn nav_extent(&self, min: f32) -> f32 {
+        if self.is_condensed {
+            self.window.width / self.scale_factor
+        } else {
+            self.nav_bar_effective_width(min) + f32::from(self.border_padding()) + 8.0
         }
     }
 
@@ -499,6 +516,21 @@ mod tests {
         let mut core = Core::default();
         core.set_window_width(1600.0);
         core
+    }
+
+    #[test]
+    fn the_nav_slides_its_whole_panel_out_of_sight() {
+        let core = core();
+        // The panel, its 7px left padding and the 8px gap after it
+        assert!((core.nav_extent(MIN) - (MIN + 7.0 + 8.0)).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn condensed_the_nav_slides_the_window_width() {
+        let mut core = Core::default();
+        core.set_window_width(500.0);
+        assert!(core.is_condensed());
+        assert!((core.nav_extent(MIN) - 500.0).abs() < f32::EPSILON);
     }
 
     #[test]

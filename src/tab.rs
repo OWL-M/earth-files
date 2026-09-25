@@ -62,7 +62,7 @@ use crate::thumbnailer::thumbnailer;
 use crate::trash::{Trash, TrashExt};
 use crate::ui::convert::{ToColor, ToRadius};
 use crate::ui::convert::{ToPadding, ToPixels};
-use crate::ui::shell::drawer_slide::ColumnSlide;
+use crate::ui::shell::panel_slide::ColumnSlide;
 use crate::ui::theme::{Button, Container, Layer, Rule, Spacing, spacing};
 use crate::{FxOrderMap, fl, menu, mime_app, mouse_area};
 use iced_texture_cache::{TextureCache, cached};
@@ -4187,7 +4187,7 @@ impl Tab {
     /// only Name changes. `size_opt` is the width of the last layout, so
     /// this assumes no tab switch or resize since; if one happened in the
     /// same update, at worst one slide runs on the wrong path and the
-    /// relayout at its end corrects it. See `crate::ui::shell::drawer_slide`.
+    /// relayout at its end corrects it. See `crate::ui::shell::panel_slide`.
     #[must_use]
     pub fn column_slide_fits(&self, extent: f32, opening: bool) -> bool {
         if self.config.view != View::List || self.is_search() {
@@ -6621,7 +6621,7 @@ impl Tab {
         // While the drawer slides, Name is held at its narrow width (its
         // width with the drawer in the layout) and the rest slides over the
         // gap as one texture, like the rows below; see
-        // `crate::ui::shell::drawer_slide`.
+        // `crate::ui::shell::panel_slide`.
         let headings: Vec<Element<'_, Message>> = if let Some(slide) = column_slide {
             vec![
                 name_heading,

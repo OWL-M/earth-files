@@ -160,14 +160,13 @@ version = "0.15"
 # TinySkiaRenderer>`, where each half delegates every renderer trait to
 # iced's own, so with no `Cached` in the widget tree nothing changes.
 #
-# The genie warp, `Cached::live_at_rest` and the widget-owned `Spring` and
-# `Decay` the smooth scroll uses live on luminate's `jinn` branch.
-# `iced_animate` comes with it: it is a member of the same workspace, so the
-# one git reference resolves both, and `Cargo.lock` pins the revision either
-# way.
+# Luminate's `master`: the genie warp, `Cached::live_at_rest` and the
+# widget-owned `Spring` and `Decay` the smooth scroll uses. `iced_animate`
+# comes with it: it is a member of the same workspace, so the one git
+# reference resolves both, and `Cargo.lock` pins the revision either way.
 [dependencies.iced_texture_cache]
 git = "https://github.com/sonata-ltd/luminate"
-branch = "jinn"
+branch = "master"
 default-features = false
 # Mirrors the `iced` feature list above. `image` is the same switch as our
 # `iced/image-without-codecs`: both reach `iced_renderer/image`, and the

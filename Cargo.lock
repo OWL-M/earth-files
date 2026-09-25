@@ -2671,7 +2671,7 @@ dependencies = [
 [[package]]
 name = "iced_animate"
 version = "0.1.0"
-source = "git+https://github.com/sonata-ltd/luminate?branch=jinn#7ebf67d9b3070f7d03e4651d23a3fa82540436ff"
+source = "git+https://github.com/sonata-ltd/luminate?branch=master#9cb956c120f1006ea532706953500d4056b886f2"
 dependencies = [
  "iced_core",
  "log",
@@ -2845,7 +2845,7 @@ dependencies = [
 [[package]]
 name = "iced_texture_cache"
 version = "0.1.0"
-source = "git+https://github.com/sonata-ltd/luminate?branch=jinn#7ebf67d9b3070f7d03e4651d23a3fa82540436ff"
+source = "git+https://github.com/sonata-ltd/luminate?branch=master#9cb956c120f1006ea532706953500d4056b886f2"
 dependencies = [
  "bytemuck",
  "iced_animate",

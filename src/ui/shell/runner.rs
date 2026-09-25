@@ -329,9 +329,10 @@ impl<App: Application> Shell<App> {
             // when an exit has finished; the host is the clock that ticks
             // the engine, and must be the outermost of the three.
             // The menu's own corner radius, read live so a theme change
-            // reaches an open popup. The genie keeps that radius on screen
-            // however far it squeezes; without it the recorded corner is
-            // squeezed with the texture and reads as a straight cut.
+            // reaches an open popup. The composite is cut to it, and the
+            // genie keeps it on screen however far it squeezes; without it
+            // the recorded corner is squeezed with the texture and reads as
+            // a straight cut.
             let corner_radius = self.theme.cosmic().radius_s()[0];
             let collapsing = iced_texture_cache::cached(genie.cache(), content)
                 // A menu on its way out is a picture, not a menu. Dismissal
@@ -348,7 +349,8 @@ impl<App: Application> Shell<App> {
                 // the cursor does. That is why the collapse was lost only
                 // sometimes, and only ever with the pointer over the menu.
                 .auto_invalidate(!genie.exiting())
-                .genie(genie.progress(), genie.shape(corner_radius));
+                .border_radius(corner_radius)
+                .genie(genie.progress(), genie.shape());
             let watched = crate::ui::widget::popup_genie(
                 genie.motion().clone(),
                 genie.key(),
@@ -399,6 +401,7 @@ impl<App: Application> Shell<App> {
         }
 
         self.sync_drawer_slide();
+        self.sync_nav_slide();
 
         #[cfg(all(target_env = "gnu", not(target_os = "windows")))]
         super::malloc::trim(0);
@@ -418,7 +421,8 @@ impl<App: Application> Shell<App> {
         let shown = core.window.show_context;
         let condensed = core.is_condensed();
         let (extent, columns_fit) = if core.drawer_slide.starts_slide(shown) {
-            let extent = core.drawer_extent(self.app.nav_bar().is_some());
+            let has_nav = core.nav_bar_active() && self.app.nav_model().is_some();
+            let extent = core.drawer_extent(has_nav);
             let columns_fit = !core.window.context_is_overlay
                 && self.app.drawer_slide_fits_columns(extent, shown);
             (extent, columns_fit)
@@ -429,6 +433,23 @@ impl<App: Application> Shell<App> {
             .core_mut()
             .drawer_slide
             .sync(shown, condensed, extent, columns_fit);
+    }
+
+    /// Starts, turns round or latches the nav bar's slide from
+    /// `nav_bar_active`, which follows the toggle and the breakpoint.
+    fn sync_nav_slide(&mut self) {
+        let core = self.app.core();
+        let shown = core.nav_bar_active() && self.app.nav_model().is_some();
+        let condensed = core.is_condensed();
+        let extent = if core.nav_slide.starts_slide(shown) {
+            core.nav_extent(self.app.nav_bar_min_width())
+        } else {
+            0.0
+        };
+        self.app
+            .core_mut()
+            .nav_slide
+            .sync(shown, condensed, extent, false);
     }
 
     /// Drain the text context-menu popup queues.
@@ -596,9 +617,10 @@ impl<App: Application> Shell<App> {
                     }
                 }
             }
-            // Nothing to do. For `DrawerSlideSettled` the update itself is
-            // what rebuilds the view, which then lays the drawer out at rest.
-            Action::KeyboardNav(..) | Action::DrawerSlideSettled => {}
+            // Nothing to do. For `SlideSettled` the update itself is
+            // what rebuilds the view, which then lays the panel out at rest
+            // and drops one that slid out.
+            Action::KeyboardNav(..) | Action::SlideSettled => {}
 
             Action::ContextDrawer(show) => {
                 self.app.core_mut().set_show_context(show);

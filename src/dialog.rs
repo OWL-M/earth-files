@@ -1429,10 +1429,6 @@ impl Application for App {
     }
 
     fn nav_bar(&self) -> Option<Element<'_, crate::ui::Action<Self::Message>>> {
-        if !self.core().nav_bar_active() {
-            return None;
-        }
-
         let nav_model = self.nav_model()?;
 
         let mut nav = widget::nav_bar(nav_model, |entity| {
