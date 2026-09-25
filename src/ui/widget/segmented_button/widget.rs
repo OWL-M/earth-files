@@ -983,6 +983,12 @@ where
             };
 
             let id = my_state.inner.with_data_mut(|state| {
+                // A popup still collapsing has to go now rather than finish:
+                // the menu about to be laid out shares its tree.
+                if let Some(id) = state.leaving.remove(&self.window_id) {
+                    shell.publish(surface_action(destroy_popup(id)));
+                }
+
                 if let Some(id) = state.popup_id.get(&self.window_id).copied() {
                     // close existing popups
                     state.menu_states.clear();
@@ -1123,7 +1129,9 @@ where
                     parent,
                     id,
                     positioner,
-                    animate: false,
+                    // Collapses out only when dismissed, never when
+                    // replaced: see the `leaving` map.
+                    animate: true,
                 },
                 Some(move || {
                     Element::from(
@@ -1200,6 +1208,11 @@ where
         // Diff the context menu
         if let Some(context_menu) = &self.context_menu {
             state.menu_state.inner.with_data_mut(|inner| {
+                // A popup collapsing out is still on screen and still
+                // rendering against this tree; see `context_menu::diff`.
+                if inner.leaving.contains_key(&self.window_id) {
+                    return;
+                }
                 menu_roots_diff(context_menu, &mut inner.tree);
             });
         }
@@ -1261,6 +1274,16 @@ where
                     data.reset();
                     true
                 } else {
+                    // A popup that was collapsing is gone once its surface
+                    // is, and only then may the tree thaw.
+                    if data
+                        .leaving
+                        .get(&self.window_id)
+                        .copied()
+                        .is_some_and(crate::ui::surface::dismissal::claim)
+                    {
+                        data.leaving.remove(&self.window_id);
+                    }
                     false
                 }
             });
@@ -1456,9 +1479,13 @@ where
                                 && let Some(surface_action) = self.on_surface_action.as_ref()
                                 && was_open
                             {
-                                use crate::ui::surface::action::destroy_popup;
+                                use crate::ui::surface::action::destroy_popup_animated;
 
-                                shell.publish((surface_action)(destroy_popup(w)));
+                                state
+                                    .menu_state
+                                    .inner
+                                    .with_data_mut(|data| data.leaving.insert(self.window_id, w));
+                                shell.publish((surface_action)(destroy_popup_animated(w)));
                                 return;
                             }
                         }
@@ -1655,9 +1682,12 @@ where
                 let surface_action = self.on_surface_action.as_ref().unwrap();
                 shell.capture_event();
 
-                shell.publish(surface_action(crate::ui::surface::action::destroy_popup(
-                    _id,
-                )));
+                // Nothing here replaces it with another popup of this widget,
+                // which opens through `create_popup` and returns before this,
+                // so it may collapse on its way out.
+                shell.publish(surface_action(
+                    crate::ui::surface::action::destroy_popup_animated(_id),
+                ));
             }
             state.show_context = None;
 
@@ -1666,6 +1696,7 @@ where
                 data.reset();
                 data.open = false;
                 data.view_cursor = cursor_position;
+                data.leaving.insert(self.window_id, _id);
             });
         }
 
