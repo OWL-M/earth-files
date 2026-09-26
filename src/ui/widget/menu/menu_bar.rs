@@ -57,6 +57,7 @@ pub(crate) struct MenuBarStateInner {
     /// `menu_inner`'s root-count assertion fails.
     pub(crate) leaving: HashMap<window::Id, window::Id>,
     pub(crate) pressed: bool,
+    /// The bar saw the press still held, so its release is the bar's too.
     pub(crate) bar_pressed: bool,
     /// A context menu opened on a right press that is still held. The
     /// release that ends it is the end of the opening click, not a click on
@@ -359,6 +360,21 @@ where
         self
     }
 
+    /// Leaves the popup `id`, collapsing out, the state it renders from, and
+    /// takes a fresh one for the menus opened after it.
+    ///
+    /// The two cannot share a tree. The collapsing popup lays out the menu as
+    /// it was when it opened, positionally against the tree, while the next
+    /// diff reshapes that tree to the menu as it is now. Frozen instead, the
+    /// tree would be stale for a menu opened during the collapse.
+    fn detach(&self, my_state: &mut MenuBarState, id: window::Id) {
+        let mut fresh = MenuBarStateInner::default();
+        menu_roots_diff(&self.menu_roots, &mut fresh.tree);
+        // Still on screen until it has collapsed; see `create_popup`.
+        fresh.leaving.insert(self.window_id, id);
+        my_state.inner = RcWrapper::new(fresh);
+    }
+
     #[allow(clippy::too_many_lines)]
     fn create_popup(
         &mut self,
@@ -392,6 +408,13 @@ where
             }
 
             let (id, root_list) = my_state.inner.with_data_mut(|state| {
+                // A popup still collapsing has to go now rather than finish:
+                // the new one takes the grab, and a grabbing popup has to be
+                // the topmost one.
+                if let Some(id) = state.leaving.remove(&self.window_id) {
+                    shell.publish(surface_action(destroy_popup(id)));
+                }
+
                 if let Some(id) = state.popup_id.get(&self.window_id).copied() {
                     // close existing popups
                     state.menu_states.clear();
@@ -498,7 +521,9 @@ where
                     parent,
                     id,
                     positioner,
-                    animate: false,
+                    // Collapses out only when dismissed, never when
+                    // replaced by another root's menu: see `leaving`.
+                    animate: true,
                 },
                 Some(move || {
                     (Element::from(
@@ -520,6 +545,8 @@ where
 
     fn diff(&self, tree: &mut Tree) {
         let state = tree.state.downcast_mut::<MenuBarState>();
+        // A popup collapsing out keeps a state of its own, so this one never
+        // has to wait for it: see `detach`.
         state
             .inner
             .with_data_mut(|inner| menu_roots_diff(&self.menu_roots, &mut inner.tree));
@@ -578,8 +605,8 @@ where
     ) {
         use event::Event::{Mouse, Touch};
         use mouse::Button::Left;
-        use mouse::Event::ButtonReleased;
-        use touch::Event::{FingerLifted, FingerLost};
+        use mouse::Event::{ButtonPressed, ButtonReleased};
+        use touch::Event::{FingerLifted, FingerLost, FingerPressed};
 
         process_root_events(
             &mut self.menu_roots,
@@ -609,6 +636,15 @@ where
                 d.popup_id.clear();
                 d.reset();
             }
+
+            // A popup that was collapsing is gone once its surface is.
+            if d.leaving
+                .get(&self.window_id)
+                .copied()
+                .is_some_and(crate::ui::surface::dismissal::claim)
+            {
+                d.leaving.remove(&self.window_id);
+            }
         });
 
         // XXX this should reset the state if there are no other copies of the state, which implies no dropdown menus open.
@@ -632,51 +668,70 @@ where
         });
 
         match event {
-            Mouse(mouse::Event::ButtonPressed(Left))
-            | Touch(touch::Event::FingerPressed { .. })
-                if view_cursor.is_over(layout.bounds()) =>
-            {
-                shell.capture_event();
-            }
-            Mouse(ButtonReleased(Left)) | Touch(FingerLifted { .. } | FingerLost { .. }) => {
-                let create_popup = my_state.inner.with_data_mut(|state| {
-                    let mut create_popup = false;
-                    if state.menu_states.is_empty() && view_cursor.is_over(layout.bounds()) {
+            // A menu opens on the press, as a context menu does, rather than
+            // waiting for the release.
+            Mouse(ButtonPressed(Left)) | Touch(FingerPressed { .. }) => {
+                let over_bar = view_cursor.is_over(layout.bounds());
+                let (create_popup, leaving) = my_state.inner.with_data_mut(|state| {
+                    if state.menu_states.is_empty() && over_bar {
                         state.view_cursor = view_cursor;
                         state.open = true;
-                        create_popup = true;
-                    } else if let Some(_id) = state.popup_id.remove(&self.window_id) {
+                        return (true, None);
+                    }
+                    let mut leaving = None;
+                    if let Some(id) = state.popup_id.remove(&self.window_id) {
+                        let was_open = state.open;
                         state.menu_states.clear();
                         state.active_root.clear();
                         state.open = false;
-                        {
-                            let surface_action = self.on_surface_action.as_ref().unwrap();
-                            // Closing the menu is a side effect: a release
-                            // elsewhere belongs to what it is over. Captured,
-                            // it would never reach that widget — a file
-                            // pressed while a menu was open never saw its
-                            // release, and started a drag on the next
-                            // pointer movement.
-                            if view_cursor.is_over(layout.bounds()) {
-                                shell.capture_event();
-                            }
-
+                        let surface_action = self.on_surface_action.as_ref().unwrap();
+                        // Nothing replaces it, so it may collapse on its way
+                        // out. One no longer open is only a stale id.
+                        if was_open {
+                            leaving = Some(id);
                             shell.publish(surface_action(
-                                crate::ui::surface::action::destroy_popup(_id),
+                                crate::ui::surface::action::destroy_popup_animated(id),
+                            ));
+                        } else {
+                            shell.publish(surface_action(
+                                crate::ui::surface::action::destroy_popup(id),
                             ));
                         }
                         state.view_cursor = view_cursor;
                     }
-                    create_popup
+                    (false, leaving)
                 });
+                if let Some(id) = leaving {
+                    self.detach(my_state, id);
+                }
+                my_state
+                    .inner
+                    .with_data_mut(|state| state.bar_pressed = over_bar);
 
+                // Closing the menu is a side effect: a press elsewhere
+                // belongs to what it is over. Captured, it would never reach
+                // that widget.
+                if over_bar {
+                    shell.capture_event();
+                }
                 if !create_popup {
                     return;
                 }
-                shell.capture_event();
                 shell.request_redraw();
                 if matches!(windowing_system(), Some(WindowingSystem::Wayland)) {
                     self.create_popup(layout, view_cursor, renderer, shell, viewport, my_state);
+                }
+            }
+            // The press already did the work; its release over the bar ends
+            // the click there. A release of a press made elsewhere belongs
+            // to the widget that saw that press.
+            Mouse(ButtonReleased(Left)) | Touch(FingerLifted { .. } | FingerLost { .. }) => {
+                if my_state
+                    .inner
+                    .with_data_mut(|state| std::mem::take(&mut state.bar_pressed))
+                    && view_cursor.is_over(layout.bounds())
+                {
+                    shell.capture_event();
                 }
             }
             Mouse(mouse::Event::CursorMoved { .. } | mouse::Event::CursorEntered)
@@ -881,55 +936,278 @@ mod tests {
         Surface(crate::ui::surface::Action<Msg>),
     }
 
-    /// A release away from the bar while its menu is open closes the menu,
-    /// but belongs to whatever it is over: a file item pressed there must
-    /// see it, or it drags on the next pointer movement.
-    #[test]
-    fn a_release_elsewhere_closes_the_menu_without_capturing() {
-        let mut element = crate::ui::Element::from(
-            MenuBar::new(vec![MenuTree::new(crate::ui::Element::from(
-                crate::ui::widget::text("File"),
-            ))])
-            .on_surface_action(Msg::Surface),
-        );
-        let renderer = iced_texture_cache::testing::headless_tiny_skia();
-        let mut tree = Tree::new(&element);
-        let window = Size::new(200.0, 200.0);
-        let node =
-            element
-                .as_widget_mut()
-                .layout(&mut tree, &renderer, &Limits::new(Size::ZERO, window));
-        let layout = Layout::new(&node);
-        let below = Point::new(100.0, 150.0);
-        assert!(!layout.bounds().contains(below));
+    type DynWidget = dyn Widget<Msg, crate::ui::Theme, Renderer>;
 
-        // Only a Wayland popup records itself here; stand in for one
-        let popup = window::Id::unique();
-        tree.state
-            .downcast_mut::<MenuBarState>()
-            .inner
-            .with_data_mut(|d| {
-                d.popup_id.insert(crate::ui::window::reserved(), popup);
+    struct Harness {
+        bar: MenuBar<Msg>,
+        tree: Tree,
+        node: Node,
+        renderer: Renderer,
+    }
+
+    const WINDOW: Size = Size::new(200.0, 200.0);
+    const BELOW: Point = Point::new(100.0, 150.0);
+
+    impl Harness {
+        fn new() -> Self {
+            Self::with_items(1)
+        }
+
+        /// A "File" menu of `items` entries.
+        fn bar(items: usize) -> MenuBar<Msg> {
+            MenuBar::new(vec![MenuTree::with_children(
+                crate::ui::Element::from(crate::ui::widget::text("File")),
+                (0..items)
+                    .map(|i| {
+                        MenuTree::new(crate::ui::Element::from(crate::ui::widget::text(format!(
+                            "Item {i}"
+                        ))))
+                    })
+                    .collect::<Vec<_>>(),
+            )])
+            .on_surface_action(Msg::Surface)
+        }
+
+        fn with_items(items: usize) -> Self {
+            let mut bar = Self::bar(items);
+            let renderer = iced_texture_cache::testing::headless_tiny_skia();
+            let mut tree = Tree::new(&bar as &DynWidget);
+            bar.diff(&mut tree);
+            let node = bar.layout(&mut tree, &renderer, &Limits::new(Size::ZERO, WINDOW));
+            assert!(!Layout::new(&node).bounds().contains(BELOW));
+            Self {
+                bar,
+                tree,
+                node,
+                renderer,
+            }
+        }
+
+        /// The view rebuilt with a menu of `items` entries.
+        fn rebuild(&mut self, items: usize) {
+            self.bar = Self::bar(items);
+            self.bar.diff(&mut self.tree);
+            self.node = self.bar.layout(
+                &mut self.tree,
+                &self.renderer,
+                &Limits::new(Size::ZERO, WINDOW),
+            );
+        }
+
+        fn over_bar(&self) -> Point {
+            Layout::new(&self.node).bounds().center()
+        }
+
+        fn inner<T>(&self, f: impl FnOnce(&mut MenuBarStateInner) -> T) -> T {
+            self.tree
+                .state
+                .downcast_ref::<MenuBarState>()
+                .inner
+                .with_data_mut(f)
+        }
+
+        fn leaving(&self) -> Option<window::Id> {
+            self.inner(|d| d.leaving.get(&crate::ui::window::reserved()).copied())
+        }
+
+        /// What a press on the bar does on Wayland, which a test cannot
+        /// select: its messages.
+        fn create_popup(&mut self) -> Vec<Msg> {
+            let at = self.over_bar();
+            let mut messages = Vec::new();
+            let mut shell = Shell::new(&mut messages);
+            let state = self.tree.state.downcast_mut::<MenuBarState>();
+            state.inner.with_data_mut(|d| {
+                d.view_cursor = Cursor::Available(at);
                 d.open = true;
             });
+            self.bar.create_popup(
+                Layout::new(&self.node),
+                Cursor::Available(at),
+                &self.renderer,
+                &mut shell,
+                &Rectangle::with_size(WINDOW),
+                state,
+            );
+            messages
+        }
 
-        let mut messages = Vec::new();
-        let mut shell = Shell::new(&mut messages);
-        element.as_widget_mut().update(
-            &mut tree,
-            &Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)),
-            layout,
-            Cursor::Available(below),
-            &renderer,
-            &mut clipboard::Null,
-            &mut shell,
-            &Rectangle::with_size(window),
-        );
+        /// Opens the menu as a Wayland popup: its id.
+        fn open_popup(&mut self) -> window::Id {
+            self.open_popup_with_view().0
+        }
 
-        assert!(!shell.is_event_captured());
-        assert!(messages.iter().any(|m| matches!(
-            m,
-            Msg::Surface(crate::ui::surface::Action::DestroyPopup { id, .. }) if *id == popup
-        )));
+        /// Opens the menu as a Wayland popup: its id and its view.
+        fn open_popup_with_view(&mut self) -> (window::Id, PopupView) {
+            let messages = self.create_popup();
+            let popup = messages
+                .into_iter()
+                .find_map(|m| match m {
+                    Msg::Surface(crate::ui::surface::Action::Popup(settings, view)) => {
+                        Some((settings().id, view.expect("a popup has a view")))
+                    }
+                    _ => None,
+                })
+                .expect("a popup was requested");
+            assert!(self.inner(|d| !d.menu_states.is_empty()));
+            popup
+        }
+
+        /// Lays out a popup's view, as its surface does on every frame.
+        fn lay_out(&self, view: &PopupView) {
+            let mut element = view();
+            let mut tree = Tree::new(&element);
+            let _ = element.as_widget_mut().layout(
+                &mut tree,
+                &self.renderer,
+                &Limits::new(Size::ZERO, WINDOW),
+            );
+        }
+
+        /// Sends `event` at `at`: its messages, and whether it was captured.
+        fn send(&mut self, at: Point, event: mouse::Event) -> (Vec<Msg>, bool) {
+            let mut messages = Vec::new();
+            let mut shell = Shell::new(&mut messages);
+            self.bar.update(
+                &mut self.tree,
+                &Event::Mouse(event),
+                Layout::new(&self.node),
+                Cursor::Available(at),
+                &self.renderer,
+                &mut clipboard::Null,
+                &mut shell,
+                &Rectangle::with_size(WINDOW),
+            );
+            let captured = shell.is_event_captured();
+            (messages, captured)
+        }
+
+        fn press(&mut self, at: Point) -> (Vec<Msg>, bool) {
+            self.send(at, mouse::Event::ButtonPressed(mouse::Button::Left))
+        }
+
+        fn release(&mut self, at: Point) -> (Vec<Msg>, bool) {
+            self.send(at, mouse::Event::ButtonReleased(mouse::Button::Left))
+        }
+    }
+
+    type PopupView = std::sync::Arc<
+        dyn Fn() -> crate::ui::Element<'static, crate::ui::Action<Msg>> + Send + Sync,
+    >;
+
+    fn destroys(messages: &[Msg], popup: window::Id) -> Option<bool> {
+        messages.iter().find_map(|m| match m {
+            Msg::Surface(crate::ui::surface::Action::DestroyPopup { id, animate })
+                if *id == popup =>
+            {
+                Some(*animate)
+            }
+            _ => None,
+        })
+    }
+
+    #[test]
+    fn a_press_on_the_bar_opens_its_menu() {
+        let mut h = Harness::new();
+        let (_, captured) = h.press(h.over_bar());
+        assert!(captured);
+        assert!(h.inner(|d| d.open));
+
+        // The release ends that click; it neither closes nor reopens it.
+        let (messages, captured) = h.release(h.over_bar());
+        assert!(captured);
+        assert!(messages.is_empty());
+        assert!(h.inner(|d| d.open));
+    }
+
+    #[test]
+    fn a_menu_opened_from_the_bar_plays_the_genie() {
+        let mut h = Harness::new();
+        let popup = h.create_popup().into_iter().find_map(|m| match m {
+            Msg::Surface(crate::ui::surface::Action::Popup(settings, _)) => Some(settings()),
+            _ => None,
+        });
+        assert!(popup.expect("a popup was requested").animate);
+    }
+
+    #[test]
+    fn a_press_on_the_bar_while_open_collapses_the_menu() {
+        let mut h = Harness::new();
+        let popup = h.open_popup();
+        let (messages, captured) = h.press(h.over_bar());
+        assert!(captured);
+        assert_eq!(destroys(&messages, popup), Some(true));
+        assert!(!h.inner(|d| d.open));
+        assert_eq!(h.leaving(), Some(popup));
+    }
+
+    /// A press away from the bar while its menu is open closes the menu,
+    /// but belongs to whatever it is over: a file item pressed there must
+    /// see it.
+    #[test]
+    fn a_press_elsewhere_collapses_the_menu_without_capturing() {
+        let mut h = Harness::new();
+        let popup = h.open_popup();
+        let (messages, captured) = h.press(BELOW);
+        assert!(!captured);
+        assert_eq!(destroys(&messages, popup), Some(true));
+        assert_eq!(h.leaving(), Some(popup));
+
+        // Its release is no business of the bar's
+        let (messages, captured) = h.release(BELOW);
+        assert!(!captured);
+        assert!(messages.is_empty());
+    }
+
+    /// A menu collapsing out still renders against the shared tree, so a new
+    /// one cannot open beside it: it goes at once instead.
+    #[test]
+    fn opening_again_removes_a_menu_still_collapsing() {
+        let mut h = Harness::new();
+        let popup = h.open_popup();
+        h.press(BELOW);
+        assert_eq!(h.leaving(), Some(popup));
+
+        assert_eq!(destroys(&h.create_popup(), popup), Some(false));
+        assert_eq!(h.leaving(), None);
+    }
+
+    #[test]
+    fn a_collapsing_menu_is_forgotten_once_gone() {
+        let mut h = Harness::new();
+        let popup = h.open_popup();
+        h.press(BELOW);
+        assert_eq!(h.leaving(), Some(popup));
+        crate::ui::surface::dismissal::note(popup);
+        h.send(BELOW, mouse::Event::CursorMoved { position: BELOW });
+        assert_eq!(h.leaving(), None);
+    }
+
+    /// A release is the bar's only when the press was: one ending a gesture
+    /// begun elsewhere belongs to the widget that saw that press.
+    #[test]
+    fn a_release_over_the_bar_of_a_press_elsewhere_is_not_captured() {
+        let mut h = Harness::new();
+        let (_, captured) = h.press(BELOW);
+        assert!(!captured);
+        let (messages, captured) = h.release(h.over_bar());
+        assert!(!captured);
+        assert!(messages.is_empty());
+    }
+
+    /// The menu changes while one is collapsing, then opens again: the new
+    /// one is laid out from the new menu, and the collapsing one, still on
+    /// screen, from the old.
+    #[test]
+    fn a_menu_reopened_after_its_contents_changed_mid_collapse_lays_out() {
+        let mut h = Harness::with_items(1);
+        let (_, old_view) = h.open_popup_with_view();
+        h.press(BELOW);
+        h.rebuild(2);
+        h.lay_out(&old_view);
+
+        let (_, new_view) = h.open_popup_with_view();
+        h.lay_out(&new_view);
+        h.lay_out(&old_view);
     }
 }
