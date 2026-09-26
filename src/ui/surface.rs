@@ -332,6 +332,144 @@ pub(crate) mod dismissal {
     }
 }
 
+/// The popups that are open, so only one chain of them ever is.
+///
+/// Every popup this app opens takes a grab, and a grabbing popup has to be
+/// the child of the topmost one already grabbing, or of a toplevel when none
+/// is. Mutter and Smithay (COSMIC, niri) disconnect a client that breaks
+/// this, and on the others two menus end up open at once. Each widget only
+/// looks after its own popups, and a click that opens one widget's menu is
+/// often captured before another widget's open menu sees it, so the shell
+/// enforces it for all of them: before a popup opens, every popup that is not
+/// on the way to it goes, at once and without its collapse, which would keep
+/// it on screen and grabbing.
+///
+/// Thread-local for the same reason as [`dismissal`]: the shell of every
+/// window, the file chooser's included, runs on this thread.
+pub(crate) mod chain {
+    use iced_core::window;
+    use std::cell::RefCell;
+    use std::collections::HashMap;
+
+    thread_local! {
+        /// Each open popup, with the surface it is a child of.
+        static OPEN: RefCell<HashMap<window::Id, window::Id>> = RefCell::new(HashMap::new());
+    }
+
+    /// Record popup `id` opening on `parent`, and say which popups to close
+    /// before it does: every one not on the way from `parent` to its
+    /// toplevel. Only the outermost of each is named, since closing a popup
+    /// takes its own children with it. The popups named are forgotten here.
+    pub(crate) fn open(id: window::Id, parent: window::Id) -> Vec<window::Id> {
+        OPEN.with(|open| {
+            let mut open = open.borrow_mut();
+            // A popup reopening under its own id, as a text context menu
+            // does, replaces itself rather than closing anything of its own.
+            open.remove(&id);
+
+            let mut ancestors = vec![parent];
+            while let Some(next) = ancestors.last().and_then(|last| open.get(last)) {
+                ancestors.push(*next);
+            }
+            let others: Vec<window::Id> = open
+                .keys()
+                .copied()
+                .filter(|popup| !ancestors.contains(popup))
+                .collect();
+            let outermost: Vec<window::Id> = others
+                .iter()
+                .copied()
+                .filter(|popup| {
+                    !open
+                        .get(popup)
+                        .is_some_and(|parent| others.contains(parent))
+                })
+                .collect();
+            for other in &others {
+                open.remove(other);
+            }
+
+            open.insert(id, parent);
+            outermost
+        })
+    }
+
+    /// Forget `id` once its surface is gone.
+    pub(crate) fn closed(id: window::Id) {
+        OPEN.with(|open| {
+            open.borrow_mut().remove(&id);
+        });
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn a_submenu_keeps_its_menu_open() {
+            let window = window::Id::unique();
+            let menu = window::Id::unique();
+            let submenu = window::Id::unique();
+            assert_eq!(open(menu, window), []);
+            assert_eq!(open(submenu, menu), []);
+        }
+
+        #[test]
+        fn another_menu_closes_the_whole_open_chain() {
+            let window = window::Id::unique();
+            let menu = window::Id::unique();
+            let submenu = window::Id::unique();
+            open(menu, window);
+            open(submenu, menu);
+
+            // Only the outermost is named: closing it takes the submenu too.
+            let context_menu = window::Id::unique();
+            assert_eq!(open(context_menu, window), [menu]);
+            // And both are forgotten.
+            let next = window::Id::unique();
+            assert_eq!(open(next, window), [context_menu]);
+        }
+
+        #[test]
+        fn a_submenu_closes_its_sibling() {
+            let window = window::Id::unique();
+            let menu = window::Id::unique();
+            let first = window::Id::unique();
+            open(menu, window);
+            open(first, menu);
+
+            let second = window::Id::unique();
+            assert_eq!(open(second, menu), [first]);
+        }
+
+        #[test]
+        fn a_popup_in_another_window_closes_this_one_too() {
+            let window = window::Id::unique();
+            let chooser = window::Id::unique();
+            let menu = window::Id::unique();
+            open(menu, window);
+            assert_eq!(open(window::Id::unique(), chooser), [menu]);
+        }
+
+        #[test]
+        fn a_popup_reopening_under_its_own_id_closes_nothing() {
+            let window = window::Id::unique();
+            let menu = window::Id::unique();
+            open(menu, window);
+            assert_eq!(open(menu, window), []);
+        }
+
+        #[test]
+        fn a_closed_popup_is_forgotten() {
+            let window = window::Id::unique();
+            let menu = window::Id::unique();
+            open(menu, window);
+            closed(menu);
+            assert_eq!(open(window::Id::unique(), window), []);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -21,8 +21,9 @@
 //!   Its only backend is Wayland.
 //! - Window dragging, maximizing, minimizing and the window menu use
 //!   [`crate::ui::command`].
-//! - exwlshell reports no `xdg_toplevel` configure states, so nothing sets
-//!   `Core::window.is_maximized` or `sharp_corners`.
+//! - exwlshell sends no event for `xdg_toplevel` configure states, so
+//!   `Core::window.is_maximized` is asked for after every resize instead
+//!   (`Shell::query_maximized`), and nothing sets `sharp_corners`.
 
 use super::{Application, Core};
 use crate::ui::app::Task as AppTask;
@@ -473,6 +474,7 @@ impl<App: Application> Shell<App> {
             // still-live surface without a view, and `Shell::view` then falls
             // through to `App::view_window`, which renders the main view into
             // the popup's tiny limits.
+            crate::ui::surface::chain::closed(id);
             task = task.chain(iced::Task::done(crate::ui::action::exwl::remove_window(id)));
         }
 
@@ -482,12 +484,46 @@ impl<App: Application> Shell<App> {
 
             *self.opened_surfaces.entry(id).or_insert(0) += 1;
             self.popup_views.insert(id, view);
-            task = task.chain(iced::Task::done(crate::ui::action::exwl::popup(
-                id,
-                settings.to_exwlshell(),
-            )));
+            task = task
+                .chain(self.close_other_chains(id, settings.parent))
+                .chain(iced::Task::done(crate::ui::action::exwl::popup(
+                    id,
+                    settings.to_exwlshell(),
+                )));
         }
 
+        task
+    }
+
+    /// Ask whether the main window `id` is maximized, for the header bar's
+    /// restore button and padding.
+    ///
+    /// exwlshell keeps the state the compositor last configured, but sends
+    /// no event when it changes, so it is asked for instead.
+    fn query_maximized(&self, id: window::Id) -> AppTask<App::Message> {
+        if !self.app.core().main_window_is(id) {
+            return iced::Task::none();
+        }
+        window::is_maximized(id).map(move |maximized| {
+            crate::ui::Action::Cosmic(crate::ui::app::Action::WindowMaximized(id, maximized))
+        })
+    }
+
+    /// Close, at once, every popup that is not on the way to `parent`, before
+    /// popup `id` opens on it; see [`crate::ui::surface::chain`].
+    ///
+    /// Without its collapse: a popup collapsing is still on screen and still
+    /// grabbing, and the new popup's grab has to be the only one outside its
+    /// own chain. The widget that owned it learns it is gone from
+    /// `SurfaceClosed`, as when the compositor dismisses it.
+    fn close_other_chains(&mut self, id: window::Id, parent: window::Id) -> AppTask<App::Message> {
+        let mut task = iced::Task::none();
+        for other in crate::ui::surface::chain::open(id, parent) {
+            self.popup_genies.remove(other);
+            task = task.chain(iced::Task::done(crate::ui::action::exwl::remove_window(
+                other,
+            )));
+        }
         task
     }
 
@@ -562,7 +598,11 @@ impl<App: Application> Shell<App> {
                     self.popup_views.insert(id, Box::new(move || view()));
                 }
 
-                iced::Task::done(crate::ui::action::exwl::popup(id, settings.to_exwlshell()))
+                self.close_other_chains(id, settings.parent)
+                    .chain(iced::Task::done(crate::ui::action::exwl::popup(
+                        id,
+                        settings.to_exwlshell(),
+                    )))
             }
             crate::ui::surface::Action::DestroyPopup { id, animate } => {
                 // An animated popup keeps its surface until it has finished
@@ -577,6 +617,9 @@ impl<App: Application> Shell<App> {
                 // popup keeps drawing between the two, and a popup without a
                 // view falls through to `App::view_window`; see the comment in
                 // `drain_text_context_popups`.
+                //
+                // It is on its way out now, so no later popup has to close it.
+                crate::ui::surface::chain::closed(id);
                 iced::Task::done(crate::ui::action::exwl::remove_window(id))
             }
         }
@@ -594,6 +637,15 @@ impl<App: Application> Shell<App> {
                 }
 
                 self.app.on_window_resize(id, width, height);
+                // A maximize or restore resizes the window, so this is when
+                // the compositor's word on which it is may have changed.
+                return self.query_maximized(id);
+            }
+
+            Action::WindowMaximized(id, maximized) => {
+                if self.app.core().main_window_is(id) {
+                    self.app.core_mut().window.is_maximized = maximized;
+                }
             }
 
             // A nested shell subscribes alongside its host, so each one acts
@@ -664,6 +716,7 @@ impl<App: Application> Shell<App> {
             Action::PopupExitFinished(id) => {
                 // The collapse is over; let the surface go. `SurfaceClosed`
                 // drops the view and the animation state.
+                crate::ui::surface::chain::closed(id);
                 return iced::Task::done(crate::ui::action::exwl::remove_window(id));
             }
 
@@ -716,6 +769,7 @@ impl<App: Application> Shell<App> {
                     self.opened_surfaces.remove(&id);
                     self.popup_views.remove(&id);
                     self.popup_genies.remove(id);
+                    crate::ui::surface::chain::closed(id);
                 }
 
                 let mut ret = if let Some(msg) = self.app.on_close_requested(id) {
@@ -750,7 +804,10 @@ impl<App: Application> Shell<App> {
             // Both carry no state this shell keeps. `Opened` used to trigger the
             // `run_with_handle` round trip that classified the windowing
             // system; that is decided in `run` now.
-            Action::Opened(_) | Action::WindowingSystemInitialized => (),
+            // A window may open maximized, as a tiling compositor's often do.
+            Action::Opened(id) => return self.query_maximized(id),
+
+            Action::WindowingSystemInitialized => (),
         }
 
         iced::Task::none()
@@ -764,10 +821,9 @@ impl<App: Application> Shell<App> {
         // compositor dismisses arrives as an ordinary `window::Event::Closed`
         // for the popup's own id (verified in the exwlshell spike), which
         // `SurfaceClosed` already handled. The one with no replacement is
-        // `WindowEvent::WindowState`: exwlshell reports no `xdg_toplevel`
-        // configure states, so nothing can tell the shell that the window is
-        // maximized. The fields that used to carry it are gone; wiring the
-        // compositor state through here is what would bring them back.
+        // `WindowEvent::WindowState`: exwlshell sends no event for
+        // `xdg_toplevel` configure states, so whether the window is maximized
+        // is asked for after each resize instead; see `query_maximized`.
         let window_events = iced::event::listen_with(|event, _, id| match event {
             iced::Event::Window(window::Event::Resized(iced::Size { width, height })) => {
                 Some(Action::WindowResize(id, width, height))

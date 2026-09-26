@@ -201,9 +201,9 @@ where
         // not meet, and a border of our own beside the compositor's.
         let outline = crate::ui::theme::custom::window_outline();
         let sharp_corners = outline.is_none();
-        // exwlshell reports no `xdg_toplevel` configure states, so the window
-        // never learns that it is maximized; see `src/ui/command.rs`.
-        let maximized = false;
+        // Asked of the compositor after every resize; see
+        // `Shell::query_maximized`.
+        let maximized = core.window.is_maximized;
         let content_container = core.window.content_container;
         let show_context = core.window.show_context;
         let nav_bar_active = core.nav_bar_active();

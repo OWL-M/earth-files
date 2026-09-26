@@ -64,6 +64,8 @@ pub enum Action {
     Unfocus(window::Id),
     /// Windowing system initialized.
     WindowingSystemInitialized,
+    /// Whether the window is maximized, as the compositor has it.
+    WindowMaximized(window::Id, bool),
     /// Updates the tracked window geometry.
     WindowResize(window::Id, f32, f32),
 }

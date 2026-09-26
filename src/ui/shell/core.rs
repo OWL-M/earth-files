@@ -49,6 +49,10 @@ pub struct Window {
     pub show_maximize: bool,
     pub show_minimize: bool,
     pub border_padding: Option<u16>,
+    /// Whether the compositor has the main window maximized. exwlshell does
+    /// not report it as it changes, so the shell asks after every resize,
+    /// which a maximize or restore always brings; see `Shell::query_maximized`.
+    pub(crate) is_maximized: bool,
     height: f32,
     width: f32,
 }
@@ -128,6 +132,7 @@ impl Default for Core {
                 height: 0.,
                 width: 0.,
                 border_padding: None,
+                is_maximized: false,
             },
             main_window: None,
             exit_on_main_window_closed: true,
@@ -227,9 +232,8 @@ impl Core {
 
     /// The padding around the window's content, in logical pixels.
     ///
-    /// libcosmic pads a maximized window by 8, but exwlshell never reports
-    /// that a window is maximized (see `view_main`), so this is 7 unless
-    /// set.
+    /// libcosmic pads a maximized window by 8; this one is padded by 7
+    /// either way unless set.
     #[must_use]
     pub fn border_padding(&self) -> u16 {
         self.window.border_padding.unwrap_or(7)
