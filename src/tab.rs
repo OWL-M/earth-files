@@ -1806,6 +1806,19 @@ impl EditLocation {
     }
 }
 
+/// Whether a search keeps its top result selected, so that Enter in the
+/// search field opens it. Results arrive newest first, a newer one taking the
+/// top, and the selection follows the top until the user makes one of their
+/// own.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SearchSelect {
+    Off,
+    /// A search with nothing selected yet.
+    Waiting,
+    /// The top result, at this index, is selected for the search.
+    Top(usize),
+}
+
 /// How a search is run.
 ///
 /// A struct rather than two more positional fields on [`Location::Search`]:
@@ -1926,6 +1939,33 @@ impl Location {
         }
     }
 
+    /// The folder an empty search of it, eye shut, lists in full: with no
+    /// term there is nothing to narrow it down by, and it shows the folder as
+    /// it is. An open eye searches the tree under it, which has no such
+    /// answer, and stays empty.
+    pub fn empty_search_folder(&self) -> Option<&PathBuf> {
+        match self {
+            Self::Search(SearchLocation::Path(path), term, options, _)
+                if term.is_empty() && !options.recursive =>
+            {
+                Some(path)
+            }
+            _ => None,
+        }
+    }
+
+    /// Where the listing's sort is kept: the folder's own, which an empty
+    /// search of it shares, or none for a search, whose results are always
+    /// newest first.
+    pub fn sort_key(&self) -> Option<String> {
+        match self {
+            Self::Search(..) => self
+                .empty_search_folder()
+                .map(|path| Self::Path(path.clone()).normalize().to_string()),
+            _ => Some(self.normalize().to_string()),
+        }
+    }
+
     pub(crate) fn into_path_opt(self) -> Option<PathBuf> {
         match self {
             Self::Path(path) => Some(path),
@@ -1958,10 +1998,11 @@ impl Location {
     pub fn scan(&self, sizes: IconSizes) -> (Option<Box<Item>>, Vec<Item>) {
         let items = match self {
             Self::Path(path) => scan_path(path, sizes),
-            Self::Search(..) => {
+            Self::Search(..) => match self.empty_search_folder() {
+                Some(path) => scan_path(path, sizes),
                 // Search is done incrementally
-                Vec::new()
-            }
+                None => Vec::new(),
+            },
             Self::Trash => Trash::scan(sizes),
             Self::Recents => scan_recents(sizes),
             Self::Network(uri, _, _) => scan_network(uri, sizes),
@@ -3315,6 +3356,7 @@ pub struct Tab {
     opened_by_this_click: bool,
     last_right_click: Option<usize>,
     search_context: Option<SearchContext>,
+    search_select: SearchSelect,
     date_time_formatter: DateTimeFormatter<fieldsets::YMDT>,
     time_formatter: DateTimeFormatter<fieldsets::T>,
     watch_drag: bool,
@@ -3575,6 +3617,7 @@ impl Tab {
             opened_by_this_click: false,
             last_right_click: None,
             search_context: None,
+            search_select: SearchSelect::Off,
             date_time_formatter: date_time_formatter(),
             time_formatter: time_formatter(),
             watch_drag: true,
@@ -3880,6 +3923,74 @@ impl Tab {
         had_selection
     }
 
+    /// Whether the selection is still the search's own: nothing yet, or the
+    /// top result it selected and nothing else. Once the user selects
+    /// something, or nothing, it is theirs and stays put.
+    pub(crate) fn search_selection_is_own(&self) -> bool {
+        let selected = || {
+            self.items_opt
+                .iter()
+                .flatten()
+                .enumerate()
+                .filter(|(_, item)| item.selected)
+                .map(|(i, _)| i)
+        };
+        match self.search_select {
+            SearchSelect::Off => false,
+            SearchSelect::Waiting => selected().next().is_none(),
+            SearchSelect::Top(top) => {
+                self.select_focus == Some(top) && selected().eq(std::iter::once(top))
+            }
+        }
+    }
+
+    /// Keeps the top result selected while the selection is still the
+    /// search's own (see [`Self::search_selection_is_own`], asked before the
+    /// listing changed), and gives it up for good once it is not.
+    pub(crate) fn follow_search_top(&mut self, own: bool) {
+        if own {
+            self.select_search_top();
+        } else {
+            self.search_select = SearchSelect::Off;
+        }
+    }
+
+    /// Selects the result shown first, as a click on it would.
+    fn select_search_top(&mut self) {
+        let show_hidden = self.config.show_hidden;
+        // A folder chooser selects folders only, as a click in it does
+        let folders_only = matches!(&self.mode, Mode::Dialog(dialog) if dialog.is_dir());
+        let Some(top) = self.column_sort().and_then(|items| {
+            items
+                .into_iter()
+                .find(|(_, item)| {
+                    (show_hidden || !item.hidden) && (!folders_only || item.metadata.is_dir())
+                })
+                .map(|(i, _)| i)
+        }) else {
+            // Nothing to select, yet or any more: newer results may have
+            // pushed the one selected past the cap. Still the search's to
+            // choose once something eligible arrives.
+            if let Some(items) = &mut self.items_opt {
+                for item in items.iter_mut() {
+                    item.selected = false;
+                }
+            }
+            self.select_focus = None;
+            self.select_range = None;
+            self.search_select = SearchSelect::Waiting;
+            return;
+        };
+        if let Some(items) = &mut self.items_opt {
+            for (i, item) in items.iter_mut().enumerate() {
+                item.selected = i == top;
+            }
+        }
+        self.select_focus = Some(top);
+        self.select_range = Some((top, top));
+        self.search_select = SearchSelect::Top(top);
+    }
+
     pub fn select_name(&mut self, name: &str) {
         self.select_focus = None;
         if let Some(ref mut items) = self.items_opt {
@@ -3895,6 +4006,7 @@ impl Tab {
     /// Selects the first item whose name starts with the given prefix (case-insensitive).
     /// Returns true if an item was selected.
     pub fn select_by_prefix(&mut self, prefix: &str) -> bool {
+        self.search_select = SearchSelect::Off;
         let prefix_lower = prefix.to_lowercase();
         let focus = self.select_focus.take();
 
@@ -4240,9 +4352,11 @@ impl Tab {
     /// Whether the tab is showing search results, for the row shape (a
     /// simpler layout, path shown under the name) and the drawer slide
     /// (columns never follow, since a search's Name is `Length::Fill` next
-    /// to the fixed columns rather than shrinking with them).
+    /// to the fixed columns rather than shrinking with them). An empty
+    /// search that lists its folder is shown as the folder is.
     fn is_search(&self) -> bool {
         matches!(self.location, Location::Search(..))
+            && self.location.empty_search_folder().is_none()
     }
 
     /// The part of the item view currently on screen, for a view of `size`.
@@ -4482,6 +4596,11 @@ impl Tab {
         self.pending_scroll = None;
         self.select_focus = None;
         self.search_context = None;
+        self.search_select = if matches!(self.location, Location::Search(..)) {
+            SearchSelect::Waiting
+        } else {
+            SearchSelect::Off
+        };
         if let Some(history_i) = history_i_opt {
             // Navigating in history
             self.history_i = history_i;
@@ -4527,6 +4646,29 @@ impl Tab {
         let mut history_i_opt = None;
         let mod_ctrl = modifiers.contains(Modifiers::CTRL) && self.mode.multiple();
         let mod_shift = modifiers.contains(Modifiers::SHIFT) && self.mode.multiple();
+        // The user choosing, even the result the search chose for them, ends
+        // the search's choosing: no later result may take it from them.
+        if matches!(
+            message,
+            Message::Click(_)
+                | Message::DoubleClick(_)
+                | Message::RightClick(..)
+                | Message::MiddleClick(..)
+                | Message::Drag(_)
+                | Message::ItemDown
+                | Message::ItemLeft
+                | Message::ItemPageDown
+                | Message::ItemPageUp
+                | Message::ItemRight
+                | Message::ItemUp
+                | Message::SelectAll
+                | Message::SelectFirst
+                | Message::SelectLast
+                | Message::GalleryPrevious
+                | Message::GalleryNext
+        ) {
+            self.search_select = SearchSelect::Off;
+        }
         match message {
             Message::AddNetworkDrive => {
                 commands.push(Command::AddNetworkDrive);
@@ -5691,7 +5833,13 @@ impl Tab {
                     );
                 }
             }
+            // An empty search lists its folder, and nothing it sends is for
+            // that listing: its cap on results would cut the folder short
+            Message::SearchReady(_) if self.location.empty_search_folder().is_some() => {
+                self.search_context = None;
+            }
             Message::SearchReady(finished) => {
+                let follow_top = self.search_selection_is_own();
                 let max_results = usize::from(self.config.max_search_results.get());
                 let sizes = self.config.icon_sizes;
                 if let Some(context) = &mut self.search_context {
@@ -5744,6 +5892,7 @@ impl Tab {
                         log::warn!("search ready but items array is empty");
                     }
                 }
+                self.follow_search_top(follow_top);
                 if finished {
                     self.search_context = None;
                 }
@@ -5836,11 +5985,11 @@ impl Tab {
                 }
             },
             Message::SetSort(heading_option, dir) => {
-                if !matches!(self.location, Location::Search(..)) {
+                if let Some(sort_key) = self.location.sort_key() {
                     self.sort_name = heading_option;
                     self.sort_direction = dir;
                     commands.push(Command::SetSort(
-                        self.location.normalize().to_string(),
+                        sort_key,
                         heading_option,
                         self.sort_direction,
                     ));
@@ -5966,7 +6115,7 @@ impl Tab {
                 self.column_resize = None;
             }
             Message::ToggleSort(heading_option) => {
-                if !matches!(self.location, Location::Search(..)) {
+                if let Some(sort_key) = self.location.sort_key() {
                     let heading_sort = if self.sort_name == heading_option {
                         !self.sort_direction
                     } else {
@@ -5974,11 +6123,7 @@ impl Tab {
                         heading_option != HeadingOptions::Modified
                     };
 
-                    commands.push(Command::SetSort(
-                        self.location.normalize().to_string(),
-                        heading_option,
-                        heading_sort,
-                    ));
+                    commands.push(Command::SetSort(sort_key, heading_option, heading_sort));
 
                     self.sort_direction = heading_sort;
                     self.sort_name = heading_option;
@@ -6191,9 +6336,11 @@ impl Tab {
         commands
     }
 
-    pub(crate) const fn sort_options(&self) -> (HeadingOptions, bool, bool) {
+    pub(crate) fn sort_options(&self) -> (HeadingOptions, bool, bool) {
         match self.location {
-            Location::Search(..) => (HeadingOptions::Modified, false, false),
+            Location::Search(..) if self.location.empty_search_folder().is_none() => {
+                (HeadingOptions::Modified, false, false)
+            }
             _ => (
                 self.sort_name,
                 self.sort_direction,
@@ -7006,7 +7153,7 @@ impl Tab {
                     .into(),
                 widget::text::body(if has_hidden {
                     fl!("empty-folder-hidden")
-                } else if matches!(self.location, Location::Search(..)) {
+                } else if self.is_search() {
                     fl!("no-results")
                 } else {
                     fl!("empty-folder")
@@ -8344,8 +8491,11 @@ impl Tab {
             }
         }
 
-        // Load search items incrementally
-        if let Location::Search(search_location, term, options, start) = &self.location {
+        // Load search items incrementally. An empty search of a folder lists
+        // the folder instead, in full.
+        if let Location::Search(search_location, term, options, start) = &self.location
+            && self.location.empty_search_folder().is_none()
+        {
             let location = self.location.clone();
             let search_location = search_location.clone();
             let term = term.clone();
@@ -10329,6 +10479,423 @@ mod tests {
             names,
             ["keep.png"],
             "the rejected results must not have taken the one place there was"
+        );
+        Ok(())
+    }
+
+    /// Enter in the search field opens the selection, so a search keeps its
+    /// top result selected: a newer result takes the top as it arrives and
+    /// the selection goes with it, until the user selects something of their
+    /// own.
+    #[test]
+    fn a_search_selects_its_top_result_until_the_user_picks_one() -> io::Result<()> {
+        use crate::tab::{SearchContext, SearchItem, SearchLocation, SearchOptions};
+        use std::sync::{Arc, RwLock, atomic};
+        use std::time::{Duration, SystemTime};
+
+        let fs = empty_fs()?;
+        let now = SystemTime::now();
+        for (name, age) in [
+            ("old.txt", 30),
+            ("mid.txt", 20),
+            ("new.txt", 10),
+            ("newest.txt", 0),
+        ] {
+            let path = fs.path().join(name);
+            fs::write(&path, b"x")?;
+            fs::File::options()
+                .write(true)
+                .open(&path)?
+                .set_modified(now - Duration::from_secs(age))?;
+        }
+        let mut tab = Tab::new(
+            Location::Path(fs.path().to_owned()),
+            TabConfig::default(),
+            ThumbCfg::default(),
+            None,
+            std::borrow::Cow::Borrowed("Undefined"),
+            None,
+        );
+        tab.change_location(
+            &Location::Search(
+                SearchLocation::Path(fs.path().to_owned()),
+                "txt".to_string(),
+                SearchOptions {
+                    show_hidden: false,
+                    recursive: false,
+                },
+                std::time::Instant::now(),
+            ),
+            None,
+        );
+        tab.set_items(Vec::new());
+
+        let (results_tx, results_rx) = tokio::sync::mpsc::channel(8);
+        let ready = Arc::new(atomic::AtomicBool::new(false));
+        tab.search_context = Some(SearchContext {
+            results_rx,
+            ready: ready.clone(),
+            last_modified_opt: Arc::new(RwLock::new(None)),
+        });
+        let send = |name: &str| -> io::Result<()> {
+            let path = fs.path().join(name);
+            let metadata = fs::metadata(&path)?;
+            results_tx
+                .try_send(SearchItem::Path(path, name.to_string(), metadata))
+                .expect("the channel has room");
+            Ok(())
+        };
+        let deliver = |tab: &mut Tab| {
+            ready.store(true, atomic::Ordering::SeqCst);
+            tab.update(Message::SearchReady(false), Modifiers::empty());
+        };
+        let selected = |tab: &Tab| -> Vec<String> {
+            tab.items_opt
+                .iter()
+                .flatten()
+                .filter(|item| item.selected)
+                .map(|item| item.name.clone())
+                .collect()
+        };
+
+        send("mid.txt")?;
+        send("old.txt")?;
+        deliver(&mut tab);
+        assert_eq!(selected(&tab), ["mid.txt"], "the top result is selected");
+
+        send("new.txt")?;
+        deliver(&mut tab);
+        assert_eq!(
+            selected(&tab),
+            ["new.txt"],
+            "the selection follows a newer result to the top"
+        );
+
+        // Clicking the result already selected for the search changes
+        // nothing to see, but makes the choice the user's
+        let top = tab
+            .items_opt
+            .iter()
+            .flatten()
+            .position(|item| item.name == "new.txt");
+        tab.update(Message::Click(top), Modifiers::empty());
+        send("newest.txt")?;
+        deliver(&mut tab);
+        assert_eq!(
+            selected(&tab),
+            ["new.txt"],
+            "a result arriving took away the result the user clicked"
+        );
+        Ok(())
+    }
+
+    /// With nothing typed, a search of a folder with the eye shut shows the
+    /// whole folder, sorted as the folder is, its top item selected so that
+    /// Enter opens it. With the eye open it searches the tree, which an empty
+    /// term says nothing about, and shows nothing.
+    #[test]
+    fn an_empty_search_of_a_folder_shows_the_folder() -> io::Result<()> {
+        use crate::tab::{HeadingOptions, Item, SearchLocation, SearchOptions};
+
+        let fs = empty_fs()?;
+        for name in ["b.txt", "a.txt", "c.txt"] {
+            fs::write(fs.path().join(name), b"x")?;
+        }
+        let search = |term: &str, recursive: bool| {
+            Location::Search(
+                SearchLocation::Path(fs.path().to_owned()),
+                term.to_string(),
+                SearchOptions {
+                    show_hidden: false,
+                    recursive,
+                },
+                std::time::Instant::now(),
+            )
+            .normalize()
+        };
+        let names = |items: &[Item]| -> Vec<String> {
+            let mut names: Vec<_> = items.iter().map(|item| item.name.clone()).collect();
+            names.sort();
+            names
+        };
+        let sizes = IconSizes::default();
+
+        let (_, items) = search("", false).scan(sizes);
+        assert_eq!(names(&items), ["a.txt", "b.txt", "c.txt"]);
+        let (_, items) = search("", true).scan(sizes);
+        assert!(
+            items.is_empty(),
+            "an empty search of the tree listed something"
+        );
+        let (_, items) = search("a", false).scan(sizes);
+        assert!(
+            items.is_empty(),
+            "a search's results come as it runs, not from a scan"
+        );
+
+        let mut tab = Tab::new(
+            Location::Path(fs.path().to_owned()),
+            TabConfig::default(),
+            ThumbCfg::default(),
+            None,
+            std::borrow::Cow::Borrowed("Undefined"),
+            None,
+        );
+        tab.sort_name = HeadingOptions::Name;
+        tab.sort_direction = true;
+        let location = search("", false);
+        tab.change_location(&location, None);
+        assert_eq!(
+            location.sort_key(),
+            Location::Path(fs.path().to_owned()).normalize().sort_key(),
+            "the empty search keeps its sort with the folder's"
+        );
+        assert_eq!(tab.sort_options().0, HeadingOptions::Name);
+
+        let own = tab.search_selection_is_own();
+        tab.set_items(location.scan(sizes).1);
+        tab.follow_search_top(own);
+        let selected: Vec<_> = tab
+            .items_opt
+            .iter()
+            .flatten()
+            .filter(|item| item.selected)
+            .map(|item| item.name.as_str())
+            .collect();
+        assert_eq!(selected, ["a.txt"], "the folder's first item is selected");
+
+        tab.change_location(&search("a", false), None);
+        assert_eq!(
+            tab.sort_options().0,
+            HeadingOptions::Modified,
+            "results are newest first once there is a term"
+        );
+        Ok(())
+    }
+
+    /// An empty search lists its folder in full, which the cap on search
+    /// results does not apply to. A search that has run with it must leave
+    /// the listing whole whenever it finishes.
+    #[test]
+    fn a_finished_search_leaves_an_empty_search_listing_whole() -> io::Result<()> {
+        use crate::tab::{SearchContext, SearchLocation, SearchOptions};
+        use std::sync::{Arc, RwLock, atomic};
+
+        let fs = empty_fs()?;
+        for name in ["a.txt", "b.txt", "c.txt"] {
+            fs::write(fs.path().join(name), b"x")?;
+        }
+        let mut tab = Tab::new(
+            Location::Path(fs.path().to_owned()),
+            TabConfig::default(),
+            ThumbCfg::default(),
+            None,
+            std::borrow::Cow::Borrowed("Undefined"),
+            None,
+        );
+        tab.config.max_search_results = std::num::NonZeroU16::new(1).expect("nonzero");
+        let location = Location::Search(
+            SearchLocation::Path(fs.path().to_owned()),
+            String::new(),
+            SearchOptions {
+                show_hidden: false,
+                recursive: false,
+            },
+            std::time::Instant::now(),
+        )
+        .normalize();
+        tab.change_location(&location, None);
+        tab.set_items(location.scan(IconSizes::default()).1);
+
+        let (_results_tx, results_rx) = tokio::sync::mpsc::channel(1);
+        tab.search_context = Some(SearchContext {
+            results_rx,
+            ready: Arc::new(atomic::AtomicBool::new(true)),
+            last_modified_opt: Arc::new(RwLock::new(None)),
+        });
+        tab.update(Message::SearchReady(true), Modifiers::empty());
+
+        assert_eq!(
+            tab.items_opt.as_ref().map(Vec::len),
+            Some(3),
+            "the search cut the folder listing down to its cap"
+        );
+        Ok(())
+    }
+
+    /// A folder chooser cannot select a file, and a search must not select
+    /// one for it either: its Open would be refused with folders to offer.
+    #[test]
+    fn a_folder_chooser_search_selects_the_top_folder() -> io::Result<()> {
+        use crate::dialog::DialogKind;
+        use crate::tab::{Mode, SearchContext, SearchItem, SearchLocation, SearchOptions};
+        use std::sync::{Arc, RwLock, atomic};
+        use std::time::{Duration, SystemTime};
+
+        let fs = empty_fs()?;
+        let now = SystemTime::now();
+        let dir = fs.path().join("match-dir");
+        fs::create_dir(&dir)?;
+        fs::File::open(&dir)?.set_modified(now - Duration::from_secs(60))?;
+        let file = fs.path().join("match-file");
+        fs::write(&file, b"x")?;
+        fs::File::options()
+            .write(true)
+            .open(&file)?
+            .set_modified(now)?;
+
+        let mut tab = Tab::new(
+            Location::Path(fs.path().to_owned()),
+            TabConfig::default(),
+            ThumbCfg::default(),
+            None,
+            std::borrow::Cow::Borrowed("Undefined"),
+            None,
+        );
+        tab.mode = Mode::Dialog(DialogKind::OpenFolder);
+        tab.change_location(
+            &Location::Search(
+                SearchLocation::Path(fs.path().to_owned()),
+                "match".to_string(),
+                SearchOptions {
+                    show_hidden: false,
+                    recursive: false,
+                },
+                std::time::Instant::now(),
+            ),
+            None,
+        );
+        tab.set_items(Vec::new());
+
+        let (results_tx, results_rx) = tokio::sync::mpsc::channel(8);
+        for path in [&file, &dir] {
+            let name = path.file_name().unwrap().to_string_lossy().into_owned();
+            results_tx
+                .try_send(SearchItem::Path(path.clone(), name, fs::metadata(path)?))
+                .expect("the channel has room");
+        }
+        drop(results_tx);
+        tab.search_context = Some(SearchContext {
+            results_rx,
+            ready: Arc::new(atomic::AtomicBool::new(true)),
+            last_modified_opt: Arc::new(RwLock::new(None)),
+        });
+        tab.update(Message::SearchReady(true), Modifiers::empty());
+
+        let selected: Vec<_> = tab
+            .items_opt
+            .iter()
+            .flatten()
+            .filter(|item| item.selected)
+            .map(|item| item.name.as_str())
+            .collect();
+        assert_eq!(
+            selected,
+            ["match-dir"],
+            "the newer file on top is not the chooser's to select"
+        );
+        Ok(())
+    }
+
+    /// Newer files can push the folder a folder chooser's search selected
+    /// past the cap on results, leaving none to select. That is not the user
+    /// choosing nothing: a folder arriving later is selected all the same.
+    #[test]
+    fn a_folder_chooser_search_selects_again_after_its_folder_is_pushed_out() -> io::Result<()> {
+        use crate::dialog::DialogKind;
+        use crate::tab::{Mode, SearchContext, SearchItem, SearchLocation, SearchOptions};
+        use std::sync::{Arc, RwLock, atomic};
+        use std::time::{Duration, SystemTime};
+
+        let fs = empty_fs()?;
+        let now = SystemTime::now();
+        for (name, age, is_dir) in [
+            ("old-dir", 30, true),
+            ("file", 20, false),
+            ("new-dir", 10, true),
+        ] {
+            let path = fs.path().join(name);
+            if is_dir {
+                fs::create_dir(&path)?;
+                fs::File::open(&path)?.set_modified(now - Duration::from_secs(age))?;
+            } else {
+                fs::write(&path, b"x")?;
+                fs::File::options()
+                    .write(true)
+                    .open(&path)?
+                    .set_modified(now - Duration::from_secs(age))?;
+            }
+        }
+        let mut tab = Tab::new(
+            Location::Path(fs.path().to_owned()),
+            TabConfig::default(),
+            ThumbCfg::default(),
+            None,
+            std::borrow::Cow::Borrowed("Undefined"),
+            None,
+        );
+        tab.mode = Mode::Dialog(DialogKind::OpenFolder);
+        tab.config.max_search_results = std::num::NonZeroU16::new(1).expect("nonzero");
+        tab.change_location(
+            &Location::Search(
+                SearchLocation::Path(fs.path().to_owned()),
+                "e".to_string(),
+                SearchOptions {
+                    show_hidden: false,
+                    recursive: false,
+                },
+                std::time::Instant::now(),
+            ),
+            None,
+        );
+        tab.set_items(Vec::new());
+
+        let (results_tx, results_rx) = tokio::sync::mpsc::channel(8);
+        let ready = Arc::new(atomic::AtomicBool::new(false));
+        tab.search_context = Some(SearchContext {
+            results_rx,
+            ready: ready.clone(),
+            last_modified_opt: Arc::new(RwLock::new(None)),
+        });
+        let send = |name: &str| -> io::Result<()> {
+            let path = fs.path().join(name);
+            let metadata = fs::metadata(&path)?;
+            results_tx
+                .try_send(SearchItem::Path(path, name.to_string(), metadata))
+                .expect("the channel has room");
+            Ok(())
+        };
+        let deliver = |tab: &mut Tab| {
+            ready.store(true, atomic::Ordering::SeqCst);
+            tab.update(Message::SearchReady(false), Modifiers::empty());
+        };
+        let selected = |tab: &Tab| -> Vec<String> {
+            tab.items_opt
+                .iter()
+                .flatten()
+                .filter(|item| item.selected)
+                .map(|item| item.name.clone())
+                .collect()
+        };
+
+        send("old-dir")?;
+        deliver(&mut tab);
+        assert_eq!(selected(&tab), ["old-dir"]);
+
+        send("file")?;
+        deliver(&mut tab);
+        assert_eq!(
+            selected(&tab),
+            Vec::<String>::new(),
+            "the folder was pushed out"
+        );
+
+        send("new-dir")?;
+        deliver(&mut tab);
+        assert_eq!(
+            selected(&tab),
+            ["new-dir"],
+            "losing its folder to the cap ended the search's selecting"
         );
         Ok(())
     }

@@ -458,6 +458,7 @@ pub enum Message {
     SearchActivate,
     SearchClear,
     SearchInput(String),
+    SearchSubmit,
     SetShowDetails(bool),
     SetShowRecents(bool),
     SetTypeToSearch(TypeToSearch),
@@ -5103,6 +5104,11 @@ impl Application for App {
             Message::SearchInput(input) => {
                 return self.search_set_active(Some(input));
             }
+            // The search keeps its top result selected until the user picks
+            // another, so this opens that one or theirs.
+            Message::SearchSubmit => {
+                return self.update(Message::TabMessage(None, tab::Message::Open(None)));
+            }
             Message::SetShowDetails(show_details) => {
                 config_set!(show_details, show_details);
                 return self.update_config();
@@ -5519,9 +5525,15 @@ impl Application for App {
                     && location == tab.location
                 {
                     tab.parent_item_opt = parent_item_opt;
+                    // Asked of the listing being replaced. A selection being
+                    // restored is the user's, not the search's.
+                    let search_selects = tab.search_selection_is_own() && selection_paths.is_none();
                     tab.set_items(items);
                     tab.location_ancestors = ancestors;
-                    let location_str = location.to_string();
+                    // An empty search of a folder is sorted as the folder is
+                    let location_str = location
+                        .empty_search_folder()
+                        .map_or_else(|| location.to_string(), |path| path.display().to_string());
                     let sort = self
                         .state
                         .sort_names
@@ -5571,6 +5583,9 @@ impl Application for App {
                             tab::Message::ScrollToFocused,
                         ))));
                     }
+                    // An empty search lists the folder, and no result arrives
+                    // to select the top of it
+                    tab.follow_search_top(search_selects);
 
                     tasks.push(clipboard::read_data::<ClipboardPaste>().map(|p| {
                         crate::ui::action::app(Message::CutPaths(match p {
@@ -7217,6 +7232,7 @@ impl Application for App {
                         .id(self.search_id.clone())
                         .trailing_icon(self.search_trailing())
                         .on_input(Message::SearchInput)
+                        .on_submit(|_| Message::SearchSubmit)
                         .into(),
                 );
             }
@@ -7249,7 +7265,8 @@ impl Application for App {
                         .width(Length::Fill)
                         .id(self.search_id.clone())
                         .on_clear(Message::SearchClear)
-                        .on_input(Message::SearchInput),
+                        .on_input(Message::SearchInput)
+                        .on_submit(|_| Message::SearchSubmit),
                 )
                 .padding(space_xxs),
             );
