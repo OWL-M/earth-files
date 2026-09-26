@@ -78,6 +78,7 @@
 mod horizontal;
 mod model;
 mod nav_drag;
+mod tab_drag;
 mod vertical;
 mod widget;
 

@@ -5,6 +5,7 @@
 
 use super::model::{Entity, Model, Selectable};
 use super::nav_drag::{self, Change, NavState};
+use super::tab_drag::{self, TabState};
 use super::{InsertPosition, NavDrop, ReorderEvent};
 use crate::ui::Renderer;
 use crate::ui::dnd::LocalPayload;
@@ -1085,6 +1086,14 @@ where
             state.dragging_tab = None;
             state.drop_hint = None;
             self.emit_drop_hint(shell, None);
+            if self.uses_tab_gap(state) {
+                let visible = self.visible_tabs(state);
+                let (_, row_width) = self.tab_row(state, bounds);
+                state
+                    .tabs
+                    .unhide(&visible, row_width, f32::from(self.spacing));
+                shell.request_redraw();
+            }
             return;
         };
 
@@ -1092,10 +1101,33 @@ where
             shell.request_redraw();
         }
 
-        let hint = drag
-            .position
-            .map(|(x, y)| Point::new(x, y))
-            .and_then(|point| self.drop_hint_for_position(state, bounds, point));
+        let point = drag.position.map(|(x, y)| Point::new(x, y));
+        // A tab bar of tabs sharing its width takes the dragged tab out of the
+        // row and opens a gap among the rest where it would land; see
+        // `tab_drag`. Any other draws the drop line.
+        let gap = self.uses_tab_gap(state).then(|| {
+            let visible = self.visible_tabs(state);
+            let shown = state.tabs.shown(&visible);
+            let (row_x, row_width) = self.tab_row(state, bounds);
+            let spacing = f32::from(self.spacing);
+            let slot = point.filter(|point| bounds.contains(*point)).map(|point| {
+                state
+                    .tabs
+                    .slot_for(shown.len(), row_width, spacing, point.x - row_x)
+            });
+            (visible, shown, row_width, spacing, slot)
+        });
+        let hint = match &gap {
+            Some((_, shown, row_width, spacing, slot)) => {
+                // Half as wide as a tab is with no gap.
+                let width = tab_drag::tab_width(*row_width, *spacing, shown.len(), 0.0) / 2.0;
+                if state.tabs.set_open(*slot, shown.len(), width) {
+                    shell.request_redraw();
+                }
+                slot.and_then(|slot| hint_for_slot(shown, slot))
+            }
+            None => point.and_then(|point| self.drop_hint_for_position(state, bounds, point)),
+        };
 
         if hint != state.drop_hint {
             state.drop_hint = hint;
@@ -1107,11 +1139,27 @@ where
             return;
         }
 
+        // With the tab out of the row, the slot it left is where it already is.
+        let at_own_place = gap.as_ref().is_some_and(|(visible, _, _, _, slot)| {
+            slot.is_some()
+                && *slot
+                    == visible
+                        .iter()
+                        .position(|entity| Some(*entity) == state.dragging_tab)
+        });
+        let mut reordered = false;
         if drag.dropped
+            && !at_own_place
             && let Some(hint) = hint
             && let Some(on_reorder) = self.on_reorder.as_ref()
             && let Some(reorder) = self.reorder_event_for_drop(state, hint.entity)
         {
+            if let Some((visible, _, row_width, spacing, _)) = gap.as_ref() {
+                state
+                    .tabs
+                    .expect(visible.clone(), *row_width, *spacing, Instant::now());
+            }
+            reordered = true;
             log::debug!(
                 target: TAB_REORDER_LOG_TARGET,
                 "tab drop reorders {:?} {:?} {:?}",
@@ -1128,11 +1176,57 @@ where
         if drag.dropped {
             crate::ui::dnd::finish_drop_unread();
         }
+        // The tab comes back where it was, unless the reorder about to happen
+        // puts it in the gap; see `TabState::sync`.
+        if !reordered && let Some((visible, _, row_width, spacing, _)) = gap.as_ref() {
+            state.tabs.unhide(visible, *row_width, *spacing);
+        }
         state.dragging_tab = None;
         state.drop_hint = None;
         self.emit_drop_hint(shell, None);
         crate::ui::dnd::end_drag();
         shell.request_redraw();
+    }
+
+    /// Whether this is a tab bar of tabs sharing its width, which opens a gap
+    /// for a dragged tab; see `tab_drag`. A bar of tabs as wide as their
+    /// labels keeps the drop line.
+    pub(super) fn uses_tab_gap(&self, state: &LocalState) -> bool {
+        !Self::VERTICAL
+            && self.reorderable.is_none()
+            && (Length::Shrink != self.width || state.collapsed)
+    }
+
+    /// The tabs on screen, in order: all of them, or one page of a paged bar.
+    pub(super) fn visible_tabs(&self, state: &LocalState) -> Vec<Entity> {
+        self.model
+            .order
+            .iter()
+            .copied()
+            .skip(state.buttons_offset)
+            .take(state.buttons_visible)
+            .collect()
+    }
+
+    /// What to clip the tabs to while they move on springs, which overshoot
+    /// their places: their row, between the ‹ › buttons of a paged bar. `None`
+    /// at rest, when every tab is inside it anyway.
+    pub(super) fn tab_clip(&self, state: &LocalState, bounds: Rectangle) -> Option<Rectangle> {
+        (self.uses_tab_gap(state) && state.tabs.is_active()).then(|| {
+            let (x, width) = self.tab_row(state, bounds);
+            Rectangle { x, width, ..bounds }
+        })
+    }
+
+    /// Where the row of tabs starts within `bounds`, and how wide it is:
+    /// between the ‹ › buttons of a paged bar.
+    pub(super) fn tab_row(&self, state: &LocalState, bounds: Rectangle) -> (f32, f32) {
+        let paging = f32::from(self.button_height);
+        if state.collapsed {
+            (bounds.x + paging, paging.mul_add(-2.0, bounds.width))
+        } else {
+            (bounds.x, bounds.width)
+        }
     }
 
     /// Advance a live file drag over this bar, from what `ui::dnd` has seen.
@@ -1522,6 +1616,7 @@ where
             file_drop_target: None,
             file_drag_done: None,
             nav: NavState::default(),
+            tabs: TabState::default(),
         })
     }
 
@@ -1586,10 +1681,13 @@ where
 
         // See `Self::to_content`.
         state.nav.viewport = *viewport;
-        if let Event::Window(window::Event::RedrawRequested(now)) = event
-            && state.nav.tick(*now)
-        {
-            shell.request_redraw();
+        if let Event::Window(window::Event::RedrawRequested(now)) = event {
+            // Both advance, whichever is moving.
+            let nav = state.nav.tick(*now);
+            let tabs = state.tabs.tick(*now);
+            if nav || tabs {
+                shell.request_redraw();
+            }
         }
 
         // The compositor dismissed our context menu popup: nothing else tells this state
@@ -2015,6 +2113,17 @@ where
                 position,
                 clipboard,
             ) {
+                // The dragged tab leaves the row; see `tab_drag`.
+                if self.uses_tab_gap(state) {
+                    let visible = self.visible_tabs(state);
+                    let (_, row_width) = self.tab_row(state, my_bounds);
+                    state.tabs.hide(
+                        candidate.entity,
+                        &visible,
+                        row_width,
+                        f32::from(self.spacing),
+                    );
+                }
                 // Bootstraps the poll loop: nothing else will ask for a frame
                 // once the compositor has the pointer.
                 shell.request_redraw();
@@ -2207,7 +2316,8 @@ where
         let appearance = Self::variant_appearance(theme, &self.style);
         let bounds: Rectangle = layout.bounds();
         let button_amount = self.model.items.len();
-        let show_drop_hint = state.dragging_tab.is_some();
+        // A tab bar with a gap shows the tab's landing place with it instead.
+        let show_drop_hint = state.dragging_tab.is_some() && !self.uses_tab_gap(state);
         let drop_hint = if show_drop_hint {
             state.drop_hint
         } else {
@@ -2343,7 +2453,14 @@ where
         let mut nth = 0;
         let drop_hint_marker = drop_hint;
         let show_drop_hint_marker = show_drop_hint;
+        let clip = self.tab_clip(state, bounds);
+        if let Some(clip) = clip {
+            renderer.start_layer(clip);
+        }
+        // Reborrowed, so the layer can be ended once the items are drawn.
+        let items = &mut *renderer;
         self.variant_bounds(state, bounds).for_each(move |item| {
+            let renderer = &mut *items;
             let (key, mut bounds) = match item {
                 // Draw a button
                 ItemBounds::Button(entity, bounds) => (entity, bounds),
@@ -2411,8 +2528,8 @@ where
             } else {
                 appearance.inactive
             };
-            // A sidebar entry being dragged stays in place, faded.
-            if self.reorderable.is_some() && state.dragging_tab == Some(key) {
+            // A tab or sidebar entry being dragged stays in place, faded.
+            if self.tab_drag.is_some() && state.dragging_tab == Some(key) {
                 status_appearance.text_color.a *= DRAGGED_ALPHA;
             }
 
@@ -2682,6 +2799,9 @@ where
 
             nth += 1;
         });
+        if clip.is_some() {
+            renderer.end_layer();
+        }
     }
 
     fn overlay<'b>(
@@ -2875,6 +2995,8 @@ pub struct LocalState {
     drop_hint: Option<DropHint>,
     /// The sidebar's gap and moving rows; see [`Self::reorderable`](SegmentedButton::reorderable).
     pub(super) nav: NavState,
+    /// The tab bar's gap and moving tabs; see `tab_drag`.
+    pub(super) tabs: TabState,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -3007,6 +3129,7 @@ mod tests {
             file_drop_target: None,
             file_drag_done: None,
             nav: NavState::default(),
+            tabs: TabState::default(),
         };
         state.buttons_visible = len;
         state.known_length = len;
@@ -3447,6 +3570,172 @@ mod tests {
         }
     }
 
+    /// A tab bar of three tabs sharing 300 px, as the app's does.
+    struct Tabs {
+        model: segmented_button::SingleSelectModel,
+        ids: Vec<segmented_button::Entity>,
+        tree: Tree,
+        renderer: crate::ui::Renderer,
+    }
+
+    const TAB_BAR: Rectangle = Rectangle {
+        x: 0.0,
+        y: 0.0,
+        width: 300.0,
+        height: 44.0,
+    };
+
+    fn tabs_widget(
+        model: &segmented_button::SingleSelectModel,
+    ) -> segmented_button::HorizontalSegmentedButton<'_, segmented_button::SingleSelect, ReorderEvent>
+    {
+        segmented_button::horizontal(model)
+            .enable_tab_drag(String::from("x-earth-files/tab-drag"))
+            .on_reorder(|event| event)
+    }
+
+    impl Tabs {
+        fn new() -> Self {
+            let (model, ids) = sample_model();
+            let widget = tabs_widget(&model);
+            let tree = Tree::new(&widget as &dyn Widget<ReorderEvent, crate::ui::Theme, Renderer>);
+            drop(widget);
+            let mut tabs = Self {
+                model,
+                ids,
+                tree,
+                renderer: iced_texture_cache::testing::headless_tiny_skia(),
+            };
+            tabs.lay_out();
+            tabs
+        }
+
+        fn lay_out(&mut self) {
+            let _ = tabs_widget(&self.model).layout(
+                &mut self.tree,
+                &self.renderer,
+                &layout::Limits::new(Size::ZERO, TAB_BAR.size()),
+            );
+        }
+
+        fn state(&mut self) -> &mut LocalState {
+            self.tree.state.downcast_mut::<LocalState>()
+        }
+
+        /// The tabs drawn now, each with where and how wide.
+        fn placed(&mut self) -> Vec<(segmented_button::Entity, f32, f32)> {
+            let order = self.model.order.iter().copied().collect::<Vec<_>>();
+            self.state().tabs.layout(&order, TAB_BAR.width, 0.0)
+        }
+
+        /// Starts dragging `tab`, as the threshold being met does.
+        fn start(&mut self, tab: segmented_button::Entity) {
+            let order = self.model.order.iter().copied().collect::<Vec<_>>();
+            let state = self.state();
+            state.dragging_tab = Some(tab);
+            state.tabs.hide(tab, &order, TAB_BAR.width, 0.0);
+        }
+
+        /// Polls the tab drag `drag`, as a redraw would.
+        fn poll(&mut self, drag: crate::ui::dnd::Drag) -> Vec<ReorderEvent> {
+            crate::ui::dnd::fake::set(drag, Some(LocalPayload::Tab));
+            let mut messages = Vec::new();
+            let widget = tabs_widget(&self.model);
+            let state = self.tree.state.downcast_mut::<LocalState>();
+            let mut shell = Shell::new(&mut messages);
+            if state.dragging_tab.is_some() {
+                widget.poll_tab_drag(state, TAB_BAR, &mut shell);
+            }
+            drop(widget);
+            messages
+        }
+    }
+
+    #[test]
+    fn a_dragged_tab_opens_a_gap_and_lands_in_it() {
+        let mut tabs = Tabs::new();
+        let first = tabs.ids[0];
+        tabs.start(first);
+        // It is out of the row.
+        assert!(tabs.placed().iter().all(|(tab, ..)| *tab != first));
+
+        // Past the middle of the last of the other two: the gap after it.
+        assert_eq!(tabs.poll(at(290.0, 20.0)), []);
+        assert_eq!(tabs.state().tabs.open(), Some(2));
+        assert!(tabs.state().tabs.is_active());
+
+        let dropped = tabs.poll(dropped_at(290.0, 20.0));
+        assert_eq!(
+            dropped,
+            [ReorderEvent {
+                dragged: first,
+                target: tabs.ids[2],
+                position: InsertPosition::After,
+            }]
+        );
+        assert_eq!(tabs.state().dragging_tab, None);
+
+        // Until the app reorders, it stays out of the row, and the gap open.
+        assert_eq!(tabs.state().tabs.hidden(), Some(first));
+        assert_eq!(tabs.state().tabs.open(), Some(2));
+
+        // Once it has, the tab grows out of the gap: the gap had not opened
+        // yet, so from nothing at the end of the row.
+        tabs.model
+            .reorder(first, tabs.ids[2], InsertPosition::After);
+        tabs.lay_out();
+        assert_eq!(tabs.state().tabs.hidden(), None);
+        let placed = tabs.placed();
+        let (_, x, width) = placed[2];
+        assert_eq!(placed[2].0, first);
+        assert!((x - 300.0).abs() < 0.01 && width.abs() < 0.01, "{placed:?}");
+    }
+
+    /// Tabs on springs overshoot their places, so while they move they are
+    /// drawn clipped to their row: clear of the paging buttons, and of
+    /// whatever is beside the bar.
+    #[test]
+    fn moving_tabs_are_drawn_inside_their_row() {
+        let mut tabs = Tabs::new();
+        let widget = tabs_widget(&tabs.model);
+        let state = tabs.tree.state.downcast_mut::<LocalState>();
+        assert_eq!(widget.tab_clip(state, TAB_BAR), None, "at rest");
+
+        state.tabs.set_open(Some(1), 3, 50.0);
+        assert_eq!(widget.tab_clip(state, TAB_BAR), Some(TAB_BAR));
+
+        state.collapsed = true;
+        let paging = f32::from(widget.button_height);
+        assert_eq!(
+            widget.tab_clip(state, TAB_BAR),
+            Some(Rectangle {
+                x: paging,
+                width: TAB_BAR.width - 2.0 * paging,
+                ..TAB_BAR
+            })
+        );
+    }
+
+    #[test]
+    fn a_tab_dropped_at_its_place_or_off_the_bar_moves_nothing() {
+        for drop in [
+            // The slot it left, between the other two (150 each).
+            dropped_at(100.0, 20.0),
+            dropped_at(200.0, 20.0),
+            // Below the bar.
+            dropped_at(150.0, 100.0),
+        ] {
+            let mut tabs = Tabs::new();
+            let second = tabs.ids[1];
+            tabs.start(second);
+            assert_eq!(tabs.poll(drop), []);
+            // It is back in the row, the gap gone.
+            assert_eq!(tabs.state().tabs.open(), None);
+            assert_eq!(tabs.state().tabs.hidden(), None);
+            assert!(tabs.placed().iter().any(|(tab, ..)| *tab == second));
+        }
+    }
+
     #[test]
     fn a_release_over_the_close_button_without_its_press_is_left_alone() {
         let mut ids = Vec::new();
@@ -3598,6 +3887,21 @@ fn draw_icon<Message: 'static>(
         cursor,
         viewport,
     );
+}
+
+/// The drop hint for the gap in `slot` among the tabs `visible`: before the
+/// tab in that slot, or after the last.
+fn hint_for_slot(visible: &[Entity], slot: usize) -> Option<DropHint> {
+    match visible.get(slot) {
+        Some(&entity) => Some(DropHint {
+            entity,
+            side: DropSide::Before,
+        }),
+        None => visible.last().map(|&entity| DropHint {
+            entity,
+            side: DropSide::After,
+        }),
+    }
 }
 
 fn draw_drop_indicator(

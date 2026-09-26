@@ -57,6 +57,25 @@ where
         let spacing = f32::from(self.spacing);
         let mut homogenous_width = 0.0;
 
+        // While a tab drag's gap is open, or the tabs are settling after a
+        // drop, `tab_drag` places them.
+        if self.uses_tab_gap(state) && state.tabs.is_active() {
+            let (row_x, row_width) = self.tab_row(state, bounds);
+            let visible = self.visible_tabs(state);
+            // The dragged tab is not among them: it is not drawn.
+            let placed = state.tabs.layout(&visible, row_width, spacing);
+            return Box::new(placed.into_iter().map(move |(key, x, width)| {
+                ItemBounds::Button(
+                    key,
+                    Rectangle {
+                        x: row_x + x,
+                        width,
+                        ..bounds
+                    },
+                )
+            }));
+        }
+
         if Length::Shrink != self.width || state.collapsed {
             let mut width_offset = 0.0;
             if state.collapsed {
@@ -224,6 +243,21 @@ where
                 width_offset = f32::from(self.button_height) * 2.0;
             }
             let button_width = ((num).mul_add(-spacing, size.width - width_offset) + spacing) / num;
+        }
+
+        // A drop's reorder starts each tab where it was drawn; see
+        // `tab_drag`. The row is as wide as `variant_bounds` will find it: the
+        // bounds include the padding this size leaves out.
+        if self.uses_tab_gap(state) {
+            let bounds = iced::Rectangle {
+                width: size.width + self.padding.left + self.padding.right,
+                ..iced::Rectangle::default()
+            };
+            let (_, row_width) = self.tab_row(state, bounds);
+            let visible = self.visible_tabs(state);
+            state
+                .tabs
+                .sync(&visible, row_width, spacing, std::time::Instant::now());
         }
 
         size

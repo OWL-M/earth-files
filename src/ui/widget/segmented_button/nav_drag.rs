@@ -27,14 +27,14 @@ use iced::Rectangle;
 use iced_texture_cache::iced_animate::{Spring, SpringParams};
 
 /// How the rows move: the path-completion dropdown's spring.
-const SPRING: SpringParams = SpringParams::new(0.25, Duration::from_millis(300));
+pub(super) const SPRING: SpringParams = SpringParams::new(0.25, Duration::from_millis(300));
 
 /// How close to its place a row has to be to stop, in pixels.
-const SETTLED: f32 = 0.5;
+pub(super) const SETTLED: f32 = 0.5;
 
 /// A frame longer than this is advanced as this, so a stall resumes the
 /// motion where it stopped instead of landing it in one step.
-const MAX_FRAME: f32 = 1.0 / 15.0;
+pub(super) const MAX_FRAME: f32 = 1.0 / 15.0;
 
 /// How long a drop's rearrangement waits for the rebuilt model. The app
 /// rebuilds in the same update that handles the drop, so anything later is a
