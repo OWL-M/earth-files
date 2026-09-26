@@ -1538,6 +1538,8 @@ impl App {
     /// as paste. This handler chooses whether to move or copy, independently of the
     /// drag source.
     fn drop_files(to: PathBuf, copy: bool) -> Task<Message> {
+        // Or it would be finished unread before the read gets to it.
+        crate::ui::dnd::claim_drop();
         clipboard::read_drop_data::<ClipboardPaste>().map(move |contents_opt| match contents_opt {
             Some(mut contents) => {
                 contents.kind = if copy {

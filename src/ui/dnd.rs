@@ -197,6 +197,11 @@ struct Shared {
     /// `Command::DropFiles` starts the read. Destroying the offer in
     /// `end_drag` would silently discard the drop.
     dropped_offer: Option<(WlDataOffer, OfferMimes)>,
+    /// How many drops have landed on our surfaces, which names each one.
+    drops: u64,
+    /// The drop something has claimed to read with [`read_drop`]; see
+    /// [`claim_drop`].
+    claimed: Option<u64>,
     drag: Option<Drag>,
     /// What the drag in `drag` carries, when this app started it. Kept, like
     /// `drag`, until the next drag starts.
@@ -255,6 +260,22 @@ impl Shared {
         self.local = None;
     }
 
+    /// Count a drop that has just landed, and name it.
+    fn note_drop(&mut self) -> u64 {
+        self.drops = self.drops.wrapping_add(1);
+        self.drops
+    }
+
+    /// Claim the latest drop for a read.
+    fn claim(&mut self) {
+        self.claimed = Some(self.drops);
+    }
+
+    /// Whether `drop` is still the latest and nothing has claimed it.
+    fn is_unclaimed(&self, drop: u64) -> bool {
+        self.drops == drop && self.claimed != Some(drop)
+    }
+
     fn bump(&mut self, f: impl FnOnce(&mut Drag)) {
         if let Some(drag) = self.drag.as_mut() {
             f(drag);
@@ -310,6 +331,15 @@ static BUTTON: Condvar = Condvar::new();
 /// that iced's thread never stalls visibly, and it is waited on only when the
 /// press has demonstrably not arrived yet.
 const PRESS_WAIT: Duration = Duration::from_millis(10);
+
+/// How long a drop on our surfaces may wait for something to claim it before
+/// it is finished unread; see [`claim_drop`].
+///
+/// Something that reads a drop claims it in the same update that handles the
+/// drop, a frame or two after it lands, so this is generous. It is also how
+/// long the drag lingers after a drop onto something that takes none, such as
+/// the header bar: until then Hyprland keeps the pointer.
+const UNCLAIMED_DROP_WAIT: Duration = Duration::from_millis(500);
 
 fn shared() -> &'static Mutex<Shared> {
     SHARED.get_or_init(|| Mutex::new(Shared::default()))
@@ -524,36 +554,79 @@ pub fn local_payload() -> Option<LocalPayload> {
 /// A compositor may keep a drag going past the drop until the destination
 /// finishes the offer. Hyprland does: the drag source stays current, no
 /// client gets pointer input, the cursor keeps its drag shape everywhere, and
-/// only Esc ends it. And it counts a `finish` only after a `receive`, so the
-/// payload is asked for and the pipe closed unread, which the source's writer
-/// takes as a reader that gave up.
+/// only Esc ends it. The others end the drag at the drop, but their source
+/// still waits to hear how it went.
+///
+/// So the offer is finished, as a copy and without asking for the payload,
+/// which every compositor takes in a way that suits a drop nothing was done
+/// with. Hyprland takes a `finish` with no `receive` before it as the drag
+/// being cancelled, and tells the source so. wlroots, Mutter, KWin and Smithay
+/// tell the source the drop is done: as a copy, the source removes nothing,
+/// where a move, the action preferred at `enter`, could have it treat what it
+/// dragged as gone. Those that check it (wlroots, Mutter, Smithay) refuse a
+/// `finish` on an offer with no type accepted or an action of none or ask; a
+/// drop is only ever made on an offer with a type accepted and an action of
+/// copy or move, and a copy or move stays possible after preferring a copy.
 ///
 /// Does nothing when nothing dropped is waiting, so it is safe on any drop.
 /// It must not be called for a drop something else is about to read with
 /// [`read_drop`]: that read would then find nothing.
 pub fn finish_drop_unread() {
+    finish_dropped_offer(&mut shared().lock().unwrap());
+}
+
+/// Say that the drop that just landed is going to be read with [`read_drop`],
+/// so it is not finished unread in the meantime.
+///
+/// A drop on our surfaces that nothing takes, such as one onto the header bar
+/// or onto a folder that cannot be pasted into, would never be finished, and
+/// Hyprland would keep the drag going; see [`finish_drop_unread`]. So every
+/// drop that nothing claims within [`UNCLAIMED_DROP_WAIT`] is finished unread.
+/// Whatever is about to read one has to claim it first, in the same update.
+pub fn claim_drop() {
+    shared().lock().unwrap().claim();
+}
+
+/// Finish `drop` unread, unless something has claimed it, read it or a later
+/// drop has replaced it. Runs on a thread of its own, [`UNCLAIMED_DROP_WAIT`]
+/// after the drop.
+fn finish_if_unclaimed(drop: u64) {
     let mut shared = shared().lock().unwrap();
-    let Some(offer) = shared.dropped_offer.take() else {
+    if shared.is_unclaimed(drop) && shared.dropped_offer.is_some() {
+        log::debug!("nothing took drop {drop}");
+        finish_dropped_offer(&mut shared);
+    }
+}
+
+/// The body of [`finish_drop_unread`], under the caller's lock.
+fn finish_dropped_offer(shared: &mut Shared) {
+    let Some((offer, _)) = shared.dropped_offer.take() else {
         return;
     };
-    let offered = offer.1.lock().unwrap().clone();
-    match receive(&shared, Some(&offer), &offered, "finish_drop_unread") {
-        Some((read_fd, mime, conn)) => {
-            drop(read_fd);
-            // Only a version 3 offer has `finish`; an older one has no
-            // drag-and-drop actions, and its drag ends at the drop.
-            if offer.0.version() >= 3 {
-                offer.0.finish();
-            }
-            offer.0.destroy();
-            let _ = conn.flush();
-            log::debug!("finished a drop as {mime} without reading it");
-        }
-        None => {
-            offer.0.destroy();
-            let _ = shared.conn.as_ref().map(Connection::flush);
-        }
+    if offer.version() >= 3 {
+        offer.set_actions(DndAction::Copy | DndAction::Move, DndAction::Copy);
     }
+    end_offer(&offer);
+    let _ = shared.conn.as_ref().map(Connection::flush);
+    log::debug!("finished a drop without reading it");
+}
+
+/// Finish and destroy a dropped offer, however its read went.
+///
+/// Destroying alone is not enough: Hyprland keeps the drag going until the
+/// offer is finished, and every client goes without pointer input until Esc.
+/// `finish` is allowed after any drop we accepted a type for, read or not; the
+/// protocol forbids it only after a NULL accept or with no action, and a drop
+/// is only ever made on an offer with both (see [`finish_drop_unread`] for
+/// what each compositor checks). Hyprland ends the drag either way: as done
+/// after a `receive`, as cancelled without one. Only a version 3 offer has
+/// `finish`; an older one has no drag-and-drop actions, and its drag ends at
+/// the drop.
+fn end_offer(offer: &WlDataOffer) {
+    if offer.version() >= 3 {
+        offer.finish();
+    }
+    offer.destroy();
 }
 
 /// Tear the drag down once the widget has acted on it.
@@ -732,7 +805,7 @@ pub fn read_drop(allowed: &[String]) -> Option<(Vec<u8>, String)> {
         match receive(&shared, Some(&offer), allowed, "read_drop") {
             Some((read_fd, mime, conn)) => (offer.0, read_fd, mime, conn),
             None => {
-                offer.0.destroy();
+                end_offer(&offer.0);
                 let _ = shared.conn.as_ref().map(Connection::flush);
                 return None;
             }
@@ -741,12 +814,10 @@ pub fn read_drop(allowed: &[String]) -> Option<(Vec<u8>, String)> {
 
     let result = read_to_end_bounded(read_fd, READ_TIMEOUT);
 
-    // `finish` is a protocol error on an offer that was never read, so it is
-    // sent only when there is a completed transfer to finish.
-    if result.is_ok() && offer.version() >= 3 {
-        offer.finish();
-    }
-    offer.destroy();
+    // Finished whether or not the read worked: a drop that fails to read is
+    // over all the same, and left unfinished it would keep the drag going;
+    // see `end_offer`.
+    end_offer(&offer);
     let _ = conn.flush();
 
     match result {
@@ -1077,7 +1148,9 @@ impl Dispatch<WlDataDevice, ()> for State {
                     (offer, mimes)
                 });
             }
-            wl_data_device::Event::Enter { x, y, id, .. } => {
+            wl_data_device::Event::Enter {
+                serial, x, y, id, ..
+            } => {
                 // Whatever was last over us is gone, and nobody read it.
                 if let Some((offer, _)) = shared.drag_offer.take() {
                     offer.destroy();
@@ -1108,7 +1181,9 @@ impl Dispatch<WlDataDevice, ()> for State {
                             .find(|mime| offered.contains(mime))
                             .cloned()
                     });
-                    offer.accept(0, accept);
+                    // With the serial of this `enter`, as the protocol asks, though no
+                    // compositor checks it yet.
+                    offer.accept(serial, accept);
                     if offer.version() >= 3 {
                         // Accept both actions, preferring move. GTK drag
                         // sources offer only `Copy`; accepting only `Move`
@@ -1183,6 +1258,18 @@ impl Dispatch<WlDataDevice, ()> for State {
                 shared.dropped_offer = shared.drag_offer.take();
                 if let Some((offer, _)) = unread {
                     offer.destroy();
+                }
+                // A drop nothing takes has to be finished all the same; see
+                // `claim_drop`.
+                let drop = shared.note_drop();
+                let spawned = std::thread::Builder::new()
+                    .name(String::from("earth-files-drop-watch"))
+                    .spawn(move || {
+                        std::thread::sleep(UNCLAIMED_DROP_WAIT);
+                        finish_if_unclaimed(drop);
+                    });
+                if let Err(err) = spawned {
+                    log::warn!("could not watch drop {drop}: {err}");
                 }
             }
             _ => {}
@@ -1430,6 +1517,21 @@ mod tests {
         assert_eq!(FILE_MIMES.as_slice(), ClipboardPaste::allowed().as_ref());
         assert!(FILE_MIMES.iter().all(|mime| is_file_mime(mime)));
         assert!(!is_file_mime("text/plain"));
+    }
+
+    /// A drop that nothing claims to read is finished by the watchdog; a
+    /// claimed one is left to its read, and a later drop supersedes both.
+    #[test]
+    fn only_an_unclaimed_drop_is_left_for_the_watchdog() {
+        let mut shared = Shared::default();
+        let first = shared.note_drop();
+        assert!(shared.is_unclaimed(first));
+        shared.claim();
+        assert!(!shared.is_unclaimed(first));
+
+        let second = shared.note_drop();
+        assert!(!shared.is_unclaimed(first), "a later drop replaced it");
+        assert!(shared.is_unclaimed(second));
     }
 
     /// With nothing dropped there is nothing to finish, and asking is harmless.
