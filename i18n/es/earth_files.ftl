@@ -382,6 +382,7 @@ open-in-terminal = Abrir en la consola
 move-to-trash = Mover a la papelera
 restore-from-trash = Restaurar de la papelera
 remove-from-sidebar = Quitar de la barra lateral
+removed-from-sidebar = Se quitó { $name } de la barra lateral
 remove-from-recents = Quitar de recientes
 
 ## Desktop

@@ -372,6 +372,7 @@ open-in-terminal = Apri nel terminale
 move-to-trash = Sposta nel cestino
 restore-from-trash = Ripristina dal cestino
 remove-from-sidebar = Rimuovi dalla barra laterale
+removed-from-sidebar = { $name } rimosso dalla barra laterale
 remove-from-recents = Rimuovi da recenti
 
 ## Desktop

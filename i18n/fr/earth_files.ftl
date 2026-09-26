@@ -360,6 +360,7 @@ open-in-terminal = Ouvrir dans le terminal
 move-to-trash = Déplacer vers la corbeille
 restore-from-trash = Restaurer depuis la corbeille
 remove-from-sidebar = Retirer de la barre latérale
+removed-from-sidebar = { $name } retiré de la barre latérale
 
 ## Desktop
 

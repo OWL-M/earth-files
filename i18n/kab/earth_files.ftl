@@ -214,6 +214,7 @@ open-in-terminal = Ldi deg yixef
 move-to-trash = Smutti ɣer tqecwalt n yiḍumman
 restore-from-trash = Err-d seg tqecwalt n yiḍumman
 remove-from-sidebar = Kkes seg ugalis adisan
+removed-from-sidebar = { $name } yettwakkes seg ugalis adisan
 remove-from-recents = Kkes seg ineggura
 new-tab = Iccer amaynut
 reload-folder = Ales asali n ukaram

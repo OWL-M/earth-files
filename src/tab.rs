@@ -5010,7 +5010,10 @@ impl Tab {
                             crate::clipboard::ClipboardKind::Copy,
                             &paths,
                         );
-                        if crate::ui::dnd::start_drag_data(Arc::new(contents)) {
+                        if crate::ui::dnd::start_drag_data(
+                            Arc::new(contents),
+                            crate::ui::dnd::LocalPayload::Paths(paths.clone()),
+                        ) {
                             self.dnd_source = true;
                             log::debug!("started a file drag of {} path(s)", paths.len());
                         }

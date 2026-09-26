@@ -116,6 +116,7 @@ reload-folder = Επαναφόρτωση φακέλου
 favorite-path-error = Σφάλμα ανοίγματος καταλόγου
 progress = { $percent }%
 remove-from-sidebar = Αφαίρεση από την πλαϊνή στήλη
+removed-from-sidebar = Το { $name } αφαιρέθηκε από την πλαϊνή στήλη
 restoring =
     Ανάκτηση { $items } { $items ->
         [one] στοιχείου

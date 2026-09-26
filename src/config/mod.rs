@@ -14,6 +14,7 @@ use crate::ui::theme::{self, Density};
 pub use crate::context_action::{ContextActionPreset, ContextActionSelection};
 pub use store::Store;
 
+pub mod sidebar;
 pub mod store;
 
 // Default icon sizes
@@ -197,6 +198,11 @@ pub struct Config {
     /// `None` leaves it as wide as its entries need, which is also what a
     /// width narrower than they need is treated as.
     pub nav_bar_width: Option<u16>,
+    /// Where Recents sits among `favorites` in the sidebar: before the
+    /// favorite of this index, or after all of them when it is past the end.
+    /// `None`, and a config file written before this key existed, put it at
+    /// the top. See [`sidebar`].
+    pub recents_position: Option<u16>,
     pub show_details: bool,
     pub show_recents: bool,
     pub tab: TabConfig,
@@ -250,6 +256,7 @@ impl Default for Config {
             interface_font: INTERFACE_FONT_DEFAULT.to_string(),
             monospace_font: MONOSPACE_FONT_DEFAULT.to_string(),
             nav_bar_width: None,
+            recents_position: None,
             show_details: false,
             show_recents: true,
             tab: TabConfig::default(),

@@ -391,6 +391,7 @@ open-in-terminal = Адкрыць у кансолі
 move-to-trash = Перамясціць у сметніцу
 restore-from-trash = Аднавіць са сметніцы
 remove-from-sidebar = Выдаліць з бакавой панэлі
+removed-from-sidebar = { $name } выдалена з бакавой панэлі
 
 ## Desktop
 

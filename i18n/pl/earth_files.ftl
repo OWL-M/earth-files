@@ -383,6 +383,7 @@ open-in-terminal = Otwórz w terminalu
 move-to-trash = Przenieś do kosza
 restore-from-trash = Przywróć z kosza
 remove-from-sidebar = Usuń z bocznego panelu
+removed-from-sidebar = Usunięto { $name } z bocznego panelu
 remove-from-recents = Usuń z poprzednich
 
 ## Desktop

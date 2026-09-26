@@ -243,6 +243,7 @@ open-in-terminal = टर्मिनल में खोलें
 move-to-trash = कचरे में भेजें
 restore-from-trash = कचरे से पुनर्स्थापित करें
 remove-from-sidebar = साइडबार से निकालें
+removed-from-sidebar = { $name } को साइडबार से निकाला गया
 
 ## Desktop
 

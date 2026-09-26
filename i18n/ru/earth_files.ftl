@@ -217,6 +217,7 @@ open-in-terminal = Открыть в терминале
 move-to-trash = Переместить в корзину
 restore-from-trash = Восстановить из корзины
 remove-from-sidebar = Убрать с боковой панели
+removed-from-sidebar = { $name } убрано с боковой панели
 
 # Menu
 

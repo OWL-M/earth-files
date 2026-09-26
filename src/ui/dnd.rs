@@ -68,6 +68,7 @@
 use std::borrow::Cow;
 use std::io;
 use std::os::fd::{AsRawFd as _, BorrowedFd, FromRawFd as _, OwnedFd};
+use std::path::PathBuf;
 use std::sync::{Arc, Condvar, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
@@ -110,7 +111,36 @@ pub struct Drag {
     /// False for the tab drag, whose single MIME type carries a placeholder.
     /// It is what lets one poller ignore the other's drags.
     pub files: bool,
+    /// The compositor told our source the user let go of the drag
+    /// (`wl_data_source::dnd_drop_performed`). Only a drag this app started
+    /// hears it, and only from a compositor that sends it on a drop nobody
+    /// accepted.
+    ///
+    /// With `dropped` false and `ended` true, it tells a drop outside our
+    /// surfaces from a cancel, such as Esc: both end in `cancelled`.
+    pub performed: bool,
+    /// Which drag this is: bumped once per drag, unlike `generation`, so a
+    /// watcher can work out something once per drag.
+    pub id: u64,
 }
+
+/// What a drag this app started carries, as seen from inside the app.
+///
+/// A drop on our own surface is worked out from this rather than from the
+/// bytes on offer, which nothing can read before the drop.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum LocalPayload {
+    /// A tab dragged to reorder the tab bar.
+    Tab,
+    /// A sidebar entry dragged to reorder or unpin it.
+    NavEntry,
+    /// Files and folders dragged from the file view.
+    Paths(Vec<PathBuf>),
+}
+
+/// The MIME type of a sidebar entry drag. Its payload is a placeholder, like
+/// the tab drag's; see [`LocalPayload::NavEntry`].
+pub const NAV_DRAG_MIME: &str = "x-earth-files/nav-drag";
 
 /// The MIME types a drag has to advertise for its payload to be file paths.
 ///
@@ -168,6 +198,9 @@ struct Shared {
     /// `end_drag` would silently discard the drop.
     dropped_offer: Option<(WlDataOffer, OfferMimes)>,
     drag: Option<Drag>,
+    /// What the drag in `drag` carries, when this app started it. Kept, like
+    /// `drag`, until the next drag starts.
+    local: Option<LocalPayload>,
     /// Most recent serial of any input event that can justify a request,
     /// a pointer press or a key press. `set_selection` needs one; unlike
     /// `start_drag` it does not need it to be a button in particular.
@@ -215,8 +248,11 @@ impl Shared {
         self.drag = Some(Drag {
             files,
             generation: self.drag.map_or(0, |drag| drag.generation.wrapping_add(1)),
+            id: self.drag.map_or(0, |drag| drag.id.wrapping_add(1)),
             ..Drag::default()
         });
+        // Whoever starts a drag of ours says what it carries after this.
+        self.local = None;
     }
 
     fn bump(&mut self, f: impl FnOnce(&mut Drag)) {
@@ -356,20 +392,27 @@ pub fn set_scale_factor(factor: f32) {
 
 /// Begin a drag offering exactly `mime` and a payload nothing reads.
 ///
-/// The tab drag's entry point. See [`start_drag_data`] for the general one.
+/// The tab and sidebar drags' entry point. See [`start_drag_data`] for the
+/// general one.
 #[must_use]
-pub fn start_drag(mime: &str) -> bool {
-    start_drag_data(Arc::new(Placeholder(mime.to_owned())))
+pub fn start_drag(mime: &str, payload: LocalPayload) -> bool {
+    start_drag_data(Arc::new(Placeholder(mime.to_owned())), payload)
 }
 
 /// Begin a drag offering everything `contents` advertises, from the surface the
 /// pointer is on.
 ///
+/// `payload` is what the drag carries as far as this app is concerned; see
+/// [`local_payload`].
+///
 /// Returns `false` when there is no data device, no held button (and so no
 /// serial of a live press) to grab with, or a drag is already running; the
 /// caller then simply does not enter its dragging state.
 #[must_use]
-pub fn start_drag_data(contents: Arc<dyn AsMimeTypes + Send + Sync>) -> bool {
+pub fn start_drag_data(
+    contents: Arc<dyn AsMimeTypes + Send + Sync>,
+    payload: LocalPayload,
+) -> bool {
     let mut shared = shared().lock().unwrap();
 
     if shared.drag_is_live() {
@@ -448,6 +491,7 @@ pub fn start_drag_data(contents: Arc<dyn AsMimeTypes + Send + Sync>) -> bool {
     shared.source = Some(source);
     shared.offered = mimes.clone();
     shared.begin_drag(mimes.iter().any(|mime| is_file_mime(mime)));
+    shared.local = Some(payload);
 
     log::debug!("started a drag: mimes={mimes:?} serial={serial}");
     true
@@ -456,11 +500,68 @@ pub fn start_drag_data(contents: Arc<dyn AsMimeTypes + Send + Sync>) -> bool {
 /// The live drag, if any.
 #[must_use]
 pub fn drag() -> Option<Drag> {
+    #[cfg(test)]
+    if let Some(drag) = fake::drag() {
+        return Some(drag);
+    }
     shared().lock().unwrap().drag
+}
+
+/// What the drag [`drag`] reports carries, if this app started it.
+#[must_use]
+pub fn local_payload() -> Option<LocalPayload> {
+    #[cfg(test)]
+    if fake::drag().is_some() {
+        return fake::local_payload();
+    }
+    shared().lock().unwrap().local.clone()
+}
+
+/// Finish a drop on one of our surfaces that is acted on without reading
+/// what it carries: a tab or sidebar entry moved, a sidebar entry unpinned, a
+/// folder pinned.
+///
+/// A compositor may keep a drag going past the drop until the destination
+/// finishes the offer. Hyprland does: the drag source stays current, no
+/// client gets pointer input, the cursor keeps its drag shape everywhere, and
+/// only Esc ends it. And it counts a `finish` only after a `receive`, so the
+/// payload is asked for and the pipe closed unread, which the source's writer
+/// takes as a reader that gave up.
+///
+/// Does nothing when nothing dropped is waiting, so it is safe on any drop.
+/// It must not be called for a drop something else is about to read with
+/// [`read_drop`]: that read would then find nothing.
+pub fn finish_drop_unread() {
+    let mut shared = shared().lock().unwrap();
+    let Some(offer) = shared.dropped_offer.take() else {
+        return;
+    };
+    let offered = offer.1.lock().unwrap().clone();
+    match receive(&shared, Some(&offer), &offered, "finish_drop_unread") {
+        Some((read_fd, mime, conn)) => {
+            drop(read_fd);
+            // Only a version 3 offer has `finish`; an older one has no
+            // drag-and-drop actions, and its drag ends at the drop.
+            if offer.0.version() >= 3 {
+                offer.0.finish();
+            }
+            offer.0.destroy();
+            let _ = conn.flush();
+            log::debug!("finished a drop as {mime} without reading it");
+        }
+        None => {
+            offer.0.destroy();
+            let _ = shared.conn.as_ref().map(Connection::flush);
+        }
+    }
 }
 
 /// Tear the drag down once the widget has acted on it.
 pub fn end_drag() {
+    #[cfg(test)]
+    if fake::end() {
+        return;
+    }
     let mut shared = shared().lock().unwrap();
     // The source is not destroyed here. After a drop the compositor still has
     // a `send` to deliver for the payload the destination is only now reading,
@@ -1134,6 +1235,13 @@ impl Dispatch<WlDataSource, SourceRole> for State {
                 }
                 source.destroy();
             }
+            (wl_data_source::Event::DndDropPerformed, SourceRole::Drag(_)) => {
+                // Not the end yet: `cancelled` or `dnd_finished` follows.
+                let mut shared = shared().lock().unwrap();
+                if shared.source.as_ref() == Some(source) {
+                    shared.bump(|drag| drag.performed = true);
+                }
+            }
             (
                 wl_data_source::Event::Cancelled | wl_data_source::Event::DndFinished,
                 SourceRole::Drag(_),
@@ -1183,6 +1291,44 @@ delegate_noop!(State: ignore WlDataDeviceManager);
 
 delegate_noop!(State: ignore WlSurface);
 
+/// A drag a test hands the widgets, in place of one from the compositor.
+///
+/// Per thread, since each test runs on a thread of its own and [`SHARED`] is
+/// one for the whole process.
+#[cfg(test)]
+pub(crate) mod fake {
+    use super::{Drag, LocalPayload};
+    use std::cell::RefCell;
+
+    thread_local! {
+        static FAKE: RefCell<Option<(Drag, Option<LocalPayload>)>> = const { RefCell::new(None) };
+    }
+
+    /// Make `drag`, carrying `local`, the drag the widgets see on this thread.
+    pub(crate) fn set(drag: Drag, local: Option<LocalPayload>) {
+        FAKE.with(|fake| *fake.borrow_mut() = Some((drag, local)));
+    }
+
+    pub(super) fn drag() -> Option<Drag> {
+        FAKE.with(|fake| fake.borrow().as_ref().map(|(drag, _)| *drag))
+    }
+
+    pub(super) fn local_payload() -> Option<LocalPayload> {
+        FAKE.with(|fake| fake.borrow().as_ref().and_then(|(_, local)| local.clone()))
+    }
+
+    /// Mark the fake drag over, as `end_drag` does a real one; `false` when
+    /// there is none.
+    pub(super) fn end() -> bool {
+        FAKE.with(|fake| {
+            fake.borrow_mut()
+                .as_mut()
+                .map(|(drag, _)| drag.ended = true)
+                .is_some()
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1212,7 +1358,7 @@ mod tests {
     /// than panicking, the state the app is in when `init` failed.
     #[test]
     fn start_drag_without_a_connection_is_a_no_op() {
-        assert!(!start_drag("x-earth-files/tab-drag"));
+        assert!(!start_drag("x-earth-files/tab-drag", LocalPayload::Tab));
         assert_eq!(drag(), None);
         end_drag();
     }
@@ -1286,6 +1432,13 @@ mod tests {
         assert!(!is_file_mime("text/plain"));
     }
 
+    /// With nothing dropped there is nothing to finish, and asking is harmless.
+    #[test]
+    fn finishing_without_a_drop_is_a_no_op() {
+        finish_drop_unread();
+        assert_eq!(read_drop(&[String::from("text/uri-list")]), None);
+    }
+
     /// Nothing was dropped, so there is nothing to read, and asking anyway is
     /// a `None`, not a block on a pipe that will never be written to.
     #[test]
@@ -1327,6 +1480,40 @@ mod tests {
             started.generation, ended.generation,
             "a watcher keyed on the generation would miss this drag entirely"
         );
+    }
+
+    /// A drag's id moves once per drag, however often the drag changes, and
+    /// a new drag forgets what the last one of ours carried.
+    #[test]
+    fn a_new_drag_has_a_new_id_and_no_payload() {
+        let mut shared = Shared::default();
+        shared.begin_drag(false);
+        shared.local = Some(LocalPayload::NavEntry);
+        let first = shared.drag.unwrap().id;
+        shared.bump(|drag| drag.position = Some((1.0, 2.0)));
+        assert_eq!(shared.drag.unwrap().id, first);
+
+        shared.drag.as_mut().unwrap().ended = true;
+        shared.begin_drag(true);
+        assert_eq!(shared.drag.unwrap().id, first.wrapping_add(1));
+        assert_eq!(shared.local, None);
+    }
+
+    #[test]
+    fn a_fake_drag_is_seen_and_ended_on_its_own_thread_only() {
+        let drag = Drag {
+            position: Some((1.0, 2.0)),
+            ..Drag::default()
+        };
+        fake::set(drag, Some(LocalPayload::NavEntry));
+        assert_eq!(super::drag(), Some(drag));
+        assert_eq!(local_payload(), Some(LocalPayload::NavEntry));
+
+        end_drag();
+        assert!(super::drag().unwrap().ended);
+
+        let elsewhere = std::thread::spawn(local_payload).join().unwrap();
+        assert_ne!(elsewhere, Some(LocalPayload::NavEntry));
     }
 
     #[test]

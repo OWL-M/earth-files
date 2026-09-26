@@ -157,6 +157,7 @@ open-in-terminal = Відкрити у терміналі
 move-to-trash = Пересунути до смітника
 restore-from-trash = Відновити зі смітника
 remove-from-sidebar = Вилучити з бічної панелі
+removed-from-sidebar = { $name } вилучено з бічної панелі
 
 # Menu
 

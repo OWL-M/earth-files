@@ -41,6 +41,7 @@ copy_noun = Копија
 favorite-path-error = Грешка при отварању директоријума
 progress = { $percent }%
 remove-from-sidebar = Уклони из бочне траке
+removed-from-sidebar = { $name } је уклоњен из бочне траке
 related-apps = Повезани програми
 restoring =
     Враћање { $items } { $items ->

@@ -65,7 +65,9 @@ pub fn toaster<'a, Message: Clone + 'static>(
         .rev()
         .map(make_toast)
         .fold(Column::with_capacity(toasts.toasts.len()), Column::push)
-        .spacing(space_xxxs.to_pixels());
+        .spacing(space_xxxs.to_pixels())
+        // Flush with the corner they are shown in, however wide each is.
+        .align_x(iced::Alignment::End);
 
     Toaster::new(col.into(), content.into(), toasts.toasts.is_empty()).into()
 }

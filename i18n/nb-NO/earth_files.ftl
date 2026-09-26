@@ -310,6 +310,7 @@ open-in-terminal = Åpne i terminal
 move-to-trash = Flytt til papirkurven
 restore-from-trash = Gjenoprett fra papirkurven
 remove-from-sidebar = Fjern fra sidepanelet
+removed-from-sidebar = { $name } fjernet fra sidepanelet
 remove-from-recents = Fjern fra nylige
 reload-folder = Last inn mappe på nytt
 rename = Gi nytt navn…

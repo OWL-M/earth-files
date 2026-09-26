@@ -274,6 +274,7 @@ open-in-terminal = Åbn i terminal
 move-to-trash = Flyt til skraldespand
 restore-from-trash = Genopret fra skraldespand
 remove-from-sidebar = Fjern fra sidebjælke
+removed-from-sidebar = { $name } fjernet fra sidebjælken
 
 ## Desktop
 

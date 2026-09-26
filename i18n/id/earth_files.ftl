@@ -277,6 +277,7 @@ open-in-terminal = Buka di terminal
 move-to-trash = Pindahkan ke sampah
 restore-from-trash = Pulihkan dari sampah
 remove-from-sidebar = Hapus dari bilah sisi
+removed-from-sidebar = { $name } dihapus dari bilah sisi
 remove-from-recents = Hapus dari terbaru
 file = Berkas
 new-tab = Tab baru

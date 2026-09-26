@@ -12,6 +12,7 @@ favorite-path-error = Şaşetiya vekirina rêgehê
 progress = { $percent }%
 open-file = Pelê veke
 remove-from-sidebar = Ji benda kêlekê rake
+removed-from-sidebar = { $name } ji benda kêlekê hat rakirin
 related-apps = Bernameyên têkildar
 network-drive-error = Nikaribû bigihêje ajokarê torê
 gallery-preview = Pêşdîtina galeriyê

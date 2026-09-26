@@ -326,6 +326,7 @@ open-in-terminal = Obre al terminal
 move-to-trash = Mou a la paperera
 restore-from-trash = Restaura de la paperera
 remove-from-sidebar = Elimina de la barra lateral
+removed-from-sidebar = S'ha eliminat { $name } de la barra lateral
 
 ## Desktop
 

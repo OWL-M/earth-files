@@ -379,6 +379,7 @@ open-in-terminal = In terminal openen
 move-to-trash = Naar prullenbak verplaatsen
 restore-from-trash = Uit prullenbak terugzetten
 remove-from-sidebar = Favoriet uit zijbalk verwijderen
+removed-from-sidebar = { $name } uit zijbalk verwijderd
 
 ## Desktop
 

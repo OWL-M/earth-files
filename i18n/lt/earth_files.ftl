@@ -278,6 +278,7 @@ open-in-terminal = Atidaryti terminale
 move-to-trash = Perkelti į šiukšlinę
 restore-from-trash = Atkurti iš šiukšlinės
 remove-from-sidebar = Pašalinti iš šonjuostės
+removed-from-sidebar = { $name } pašalinta iš šonjuostės
 remove-from-recents = Pašalinti iš neseniai naudotų
 file = Failas
 new-tab = Naujas skirtukas

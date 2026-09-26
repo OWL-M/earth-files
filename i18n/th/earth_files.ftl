@@ -270,6 +270,7 @@ open-in-terminal = เปิดในเทอร์มินัล
 move-to-trash = ย้ายไปถังขยะ
 restore-from-trash = เรียกคืนจากถังขยะ
 remove-from-sidebar = นำออกจากแถบด้านข้าง
+removed-from-sidebar = นำ { $name } ออกจากแถบด้านข้างแล้ว
 
 ## Desktop
 

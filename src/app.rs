@@ -353,6 +353,11 @@ pub enum Message {
     NavBarContext(Entity),
     /// Files were dropped on a nav-bar bookmark.
     NavBarDrop(Entity),
+    /// A drag over the sidebar moved, pinned or unpinned an entry.
+    NavDrop(segmented_button::NavDrop),
+    /// Undo unpinning `Favorite`, which was at this place among the pinned
+    /// entries and Recents; see [`crate::config::sidebar::entries`].
+    NavUnpinUndo(widget::ToastId, Favorite, usize),
     /// Files were dropped on a tab in the tab bar.
     TabDrop(Entity),
     NavMenuAction(NavMenuAction),
@@ -2300,15 +2305,21 @@ impl App {
         self.nav_bar_context_id = segmented_button::Entity::null();
         let mut nav_model = segmented_button::ModelBuilder::default();
 
-        if self.config.show_recents {
-            nav_model = nav_model.insert(|b| {
-                b.text(fl!("recents"))
-                    .icon(icon::from_name("document-open-recent-symbolic"))
-                    .data(Location::Recents)
-            });
-        }
+        // Recents sits among the pinned entries, wherever it was dragged to.
+        let recents_at = crate::config::sidebar::recents_index(
+            self.config.recents_position,
+            self.config.favorites.len(),
+        );
+        let recents = |b: segmented_button::BuilderEntity<segmented_button::SingleSelect>| {
+            b.text(fl!("recents"))
+                .icon(icon::from_name("document-open-recent-symbolic"))
+                .data(Location::Recents)
+        };
 
         for (favorite_i, favorite) in self.config.favorites.iter().enumerate() {
+            if self.config.show_recents && favorite_i == recents_at {
+                nav_model = nav_model.insert(recents);
+            }
             if let Some(path) = favorite.path_opt() {
                 let name = favorite.display_name().unwrap_or_else(|| fl!("filesystem"));
                 nav_model = nav_model.insert(move |b| {
@@ -2330,6 +2341,9 @@ impl App {
                         .data(FavoriteIndex(favorite_i))
                 });
             }
+        }
+        if self.config.show_recents && recents_at == self.config.favorites.len() {
+            nav_model = nav_model.insert(recents);
         }
 
         nav_model = nav_model.insert(|b| {
@@ -3050,6 +3064,28 @@ impl Application for App {
                     .contains(&entity)
                     .then(|| crate::ui::Action::App(Message::NavBarDrop(entity)))
             });
+        }
+
+        {
+            // Pinned entries and Recents can be dragged to a new place, and a
+            // folder not pinned yet can be dragged in to pin it.
+            let reorderable: Vec<Entity> = nav_model
+                .iter()
+                .filter(|entity| {
+                    nav_model.data::<FavoriteIndex>(*entity).is_some()
+                        || matches!(nav_model.data::<Location>(*entity), Some(Location::Recents))
+                })
+                .collect();
+            let pinned: Vec<PathBuf> = self
+                .config
+                .favorites
+                .iter()
+                .filter_map(Favorite::path_opt)
+                .collect();
+            nav = nav
+                .reorderable(move |entity| reorderable.contains(&entity))
+                .can_pin(move |path| path.is_dir() && !pinned.iter().any(|pinned| pinned == path))
+                .on_nav_drop(|drop| crate::ui::Action::App(Message::NavDrop(drop)));
         }
 
         {
@@ -3779,12 +3815,20 @@ impl Application for App {
                             }
                         }
                         DialogPage::FavoritePathError { entity, .. } => {
-                            if let Some(FavoriteIndex(favorite_i)) =
-                                self.nav_model.data::<FavoriteIndex>(entity)
+                            // Through `sidebar`, so Recents keeps its place.
+                            if let Some(edited) = self
+                                .nav_model
+                                .data::<FavoriteIndex>(entity)
+                                .and_then(|FavoriteIndex(favorite_i)| {
+                                    crate::config::sidebar::unpin_favorite(
+                                        &self.config.favorites,
+                                        self.config.recents_position,
+                                        *favorite_i,
+                                    )
+                                })
                             {
-                                let mut favorites = self.config.favorites.clone();
-                                favorites.remove(*favorite_i);
-                                config_set!(favorites, favorites);
+                                config_set!(favorites, edited.favorites);
+                                config_set!(recents_position, edited.recents_position);
                                 tasks.push(self.update_config());
                             }
                         }
@@ -5807,6 +5851,79 @@ impl Application for App {
                     return Self::drop_files(to, self.modifiers.control());
                 }
             }
+            Message::NavDrop(drop) => {
+                use crate::config::sidebar::{self, Edit};
+                use segmented_button::NavDrop;
+
+                let len = self.config.favorites.len();
+                let recents_position = self.config.recents_position;
+                // Where an entry is among the pinned entries and Recents; see
+                // `sidebar::entries`.
+                let place = |entity: Entity| {
+                    if matches!(
+                        self.nav_model.data::<Location>(entity),
+                        Some(Location::Recents)
+                    ) {
+                        Some(sidebar::recents_index(recents_position, len))
+                    } else {
+                        self.nav_model
+                            .data::<FavoriteIndex>(entity)
+                            .map(|FavoriteIndex(i)| {
+                                sidebar::favorite_entry(*i, recents_position, len)
+                            })
+                    }
+                };
+                // Past the last entry: the pinned entries and Recents.
+                let before = |before: Option<Entity>| before.map_or(Some(len + 1), place);
+
+                let edit = match drop {
+                    NavDrop::Move {
+                        dragged,
+                        before: to,
+                    } => place(dragged)
+                        .zip(before(to))
+                        .map(|(from, before)| Edit::Move { from, before }),
+                    NavDrop::Pin { path, before: to } => before(to).map(|before| Edit::Pin {
+                        favorite: Favorite::from_path(path),
+                        before,
+                    }),
+                    NavDrop::Unpin(entity) => place(entity).map(|at| Edit::Unpin { at }),
+                };
+                let Some(edited) = edit
+                    .and_then(|edit| sidebar::edit(&self.config.favorites, recents_position, edit))
+                else {
+                    return Task::none();
+                };
+
+                let toast = edited.unpinned.map(|(favorite, at)| {
+                    let name = favorite.display_name().unwrap_or_else(|| fl!("filesystem"));
+                    self.toasts
+                        .push(
+                            widget::toaster::Toast::new(fl!("removed-from-sidebar", name = name))
+                                .action(fl!("undo"), move |id| {
+                                    Message::NavUnpinUndo(id, favorite.clone(), at)
+                                }),
+                        )
+                        .map(crate::ui::Action::App)
+                });
+                config_set!(favorites, edited.favorites);
+                config_set!(recents_position, edited.recents_position);
+                return Task::batch([self.update_config(), toast.unwrap_or_else(Task::none)]);
+            }
+            Message::NavUnpinUndo(id, favorite, at) => {
+                use crate::config::sidebar::{self, Edit};
+
+                self.toasts.remove(id);
+                if let Some(edited) = sidebar::edit(
+                    &self.config.favorites,
+                    self.config.recents_position,
+                    Edit::Restore { favorite, at },
+                ) {
+                    config_set!(favorites, edited.favorites);
+                    config_set!(recents_position, edited.recents_position);
+                    return self.update_config();
+                }
+            }
             Message::TabDrop(entity) => {
                 if let Some(to) = self
                     .tab_model
@@ -6002,12 +6119,18 @@ impl Application for App {
                 }
 
                 NavMenuAction::RemoveFromSidebar(entity) => {
-                    if let Some(FavoriteIndex(favorite_i)) =
-                        self.nav_model.data::<FavoriteIndex>(entity)
-                    {
-                        let mut favorites = self.config.favorites.clone();
-                        favorites.remove(*favorite_i);
-                        config_set!(favorites, favorites);
+                    // Through `sidebar`, so Recents keeps its place.
+                    if let Some(edited) = self.nav_model.data::<FavoriteIndex>(entity).and_then(
+                        |FavoriteIndex(favorite_i)| {
+                            crate::config::sidebar::unpin_favorite(
+                                &self.config.favorites,
+                                self.config.recents_position,
+                                *favorite_i,
+                            )
+                        },
+                    ) {
+                        config_set!(favorites, edited.favorites);
+                        config_set!(recents_position, edited.recents_position);
                         return self.update_config();
                     }
                 }

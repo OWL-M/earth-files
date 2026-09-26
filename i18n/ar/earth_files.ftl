@@ -107,6 +107,7 @@ open-in-terminal = افتح في الطرفية
 move-to-trash = انقل إلى المهملات
 restore-from-trash = استعِد من المهملات
 remove-from-sidebar = أزِل من الشريط الجانبي
+removed-from-sidebar = تمت إزالة { $name } من الشريط الجانبي
 
 # Menu
 

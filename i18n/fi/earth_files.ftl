@@ -249,6 +249,7 @@ open-in-terminal = Avaa päätteessä
 move-to-trash = Siirrä roskakoriin
 restore-from-trash = Palauta roskakorista
 remove-from-sidebar = Poista sivupalkista
+removed-from-sidebar = { $name } poistettiin sivupalkista
 
 ## Desktop
 

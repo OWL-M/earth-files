@@ -346,6 +346,7 @@ open-in-terminal = Oscail sa teirminéal
 move-to-trash = Bog go dtí an bruscar
 restore-from-trash = Athchóirigh ón mbruscar
 remove-from-sidebar = Bain ón mbarra taoibh
+removed-from-sidebar = Baineadh { $name } ón mbarra taoibh
 
 ## Desktop
 

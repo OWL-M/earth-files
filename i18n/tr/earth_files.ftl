@@ -289,6 +289,7 @@ open-in-terminal = Uçbirimde aç
 move-to-trash = Çöpe taşı
 restore-from-trash = Çöpten geri yükle
 remove-from-sidebar = Kenar çubuğundan kaldır
+removed-from-sidebar = { $name } kenar çubuğundan kaldırıldı
 
 ## Desktop
 

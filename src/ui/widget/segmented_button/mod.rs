@@ -77,6 +77,7 @@
 
 mod horizontal;
 mod model;
+mod nav_drag;
 mod vertical;
 mod widget;
 
@@ -101,6 +102,26 @@ pub struct ReorderEvent {
     pub dragged: Entity,
     pub target: Entity,
     pub position: InsertPosition,
+}
+
+/// What a drag over the sidebar ended in; see
+/// [`SegmentedButton::on_nav_drop`].
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum NavDrop {
+    /// Move `dragged` to just before `before`, or after the last entry that
+    /// can move when `before` is `None`.
+    Move {
+        dragged: Entity,
+        before: Option<Entity>,
+    },
+    /// Pin the folder `path` just before `before`, or after the last entry
+    /// that can move when `before` is `None`.
+    Pin {
+        path: std::path::PathBuf,
+        before: Option<Entity>,
+    },
+    /// `dragged` was dropped off the sidebar.
+    Unpin(Entity),
 }
 
 /// Associates extra data with an external secondary map.

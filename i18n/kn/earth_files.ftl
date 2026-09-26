@@ -260,6 +260,7 @@ open-in-terminal = ಟರ್ಮಿನಲ್‌ನಲ್ಲಿ ತೆರೆಯಿ
 move-to-trash = ಕಸಕ್ಕೆ ಸರಿಸಿ
 restore-from-trash = ಕಸದಿಂದ ಮರುಸ್ಥಾಪಿಸಿ
 remove-from-sidebar = ಸೈಡ್‌ಬಾರ್‌ನಿಂದ ತೆಗೆಯಿರಿ
+removed-from-sidebar = { $name } ಅನ್ನು ಸೈಡ್‌ಬಾರ್‌ನಿಂದ ತೆಗೆಯಲಾಗಿದೆ
 
 ## Desktop
 

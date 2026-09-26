@@ -225,6 +225,7 @@ deleted = { trash } 에서 { $items }개의 항목을 제거했습니다
 reload-folder = 폴더 새로고침
 favorite-path-error = 디렉터리를 여는 중 오류가 발생했습니다
 remove-from-sidebar = 사이드 바에서 제거
+removed-from-sidebar = 사이드 바에서 { $name }을(를) 제거했습니다
 restoring = { trash } 에서 { $items }개의 항목을 복구 중 ({ $progress })...
 gallery-preview = 갤러리 미리보기
 sort-smallest-to-largest = 작은 항목부터 큰 항목

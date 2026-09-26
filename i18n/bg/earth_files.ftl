@@ -393,6 +393,7 @@ open-in-terminal = Отваряне в терминала
 move-to-trash = Преместване в кошчето
 restore-from-trash = Възстановяване от кошчето
 remove-from-sidebar = Премахване от стр. лента
+removed-from-sidebar = { $name } е премахнат от страничната лента
 remove-from-recents = Премахване от скорошни
 
 ## Desktop

@@ -290,6 +290,7 @@ open-in-terminal = Öppna i terminal
 move-to-trash = Flytta till papperskorg
 restore-from-trash = Återställ från papperskorgen
 remove-from-sidebar = Ta bort från sidofält
+removed-from-sidebar = { $name } togs bort från sidofältet
 
 ## Skrivbord
 

@@ -258,6 +258,7 @@ open-in-terminal = Opna í skjáhermi
 move-to-trash = Færa í ruslið
 restore-from-trash = Endurheimta úr ruslinu
 remove-from-sidebar = Fjarlægja af hliðarstiku
+removed-from-sidebar = { $name } fjarlægt af hliðarstiku
 remove-from-recents = Fjarlægja úr nýlegu
 reload-folder = Endurhlaða möppu
 rename = Endurnefna...

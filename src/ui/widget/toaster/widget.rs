@@ -197,8 +197,9 @@ where
 
         let offset = 15.;
 
+        // In the bottom-right corner, clear of the edges by `offset`.
         let position = Point::new(
-            (bounds.width / 2.) - (node.size().width / 2.),
+            bounds.width - (node.size().width + offset),
             bounds.height - (node.size().height + offset),
         );
 

@@ -107,6 +107,7 @@ open-in-terminal = Otevřít v terminálu
 move-to-trash = Přesunout do koše
 restore-from-trash = Obnovit z koše
 remove-from-sidebar = Odstranit z postranního panelu
+removed-from-sidebar = { $name } odstraněno z postranního panelu
 
 # Menu
 

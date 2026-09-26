@@ -127,6 +127,30 @@ impl<'a, Message: Clone + 'static> NavBar<'a, Message> {
         self
     }
 
+    /// Let the entries `reorderable` answers `true` for be dragged to a new
+    /// place among themselves, or off the panel. See
+    /// [`segmented_button::SegmentedButton::reorderable`].
+    pub fn reorderable(mut self, reorderable: impl Fn(Id) -> bool + 'static) -> Self {
+        self.segmented_button = self.segmented_button.reorderable(reorderable);
+        self
+    }
+
+    /// Let a single folder dragged from the file view be pinned, when
+    /// `can_pin` answers `true` for it.
+    pub fn can_pin(mut self, can_pin: impl Fn(&std::path::Path) -> bool + 'static) -> Self {
+        self.segmented_button = self.segmented_button.can_pin(can_pin);
+        self
+    }
+
+    /// Emitted when a drag ends in a change to the panel.
+    pub fn on_nav_drop(
+        mut self,
+        on_nav_drop: impl Fn(segmented_button::NavDrop) -> Message + 'static,
+    ) -> Self {
+        self.segmented_button = self.segmented_button.on_nav_drop(on_nav_drop);
+        self
+    }
+
     pub fn with_positioner(mut self, positioner: crate::ui::surface::Positioner) -> Self {
         self.segmented_button = self.segmented_button.with_positioner(positioner);
         self
@@ -168,6 +192,8 @@ impl<'a, Message: Clone + 'static> From<NavBar<'a, Message>>
             .style(crate::ui::theme::SegmentedButton::NavBar)
             .font_size(FONT_SIZE)
             .indent_spacing(INDENT_SPACING)
+            // Directly in the scrollable below, with nothing above it.
+            .at_scrollable_top(true)
             .apply(container)
             .padding(
                 Padding::ZERO

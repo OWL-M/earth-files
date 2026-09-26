@@ -375,6 +375,7 @@ move-to = Move to...
 move-to-trash = Move to trash
 restore-from-trash = Restore from trash
 remove-from-sidebar = Remove from sidebar
+removed-from-sidebar = Removed { $name } from sidebar
 change-sidebar-label = Change sidebar label
 remove-from-recents = Remove from recents
 

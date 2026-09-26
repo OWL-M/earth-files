@@ -318,6 +318,7 @@ open-in-terminal = باز کردن در ترمینال
 move-to-trash = انتقال به زباله‌دان
 restore-from-trash = بازیابی از زباله‌دان
 remove-from-sidebar = حذف از نوار کناری
+removed-from-sidebar = { $name } از نوار کناری حذف شد
 remove-from-recents = حذف از موارد اخیر
 
 ## Desktop

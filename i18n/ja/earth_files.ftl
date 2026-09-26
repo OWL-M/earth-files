@@ -213,6 +213,7 @@ open-in-terminal = 端末で開く
 move-to-trash = ゴミ箱に移動
 restore-from-trash = ゴミ箱から復元
 remove-from-sidebar = サイドバーから削除
+removed-from-sidebar = { $name } をサイドバーから削除しました
 
 # Menu
 

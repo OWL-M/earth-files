@@ -331,6 +331,7 @@ move-to = Mover a...
 move-to-trash = Mover ao lixo
 restore-from-trash = Recuperar do lixo
 remove-from-sidebar = Eliminar do panel lateral
+removed-from-sidebar = Eliminouse { $name } do panel lateral
 remove-from-recents = Eliminar de recentes
 new-tab = Nova lapela
 reload-folder = Recargar cartafol

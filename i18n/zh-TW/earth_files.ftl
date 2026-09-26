@@ -218,6 +218,7 @@ open-in-terminal = 在終端機中開啟
 move-to-trash = 丟入垃圾桶
 restore-from-trash = 從垃圾桶還原
 remove-from-sidebar = 從側邊欄移除
+removed-from-sidebar = 已從側邊欄移除 { $name }
 
 # Menu
 

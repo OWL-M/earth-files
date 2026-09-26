@@ -356,6 +356,7 @@ open-in-terminal = Im Terminal öffnen
 move-to-trash = In den Papierkorb verschieben
 restore-from-trash = Aus dem Papierkorb wiederherstellen
 remove-from-sidebar = Aus der Seitenleiste entfernen
+removed-from-sidebar = { $name } aus der Seitenleiste entfernt
 
 ## Desktop
 

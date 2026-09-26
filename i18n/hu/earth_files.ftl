@@ -377,6 +377,7 @@ open-in-terminal = Megnyitás a terminálban
 move-to-trash = Áthelyezés a Kukába
 restore-from-trash = Visszaállítás a Kukából
 remove-from-sidebar = Eltávolítás az oldalsávról
+removed-from-sidebar = { $name } eltávolítva az oldalsávról
 remove-from-recents = Eltávolítás a legutóbbiak közül
 
 ## Desktop

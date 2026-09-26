@@ -383,6 +383,7 @@ open-in-terminal = Abrir no terminal
 move-to-trash = Mover para a lixeira
 restore-from-trash = Restaurar da lixeira
 remove-from-sidebar = Remover da barra lateral
+removed-from-sidebar = { $name } removido da barra lateral
 change-sidebar-label = Alterar legenda da barra lateral
 remove-from-recents = Remover dos itens recentes
 

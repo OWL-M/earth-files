@@ -431,6 +431,7 @@ open-in-terminal = Otvoriť v termináli
 move-to-trash = Presunúť do koša
 restore-from-trash = Obnoviť z koša
 remove-from-sidebar = Odstrániť z bočného panela
+removed-from-sidebar = { $name } odstránené z bočného panela
 remove-from-recents = Odstrániť z nedávnych
 
 ## Desktop

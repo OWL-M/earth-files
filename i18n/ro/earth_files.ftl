@@ -352,6 +352,7 @@ open-in-terminal = Deschide în terminal
 move-to-trash = Mută în coș
 restore-from-trash = Recuperează din coș
 remove-from-sidebar = Elimină din bara laterală
+removed-from-sidebar = { $name } a fost eliminat din bara laterală
 
 ## Desktop
 

@@ -715,6 +715,7 @@ mod tests {
         let mut config = Config {
             show_details: true,
             show_recents: false,
+            recents_position: Some(2),
             ..Config::default()
         };
         config.favorites = vec![

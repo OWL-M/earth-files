@@ -4,8 +4,10 @@
 //! Vendored from pop-os/libcosmic, src/widget/segmented_button/widget.rs
 
 use super::model::{Entity, Model, Selectable};
-use super::{InsertPosition, ReorderEvent};
+use super::nav_drag::{self, Change, NavState};
+use super::{InsertPosition, NavDrop, ReorderEvent};
 use crate::ui::Renderer;
+use crate::ui::dnd::LocalPayload;
 use crate::ui::shell::runner::{WindowingSystem, windowing_system};
 use crate::ui::theme::SegmentedButton as Style;
 use crate::ui::widget::menu::{
@@ -36,6 +38,7 @@ use std::collections::HashSet;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::marker::PhantomData;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -44,6 +47,7 @@ use crate::ui::convert::{ToColor, ToRadius};
 /// The message for a drop target changing: the button and whether the drop is
 /// a file drop, or `None` when nothing is hovered
 type OnDropHint<Message> = Box<dyn Fn(Option<(Entity, bool)>) -> Message + 'static>;
+type CanPin = Box<dyn Fn(&Path) -> bool + 'static>;
 
 type Plain = iced_core::text::paragraph::Plain<
     <crate::ui::Renderer as iced_core::text::Renderer>::Paragraph,
@@ -53,6 +57,9 @@ thread_local! {
     // Prevents two segmented buttons from being focused at the same time.
     static LAST_FOCUS_UPDATE: LazyCell<Cell<Instant>> = LazyCell::new(|| Cell::new(Instant::now()));
 }
+
+/// How opaque a sidebar entry is drawn while it is dragged.
+const DRAGGED_ALPHA: f32 = 0.4;
 
 // Under `earth_files` so `RUST_LOG=earth_files=trace` reaches it.
 const TAB_REORDER_LOG_TARGET: &str = "earth_files::widget::tab_reorder";
@@ -199,6 +206,19 @@ where
 
     #[setters(skip)]
     pub(super) on_reorder: Option<Box<dyn Fn(ReorderEvent) -> Message + 'static>>,
+    /// Which entries a sidebar lets the user drag to a new place; see
+    /// [`Self::reorderable`].
+    #[setters(skip)]
+    pub(super) reorderable: Option<Box<dyn Fn(Entity) -> bool + 'static>>,
+    /// Which folders dragged from the file view can be pinned.
+    #[setters(skip)]
+    pub(super) can_pin: Option<CanPin>,
+    #[setters(skip)]
+    pub(super) on_nav_drop: Option<Box<dyn Fn(NavDrop) -> Message + 'static>>,
+    /// The widget sits at the top of a vertical scrollable, which is how a
+    /// drag's window coordinates are turned into its own; see
+    /// [`Self::to_content`].
+    pub(super) at_scrollable_top: bool,
     #[setters(skip)]
     window_id: window::Id,
     positioner: crate::ui::surface::Positioner,
@@ -253,6 +273,10 @@ where
             on_drop_hint: None,
             on_file_drop: None,
             on_reorder: None,
+            reorderable: None,
+            can_pin: None,
+            on_nav_drop: None,
+            at_scrollable_top: false,
             window_id: crate::ui::window::reserved(),
             positioner: crate::ui::surface::Positioner::default(),
             on_surface_action: None,
@@ -398,6 +422,36 @@ where
     /// Emit a message when a tab drag is dropped inside this widget.
     pub fn on_reorder(mut self, callback: impl Fn(ReorderEvent) -> Message + 'static) -> Self {
         self.on_reorder = Some(Box::new(callback));
+        self
+    }
+
+    /// Let the user drag the entries `reorderable` answers `true` for to a
+    /// new place among themselves, as in the sidebar. A drag of one starts
+    /// once the pointer has moved 8 px, and opens a gap half an entry tall
+    /// where it would land; how it ends goes to [`Self::on_nav_drop`].
+    ///
+    /// Vertical only: the gap is drawn by the vertical layout.
+    pub fn reorderable(mut self, reorderable: impl Fn(Entity) -> bool + 'static) -> Self {
+        self.reorderable = Some(Box::new(reorderable));
+        self.tab_drag = Some(TabDragSource {
+            payload: LocalPayload::NavEntry,
+            ..TabDragSource::new(String::from(crate::ui::dnd::NAV_DRAG_MIME))
+        });
+        self
+    }
+
+    /// Let a single folder dragged from this app's file view be pinned, when
+    /// `can_pin` answers `true` for it: near the top or bottom edge of an
+    /// entry that can move, a gap opens and a drop there pins it.
+    pub fn can_pin(mut self, can_pin: impl Fn(&Path) -> bool + 'static) -> Self {
+        self.can_pin = Some(Box::new(can_pin));
+        self
+    }
+
+    /// Emitted when a drag of an entry, or of a folder to pin, ends in a
+    /// change to the sidebar; see [`NavDrop`].
+    pub fn on_nav_drop(mut self, on_nav_drop: impl Fn(NavDrop) -> Message + 'static) -> Self {
+        self.on_nav_drop = Some(Box::new(on_nav_drop));
         self
     }
 
@@ -751,6 +805,219 @@ where
             .next()
     }
 
+    /// The rows' tops as laid out with no gap, relative to the widget's top,
+    /// in model order. Mirrors the vertical `variant_bounds`.
+    pub(super) fn nav_tops(&self, state: &LocalState) -> Vec<f32> {
+        let spacing = f32::from(self.spacing);
+        let mut y = 0.0;
+        let mut tops = Vec::with_capacity(self.model.order.len());
+        for (nth, key) in self.model.order.iter().copied().enumerate() {
+            if nth > 0 && self.model.divider_above(key).unwrap_or(false) {
+                y += 1.0 + spacing;
+            }
+            tops.push(y);
+            y += state
+                .internal_layout
+                .get(nth)
+                .map_or(f32::from(self.button_height), |(size, _)| size.height)
+                + spacing;
+        }
+        tops
+    }
+
+    /// A fingerprint of the labels in order; see [`nav_drag::labels`].
+    pub(super) fn nav_labels(&self) -> u64 {
+        nav_drag::labels(self.model.order.iter().map(|&key| self.model.text(key)))
+    }
+
+    fn nav_row_height(&self, state: &LocalState) -> f32 {
+        state
+            .internal_layout
+            .first()
+            .map_or(f32::from(self.button_height), |(size, _)| size.height)
+    }
+
+    /// The gap is half an entry tall.
+    fn nav_gap_height(&self, state: &LocalState) -> f32 {
+        self.nav_row_height(state) / 2.0
+    }
+
+    /// The rows that can move, by position.
+    fn nav_run(&self) -> Vec<usize> {
+        let Some(reorderable) = self.reorderable.as_ref() else {
+            return Vec::new();
+        };
+        self.model
+            .order
+            .iter()
+            .enumerate()
+            .filter(|(_, key)| reorderable(**key))
+            .map(|(nth, _)| nth)
+            .collect()
+    }
+
+    /// The entry a gap opens above, if it can move; `None` for the gap after
+    /// the last entry that can.
+    fn nav_before(&self, gap: usize) -> Option<Entity> {
+        let reorderable = self.reorderable.as_ref()?;
+        self.model
+            .order
+            .get(gap)
+            .copied()
+            .filter(|key| reorderable(*key))
+    }
+
+    /// A drag's position, in window coordinates, in this widget's own.
+    ///
+    /// Inside a scrollable a widget is laid out as if nothing were scrolled,
+    /// and the scrollable hands its content a viewport moved by the scroll.
+    /// At the top of the scrollable the widget's top is the scrollable's, so
+    /// the scroll is how far the viewport's top is below it.
+    fn to_content(&self, state: &LocalState, bounds: Rectangle, point: Point) -> Point {
+        if self.at_scrollable_top {
+            Point::new(point.x, point.y + state.nav.viewport.y - bounds.y)
+        } else {
+            point
+        }
+    }
+
+    /// Whether a drag at `point`, in window coordinates, is over the sidebar:
+    /// the whole scrollable it sits in, entries or not.
+    fn over_sidebar(&self, state: &LocalState, bounds: Rectangle, point: Point) -> bool {
+        if self.at_scrollable_top {
+            let viewport = state.nav.viewport;
+            Rectangle {
+                y: bounds.y,
+                ..viewport
+            }
+            .contains(point)
+        } else {
+            bounds.contains(point)
+        }
+    }
+
+    /// Open the gap above row `gap`, or close it, and lay out again when the
+    /// sidebar's height changed.
+    fn set_nav_gap(
+        &self,
+        state: &mut LocalState,
+        gap: Option<usize>,
+        shell: &mut Shell<'_, Message>,
+    ) {
+        let height = self.nav_gap_height(state);
+        if state.nav.set_gap(gap, height) {
+            shell.invalidate_layout();
+            shell.request_redraw();
+        }
+    }
+
+    /// The folder a file drag carries, if it is the one folder, dragged from
+    /// this app, that can be pinned. Worked out once per drag.
+    fn pinnable(&self, state: &mut LocalState, drag: &crate::ui::dnd::Drag) -> Option<PathBuf> {
+        let can_pin = self.can_pin.as_ref()?;
+        self.on_nav_drop.as_ref()?;
+        if let Some((id, path)) = &state.nav.pin_checked
+            && *id == drag.id
+        {
+            return path.clone();
+        }
+        let path = match crate::ui::dnd::local_payload() {
+            Some(LocalPayload::Paths(paths)) if paths.len() == 1 => paths.into_iter().next(),
+            _ => None,
+        }
+        .filter(|path| can_pin(path));
+        state.nav.pin_checked = Some((drag.id, path.clone()));
+        path
+    }
+
+    /// Advance a live drag of one of the sidebar's own entries.
+    ///
+    /// Like [`Self::poll_tab_drag`], and for the same reason, polled on the
+    /// redraw it requests. Over the sidebar, the gap follows the pointer; a
+    /// drop there moves the entry to it. A drop anywhere else in the window,
+    /// or outside it where the compositor says the drop was made, unpins it.
+    /// A cancel, such as Esc, leaves everything where it was.
+    fn poll_nav_drag(
+        &self,
+        state: &mut LocalState,
+        bounds: Rectangle,
+        shell: &mut Shell<'_, Message>,
+    ) {
+        let Some(dragged) = state.dragging_tab else {
+            return;
+        };
+        let drag = crate::ui::dnd::drag().filter(|drag| {
+            !drag.files && crate::ui::dnd::local_payload() == Some(LocalPayload::NavEntry)
+        });
+        let Some(drag) = drag else {
+            // `ui::dnd` lost the drag underneath us: put everything back.
+            state.dragging_tab = None;
+            self.set_nav_gap(state, None, shell);
+            return;
+        };
+
+        if !drag.ended {
+            shell.request_redraw();
+        }
+
+        let over = drag
+            .position
+            .map(|(x, y)| Point::new(x, y))
+            .filter(|point| self.over_sidebar(state, bounds, *point));
+        let tops = self.nav_tops(state);
+        let gap = over.and_then(|point| {
+            nav_drag::nearest_gap(
+                &self.nav_run(),
+                &tops,
+                self.nav_row_height(state),
+                state.nav.gap(),
+                self.nav_gap_height(state),
+                self.to_content(state, bounds, point).y - bounds.y,
+            )
+        });
+        self.set_nav_gap(state, gap, shell);
+
+        if !drag.ended {
+            return;
+        }
+
+        if let Some(on_nav_drop) = self.on_nav_drop.as_ref()
+            && let Some(from) = self.model.position(dragged).map(usize::from)
+        {
+            let now = Instant::now();
+            if drag.dropped && over.is_some() {
+                if let Some(gap) = gap
+                    && gap != from
+                    && gap != from + 1
+                {
+                    state
+                        .nav
+                        .expect(Change::Move { from, gap }, &tops, self.nav_labels(), now);
+                    shell.publish(on_nav_drop(NavDrop::Move {
+                        dragged,
+                        before: self.nav_before(gap),
+                    }));
+                }
+            } else if (drag.dropped && drag.position.is_some()) || drag.performed {
+                state
+                    .nav
+                    .expect(Change::Remove { from }, &tops, self.nav_labels(), now);
+                shell.publish(on_nav_drop(NavDrop::Unpin(dragged)));
+            }
+        }
+
+        // Nothing reads an entry drag's placeholder, and until the drop on
+        // our surface is finished the compositor may keep the drag going;
+        // see `finish_drop_unread`.
+        if drag.dropped {
+            crate::ui::dnd::finish_drop_unread();
+        }
+        state.dragging_tab = None;
+        self.set_nav_gap(state, None, shell);
+        crate::ui::dnd::end_drag();
+        shell.request_redraw();
+    }
+
     fn start_tab_drag(
         &self,
         state: &mut LocalState,
@@ -781,9 +1048,14 @@ where
         let _ = clipboard;
         state.tab_drag_candidate = None;
 
-        if crate::ui::dnd::start_drag(&tab_drag.mime) {
+        if crate::ui::dnd::start_drag(&tab_drag.mime, tab_drag.payload.clone()) {
             state.dragging_tab = Some(entity);
             state.drop_hint = None;
+            // The compositor keeps the release, so nothing else would let go
+            // of the entry's pressed look while it is dragged.
+            if self.reorderable.is_some() {
+                state.pressed_item = None;
+            }
             log::debug!(
                 target: TAB_REORDER_LOG_TARGET,
                 "tab drag started entity={entity:?}"
@@ -850,6 +1122,12 @@ where
             shell.publish(on_reorder(reorder));
         }
 
+        // Nothing reads a tab drag's placeholder, wherever on our surface it
+        // was dropped, and until that drop is finished the compositor may keep
+        // the drag going; see `finish_drop_unread`.
+        if drag.dropped {
+            crate::ui::dnd::finish_drop_unread();
+        }
         state.dragging_tab = None;
         state.drop_hint = None;
         self.emit_drop_hint(shell, None);
@@ -877,6 +1155,10 @@ where
             if state.file_drop_target.take().is_some() {
                 shell.request_redraw();
             }
+            // The gap of an entry drag is `poll_nav_drag`'s to close.
+            if state.dragging_tab.is_none() {
+                self.set_nav_gap(state, None, shell);
+            }
             return;
         };
 
@@ -884,13 +1166,43 @@ where
             shell.request_redraw();
         }
 
-        // `Drag::position` is already in iced's layout space, and
-        // `variant_bounds` lays these rectangles out in the same space as
-        // `bounds`, so there is nothing further to convert here.
-        let target = drag
+        // An ended drag stays readable until the next one starts (see
+        // `ui::dnd::end_drag`), so widget visitation order does not matter.
+        // Handle the end once, rather than on each subsequent pass, and leave
+        // it alone after that: working out its gap and highlight again would
+        // put them back on screen until the next drag. By `id`, because the
+        // source's own `dnd_finished` or `cancelled` still bumps `generation`
+        // after the drop.
+        if drag.ended && state.file_drag_done == Some(drag.id) {
+            return;
+        }
+
+        // `Drag::position` is in window coordinates; `to_content` takes them
+        // to this widget's, which differ only inside a scrolled sidebar.
+        let point = drag
             .position
             .map(|(x, y)| Point::new(x, y))
-            .filter(|point| bounds.contains(*point))
+            .filter(|point| self.over_sidebar(state, bounds, *point))
+            .map(|point| self.to_content(state, bounds, point));
+
+        // Near the edge of an entry that can move, a folder that can be
+        // pinned opens the gap, and the entry is not a destination.
+        let pin = self.pinnable(state, &drag);
+        let tops = self.nav_tops(state);
+        let pin_gap = pin.as_ref().and(point).and_then(|point| {
+            nav_drag::pin_gap(
+                &self.nav_run(),
+                &tops,
+                self.nav_row_height(state),
+                state.nav.gap(),
+                self.nav_gap_height(state),
+                point.y - bounds.y,
+            )
+        });
+        self.set_nav_gap(state, pin_gap, shell);
+
+        let target = point
+            .filter(|point| pin_gap.is_none() && bounds.contains(*point))
             .and_then(|point| {
                 self.variant_bounds(state, bounds)
                     .find_map(|item| match item {
@@ -910,22 +1222,34 @@ where
         if !drag.ended {
             return;
         }
-
-        // An ended drag stays readable until the next one starts (see
-        // `ui::dnd::end_drag`), so widget visitation order does not matter.
-        // Handle the end once, rather than on each subsequent pass.
-        if state.file_drag_done == Some(drag.generation) {
-            return;
-        }
-        state.file_drag_done = Some(drag.generation);
+        state.file_drag_done = Some(drag.id);
 
         if drag.dropped
+            && let Some(gap) = pin_gap
+            && let Some(path) = pin
+            && let Some(on_nav_drop) = self.on_nav_drop.as_ref()
+        {
+            state.nav.expect(
+                Change::Add { gap },
+                &tops,
+                self.nav_labels(),
+                Instant::now(),
+            );
+            shell.publish(on_nav_drop(NavDrop::Pin {
+                path,
+                before: self.nav_before(gap),
+            }));
+            // Pinning needs only the path already known, not the drop's
+            // payload; see `finish_drop_unread`.
+            crate::ui::dnd::finish_drop_unread();
+        } else if drag.dropped
             && let Some(entity) = target
             && let Some(message) = on_file_drop(entity)
         {
             shell.publish(message);
         }
 
+        self.set_nav_gap(state, None, shell);
         state.file_drop_target = None;
         // This bar ends the drag rather than leaving it to the file view,
         // because the bar is drawn in states with no file list, such as an
@@ -1197,6 +1521,7 @@ where
             drop_hint: None,
             file_drop_target: None,
             file_drag_done: None,
+            nav: NavState::default(),
         })
     }
 
@@ -1259,6 +1584,14 @@ where
         let my_bounds = layout.bounds();
         let state = tree.state.downcast_mut::<LocalState>();
 
+        // See `Self::to_content`.
+        state.nav.viewport = *viewport;
+        if let Event::Window(window::Event::RedrawRequested(now)) = event
+            && state.nav.tick(*now)
+        {
+            shell.request_redraw();
+        }
+
         // The compositor dismissed our context menu popup: nothing else tells this state
         // about it. iced has no `PlatformSpecific::Wayland` event
         // carrying the dismissed popup's id, so the shell records it and we
@@ -1299,7 +1632,11 @@ where
         // A Wayland drag steals the pointer, so the drag is polled rather than
         // delivered. See `Self::poll_tab_drag`.
         if state.dragging_tab.is_some() {
-            self.poll_tab_drag(state, my_bounds, shell);
+            if self.reorderable.is_some() {
+                self.poll_nav_drag(state, my_bounds, shell);
+            } else {
+                self.poll_tab_drag(state, my_bounds, shell);
+            }
         }
         // Unconditional, unlike the tab drag's: this widget is the destination,
         // so it has no state of its own saying a drag has begun and the poll is
@@ -1455,6 +1792,10 @@ where
                         }
 
                         if self.tab_drag.is_some()
+                            && self
+                                .reorderable
+                                .as_ref()
+                                .is_none_or(|reorderable| reorderable(key))
                             && matches!(
                                 event,
                                 Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left))
@@ -2061,7 +2402,7 @@ where
             let key_is_active = self.model.is_active(key);
             let key_is_focused = state.focused_visible && self.button_is_focused(state, key);
             let key_is_hovered = self.button_is_hovered(state, key);
-            let status_appearance = if self.button_is_pressed(state, key) {
+            let mut status_appearance = if self.button_is_pressed(state, key) {
                 appearance.pressed
             } else if key_is_hovered || menu_open() {
                 appearance.hover
@@ -2070,6 +2411,10 @@ where
             } else {
                 appearance.inactive
             };
+            // A sidebar entry being dragged stays in place, faded.
+            if self.reorderable.is_some() && state.dragging_tab == Some(key) {
+                status_appearance.text_color.a *= DRAGGED_ALPHA;
+            }
 
             let button_appearance = if nth == 0 {
                 status_appearance.first
@@ -2444,6 +2789,8 @@ where
 struct TabDragSource<Message> {
     mime: String,
     threshold: f32,
+    /// What the drag carries as far as this app is concerned.
+    payload: crate::ui::dnd::LocalPayload,
     _marker: PhantomData<Message>,
 }
 
@@ -2452,6 +2799,7 @@ impl<Message> TabDragSource<Message> {
         Self {
             mime,
             threshold: 8.0,
+            payload: crate::ui::dnd::LocalPayload::Tab,
             _marker: PhantomData,
         }
     }
@@ -2505,9 +2853,10 @@ pub struct LocalState {
     /// The button a live *file* drag is over and would drop into. Drawn
     /// hovered; see `button_is_hovered`.
     file_drop_target: Option<Entity>,
-    /// The generation of the file drag this bar has already finished with, so
-    /// a retired drag, which stays readable until the next one starts, is
-    /// acted on exactly once rather than on every pass that follows it.
+    /// The [`id`](crate::ui::dnd::Drag::id) of the file drag this bar has
+    /// already finished with, so a retired drag, which stays readable until
+    /// the next one starts, is acted on exactly once rather than on every
+    /// pass that follows it.
     file_drag_done: Option<u64>,
     /// Time since last tab activation from wheel movements.
     wheel_timestamp: Option<Instant>,
@@ -2524,6 +2873,8 @@ pub struct LocalState {
     dragging_tab: Option<Entity>,
     /// Current drop hint for drag-and-drop indicator
     drop_hint: Option<DropHint>,
+    /// The sidebar's gap and moving rows; see [`Self::reorderable`](SegmentedButton::reorderable).
+    pub(super) nav: NavState,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -2655,6 +3006,7 @@ mod tests {
             drop_hint: None,
             file_drop_target: None,
             file_drag_done: None,
+            nav: NavState::default(),
         };
         state.buttons_visible = len;
         state.known_length = len;
@@ -2797,6 +3149,302 @@ mod tests {
             height: 30.0 - padding.top - padding.bottom,
         };
         close_bounds(first, f32::from(button.close_icon.size)).center()
+    }
+
+    /// What the sidebar tests' widget publishes.
+    #[derive(Clone, Debug, PartialEq)]
+    enum SidebarMsg {
+        Nav(NavDrop),
+        /// Files dropped into an entry.
+        Into(segmented_button::Entity),
+    }
+
+    /// A sidebar of four 32 px rows: three that can move and a fixed one
+    /// below, like Trash. It can pin `/pin` and nothing else.
+    struct Sidebar {
+        model: segmented_button::SingleSelectModel,
+        ids: Vec<segmented_button::Entity>,
+        tree: Tree,
+        renderer: crate::ui::Renderer,
+    }
+
+    /// The sidebar's bounds; wider than laid out, as the panel is.
+    const SIDEBAR: Rectangle = Rectangle {
+        x: 0.0,
+        y: 0.0,
+        width: 200.0,
+        height: 400.0,
+    };
+
+    impl Sidebar {
+        fn new() -> Self {
+            let mut ids = Vec::new();
+            let model = segmented_button::Model::builder()
+                .insert(|b| b.text("Recents").with_id(|id| ids.push(id)))
+                .insert(|b| b.text("Home").with_id(|id| ids.push(id)))
+                .insert(|b| b.text("Music").with_id(|id| ids.push(id)))
+                .insert(|b| b.text("Trash").with_id(|id| ids.push(id)))
+                .build();
+            let mut sidebar = Self {
+                model,
+                ids,
+                tree: Tree::empty(),
+                renderer: iced_texture_cache::testing::headless_tiny_skia(),
+            };
+            let widget = sidebar.widget();
+            let tree = Tree::new(&widget as &dyn Widget<SidebarMsg, crate::ui::Theme, Renderer>);
+            drop(widget);
+            sidebar.tree = tree;
+            sidebar.lay_out();
+            sidebar
+        }
+
+        fn widget(
+            &self,
+        ) -> segmented_button::VerticalSegmentedButton<'_, segmented_button::SingleSelect, SidebarMsg>
+        {
+            sidebar_widget(&self.model, &self.ids)
+        }
+
+        /// Lays the sidebar out, returning its height.
+        fn lay_out(&mut self) -> f32 {
+            let mut widget = sidebar_widget(&self.model, &self.ids);
+            widget
+                .layout(
+                    &mut self.tree,
+                    &self.renderer,
+                    &layout::Limits::new(Size::ZERO, SIDEBAR.size()),
+                )
+                .size()
+                .height
+        }
+
+        fn state(&mut self) -> &mut LocalState {
+            self.tree.state.downcast_mut::<LocalState>()
+        }
+
+        /// Polls the drag `drag`, carrying `local`, as a redraw would.
+        fn poll(
+            &mut self,
+            drag: crate::ui::dnd::Drag,
+            local: Option<LocalPayload>,
+        ) -> Vec<SidebarMsg> {
+            crate::ui::dnd::fake::set(drag, local);
+            let mut messages = Vec::new();
+            let widget = sidebar_widget(&self.model, &self.ids);
+            let state = self.tree.state.downcast_mut::<LocalState>();
+            let mut shell = Shell::new(&mut messages);
+            if state.dragging_tab.is_some() {
+                widget.poll_nav_drag(state, SIDEBAR, &mut shell);
+            }
+            widget.poll_file_drop(state, SIDEBAR, &mut shell);
+            drop(widget);
+            messages
+        }
+    }
+
+    /// The sidebar tests' widget; see [`Sidebar`].
+    fn sidebar_widget<'a>(
+        model: &'a segmented_button::SingleSelectModel,
+        ids: &[segmented_button::Entity],
+    ) -> segmented_button::VerticalSegmentedButton<'a, segmented_button::SingleSelect, SidebarMsg>
+    {
+        let run = ids[..3].to_vec();
+        segmented_button::vertical(model)
+            .reorderable(move |entity| run.contains(&entity))
+            .can_pin(|path| path == Path::new("/pin"))
+            .on_nav_drop(SidebarMsg::Nav)
+            .on_file_drop(|entity| Some(SidebarMsg::Into(entity)))
+    }
+
+    fn at(x: f32, y: f32) -> crate::ui::dnd::Drag {
+        crate::ui::dnd::Drag {
+            position: Some((x, y)),
+            ..crate::ui::dnd::Drag::default()
+        }
+    }
+
+    fn dropped_at(x: f32, y: f32) -> crate::ui::dnd::Drag {
+        crate::ui::dnd::Drag {
+            dropped: true,
+            ended: true,
+            ..at(x, y)
+        }
+    }
+
+    fn files(drag: crate::ui::dnd::Drag) -> crate::ui::dnd::Drag {
+        crate::ui::dnd::Drag {
+            files: true,
+            ..drag
+        }
+    }
+
+    #[test]
+    fn a_dragged_entry_opens_the_gap_and_moves_there() {
+        let mut sidebar = Sidebar::new();
+        assert_eq!(sidebar.lay_out(), 128.0);
+        let music = sidebar.ids[2];
+        sidebar.state().dragging_tab = Some(music);
+
+        // Over the top of Recents: the gap opens above it.
+        assert_eq!(
+            sidebar.poll(at(10.0, 5.0), Some(LocalPayload::NavEntry)),
+            []
+        );
+        assert_eq!(sidebar.state().nav.gap(), Some(0));
+        assert_eq!(sidebar.lay_out(), 128.0 + 16.0);
+
+        assert_eq!(
+            sidebar.poll(dropped_at(10.0, 5.0), Some(LocalPayload::NavEntry)),
+            [SidebarMsg::Nav(NavDrop::Move {
+                dragged: music,
+                before: Some(sidebar.ids[0]),
+            })]
+        );
+        assert_eq!(sidebar.state().dragging_tab, None);
+        assert_eq!(sidebar.state().nav.gap(), None);
+    }
+
+    #[test]
+    fn the_gap_never_opens_below_a_fixed_entry() {
+        let mut sidebar = Sidebar::new();
+        sidebar.state().dragging_tab = Some(sidebar.ids[0]);
+        // Over Trash and below it: the gap stays above Trash.
+        let _ = sidebar.poll(at(10.0, 120.0), Some(LocalPayload::NavEntry));
+        assert_eq!(sidebar.state().nav.gap(), Some(3));
+        assert_eq!(
+            sidebar.poll(dropped_at(10.0, 300.0), Some(LocalPayload::NavEntry)),
+            [SidebarMsg::Nav(NavDrop::Move {
+                dragged: sidebar.ids[0],
+                before: None,
+            })]
+        );
+    }
+
+    #[test]
+    fn a_drop_beside_itself_changes_nothing() {
+        let mut sidebar = Sidebar::new();
+        sidebar.state().dragging_tab = Some(sidebar.ids[1]);
+        // The gap above Music is right below Home.
+        assert_eq!(
+            sidebar.poll(dropped_at(10.0, 66.0), Some(LocalPayload::NavEntry)),
+            []
+        );
+    }
+
+    #[test]
+    fn a_drop_off_the_sidebar_unpins_and_a_cancel_does_not() {
+        let mut sidebar = Sidebar::new();
+        let home = sidebar.ids[1];
+        let off = crate::ui::dnd::Drag {
+            dropped: true,
+            ended: true,
+            ..at(300.0, 50.0)
+        };
+        sidebar.state().dragging_tab = Some(home);
+        assert_eq!(
+            sidebar.poll(off, Some(LocalPayload::NavEntry)),
+            [SidebarMsg::Nav(NavDrop::Unpin(home))]
+        );
+
+        // Esc: over, dropped nowhere, and not performed.
+        let cancelled = crate::ui::dnd::Drag {
+            ended: true,
+            ..crate::ui::dnd::Drag::default()
+        };
+        sidebar.state().dragging_tab = Some(home);
+        assert_eq!(sidebar.poll(cancelled, Some(LocalPayload::NavEntry)), []);
+
+        // Let go outside the window, where the compositor says so.
+        sidebar.state().dragging_tab = Some(home);
+        assert_eq!(
+            sidebar.poll(
+                crate::ui::dnd::Drag {
+                    performed: true,
+                    ..cancelled
+                },
+                Some(LocalPayload::NavEntry)
+            ),
+            [SidebarMsg::Nav(NavDrop::Unpin(home))]
+        );
+    }
+
+    #[test]
+    fn a_folder_near_an_edge_is_pinned_in_the_gap() {
+        let mut sidebar = Sidebar::new();
+        let pin = Some(LocalPayload::Paths(vec![PathBuf::from("/pin")]));
+        // The top quarter of Home, which spans 32..64.
+        assert_eq!(sidebar.poll(files(at(10.0, 34.0)), pin.clone()), []);
+        assert_eq!(sidebar.state().nav.gap(), Some(1));
+        assert_eq!(sidebar.state().file_drop_target, None);
+        assert_eq!(
+            sidebar.poll(files(dropped_at(10.0, 34.0)), pin),
+            [SidebarMsg::Nav(NavDrop::Pin {
+                path: PathBuf::from("/pin"),
+                before: Some(sidebar.ids[1]),
+            })]
+        );
+        assert_eq!(sidebar.state().nav.gap(), None);
+    }
+
+    /// A finished drag stays readable until the next one starts, and every
+    /// redraw polls it again: that must not open its gap once more.
+    #[test]
+    fn a_finished_pin_leaves_no_gap_behind() {
+        let mut sidebar = Sidebar::new();
+        let pin = Some(LocalPayload::Paths(vec![PathBuf::from("/pin")]));
+        let dropped = files(dropped_at(10.0, 34.0));
+        assert_eq!(sidebar.poll(dropped, pin.clone()).len(), 1);
+
+        assert_eq!(sidebar.poll(dropped, pin), []);
+        assert_eq!(sidebar.state().nav.gap(), None);
+        assert_eq!(sidebar.lay_out(), 128.0);
+    }
+
+    #[test]
+    fn a_finished_drop_into_an_entry_leaves_no_highlight() {
+        let mut sidebar = Sidebar::new();
+        let dropped = files(dropped_at(10.0, 48.0));
+        assert_eq!(
+            sidebar.poll(dropped, None),
+            [SidebarMsg::Into(sidebar.ids[1])]
+        );
+
+        assert_eq!(sidebar.poll(dropped, None), []);
+        assert_eq!(sidebar.state().file_drop_target, None);
+    }
+
+    #[test]
+    fn the_middle_of_an_entry_still_takes_the_files() {
+        let mut sidebar = Sidebar::new();
+        let home = sidebar.ids[1];
+        let pin = Some(LocalPayload::Paths(vec![PathBuf::from("/pin")]));
+        assert_eq!(
+            sidebar.poll(files(dropped_at(10.0, 48.0)), pin),
+            [SidebarMsg::Into(home)]
+        );
+    }
+
+    #[test]
+    fn only_one_folder_that_can_be_pinned_opens_the_gap() {
+        for local in [
+            // Not one the app lets pin: already pinned, or not a folder.
+            Some(LocalPayload::Paths(vec![PathBuf::from("/other")])),
+            // More than one.
+            Some(LocalPayload::Paths(vec![
+                PathBuf::from("/pin"),
+                PathBuf::from("/pin"),
+            ])),
+            // From another app.
+            None,
+        ] {
+            let mut sidebar = Sidebar::new();
+            let home = sidebar.ids[1];
+            assert_eq!(
+                sidebar.poll(files(dropped_at(10.0, 34.0)), local),
+                [SidebarMsg::Into(home)]
+            );
+        }
     }
 
     #[test]

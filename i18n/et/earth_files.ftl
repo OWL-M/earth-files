@@ -218,6 +218,7 @@ type-to-search-recursive = Otsing sellest kaustast ja alamkaustadest
 type-to-search-enter-path = Sisestab kausta või faili asukoha
 add-to-sidebar = Lisa külgribale
 remove-from-sidebar = Eemalda külgribalt
+removed-from-sidebar = { $name } eemaldati külgribalt
 copy_noun = Kopeeri
 creating = Loon: „{ $name }“ asukohas „{ $parent }“
 created = „{ $name }“ on loodud asukohta „{ $parent }“

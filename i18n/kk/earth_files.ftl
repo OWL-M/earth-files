@@ -280,6 +280,7 @@ open-in-terminal = Терминалда ашу
 move-to-trash = Қоқыс жәшігіне тастау
 restore-from-trash = Қоқыс жәшігінен қалпына келтіру
 remove-from-sidebar = Бүйірлік панельден өшіру
+removed-from-sidebar = { $name } бүйірлік панельден өшірілді
 remove-from-recents = Соңғылардан өшіру
 file = Файл
 new-tab = Жаңа бет

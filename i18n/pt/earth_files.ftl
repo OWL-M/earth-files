@@ -167,6 +167,7 @@ open-in-terminal = Abrir no terminal
 move-to-trash = Mover para o lixo
 restore-from-trash = Restaurar do lixo
 remove-from-sidebar = Remover da barra lateral
+removed-from-sidebar = { $name } removido da barra lateral
 
 # Menu
 

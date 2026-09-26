@@ -226,6 +226,7 @@ eject = ਬਾਹਰ
 extract-here = ਖਿਲਾਰੋ
 move-to = ਇੱਥੇ ਭੇਜੋ...
 remove-from-sidebar = ਬਾਹੀ ਵਿੱਚੋਂ ਹਟਾਓ
+removed-from-sidebar = { $name } ਨੂੰ ਬਾਹੀ ਵਿੱਚੋਂ ਹਟਾਇਆ ਗਿਆ
 reload-folder = ਫੋਲਡਰ ਨੂੰ ਮੁੜ-ਲੋਡ ਕਰੋ
 list-view = ਸੂਚੀ ਝਲਕ
 menu-about = { earth-files } ਬਾਰੇ...

@@ -63,15 +63,18 @@ where
                 .enumerate()
                 .flat_map(move |(nth, key)| {
                     let mut divider = None;
+                    // Drawn lower while a sidebar drag's gap is above it.
+                    let offset = state.nav.offset(nth);
                     if self.model.divider_above(key).unwrap_or(false) && nth > 0 {
                         let mut divider_bounds = bounds;
                         divider_bounds.height = 1.0;
                         divider_bounds.x += f32::from(self.button_padding[0]);
                         divider_bounds.width -= f32::from(self.button_padding[0]);
                         divider_bounds.width -= f32::from(self.button_padding[2]);
-                        divider = Some(ItemBounds::Divider(divider_bounds, false));
-
                         bounds.y += divider_bounds.height + spacing;
+
+                        divider_bounds.y += offset;
+                        divider = Some(ItemBounds::Divider(divider_bounds, false));
                     }
 
                     let mut layout_bounds = bounds;
@@ -79,6 +82,7 @@ where
                     let layout_size = state.internal_layout[nth].0;
 
                     layout_bounds.height = layout_size.height;
+                    layout_bounds.y += offset;
 
                     bounds.y += layout_bounds.height + spacing;
 
@@ -118,6 +122,14 @@ where
             }
             height += item_height;
         }
+
+        // A model rebuilt by a sidebar drop starts its rows where they were
+        // drawn; see `nav_drag`.
+        let tops = self.nav_tops(state);
+        state
+            .nav
+            .sync(&tops, self.nav_labels(), std::time::Instant::now());
+        height += state.nav.extra_height();
 
         let size = limits.height(Length::Fixed(height)).resolve(
             self.width,

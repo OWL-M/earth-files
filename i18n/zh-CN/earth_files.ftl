@@ -374,6 +374,7 @@ open-in-terminal = 在终端模拟器中打开
 move-to-trash = 移动到回收站
 restore-from-trash = 从回收站中还原
 remove-from-sidebar = 从侧边栏中移除
+removed-from-sidebar = 已从侧边栏中移除 { $name }
 remove-from-recents = 从最近访问中移除
 
 ## Desktop
