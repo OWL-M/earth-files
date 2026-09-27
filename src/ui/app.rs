@@ -43,6 +43,9 @@ pub enum Action {
     NavBarResizeEnd,
     /// A popup has finished collapsing and its surface can go.
     PopupExitFinished(window::Id),
+    /// The popups held back for the batch waiting on removals may go; see
+    /// `shell::popup_queue`.
+    PopupWaitExpired(u64),
     /// Published by `widget::settle_watch` when the context drawer's or the
     /// nav bar's slide comes to rest. Handled as a no-op: the update itself
     /// rebuilds the view, which then lays the panel out at rest.

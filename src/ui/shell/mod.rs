@@ -16,6 +16,7 @@ pub mod core;
 pub mod malloc;
 pub mod panel_slide;
 pub(crate) mod popup_genie;
+pub(crate) mod popup_queue;
 pub mod runner;
 pub mod settings;
 

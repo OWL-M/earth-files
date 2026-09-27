@@ -29,7 +29,9 @@ use super::{Application, Core};
 use crate::ui::app::Task as AppTask;
 use crate::ui::convert::ToColor;
 use crate::ui::iced::{self, Subscription, window};
+use crate::ui::shell::popup_queue;
 use crate::ui::{Element, Theme};
+use iced_exwlshell::actions::IcedNewPopupSettings;
 use std::borrow::Cow;
 use std::cell::RefCell;
 
@@ -270,6 +272,9 @@ pub struct Shell<App: Application> {
     /// Animation state for the popups that asked for it, keyed the same way
     /// as `popup_views`.
     popup_genies: crate::ui::shell::popup_genie::PopupGenies,
+    /// Which of the popups in the thread's [`popup_queue`] are this shell's;
+    /// a file chooser runs a shell of its own inside its host's.
+    popup_owner: popup_queue::Owner,
 }
 
 impl<App: Application> Shell<App> {
@@ -285,6 +290,7 @@ impl<App: Application> Shell<App> {
             popup_views: std::collections::HashMap::new(),
             opened_surfaces: std::collections::HashMap::new(),
             popup_genies: crate::ui::shell::popup_genie::PopupGenies::new(),
+            popup_owner: popup_queue::Owner::unique(),
         };
 
         (shell, task)
@@ -387,6 +393,14 @@ impl<App: Application> Shell<App> {
     }
 
     pub fn update(&mut self, message: crate::ui::Action<App::Message>) -> AppTask<App::Message> {
+        // Popups of this shell another cancelled while they were held.
+        let mut orphans = iced::Task::none();
+        for id in popup_queue::with(|queue| {
+            queue.take_orphans(|id| self.opened_surfaces.contains_key(&id))
+        }) {
+            orphans = orphans.chain(self.forget_surface(id));
+        }
+
         #[allow(unused_mut)]
         let mut task = match message {
             crate::ui::Action::App(message) => self.app.update(message),
@@ -398,7 +412,7 @@ impl<App: Application> Shell<App> {
         };
 
         {
-            task = self.drain_text_context_popups(task);
+            task = orphans.chain(self.drain_text_context_popups(task));
         }
 
         self.sync_drawer_slide();
@@ -475,7 +489,7 @@ impl<App: Application> Shell<App> {
             // through to `App::view_window`, which renders the main view into
             // the popup's tiny limits.
             crate::ui::surface::chain::closed(id);
-            task = task.chain(iced::Task::done(crate::ui::action::exwl::remove_window(id)));
+            task = task.chain(self.remove_popup(id));
         }
 
         for req in text_context_menu::take_popup_requests() {
@@ -486,10 +500,7 @@ impl<App: Application> Shell<App> {
             self.popup_views.insert(id, view);
             task = task
                 .chain(self.close_other_chains(id, settings.parent))
-                .chain(iced::Task::done(crate::ui::action::exwl::popup(
-                    id,
-                    settings.to_exwlshell(),
-                )));
+                .chain(self.request_popup(id, settings.parent, settings.to_exwlshell()));
         }
 
         task
@@ -520,11 +531,105 @@ impl<App: Application> Shell<App> {
         let mut task = iced::Task::none();
         for other in crate::ui::surface::chain::open(id, parent) {
             self.popup_genies.remove(other);
-            task = task.chain(iced::Task::done(crate::ui::action::exwl::remove_window(
-                other,
-            )));
+            task = task.chain(self.remove_popup(other));
         }
         task
+    }
+
+    /// Create popup `id`, or hold it back until the popups asked to go
+    /// before it are gone; see [`crate::ui::shell::popup_queue`].
+    fn request_popup(
+        &mut self,
+        id: window::Id,
+        parent: window::Id,
+        settings: IcedNewPopupSettings,
+    ) -> AppTask<App::Message> {
+        match popup_queue::with(|queue| queue.open(id, parent, self.popup_owner, (id, settings))) {
+            popup_queue::Open::Send(request) => Self::send_popups(vec![request]),
+            popup_queue::Open::Held(Some(batch)) => {
+                iced::Task::future(tokio::time::sleep(popup_queue::WAIT_LIMIT)).map(move |()| {
+                    crate::ui::Action::Cosmic(crate::ui::app::Action::PopupWaitExpired(batch))
+                })
+            }
+            popup_queue::Open::Held(None) => iced::Task::none(),
+        }
+    }
+
+    fn send_popups(requests: Vec<(window::Id, IcedNewPopupSettings)>) -> AppTask<App::Message> {
+        iced::Task::batch(
+            requests.into_iter().map(|(id, settings)| {
+                iced::Task::done(crate::ui::action::exwl::popup(id, settings))
+            }),
+        )
+    }
+
+    /// Remove popup `id`, which may be another shell's: a chooser's popup
+    /// replaces its host's, and the other way round. One still held back
+    /// never reached the compositor, so it is forgotten as its
+    /// `SurfaceClosed` would have.
+    fn remove_popup(&mut self, id: window::Id) -> AppTask<App::Message> {
+        let children = self.drop_held_children(id);
+        if popup_queue::with(|queue| queue.cancel(id)) {
+            return children.chain(self.forget_cancelled(id));
+        }
+        popup_queue::with(|queue| queue.closing(id));
+        children.chain(iced::Task::done(crate::ui::action::exwl::remove_window(id)))
+    }
+
+    /// Surface `parent` is going, so the popups held back to open on it
+    /// never will: exwlshell would skip them without a `Closed` to follow.
+    fn drop_held_children(&mut self, parent: window::Id) -> AppTask<App::Message> {
+        let mut task = iced::Task::none();
+        for id in popup_queue::with(|queue| queue.cancel_children(parent)) {
+            task = task.chain(self.forget_cancelled(id));
+        }
+        task
+    }
+
+    /// Popup `id` was cancelled while held. Its own shell forgets it; that
+    /// may be another, which does so on its next update, while the widget
+    /// that asked for it hears now.
+    fn forget_cancelled(&mut self, id: window::Id) -> AppTask<App::Message> {
+        if self.opened_surfaces.contains_key(&id) {
+            return self.forget_surface(id);
+        }
+        crate::ui::surface::dismissal::note(id);
+        popup_queue::with(|queue| queue.orphan(id));
+        iced::Task::none()
+    }
+
+    /// Surface `id` is gone, or a popup held back will never be created.
+    fn forget_surface(&mut self, id: window::Id) -> AppTask<App::Message> {
+        // A widget running in the parent surface has no other way to
+        // learn that its popup is gone; see `ui::surface::dismissal`.
+        crate::ui::surface::dismissal::note(id);
+
+        // The compositor has already torn down one surface for this id,
+        // but if the id was already reused (a text context menu can
+        // reopen with the same id before this late close arrives, see
+        // `drain_text_context_popups`), a still-live surface is sharing
+        // it. Only drop the view once every opened surface for this id
+        // has been closed.
+        if self.opened_surfaces.get_mut(&id).is_some_and(|v| {
+            *v = v.saturating_sub(1);
+            *v == 0
+        }) {
+            self.opened_surfaces.remove(&id);
+            self.popup_views.remove(&id);
+            self.popup_genies.remove(id);
+            crate::ui::surface::chain::closed(id);
+        }
+
+        let mut ret = if let Some(msg) = self.app.on_close_requested(id) {
+            self.app.update(msg)
+        } else {
+            iced::Task::none()
+        };
+        let core = self.app.core();
+        if core.exit_on_main_window_closed && core.main_window_is(id) {
+            ret = iced::Task::batch([iced::exit::<crate::ui::Action<App::Message>>()]);
+        }
+        ret
     }
 
     /// Close the main window.
@@ -599,17 +704,19 @@ impl<App: Application> Shell<App> {
                 }
 
                 self.close_other_chains(id, settings.parent)
-                    .chain(iced::Task::done(crate::ui::action::exwl::popup(
-                        id,
-                        settings.to_exwlshell(),
-                    )))
+                    .chain(self.request_popup(id, settings.parent, settings.to_exwlshell()))
             }
             crate::ui::surface::Action::DestroyPopup { id, animate } => {
                 // An animated popup keeps its surface until it has finished
                 // collapsing; `widget::popup_genie` publishes
                 // `PopupExitFinished` and the removal happens there instead.
-                if animate && self.popup_genies.begin_exit(id) {
-                    return iced::Task::none();
+                // One held back has nothing on screen to collapse.
+                if animate
+                    && !popup_queue::with(|queue| queue.holds(id))
+                    && self.popup_genies.begin_exit(id)
+                {
+                    // A submenu held for it would open on a collapsing menu.
+                    return self.drop_held_children(id);
                 }
 
                 // The view is dropped in `Action::SurfaceClosed`, once the
@@ -620,7 +727,7 @@ impl<App: Application> Shell<App> {
                 //
                 // It is on its way out now, so no later popup has to close it.
                 crate::ui::surface::chain::closed(id);
-                iced::Task::done(crate::ui::action::exwl::remove_window(id))
+                self.remove_popup(id)
             }
         }
     }
@@ -717,7 +824,11 @@ impl<App: Application> Shell<App> {
                 // The collapse is over; let the surface go. `SurfaceClosed`
                 // drops the view and the animation state.
                 crate::ui::surface::chain::closed(id);
-                return iced::Task::done(crate::ui::action::exwl::remove_window(id));
+                return self.remove_popup(id);
+            }
+
+            Action::PopupWaitExpired(batch) => {
+                return Self::send_popups(popup_queue::with(|queue| queue.expired(batch)));
             }
 
             Action::ToggleNavBar => {
@@ -752,36 +863,11 @@ impl<App: Application> Shell<App> {
             }
 
             Action::SurfaceClosed(id) => {
-                // A widget running in the parent surface has no other way to
-                // learn that its popup is gone; see `ui::surface::dismissal`.
-                crate::ui::surface::dismissal::note(id);
-
-                // The compositor has already torn down one surface for this id,
-                // but if the id was already reused (a text context menu can
-                // reopen with the same id before this late close arrives, see
-                // `drain_text_context_popups`), a still-live surface is sharing
-                // it. Only drop the view once every opened surface for this id
-                // has been closed.
-                if self.opened_surfaces.get_mut(&id).is_some_and(|v| {
-                    *v = v.saturating_sub(1);
-                    *v == 0
-                }) {
-                    self.opened_surfaces.remove(&id);
-                    self.popup_views.remove(&id);
-                    self.popup_genies.remove(id);
-                    crate::ui::surface::chain::closed(id);
-                }
-
-                let mut ret = if let Some(msg) = self.app.on_close_requested(id) {
-                    self.app.update(msg)
-                } else {
-                    iced::Task::none()
-                };
-                let core = self.app.core();
-                if core.exit_on_main_window_closed && core.main_window_is(id) {
-                    ret = iced::Task::batch([iced::exit::<crate::ui::Action<App::Message>>()]);
-                }
-                return ret;
+                let children = self.drop_held_children(id);
+                let owner = self.popup_owner;
+                let released = popup_queue::with(|queue| queue.closed(id, owner));
+                let task = self.forget_surface(id);
+                return children.chain(task).chain(Self::send_popups(released));
             }
 
             Action::ShowWindowMenu => {
