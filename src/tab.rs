@@ -2690,7 +2690,23 @@ impl ItemThumbnail {
             let Some(mut command) = thumbnailer.command(path, file.path(), thumbnail_size) else {
                 continue;
             };
+            // Thumbnailers such as ffmpegthumbnailer print harmless notices
+            // for every file, so their stderr goes to the debug log rather
+            // than straight to our terminal; with debug logging off it is
+            // dropped without the cost of a reader thread.
+            let log_stderr = log::log_enabled!(log::Level::Debug);
+            command.stderr(if log_stderr {
+                std::process::Stdio::piped()
+            } else {
+                std::process::Stdio::null()
+            });
             let status = command.spawn().and_then(|mut child| {
+                if log_stderr {
+                    crate::child::log_stderr(
+                        &mut child,
+                        format!("thumbnailer for {}", path.display()),
+                    );
+                }
                 crate::child::wait_with_timeout(&mut child, THUMBNAILER_TIMEOUT)
             });
             match status {

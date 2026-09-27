@@ -1,6 +1,8 @@
 //! Waiting on a child process with a deadline.
 
+use std::io::{BufRead, BufReader};
 use std::process::{Child, ExitStatus};
+use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
 /// How often [`wait_with_timeout`] asks whether the child has exited.
@@ -41,6 +43,38 @@ pub fn wait_with_timeout(
     }
 }
 
+/// Sends each line `child` writes to its stderr to the debug log, prefixed
+/// with `label`. `child` must have been spawned with a piped stderr; without
+/// one this does nothing and returns `None`.
+///
+/// The pipe is read on a thread of its own, so a chatty child can never fill
+/// it and block while [`wait_with_timeout`] is waiting on it. The thread ends
+/// when the pipe closes, i.e. once the child (and anything it passed the pipe
+/// on to) has exited.
+pub fn log_stderr(child: &mut Child, label: String) -> Option<JoinHandle<()>> {
+    let stderr = child.stderr.take()?;
+    let name = label.clone();
+    thread::Builder::new()
+        .name("child-stderr".into())
+        .spawn(move || {
+            // Bytes, decoded lossily, rather than `lines()`: that fails on a
+            // line that is not UTF-8, and giving up there would close the
+            // pipe and kill the child with SIGPIPE on its next write.
+            let mut stderr = BufReader::new(stderr);
+            let mut line = Vec::new();
+            while stderr
+                .read_until(b'\n', &mut line)
+                .is_ok_and(|read| read > 0)
+            {
+                let text = String::from_utf8_lossy(&line);
+                log::debug!("{label}: {}", text.trim_end());
+                line.clear();
+            }
+        })
+        .inspect_err(|err| log::warn!("failed to read stderr of {name}: {err}"))
+        .ok()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -79,5 +113,61 @@ mod tests {
             .expect("the child exited well inside the deadline");
 
         assert!(status.success(), "`true` exits successfully");
+    }
+
+    #[test]
+    fn a_child_whose_stderr_outgrows_the_pipe_still_exits() {
+        // Four times a Linux pipe's default 64 KiB buffer: left unread, the
+        // child would block writing and only the deadline would end it.
+        let mut child = std::process::Command::new("sh")
+            .args([
+                "-c",
+                "head -c 262144 /dev/zero | tr '\\0' 'x' | fold -w 80 >&2",
+            ])
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .expect("sh should be on PATH");
+
+        let reader = log_stderr(&mut child, "test".into()).expect("stderr was piped");
+        let status = wait_with_timeout(&mut child, Duration::from_secs(10))
+            .expect("waiting should work")
+            .expect("the child was blocked on a full stderr pipe");
+
+        assert!(status.success());
+        reader.join().expect("the reader thread should not panic");
+    }
+
+    #[test]
+    fn a_child_whose_stderr_is_not_utf8_still_exits_cleanly() {
+        // A reader that gave up on the invalid line would close the pipe,
+        // and the writes after it would kill the child with SIGPIPE.
+        let mut child = std::process::Command::new("sh")
+            .args([
+                "-c",
+                "printf 'bad \\377\\n' >&2; \
+                 head -c 262144 /dev/zero | tr '\\0' 'x' | fold -w 80 >&2",
+            ])
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .expect("sh should be on PATH");
+
+        let reader = log_stderr(&mut child, "test".into()).expect("stderr was piped");
+        let status = wait_with_timeout(&mut child, Duration::from_secs(10))
+            .expect("waiting should work")
+            .expect("the child was blocked on a full stderr pipe");
+
+        assert!(status.success(), "the child did not exit cleanly: {status}");
+        reader.join().expect("the reader thread should not panic");
+    }
+
+    #[test]
+    fn a_child_without_a_piped_stderr_has_nothing_to_log() {
+        let mut child = std::process::Command::new("true")
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .expect("true should be on PATH");
+
+        assert!(log_stderr(&mut child, "test".into()).is_none());
+        child.wait().expect("waiting should work");
     }
 }
