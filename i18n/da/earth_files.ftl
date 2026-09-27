@@ -27,21 +27,20 @@ file-type-archive = Arkiv
 file-type-document = Dokument
 file-type-program = Program
 file-type-other = Andet
-# Progress footer
+# Progress card
 details = Detaljer
-dismiss = Luk meddelelse
-operations-running =
-    { $running } { $running ->
-        [one] operation
-       *[other] operationer
-    } kører ({ $percent }%)...
-operations-running-finished =
-    { $running } { $running ->
-        [one] operation
-       *[other] operationer
-    } kører ({ $percent }%), { $finished } færdig...
 pause = Pause
 resume = Genoptag
+tasks-count = { $count } { $count ->
+    [one] opgave
+   *[other] opgaver
+  }
+tasks-more = { $count } mere
+task-loading = Indlæser { $name }
+task-mounting = Monterer { $name }
+task-unmounting = Afmonterer { $name }
+task-done = Færdig
+task-failed = Mislykkedes
 
 # Dialogs
 

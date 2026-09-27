@@ -13,12 +13,16 @@ use iced_core::widget::Operation;
 use iced_core::widget::tree::Tree;
 use iced_core::{
     Clipboard, Element, Layout, Length, Overlay, Point, Rectangle, Shell, Vector, Widget, layout,
-    mouse, overlay,
+    mouse, overlay, touch,
 };
+
+/// How far the overlay stays clear of the window's right and bottom edges.
+pub(super) const OFFSET: f32 = 15.0;
 
 pub struct Toaster<'a, Message, Theme, Renderer> {
     toasts: Element<'a, Message, Theme, Renderer>,
     content: Element<'a, Message, Theme, Renderer>,
+    /// Nothing to draw in the overlay: no toasts and no pinned element.
     is_empty: bool,
 }
 
@@ -156,7 +160,7 @@ where
         if self.is_empty {
             return content;
         }
-        // keep the content's overlays (e.g. popovers, menus) visible while a toast is shown
+        // keep the content's overlays (e.g. popovers, menus) visible while the toaster's overlay is up
         let toaster = overlay::Element::new(Box::new(ToasterOverlay::new(
             &mut toasts_state[0],
             &mut self.toasts,
@@ -166,6 +170,25 @@ where
             None => toaster,
         })
     }
+}
+
+/// Whether the cursor is over a drawn item — a toast or the pinned element —
+/// rather than just somewhere in the column's bounds: the outer column's
+/// children are the toasts column and the pinned element (if any), and the
+/// toasts column's children are the individual toasts. Checking each item's
+/// own bounds, rather than the whole column's, keeps the column's
+/// transparent gaps click-through.
+fn over_item(layout: Layout<'_>, cursor: mouse::Cursor) -> bool {
+    let mut children = layout.children();
+    let over_toast = children.next().is_some_and(|toasts| {
+        toasts
+            .children()
+            .any(|toast| cursor.is_over(toast.bounds()))
+    });
+    let over_pinned = children
+        .next()
+        .is_some_and(|pinned| cursor.is_over(pinned.bounds()));
+    over_toast || over_pinned
 }
 
 struct ToasterOverlay<'a, 'b, Message, Theme = iced::Theme, Renderer = crate::ui::Renderer> {
@@ -195,12 +218,10 @@ where
             .as_widget_mut()
             .layout(self.state, renderer, &limits);
 
-        let offset = 15.;
-
-        // In the bottom-right corner, clear of the edges by `offset`.
+        // In the bottom-right corner, clear of the edges by `OFFSET`.
         let position = Point::new(
-            bounds.width - (node.size().width + offset),
-            bounds.height - (node.size().height + offset),
+            bounds.width - (node.size().width + OFFSET),
+            bounds.height - (node.size().height + OFFSET),
         );
 
         node.move_to(position)
@@ -229,6 +250,8 @@ where
         clipboard: &mut dyn Clipboard,
         shell: &mut Shell<Message>,
     ) {
+        let already_captured = shell.is_event_captured();
+
         self.element.as_widget_mut().update(
             self.state,
             event,
@@ -239,6 +262,35 @@ where
             shell,
             &layout.bounds(),
         );
+
+        // `Nested::mouse_interaction` (iced_runtime) only asks the deepest
+        // overlay level for its interaction, so while a second-level overlay
+        // is open (e.g. a tooltip on the card's own buttons) the `Idle`
+        // fallback in `mouse_interaction` above is skipped, and a press or
+        // scroll that a toast or the pinned card doesn't itself capture would
+        // fall through to the content below. Capture it here instead, but
+        // only for what *starts* an interaction, not what ends one: a drag
+        // begun in the content and released over the card must still reach
+        // the content's release handler, or the drag is left stuck.
+        let starts_interaction = matches!(
+            event,
+            Event::Mouse(mouse::Event::ButtonPressed(_))
+                | Event::Mouse(mouse::Event::WheelScrolled { .. })
+                | Event::Touch(touch::Event::FingerPressed { .. })
+        );
+        if !already_captured
+            && !shell.is_event_captured()
+            && starts_interaction
+            && over_item(layout, cursor)
+        {
+            shell.capture_event();
+        }
+    }
+
+    fn operate(&mut self, layout: Layout<'_>, renderer: &Renderer, operation: &mut dyn Operation) {
+        self.element
+            .as_widget_mut()
+            .operate(self.state, layout, renderer, operation);
     }
 
     fn mouse_interaction(
@@ -247,13 +299,27 @@ where
         cursor: mouse::Cursor,
         renderer: &Renderer,
     ) -> mouse::Interaction {
-        self.element.as_widget().mouse_interaction(
+        let interaction = self.element.as_widget().mouse_interaction(
             self.state,
             layout,
             cursor,
             &layout.bounds(),
             renderer,
-        )
+        );
+        if interaction != mouse::Interaction::None {
+            return interaction;
+        }
+
+        // `UserInterface::update` only hides the pointer from the content
+        // below when the overlay's own `mouse_interaction` is not `None`;
+        // a toast or the pinned card with no interaction of its own (e.g.
+        // plain text, a plain background) would otherwise let a click pass
+        // straight through to whatever is underneath.
+        if over_item(layout, cursor) {
+            mouse::Interaction::Idle
+        } else {
+            interaction
+        }
     }
 
     fn overlay<'c>(

@@ -27,21 +27,17 @@ file-type-archive = 压缩包
 file-type-document = 文档
 file-type-program = 程序
 file-type-other = 其他
-# Progress footer
+# Progress card
 details = 详情
-dismiss = 清除消息
-operations-running =
-    正在进行 { $running } { $running ->
-        [one] 个操作
-       *[other] 个操作
-    }（{ $percent }%）…
-operations-running-finished =
-    正在进行 { $running } { $running ->
-        [one] 个操作
-       *[other] 个操作
-    }（{ $percent }%），{ $finished } 个操作已完成…
 pause = 暂停
 resume = 继续
+tasks-count = { $count } 个任务
+tasks-more = 还有 { $count } 个
+task-loading = 正在加载 { $name }
+task-mounting = 正在挂载 { $name }
+task-unmounting = 正在卸载 { $name }
+task-done = 完成
+task-failed = 失败
 
 # Dialogs
 

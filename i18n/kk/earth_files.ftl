@@ -26,19 +26,15 @@ file-type-document = Құжат
 file-type-program = Бағдарлама
 file-type-other = Басқа
 details = Толық ақпарат
-dismiss = Хабарламаны елемеу
-operations-running =
-    { $running } { $running ->
-        [one] әрекет
-       *[other] әрекет
-    } орындалуда ({ $percent }%)...
-operations-running-finished =
-    { $running } { $running ->
-        [one] әрекет
-       *[other] әрекет
-    } орындалуда ({ $percent }%), { $finished } аяқталды...
 pause = Аялдату
 resume = Жалғастыру
+tasks-count = { $count } тапсырма
+tasks-more = тағы { $count }
+task-loading = { $name } жүктелуде
+task-mounting = { $name } тіркелуде
+task-unmounting = { $name } ажыратылуда
+task-done = Дайын
+task-failed = Сәтсіз
 create-archive = Архив жасау
 extract-password-required = Пароль керек
 extract-as-folder = Бумаға тарқату

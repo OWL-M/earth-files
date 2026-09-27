@@ -56,19 +56,18 @@ file-type-document = Documento
 file-type-program = Programa
 file-type-other = Outro
 details = Detalles
-dismiss = Descartar a mensaxe
-operations-running =
-    { $running } { $running ->
-        [one] operación
-       *[other] operacións
-    } executándose ({ $percent }%)...
-operations-running-finished =
-    { $running } { $running ->
-        [one] operación
-       *[other] operacións
-    } executándose ({ $percent }%), { $finished } rematadas...
 pause = Pausa
 resume = Retomar
+tasks-count = { $count } { $count ->
+    [one] tarefa
+   *[other] tarefas
+  }
+tasks-more = { $count } máis
+task-loading = Cargando { $name }
+task-mounting = Montando { $name }
+task-unmounting = Desmontando { $name }
+task-done = Feito
+task-failed = Fallou
 create-archive = Crear arquivo comprimido
 copy-to-title = Seleccionar o destino da copia
 copy-to-button-label = Copiar

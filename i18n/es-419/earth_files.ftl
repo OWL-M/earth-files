@@ -310,22 +310,21 @@ sort-type-z-a = Tipo Z-A
 repository = Repositorio
 support = Apoyo
 details = Detalles
-dismiss = Descartar mensaje
 remove = Eliminar
 cancelled = Canceladas
 operation-failed-to-start = The file operation could not be started
-operations-running =
-    { $running ->
-        [one] Operación de { $running }
-       *[other] Operaciones de { $running }
-    } en ejecución ({ $percent } %)...
-operations-running-finished =
-    { $running ->
-        [one] Operación de { $running }
-       *[other] Operaciones de { $running }
-    } en ejecución ({ $percent } %), { $finished } completada(s)...
 pause = Pausar
 resume = Reanudar
+tasks-count = { $count } { $count ->
+    [one] tarea
+   *[other] tareas
+  }
+tasks-more = { $count } más
+task-loading = Cargando { $name }
+task-mounting = Montando { $name }
+task-unmounting = Desmontando { $name }
+task-done = Hecho
+task-failed = Error
 extract-password-required = Contraseña requerida
 extract-as-folder = Extraer en carpeta
 extract-to = Extraer en...

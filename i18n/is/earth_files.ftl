@@ -48,19 +48,15 @@ file-type-document = Skjal
 file-type-program = Forrit
 file-type-other = Annað
 details = Upplýsingar
-dismiss = Hunsa skilaboð
-operations-running =
-    { $running } { $running ->
-        [one] aðgerð
-       *[other] aðgerðir
-    } í gangi ({ $percent }%)...
-operations-running-finished =
-    { $running } { $running ->
-        [one] aðgerð
-       *[other] aðgerðir
-    } í gangi ({ $percent }%), { $finished } lokið...
 pause = Á pásu
 resume = Halda áfram
+tasks-count = { $count } verkefni
+tasks-more = { $count } í viðbót
+task-loading = Hleð { $name }
+task-mounting = Tengi { $name }
+task-unmounting = Aftengi { $name }
+task-done = Lokið
+task-failed = Mistókst
 create-archive = Búa til safnskrá
 extract-password-required = Lykilorðs krafist
 extract-as-folder = Afþjappa í möppu

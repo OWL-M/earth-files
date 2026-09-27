@@ -115,7 +115,6 @@ menu-about = { earth-files } 정보...
 connect = 연결
 read-execute = 읽기 및 실행
 item-modified = 마지막 수정 일자: { $modified }
-dismiss = 메시지 무시
 copy_noun = 복사
 progress = { $percent }%
 related-apps = 관련 앱
@@ -146,6 +145,13 @@ item-count = {$count ->
 no-results = 결과 없음
 type = 형식: { $mime }
 resume = 재개
+tasks-count = 작업 { $count }개
+tasks-more = { $count }개 더
+task-loading = { $name } 불러오는 중
+task-mounting = { $name } 마운트하는 중
+task-unmounting = { $name } 마운트 해제하는 중
+task-done = 완료
+task-failed = 실패
 remember-password = 암호 저장
 username = 사용자 이름
 show-details = 세부 사항 표시
@@ -254,7 +260,6 @@ launch-anyway = Launch
 set-executable-and-launch = 실행 가능으로 설정 후 실행
 restored = { trash } 에서 { $items }개의 항목을 복구했습니다
 sort-z-a = Z-A
-operations-running-finished = { $running }개의 작업 진행 중 ({ $percent }%), { $finished } 완료됨...
 sort = 정렬
 show-hidden-files = 숨긴 파일 표시
 show-type-column = 형식 열 표시
@@ -273,7 +278,6 @@ favorite-path-error-description =
     "{ $path }"이(가) 존재하지 않거나 열기 권한이 없을 수 있습니다
 
     사이드바에서 제거하시겠습니까?
-operations-running = { $running }개의 작업 진행 중 ({ $percent }%)...
 network-drive-schemes =
     지원 프로토콜,접두사(Prefix)
     AppleTalk,afp://

@@ -60,6 +60,16 @@ file-type-other = Muu
 details = Üksikasjad
 pause = Peata
 resume = Jätka
+tasks-count = { $count } { $count ->
+    [one] ülesanne
+   *[other] ülesannet
+  }
+tasks-more = veel { $count }
+task-loading = { $name } laadimine
+task-mounting = { $name } haakimine
+task-unmounting = { $name } lahtihaakimine
+task-done = Valmis
+task-failed = Nurjus
 skip = Jäta vahele
 zoom-in = Suumi sisse
 default-size = Tavasuurus
@@ -72,16 +82,6 @@ folder-name = Kausta nimi
 file-already-exists = Sellise nimega fail on juba olemas.
 folder-already-exists = Sellise nimega kaust on juba olemas.
 name-no-slashes = Nimes ei tohi olla kaldkriipse.
-operations-running =
-    { $running } { $running ->
-        [one] tegevus
-       *[other] tegevust
-    } on töös ({ $percent }%)...
-operations-running-finished =
-    { $running } { $running ->
-        [one] tegevus
-       *[other] tegevust
-    } on töös ({ $percent }%), { $finished } lõppenud...
 name-invalid = Nimi ei saa olla „{ $filename }“.
 name-hidden = Kui nime alguses on punkt, siis fail või kaust muutub peidetuks.
 open-in-new-tab = Ava uuel vahekaardil
@@ -94,7 +94,6 @@ operation-failed-to-start = The file operation could not be started
 pending = Ootel
 failed = Ebaõnnestunud
 complete = Tehtud
-dismiss = Suulge sõnum
 notification-in-progress = Tegevused failidega on pooleli.
 create-archive = Loo arhiivifail
 extract-password-required = Salasõna on vajalik

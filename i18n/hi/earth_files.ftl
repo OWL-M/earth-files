@@ -303,7 +303,6 @@ deleted =
         [one] आइटम मिटाया गया
        *[other] आइटम मिटाए गए
     }
-dismiss = संदेश खारिज करें
 favorite-path-error = निर्देशिका खोलने में त्रुटि
 progress = { $percent }%
 related-apps = संबंधित ऐप्स
@@ -325,6 +324,13 @@ permanently-deleting =
 read-write = पढ़ें और लिखें
 none = कोई नहीं
 resume = फिर से शुरू करें
+tasks-count = { $count } कार्य
+tasks-more = { $count } और
+task-loading = { $name } लोड हो रहा है
+task-mounting = { $name } माउंट हो रहा है
+task-unmounting = { $name } अनमाउंट हो रहा है
+task-done = पूर्ण
+task-failed = विफल
 extract-as-folder = फ़ोल्डर में निकालें
 extract-to = इस रूप में निकालें..।
 delete = हटाएं
@@ -345,11 +351,6 @@ removed-from-recents =
 progress-paused = { $percent }%, रुका हुआ
 cancelled = रद्द किया गया
 operation-failed-to-start = The file operation could not be started
-operations-running-finished =
-    { $running } { $running ->
-        [one] ऑपरेशन
-       *[other] ऑपरेशन
-    } चल रहा है ({ $percent }%), { $finished } समाप्त..।
 progress-failed = { $percent }%, विफल
 extract-to-title = फ़ोल्डर में निकालें
 open-with = इससे खोलें
@@ -370,11 +371,6 @@ favorite-path-error-description =
     क्या आप इसे साइडबार से हटाना चाहते हैं?
 empty-trash-title = रद्दी साफ़ करें?
 permanently-delete-question = स्थाई रूप से हटाएं?
-operations-running =
-    { $running } { $running ->
-        [one] ऑपरेशन
-       *[other] ऑपरेशन
-    } चल रहा है ({ $percent }%)..।
 copy-to-title = कॉपी गंतव्य चुनें
 copy-to-button-label = कॉपी
 move-to-title = मूव गंतव्य चुनें

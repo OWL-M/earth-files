@@ -10,6 +10,10 @@
 //! part not yet revealed does not reach it. On an overshoot the content is
 //! laid out that much taller, so a background it draws fills the box.
 //!
+//! Collapsed, it springs to 0 instead: the content is still laid out at its
+//! natural height and clipped away, so a row slides up and out before it is
+//! removed.
+//!
 //! The spring lives in the widget's tree state, so nothing outside has to
 //! drive it. It advances on `RedrawRequested` and asks for the next frame
 //! until it settles. That works inside an overlay too: iced sends overlays
@@ -45,12 +49,26 @@ pub fn spring_height<'a, Message>(
 ) -> SpringHeight<'a, Message> {
     SpringHeight {
         content: content.into(),
+        collapsed: false,
     }
 }
 
 #[allow(missing_debug_implementations)]
 pub struct SpringHeight<'a, Message> {
     content: Element<'a, Message, Theme, Renderer>,
+    collapsed: bool,
+}
+
+impl<Message> SpringHeight<'_, Message> {
+    /// Springs the box shut, to a height of 0, while `collapsed` holds: e.g.
+    /// how a row slides out before it is removed. The pointer stops
+    /// reaching the content as it closes; keyboard events and operations
+    /// (focus) still do.
+    #[must_use]
+    pub fn collapsed(mut self, collapsed: bool) -> Self {
+        self.collapsed = collapsed;
+        self
+    }
 }
 
 #[derive(Default)]
@@ -105,14 +123,15 @@ impl<Message> Widget<Message, Theme, Renderer> for SpringHeight<'_, Message> {
                 .as_widget_mut()
                 .layout(&mut tree.children[0], renderer, limits);
         let natural = content.size().height;
+        let target = if self.collapsed { 0.0 } else { natural };
 
         let state = tree.state.downcast_mut::<State>();
         match &mut state.spring {
-            Some(spring) => spring.set_target(natural),
+            Some(spring) => spring.set_target(target),
             // Unrolls from nothing the first time it is laid out.
             None => {
                 let mut spring = Spring::new(SPRING, 0.0);
-                spring.set_target(natural);
+                spring.set_target(target);
                 state.spring = Some(spring);
             }
         }
@@ -290,16 +309,18 @@ mod tests {
 
     /// A 100 px wide column of `rows` rows, 20 px each, that publishes on a
     /// press, inside a box whose height springs.
-    fn rows(rows: usize) -> Element<'static, (), Theme, Renderer> {
+    fn rows(rows: usize, collapsed: bool) -> Element<'static, (), Theme, Renderer> {
         let rows = space::vertical()
             .width(Length::Fixed(100.0))
             .height(Length::Fixed(20.0 * rows as f32));
         let content = id_container(mouse_area(rows).on_press(()), Id::new("content"));
-        id_container(spring_height(content), Id::new("box")).into()
+        id_container(spring_height(content).collapsed(collapsed), Id::new("box")).into()
     }
 
     struct Harness {
         rows: usize,
+        /// Whether the box is springing shut.
+        collapsed: bool,
         /// Whether the box is shown as a popover's popup instead of inline.
         popup: bool,
         published: usize,
@@ -315,6 +336,7 @@ mod tests {
         fn new(rows: usize) -> Self {
             Self {
                 rows,
+                collapsed: false,
                 popup: false,
                 published: 0,
                 redraw: false,
@@ -330,10 +352,10 @@ mod tests {
             if self.popup {
                 crate::ui::widget::popover(space::horizontal().width(Length::Fixed(100.0)))
                     .position(crate::ui::widget::popover::Position::Bottom)
-                    .popup(rows(self.rows))
+                    .popup(rows(self.rows, self.collapsed))
                     .into()
             } else {
-                rows(self.rows)
+                rows(self.rows, self.collapsed)
             }
         }
 
@@ -426,6 +448,44 @@ mod tests {
             }
             panic!("never settled: {seen:?}");
         }
+    }
+
+    #[test]
+    fn collapsed_it_springs_shut() {
+        let mut harness = Harness::new(5);
+        harness.settle();
+        assert_eq!(harness.height(), 100.0);
+
+        harness.collapsed = true;
+        let seen = harness.settle();
+        assert_eq!(*seen.last().unwrap(), 0.0, "{seen:?}");
+        assert!(
+            seen.iter().any(|h| *h > 0.0 && *h < 100.0),
+            "animated: {seen:?}"
+        );
+    }
+
+    #[test]
+    fn collapsed_from_the_start_it_stays_shut() {
+        let mut harness = Harness::new(5);
+        harness.collapsed = true;
+        let seen = harness.settle();
+        assert!(seen.iter().all(|h| *h == 0.0), "{seen:?}");
+    }
+
+    #[test]
+    fn a_press_on_a_collapsed_box_does_not_reach_the_content() {
+        let mut harness = Harness::new(5);
+        let _ = harness.settle();
+
+        harness.collapsed = true;
+        let _ = harness.settle();
+
+        harness.cursor = mouse::Cursor::Available(Point::new(50.0, 10.0));
+        harness.send(Event::Mouse(mouse::Event::ButtonPressed(
+            mouse::Button::Left,
+        )));
+        assert_eq!(harness.published, 0, "collapsed row pressed");
     }
 
     #[test]

@@ -29,21 +29,17 @@ file-type-archive = Archivio
 file-type-document = Documento
 file-type-program = Programma
 file-type-other = Altro
-# Progress footer
+# Progress card
 details = Dettagli
-dismiss = Nascondi messaggio
-operations-running =
-    { $running } { $running ->
-        [one] operazione
-       *[other] operazioni
-    } in corso ({ $percent }%)...
-operations-running-finished =
-    { $running } { $running ->
-        [one] operazione
-       *[other] operazioni
-    } in corso ({ $percent }%), { $finished } completata...
 pause = Pausa
 resume = Riprendi
+tasks-count = { $count } attività
+tasks-more = altre { $count }
+task-loading = Caricamento di { $name }
+task-mounting = Montaggio di { $name }
+task-unmounting = Smontaggio di { $name }
+task-done = Fatto
+task-failed = Non riuscito
 
 # Dialogs
 

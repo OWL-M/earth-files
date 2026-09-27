@@ -42,23 +42,12 @@ notification-in-progress = File operations are in progress
 comment = File manager
 keywords = Folder;Manager;
 size = Size
-dismiss = Dismiss message
 trashed-on = Binned
 create-archive = Create archive
 pause = Pause
 resume = Resume
 details = Details
-operations-running-finished =
-    { $running } { $running ->
-        [one] operation
-       *[other] operations
-    } running ({ $percent }%), { $finished } finished...
 modified = Modified
-operations-running =
-    { $running } { $running ->
-        [one] operation
-       *[other] operations
-    } running ({ $percent }%)...
 copy-to-title = Select copy destination
 open-file = Open file
 open-multiple-files = Open multiple files

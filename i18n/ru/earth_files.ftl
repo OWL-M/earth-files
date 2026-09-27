@@ -271,10 +271,21 @@ repository = Репозиторий
 cancelled = Отменена
 operation-failed-to-start = The file operation could not be started
 details = Сведения
-dismiss = Скрыть сообщение
 remove = Убрать
 pause = Приостановить
 resume = Продолжить
+tasks-count = { $count } { $count ->
+    [one] задача
+    [few] задачи
+    [many] задач
+   *[other] задачи
+  }
+tasks-more = ещё { $count }
+task-loading = Загрузка { $name }
+task-mounting = Монтирование { $name }
+task-unmounting = Отмонтирование { $name }
+task-done = Готово
+task-failed = Ошибка
 extract-password-required = Требуется пароль
 extract-as-folder = Распаковать в папку
 extract-to = Распаковать в…
@@ -341,16 +352,6 @@ eject = Извлечь
 remove-from-recents = Убрать из недавних
 reload-folder = Обновить папку
 gallery-preview = Галерея предпросмотра
-operations-running =
-    { $running } { $running ->
-        [one] операция
-       *[other] опер.
-    } выполняется ({ $percent } %)…
-operations-running-finished =
-    { $running } { $running ->
-        [one] операция
-       *[other] опер.
-    } выполняется ({ $percent } %), { $finished } завершено…
 deleting =
     Удаление { $items } { $items ->
         [one] элемента

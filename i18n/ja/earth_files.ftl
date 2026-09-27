@@ -268,19 +268,15 @@ remove = 削除
 today = 今日
 trashed-on = ゴミ箱に入れた日時
 details = 詳細
-dismiss = メッセージを閉じる
-operations-running =
-    { $running } { $running ->
-        [one] 件の操作が
-       *[other] 件の操作が
-    }実行中です({ $percent }%)...
-operations-running-finished =
-    { $running } { $running ->
-        [one] 件の操作が
-       *[other] 件の操作が
-    } 実行中です({ $percent }%)、 { $finished } 件が終了...
 pause = 一時停止
 resume = 一時停止
+tasks-count = { $count } 件のタスク
+tasks-more = 他 { $count } 件
+task-loading = { $name } を読み込み中
+task-mounting = { $name } をマウント中
+task-unmounting = { $name } をアンマウント中
+task-done = 完了
+task-failed = 失敗
 extract-password-required = パスワードが必要です
 extract-as-folder = フォルダーとして展開
 extract-to = 展開先…

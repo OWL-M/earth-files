@@ -30,19 +30,20 @@ file-type-document = Document
 file-type-program = Program
 file-type-other = Other
 
-# Progress footer
+# Progress card
 details = Details
-dismiss = Dismiss message
-operations-running = {$running} {$running ->
-    [one] operation
-    *[other] operations
-  } running ({$percent}%)...
-operations-running-finished = {$running} {$running ->
-    [one] operation
-    *[other] operations
-  } running ({$percent}%), {$finished} finished...
 pause = Pause
 resume = Resume
+tasks-count = {$count} {$count ->
+    [one] task
+    *[other] tasks
+  }
+tasks-more = {$count} more
+task-loading = Loading {$name}
+task-mounting = Mounting {$name}
+task-unmounting = Unmounting {$name}
+task-done = Done
+task-failed = Failed
 
 # Dialogs
 

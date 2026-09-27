@@ -27,13 +27,21 @@ file-type-archive = Arhivă
 file-type-document = Document
 file-type-program = Program
 file-type-other = Altele
-# Progress footer
+# Progress card
 details = Detalii
-dismiss = Închide mesajul
-operations-running = { $running } operațiuni în desfășurare ({ $percent }%)...
-operations-running-finished = { $running } operațiuni în desfășurare ({ $percent }%), { $finished } finalizate...
 pause = Pauză
 resume = Reia
+tasks-count = { $count } { $count ->
+    [one] sarcină
+    [few] sarcini
+   *[other] de sarcini
+  }
+tasks-more = încă { $count }
+task-loading = Se încarcă { $name }
+task-mounting = Se montează { $name }
+task-unmounting = Se demontează { $name }
+task-done = Gata
+task-failed = Eșuat
 
 # Dialogs
 

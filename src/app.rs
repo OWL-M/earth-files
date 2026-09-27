@@ -52,18 +52,20 @@ use crate::key_bind::key_binds;
 use crate::localize::LANGUAGE_SORTER;
 use crate::mime_app::{self, MimeApp, MimeAppCache, MimeAppMatch};
 use crate::mounter::{
-    MOUNTERS, MounterAuth, MounterItem, MounterItems, MounterKey, MounterMessage,
+    MOUNTERS, MounterAuth, MounterItem, MounterItems, MounterKey, MounterMessage, Outcome,
 };
 use crate::operation::{
-    Controller, Operation, OperationError, OperationErrorType, OperationSelection, ReplaceResult,
+    Controller, ControllerState, Operation, OperationError, OperationErrorType, OperationSelection,
+    ReplaceResult,
 };
+use crate::progress;
 use crate::spawn_detached::spawn_detached;
 use crate::tab::{
     self, HeadingOptions, ItemMetadata, Location, SORT_OPTION_FALLBACK, SearchLocation, Tab,
 };
 use crate::trash::{Trash, TrashExt};
-use crate::ui::convert::{ToColor, ToLength, ToPadding, ToPixels};
-use crate::ui::theme::{Button, Container, Layer, Spacing, spacing};
+use crate::ui::convert::{PushMaybe, ToColor, ToPadding, ToPixels};
+use crate::ui::theme::{Button, Container, Spacing, spacing};
 use crate::zoom::{zoom_in_view, zoom_out_view, zoom_to_default};
 use crate::{batch_rename, context_action, fl, home_dir, menu, mime_icon};
 
@@ -403,13 +405,15 @@ pub enum Message {
     RetryCheckClipboard(ClipboardCache),
     ClipboardCached(ClipboardCache),
     PendingCancel(u64),
-    PendingCancelAll,
     PendingComplete(u64, OperationSelection),
-    PendingDismiss,
     PendingError(u64, OperationError),
     PendingResults(Vec<(u64, OperationSelection)>, Vec<(u64, OperationError)>),
     PendingPause(u64, bool),
-    PendingPauseAll(bool),
+    /// A folder load, mount or unmount tracked in the progress card ended,
+    /// and how.
+    ProgressEnd(progress::Key, Outcome),
+    /// Keeps the progress card's rows appearing and leaving on time.
+    ProgressTick,
     PermanentlyDelete(Option<Entity>),
     Preview,
     /// Items re-read off the event loop after the filesystem changed beneath
@@ -477,8 +481,10 @@ pub enum Message {
     TabMessage(Option<Entity>, tab::Message),
     TabNew,
     /// A listing read on a worker: the normalized location it is of, its
-    /// parent item, the items, the breadcrumb names and the title, and the
-    /// paths to select once shown.
+    /// parent item, the items, the breadcrumb names and the title, the
+    /// paths to select once shown, and whether the read worked (an
+    /// unreadable folder arrives as an empty listing, and its progress row
+    /// ends as failed rather than done).
     TabRescan(
         Entity,
         Location,
@@ -487,6 +493,7 @@ pub enum Message {
         Vec<(Location, String)>,
         String,
         Option<Vec<PathBuf>>,
+        bool,
     ),
     TabView(Option<Entity>, tab::View),
     ToggleContextPage(ContextPage),
@@ -851,7 +858,8 @@ pub struct App {
     exit_gate: ExitGate<ProgressNotice>,
     pending_operation_id: u64,
     pending_operations: BTreeMap<u64, (Operation, Controller)>,
-    progress_operations: BTreeSet<u64>,
+    /// The long-running work the card in the bottom-right corner shows.
+    progress: progress::Tasks,
     complete_operations: BTreeMap<u64, Operation>,
     failed_operations: BTreeMap<u64, (Operation, Controller, String)>,
     /// What undoes each of the last completed operations, newest last
@@ -1510,7 +1518,7 @@ impl App {
         }
         tasks.push(self.update_title());
         tasks.push(self.update_watcher());
-        tasks.push(self.update_tab(entity, location, selection_paths));
+        tasks.push(self.update_tab(entity, location, selection_paths, true));
         (entity, Task::batch(tasks))
     }
 
@@ -1734,7 +1742,12 @@ impl App {
 
         self.pending_operation_id += 1;
         if operation.show_progress_notification() {
-            self.progress_operations.insert(id);
+            self.progress.start(
+                progress::Key::Operation(id),
+                operation.pending_text(0.0, ControllerState::Running),
+                Duration::ZERO,
+                Instant::now(),
+            );
         }
         self.pending_operations
             .insert(id, (operation.clone(), controller.clone()));
@@ -1887,18 +1900,17 @@ impl App {
                     commands.push(self.rescan_recents());
                 }
 
+                self.progress.finish(
+                    &progress::Key::Operation(id),
+                    true,
+                    Some(op.completed_text()),
+                    Instant::now(),
+                );
+
                 let mut op = op;
                 op.release_payload();
                 self.complete_operations.insert(id, op);
             }
-        }
-        // Close progress notification if all relevant operations are finished
-        if !self
-            .pending_operations
-            .values()
-            .any(|(op, _)| op.show_progress_notification())
-        {
-            self.progress_operations.clear();
         }
         // Potentially show a notification
         commands.push(self.maybe_exit());
@@ -1931,6 +1943,9 @@ impl App {
                 // and a retry has only the rest to do
                 let undo = op.undo_after_failure(&err.partial);
                 self.record_undo(id, undo);
+                // The card's row names the operation as it was started, not
+                // what is left of it; its caption already says "Failed".
+                let failed_text = op.pending_text(controller.progress(), ControllerState::Running);
                 let op = op.remaining(&err.partial);
                 // Only show dialog if not cancelled
                 if !controller.is_cancelled() {
@@ -1945,8 +1960,16 @@ impl App {
                     }
                 }
 
-                // Remove from progress
-                self.progress_operations.remove(&id);
+                // A cancelled one goes at once: the user asked for that. One
+                // waiting on a password ends as Failed too, while its dialog
+                // asks; the retry starts a row of its own.
+                let key = progress::Key::Operation(id);
+                if controller.is_cancelled() {
+                    self.progress.remove(&key);
+                } else {
+                    self.progress
+                        .finish(&key, false, Some(failed_text), Instant::now());
+                }
                 // The payload stays: a failed operation can be retried from
                 // the dialog, and retrying a paste whose bytes were dropped
                 // would write an empty file and call it a success. It is
@@ -1963,14 +1986,6 @@ impl App {
             tasks.push(widget::text_input::focus(self.dialog_text_input.clone()));
         }
 
-        // Close progress notification if all relevant operations are finished
-        if !self
-            .pending_operations
-            .values()
-            .any(|(op, _)| op.show_progress_notification())
-        {
-            self.progress_operations.clear();
-        }
         // A failure can be the last operation a closed window was waiting on
         tasks.push(self.maybe_exit());
         // Manually rescan any trash tabs after any operation is completed
@@ -2004,31 +2019,54 @@ impl App {
                 return Task::none();
             }
         }
-        self.update_tab(entity, tab.location.clone(), Some(op_sel.selected))
+        self.update_tab(entity, tab.location.clone(), Some(op_sel.selected), false)
     }
 
+    /// Re-reads the tab's folder, or re-runs its search. `track` shows a slow
+    /// folder read in the progress card: only for a read the user asked for,
+    /// since background refreshes of a busy, slow folder would otherwise keep
+    /// a "Loading" row flickering in and out.
+    ///
+    /// A search itself never gets a row: it runs incrementally, not through
+    /// [`Location::scan`], which answers a search with an empty list at once,
+    /// so its tracked read normally ends within [`progress::SLOW`]. Only an
+    /// empty search of a folder, which reads the folder, or clearing a search
+    /// back to its folder can show one.
     fn update_tab(
         &mut self,
         entity: Entity,
         location: Location,
         selection_paths: Option<Vec<PathBuf>>,
+        track: bool,
     ) -> Task<Message> {
         if let Location::Search(_, term, ..) = location {
-            self.search_set(entity, Some(term), selection_paths)
+            self.search_set(entity, Some(term), selection_paths, track)
         } else {
-            self.rescan_tab(entity, location, selection_paths)
+            self.rescan_tab(entity, location, selection_paths, track)
         }
     }
 
+    /// Reads the tab's folder off the event loop. `track` as for
+    /// [`Self::update_tab`].
     fn rescan_tab(
         &mut self,
         entity: Entity,
         location: Location,
         selection_paths: Option<Vec<PathBuf>>,
+        track: bool,
     ) -> Task<Message> {
         log::info!("rescan_tab {entity:?} {location:?} {selection_paths:?}");
         let icon_sizes = self.config.tab.icon_sizes;
         let mounter_items = self.mounter_items.clone();
+        // Shown only if the folder is slow to read, as on a waking drive.
+        if track {
+            self.progress.start(
+                progress::Key::Load(entity),
+                fl!("task-loading", name = location.title(false)),
+                progress::SLOW,
+                Instant::now(),
+            );
+        }
 
         Task::future(async move {
             // Normalizing and naming ask the filesystem once per folder on
@@ -2036,14 +2074,14 @@ impl App {
             // stall per folder: worker's work, like the listing itself.
             let read = tokio::task::spawn_blocking(move || {
                 let location = location.normalize();
-                let (parent_item_opt, items) = location.scan(icon_sizes);
+                let (parent_item_opt, items, read_ok) = location.try_scan(icon_sizes);
                 let ancestors = location.ancestors(true);
                 let title = location.title(true);
-                (location, parent_item_opt, items, ancestors, title)
+                (location, parent_item_opt, items, ancestors, title, read_ok)
             })
             .await;
             match read {
-                Ok((location, parent_item_opt, mut items, ancestors, title)) => {
+                Ok((location, parent_item_opt, mut items, ancestors, title, read_ok)) => {
                     #[cfg(feature = "gvfs")]
                     {
                         let mounter_paths: Box<[_]> = mounter_items
@@ -2067,11 +2105,18 @@ impl App {
                         ancestors,
                         title,
                         selection_paths,
+                        read_ok,
                     ))
                 }
                 Err(err) => {
                     log::warn!("failed to rescan: {err}");
-                    crate::ui::action::none()
+                    // Keyed by tab, not by scan: a stale scan's failure (a
+                    // panic in `scan`, so rare) can end the current scan's
+                    // row as Failed. Accepted.
+                    crate::ui::action::app(Message::ProgressEnd(
+                        progress::Key::Load(entity),
+                        Outcome::Failed,
+                    ))
                 }
             }
         })
@@ -2091,7 +2136,7 @@ impl App {
 
         let commands = needs_reload
             .into_iter()
-            .map(|(entity, location)| self.update_tab(entity, location, None));
+            .map(|(entity, location)| self.update_tab(entity, location, None, false));
 
         Task::batch(commands)
     }
@@ -2110,7 +2155,7 @@ impl App {
 
         let commands = needs_reload
             .into_iter()
-            .map(|(entity, location)| self.update_tab(entity, location, None));
+            .map(|(entity, location)| self.update_tab(entity, location, None, false));
 
         Task::batch(commands)
     }
@@ -2178,14 +2223,19 @@ impl App {
 
     fn search_set_active(&mut self, term_opt: Option<String>) -> Task<Message> {
         let entity = self.tab_model.active();
-        self.search_set(entity, term_opt, None)
+        self.search_set(entity, term_opt, None, true)
     }
 
+    /// Starts, changes or ends the tab's search. `track` as for
+    /// [`Self::update_tab`]: it can show a row only when the read is of a
+    /// folder (an empty search, or the search ended), not for the search's
+    /// results.
     fn search_set(
         &mut self,
         tab: Entity,
         term_opt: Option<String>,
         selection_paths: Option<Vec<PathBuf>>,
+        track: bool,
     ) -> Task<Message> {
         let mut title_location_opt = None;
         if let Some(tab) = self.tab_model.data_mut::<Tab>(tab) {
@@ -2232,7 +2282,7 @@ impl App {
             return Task::batch([
                 self.update_title(),
                 self.update_watcher(),
-                self.rescan_tab(tab, location, selection_paths),
+                self.rescan_tab(tab, location, selection_paths, track),
                 if focus_search {
                     widget::text_input::focus(self.search_id.clone())
                 } else {
@@ -2566,59 +2616,196 @@ impl App {
         .into()
     }
 
+    /// Tracks mounting `item`, shown if it is slow: the key it ends with.
+    fn progress_mount(&mut self, item: &MounterItem) -> progress::Key {
+        let key = progress::Key::Mount(item.id());
+        self.progress.start(
+            key.clone(),
+            fl!("task-mounting", name = item.name()),
+            progress::SLOW,
+            Instant::now(),
+        );
+        key
+    }
+
+    /// Tracks unmounting or ejecting `item`, shown if it is slow: the key it
+    /// ends with.
+    fn progress_unmount(&mut self, item: &MounterItem) -> progress::Key {
+        let key = progress::Key::Unmount(item.id());
+        self.progress.start(
+            key.clone(),
+            fl!("task-unmounting", name = item.name()),
+            progress::SLOW,
+            Instant::now(),
+        );
+        key
+    }
+
+    /// The card in the bottom-right corner: a row per long-running task,
+    /// under the toasts.
+    fn progress_card(&self) -> Option<Element<'_, Message>> {
+        let Spacing {
+            space_xxs,
+            space_xs,
+            space_s,
+            ..
+        } = spacing();
+
+        let visible = self.progress.visible(Instant::now());
+        if visible.rows.is_empty() {
+            return None;
+        }
+
+        let header = widget::Row::with_children([
+            widget::text::heading(fl!("tasks-count", count = visible.total())).into(),
+            widget::space::horizontal().into(),
+            widget::button::link(fl!("details"))
+                .on_press(Message::ToggleContextPage(ContextPage::EditHistory))
+                .padding(0)
+                .trailing_icon(true)
+                .into(),
+        ])
+        .align_y(Alignment::Center);
+
+        // Keyed by the row's id, so a row keeps its own collapse and widget
+        // state when one above it is removed, rather than inheriting that
+        // row's by position. The gap above each row is inside its collapse,
+        // so it shrinks with the row instead of snapping shut on removal.
+        let gap = iced::padding::top(space_xxs.to_pixels());
+        let mut rows = widget::keyed::Column::with_capacity(visible.rows.len());
+        for row in &visible.rows {
+            rows = rows.push(
+                row.id,
+                widget::spring_height(widget::container(self.progress_row(row)).padding(gap))
+                    .collapsed(row.leaving),
+            );
+        }
+        let more = (visible.more > 0).then(|| {
+            widget::container(widget::text::caption(fl!(
+                "tasks-more",
+                count = visible.more
+            )))
+            .padding(gap)
+        });
+        let column = widget::Column::with_capacity(3)
+            .push(header)
+            .push(rows)
+            .push_maybe(more);
+
+        let card = widget::container(column)
+            .width(Length::Fixed(360.0))
+            .padding([space_xs, space_s])
+            .class(Container::Tooltip);
+        // The card slides out with its last rows.
+        Some(
+            widget::spring_height(card)
+                .collapsed(visible.leaving())
+                .into(),
+        )
+    }
+
+    /// One row of the progress card.
+    fn progress_row<'a>(&'a self, row: &progress::Row<'a>) -> Element<'a, Message> {
+        let bar_height = Length::Fixed(4.0);
+
+        // A file operation still running reads its progress live, and can
+        // be paused and cancelled.
+        if let (progress::Key::Operation(id), progress::State::Running) = (row.key, row.state)
+            && let Some((op, controller)) = self.pending_operations.get(id)
+        {
+            return Self::pending_operation_view(*id, op, controller);
+        }
+
+        let bar: Option<Element<'a, Message>> = match row.state {
+            progress::State::Running => Some(
+                widget::indeterminate_linear()
+                    .width(Length::Fill)
+                    .girth(bar_height)
+                    .into(),
+            ),
+            progress::State::Done => Some(
+                widget::determinate_linear(1.0)
+                    .width(Length::Fill)
+                    .girth(bar_height)
+                    .into(),
+            ),
+            progress::State::Failed => None,
+        };
+        let status = match row.state {
+            progress::State::Running => None,
+            progress::State::Done => Some(fl!("task-done")),
+            progress::State::Failed => Some(fl!("task-failed")),
+        };
+        widget::Column::with_capacity(2)
+            .push_maybe(bar)
+            .push(
+                widget::Row::with_capacity(3)
+                    .push(widget::text::body(row.label))
+                    .push(widget::space::horizontal())
+                    .push_maybe(status.map(widget::text::caption))
+                    .align_y(Alignment::Center),
+            )
+            .spacing(spacing().space_xxs.to_pixels())
+            .into()
+    }
+
+    /// A running file operation: its live bar, pause or resume, cancel, and
+    /// what it is doing. Shared by the progress card and the edit history.
+    fn pending_operation_view<'a>(
+        id: u64,
+        op: &Operation,
+        controller: &Controller,
+    ) -> Element<'a, Message> {
+        let progress = controller.progress();
+        let pause = if controller.is_paused() {
+            widget::tooltip(
+                widget::button::icon(icon::from_name("media-playback-start-symbolic"))
+                    .on_press(Message::PendingPause(id, false))
+                    .padding(8),
+                widget::text::body(fl!("resume")),
+                widget::tooltip::Position::Top,
+            )
+        } else {
+            widget::tooltip(
+                widget::button::icon(icon::from_name("media-playback-pause-symbolic"))
+                    .on_press(Message::PendingPause(id, true))
+                    .padding(8),
+                widget::text::body(fl!("pause")),
+                widget::tooltip::Position::Top,
+            )
+        };
+        widget::Column::with_children([
+            widget::Row::with_children([
+                widget::determinate_linear(progress)
+                    .width(Length::Fill)
+                    .girth(Length::Fixed(4.0))
+                    .into(),
+                pause.into(),
+                widget::tooltip(
+                    widget::button::icon(icon::from_name("window-close-symbolic"))
+                        .on_press(Message::PendingCancel(id))
+                        .padding(8),
+                    widget::text::body(fl!("cancel")),
+                    widget::tooltip::Position::Top,
+                )
+                .into(),
+            ])
+            .align_y(Alignment::Center)
+            .into(),
+            widget::text::body(op.pending_text(progress, controller.state())).into(),
+        ])
+        .into()
+    }
+
     fn edit_history(&self) -> Element<'_, Message> {
         let Spacing { space_m, .. } = spacing();
 
         let mut children = Vec::new();
 
-        let progress_bar_height = Length::Fixed(4.0);
-
         if !self.pending_operations.is_empty() {
             let mut section = widget::settings::section().title(fl!("pending"));
             for (id, (op, controller)) in self.pending_operations.iter().rev() {
-                let progress = controller.progress();
-                section = section.add(widget::Column::with_children([
-                    widget::Row::with_children([
-                        widget::determinate_linear(progress)
-                            .width(Length::Fill)
-                            .girth(progress_bar_height)
-                            .into(),
-                        if controller.is_paused() {
-                            widget::tooltip(
-                                widget::button::icon(icon::from_name(
-                                    "media-playback-start-symbolic",
-                                ))
-                                .on_press(Message::PendingPause(*id, false))
-                                .padding(8),
-                                widget::text::body(fl!("resume")),
-                                widget::tooltip::Position::Top,
-                            )
-                            .into()
-                        } else {
-                            widget::tooltip(
-                                widget::button::icon(icon::from_name(
-                                    "media-playback-pause-symbolic",
-                                ))
-                                .on_press(Message::PendingPause(*id, true))
-                                .padding(8),
-                                widget::text::body(fl!("pause")),
-                                widget::tooltip::Position::Top,
-                            )
-                            .into()
-                        },
-                        widget::tooltip(
-                            widget::button::icon(icon::from_name("window-close-symbolic"))
-                                .on_press(Message::PendingCancel(*id))
-                                .padding(8),
-                            widget::text::body(fl!("cancel")),
-                            widget::tooltip::Position::Top,
-                        )
-                        .into(),
-                    ])
-                    .align_y(Alignment::Center)
-                    .into(),
-                    widget::text::body(op.pending_text(progress, controller.state())).into(),
-                ]));
+                section = section.add(Self::pending_operation_view(*id, op, controller));
             }
             children.push(section.into());
         }
@@ -2954,7 +3141,7 @@ impl Application for App {
             exit_gate: ExitGate::default(),
             pending_operation_id: 0,
             pending_operations: BTreeMap::new(),
-            progress_operations: BTreeSet::new(),
+            progress: progress::Tasks::default(),
             complete_operations: BTreeMap::new(),
             failed_operations: BTreeMap::new(),
             undo_stack: Vec::new(),
@@ -3247,13 +3434,24 @@ impl Application for App {
                         })
                         && let Some(mounter) = MOUNTERS.get(&key)
                     {
-                        return mounter.network_drive(uri.clone()).map(move |mounted| {
-                            if mounted {
-                                crate::ui::Action::App(Message::NetworkDriveOpenEntityAfterMount {
-                                    entity,
-                                })
+                        let key = progress::Key::Mount(uri.clone());
+                        self.progress.start(
+                            key.clone(),
+                            fl!("task-mounting", name = uri_for_display(uri)),
+                            progress::SLOW,
+                            Instant::now(),
+                        );
+                        return mounter.network_drive(uri.clone()).then(move |outcome| {
+                            let end = Task::done(crate::ui::action::app(Message::ProgressEnd(
+                                key.clone(),
+                                outcome,
+                            )));
+                            if outcome == Outcome::Done {
+                                end.chain(Task::done(crate::ui::Action::App(
+                                    Message::NetworkDriveOpenEntityAfterMount { entity },
+                                )))
                             } else {
-                                crate::ui::action::none()
+                                end
                             }
                         });
                     }
@@ -3314,9 +3512,11 @@ impl Application for App {
         if let Some(data) = self.nav_model.data::<MounterData>(entity)
             && let Some(mounter) = MOUNTERS.get(&data.0)
         {
-            return mounter
-                .mount(data.1.clone())
-                .map(|()| crate::ui::action::none());
+            let item = data.1.clone();
+            let key = self.progress_mount(&item);
+            return mounter.mount(item).map(move |outcome| {
+                crate::ui::action::app(Message::ProgressEnd(key.clone(), outcome))
+            });
         }
         Task::none()
     }
@@ -3677,7 +3877,13 @@ impl Application for App {
                             error: _,
                         } => {
                             if let Some(mounter) = MOUNTERS.get(&mounter_key) {
-                                tasks.push(mounter.mount(item).map(|()| crate::ui::action::none()));
+                                let key = self.progress_mount(&item);
+                                tasks.push(mounter.mount(item).map(move |outcome| {
+                                    crate::ui::action::app(Message::ProgressEnd(
+                                        key.clone(),
+                                        outcome,
+                                    ))
+                                }));
                             }
                         }
                         DialogPage::NetworkAuth {
@@ -4065,7 +4271,12 @@ impl Application for App {
                         });
                         if let Some(title) = title_opt {
                             self.tab_model.text_set(entity, title);
-                            commands.push(self.update_tab(entity, home_location.clone(), None));
+                            commands.push(self.update_tab(
+                                entity,
+                                home_location.clone(),
+                                None,
+                                true,
+                            ));
                         }
                     }
                     if !commands.is_empty() {
@@ -4159,9 +4370,17 @@ impl Application for App {
                 if let Some((mounter_key, mounter)) = MOUNTERS.iter().next() {
                     self.network_drive_connecting =
                         Some((*mounter_key, self.network_drive_input.clone()));
-                    return mounter
-                        .network_drive(self.network_drive_input.clone())
-                        .map(|_| crate::ui::action::none());
+                    let uri = self.network_drive_input.clone();
+                    let key = progress::Key::Mount(uri.clone());
+                    self.progress.start(
+                        key.clone(),
+                        fl!("task-mounting", name = uri_for_display(&uri)),
+                        progress::SLOW,
+                        Instant::now(),
+                    );
+                    return mounter.network_drive(uri).map(move |outcome| {
+                        crate::ui::action::app(Message::ProgressEnd(key.clone(), outcome))
+                    });
                 }
                 log::warn!(
                     "no mounter found for connecting to {:?}",
@@ -4291,7 +4510,7 @@ impl Application for App {
 
                 let mut commands: Vec<Task<Message>> = needs_reload
                     .into_iter()
-                    .map(|(entity, location)| self.update_tab(entity, location, None))
+                    .map(|(entity, location)| self.update_tab(entity, location, None, false))
                     .collect();
                 for (entity, location, sizes, paths) in refresh {
                     let Some((listing, batch)) = self
@@ -4838,20 +5057,11 @@ impl Application for App {
             Message::PendingCancel(id) => {
                 if let Some((_, controller)) = self.pending_operations.get(&id) {
                     controller.cancel();
-                    self.progress_operations.remove(&id);
-                }
-            }
-            Message::PendingCancelAll => {
-                for (id, (_, controller)) in &self.pending_operations {
-                    controller.cancel();
-                    self.progress_operations.remove(id);
+                    self.progress.remove(&progress::Key::Operation(id));
                 }
             }
             Message::PendingComplete(id, op_sel) => {
                 return self.handle_completed_operations(vec![(id, op_sel)]);
-            }
-            Message::PendingDismiss => {
-                self.progress_operations.clear();
             }
             Message::PendingError(id, err) => {
                 return self.handle_operation_errors(vec![(id, err)]);
@@ -4871,14 +5081,14 @@ impl Application for App {
                     }
                 }
             }
-            Message::PendingPauseAll(pause) => {
-                for (_, controller) in self.pending_operations.values() {
-                    if pause {
-                        controller.pause();
-                    } else {
-                        controller.unpause();
-                    }
-                }
+            Message::ProgressEnd(key, outcome) => match outcome {
+                Outcome::Done => self.progress.finish(&key, true, None, Instant::now()),
+                Outcome::Failed => self.progress.finish(&key, false, None, Instant::now()),
+                // The user called it off, so no "Failed".
+                Outcome::Cancelled => self.progress.remove(&key),
+            },
+            Message::ProgressTick => {
+                self.progress.prune(Instant::now());
             }
             Message::PermanentlyDelete(entity_opt) => {
                 let paths: Box<[_]> = self.selected_paths(entity_opt).collect();
@@ -5248,6 +5458,7 @@ impl Application for App {
 
                 // Remove item
                 self.tab_model.remove(entity);
+                self.progress.remove(&progress::Key::Load(entity));
 
                 tasks.push(self.update_watcher());
 
@@ -5359,7 +5570,7 @@ impl Application for App {
                             commands.push(Task::batch([
                                 self.update_title(),
                                 self.update_watcher(),
-                                self.update_tab(entity, tab_path, selection_paths),
+                                self.update_tab(entity, tab_path, selection_paths, true),
                             ]));
                         }
                         tab::Command::Surface(action) => {
@@ -5564,12 +5775,19 @@ impl Application for App {
                 ancestors,
                 title,
                 selection_paths,
+                read_ok,
             ) => {
                 // Both sides were normalized already: the tab's location by
                 // `Tab::new` or `change_location`, this one on the worker.
                 if let Some(tab) = self.tab_model.data_mut::<Tab>(entity)
                     && location == tab.location
                 {
+                    self.progress.finish(
+                        &progress::Key::Load(entity),
+                        read_ok,
+                        None,
+                        Instant::now(),
+                    );
                     tab.parent_item_opt = parent_item_opt;
                     // Asked of the listing being replaced. A selection being
                     // restored is the user's, not the search's.
@@ -5839,9 +6057,11 @@ impl Application for App {
                 if let Some(data) = self.nav_model.data::<MounterData>(entity)
                     && let Some(mounter) = MOUNTERS.get(&data.0)
                 {
-                    return mounter
-                        .unmount(data.1.clone())
-                        .map(|()| crate::ui::action::none());
+                    let item = data.1.clone();
+                    let key = self.progress_unmount(&item);
+                    return mounter.unmount(item).map(move |outcome| {
+                        crate::ui::action::app(Message::ProgressEnd(key.clone(), outcome))
+                    });
                 }
             }
             Message::NavBarDrop(entity) => {
@@ -6169,21 +6389,21 @@ impl Application for App {
             Message::Eject => {
                 #[cfg(feature = "gvfs")]
                 {
-                    let mut paths = self.selected_paths(None);
-                    if let Some(p) = paths.next() {
-                        {
-                            for (k, mounter_items) in &self.mounter_items {
-                                if let Some(mounter) = MOUNTERS.get(k)
-                                    && let Some(item) = mounter_items
-                                        .iter()
-                                        .find(|&item| item.path().is_some_and(|path| path == p))
-                                {
-                                    return mounter
-                                        .unmount(item.clone())
-                                        .map(|()| crate::ui::action::none());
-                                }
-                            }
-                        }
+                    // Found before `self` is borrowed to track the row.
+                    let found = self.selected_paths(None).next().and_then(|p| {
+                        self.mounter_items.iter().find_map(|(k, mounter_items)| {
+                            let mounter = MOUNTERS.get(k)?;
+                            let item = mounter_items
+                                .iter()
+                                .find(|&item| item.path().is_some_and(|path| path == p))?;
+                            Some((mounter, item.clone()))
+                        })
+                    });
+                    if let Some((mounter, item)) = found {
+                        let key = self.progress_unmount(&item);
+                        return mounter.unmount(item).map(move |outcome| {
+                            crate::ui::action::app(Message::ProgressEnd(key.clone(), outcome))
+                        });
                     }
                 }
             }
@@ -7209,119 +7429,6 @@ impl Application for App {
         Some(dialog.into())
     }
 
-    fn footer(&self) -> Option<Element<'_, Message>> {
-        if self.progress_operations.is_empty() {
-            return None;
-        }
-
-        let Spacing {
-            space_xs, space_s, ..
-        } = spacing();
-
-        let mut title = String::new();
-        let mut total_progress = 0.0;
-        let mut count = 0;
-        let mut all_paused = true;
-        for (op, controller) in self.pending_operations.values() {
-            if !controller.is_paused() {
-                all_paused = false;
-            }
-            if op.show_progress_notification() {
-                let progress = controller.progress();
-                if title.is_empty() {
-                    title = op.pending_text(progress, controller.state());
-                }
-                total_progress += progress;
-                count += 1;
-            }
-        }
-        let running = count;
-        // Adjust the progress bar so it does not jump around when operations finish
-        for id in &self.progress_operations {
-            if self.complete_operations.contains_key(id) {
-                total_progress += 1.0;
-                count += 1;
-            }
-        }
-        let finished = count - running;
-        total_progress /= count as f32;
-        if running >= 1 && (running > 1 || finished > 0) {
-            if finished > 0 {
-                title = fl!(
-                    "operations-running-finished",
-                    running = running,
-                    finished = finished,
-                    percent = ((total_progress * 100.0) as i32)
-                );
-            } else {
-                title = fl!(
-                    "operations-running",
-                    running = running,
-                    percent = ((total_progress * 100.0) as i32)
-                );
-            }
-        }
-
-        let progress_bar_height = Length::Fixed(4.0);
-        let progress_bar = widget::determinate_linear(total_progress)
-            .width(Length::Fill)
-            .girth(progress_bar_height);
-
-        let container = widget::layer_container(widget::Column::with_children([
-            widget::Row::with_children([
-                progress_bar.into(),
-                if all_paused {
-                    widget::tooltip(
-                        widget::button::icon(icon::from_name("media-playback-start-symbolic"))
-                            .on_press(Message::PendingPauseAll(false))
-                            .padding(8),
-                        widget::text::body(fl!("resume")),
-                        widget::tooltip::Position::Top,
-                    )
-                    .into()
-                } else {
-                    widget::tooltip(
-                        widget::button::icon(icon::from_name("media-playback-pause-symbolic"))
-                            .on_press(Message::PendingPauseAll(true))
-                            .padding(8),
-                        widget::text::body(fl!("pause")),
-                        widget::tooltip::Position::Top,
-                    )
-                    .into()
-                },
-                widget::tooltip(
-                    widget::button::icon(icon::from_name("window-close-symbolic"))
-                        .on_press(Message::PendingCancelAll)
-                        .padding(8),
-                    widget::text::body(fl!("cancel")),
-                    widget::tooltip::Position::Top,
-                )
-                .into(),
-            ])
-            .align_y(Alignment::Center)
-            .into(),
-            widget::text::body(title).into(),
-            widget::space::vertical().height(space_s.to_length()).into(),
-            widget::Row::with_children([
-                widget::button::link(fl!("details"))
-                    .on_press(Message::ToggleContextPage(ContextPage::EditHistory))
-                    .padding(0)
-                    .trailing_icon(true)
-                    .into(),
-                widget::space::horizontal().into(),
-                widget::button::standard(fl!("dismiss"))
-                    .on_press(Message::PendingDismiss)
-                    .into(),
-            ])
-            .align_y(Alignment::Center)
-            .into(),
-        ]))
-        .padding([8, space_xs])
-        .layer(Layer::Primary);
-
-        Some(container.into())
-    }
-
     fn header_start(&self) -> Vec<Element<'_, Self::Message>> {
         vec![menu::menu_bar(
             &self.core,
@@ -7453,7 +7560,12 @@ impl Application for App {
         }
 
         // The toaster is added on top of an empty element to ensure that it does not override context menus
-        tab_column = tab_column.push(widget::toaster(&self.toasts, widget::space::horizontal()));
+        // The progress card is pinned under them, in the same corner.
+        tab_column = tab_column.push(widget::toaster(
+            &self.toasts,
+            self.progress_card(),
+            widget::space::horizontal(),
+        ));
 
         let content: Element<_> = tab_column.into();
 
@@ -7794,6 +7906,25 @@ impl Application for App {
             subscriptions.push(dialog.subscription().map(Message::FileDialogMessage));
         }
 
+        if let Some(at) = self.progress.next_deadline(Instant::now()) {
+            // Rows appear after their delay and leave after their linger
+            // without anything else happening to redraw them: one wake-up at
+            // the next such moment, not a steady tick. Keyed on the moment,
+            // so a new deadline starts a new wait.
+            subscriptions.push(Subscription::run_with(
+                ("progress_deadline", at),
+                |&(_, at)| {
+                    stream::channel(
+                        1,
+                        move |mut output: futures::channel::mpsc::Sender<Message>| async move {
+                            tokio::time::sleep_until(tokio::time::Instant::from_std(at)).await;
+                            let _ = output.send(Message::ProgressTick).await;
+                        },
+                    )
+                },
+            ));
+        }
+
         if !self.pending_operations.is_empty() {
             // Hold a logind lock for as long as operations are pending: the
             // subscription ends when the last one finishes, which drops the fd
@@ -7878,6 +8009,19 @@ fn move_path_changes(
         .collect()
 }
 
+/// `uri` without any `user[:password]@` before its host, for showing on
+/// screen: a network drive's address can carry the credentials typed into it.
+fn uri_for_display(uri: &str) -> String {
+    let Some((scheme, rest)) = uri.split_once("://") else {
+        return uri.to_owned();
+    };
+    let authority = &rest[..rest.find(['/', '?', '#']).unwrap_or(rest.len())];
+    match authority.rfind('@') {
+        Some(at) => format!("{scheme}://{}", &rest[at + 1..]),
+        None => uri.to_owned(),
+    }
+}
+
 /// Lets go of the main window when the compositor closed `id` and it was the
 /// main one, returning whether it was.
 ///
@@ -7897,6 +8041,15 @@ fn main_window_closed(core: &mut Core, id: window::Id) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_uri_is_shown_without_its_credentials() {
+        assert_eq!(uri_for_display("smb://u:p@host/share"), "smb://host/share");
+        assert_eq!(uri_for_display("sftp://u@host"), "sftp://host");
+        assert_eq!(uri_for_display("smb://host/share"), "smb://host/share");
+        assert_eq!(uri_for_display("smb://host/a@b"), "smb://host/a@b");
+        assert_eq!(uri_for_display("host/share"), "host/share");
+    }
 
     #[test]
     fn the_compositor_closing_the_main_window_lets_go_of_it() {

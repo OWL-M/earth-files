@@ -5,7 +5,6 @@ deleted =
         [one] hêman
        *[other] hêman
     } ji { trash }
-dismiss = Peyamê paşguh bike
 list-view = Dîtina lîsteyê
 copy_noun = Jê bigire
 favorite-path-error = Şaşetiya vekirina rêgehê
@@ -65,11 +64,6 @@ quit = Biqedîne
 rename = Navê biguhêrîne...
 empty-folder-hidden = Peldanka vala (tiştên veşartî tê de hene)
 keep = Bihêle
-operations-running =
-    { $running } { $running ->
-        [one] pêvajo
-       *[other] pêvajo
-    } dixebite ({ $percent }%)...
 permanently-deleting =
     { $items } bi mayînde tê jêbirin { $items ->
         [one] hêman
@@ -159,11 +153,6 @@ operation-failed-to-start = The file operation could not be started
 new-folder = Peldanka nû...
 match-desktop = Bi sermaseyê re li hev bîne
 name-no-slashes = Nav nabe ku "/" tê de hebe
-operations-running-finished =
-    { $running } { $running ->
-        [one] pêvajo
-       *[other] pêvajo
-    } dixebite ({ $percent }%), { $finished } qediya...
 edit-history = Dîrokê biguhêrînê
 show-hidden-files = Pelên veşartî nîşan bide
 show-type-column = Stûna cûreyê nîşan bide
@@ -231,6 +220,13 @@ file-type-other = Ên din
 details = Hûrgilî
 pause = Rawestîne
 resume = Bidomîne
+tasks-count = { $count } kar
+tasks-more = { $count } zêdetir
+task-loading = { $name } tê barkirin
+task-mounting = { $name } tê siwarkirin
+task-unmounting = { $name } tê daxistin
+task-done = Qediya
+task-failed = Têk çû
 copy-to-title = Rêgeha jêgirtinê hilbijêre
 copy-to-button-label = Jê bigire
 move-to-title = Rêgeha livandinê hilbijêre

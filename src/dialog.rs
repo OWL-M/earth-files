@@ -1485,7 +1485,7 @@ impl Application for App {
         {
             return mounter
                 .mount(data.1.clone())
-                .map(|()| crate::ui::action::none());
+                .map(|_outcome| crate::ui::action::none());
         }
         Task::none()
     }
@@ -1770,7 +1770,7 @@ impl Application for App {
                 {
                     return mounter
                         .unmount(data.1.clone())
-                        .map(|()| crate::ui::action::none());
+                        .map(|_outcome| crate::ui::action::none());
                 }
             }
             Message::NewFolder => {

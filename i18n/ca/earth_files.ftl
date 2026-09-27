@@ -27,21 +27,20 @@ file-type-archive = Arxiu
 file-type-document = Document
 file-type-program = Programa
 file-type-other = Altres
-# Progress footer
+# Progress card
 details = Detalls
-dismiss = Descarta el missatge
-operations-running =
-    { $running } { $running ->
-        [one] operació
-       *[other] operacions
-    } en curs ({ $percent }%)...
-operations-running-finished =
-    { $running }{ $running ->
-        [one] operació
-       *[other] operacions
-    } en curs ({ $percent }%), { $finished } acabada/es...
 pause = Pausa
 resume = Reprèn
+tasks-count = { $count } { $count ->
+    [one] tasca
+   *[other] tasques
+  }
+tasks-more = { $count } més
+task-loading = S'està carregant { $name }
+task-mounting = S'està muntant { $name }
+task-unmounting = S'està desmuntant { $name }
+task-done = Fet
+task-failed = Ha fallat
 
 # Dialogs
 

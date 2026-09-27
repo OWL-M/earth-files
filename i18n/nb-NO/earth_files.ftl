@@ -42,23 +42,22 @@ file-type-document = Dokument
 file-type-program = Program
 file-type-other = Annet
 details = Detaljer
-dismiss = Avvis beskjed
-operations-running =
-    { $running } { $running ->
-        [one] operasjon
-       *[other] operasjoner
-    } pågår ({ $percent }%)...
-operations-running-finished =
-    { $running } { $running ->
-        [one] operasjon
-       *[other] operasjoner
-    } pågår ({ $percent }%), { $finished } ferdige...
 pause = Pause
 save = Lagre
 repository = Kodelager
 modified = Modifisert
 trashed-on = Slettet
 resume = Fortsett
+tasks-count = { $count } { $count ->
+    [one] oppgave
+   *[other] oppgaver
+  }
+tasks-more = { $count } til
+task-loading = Laster inn { $name }
+task-mounting = Monterer { $name }
+task-unmounting = Avmonterer { $name }
+task-done = Ferdig
+task-failed = Mislyktes
 create-archive = Opprett arkiv
 extract-password-required = Passord kreves
 extract-as-folder = Pakk ut til mappe

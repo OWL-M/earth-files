@@ -27,23 +27,22 @@ file-type-archive = Архіў
 file-type-document = Дакумент
 file-type-program = Праграма
 file-type-other = Іншае
-# Progress footer
+# Progress card
 details = Падрабязнасці
-dismiss = Адхіліць паведамленне
-operations-running =
-    Выконваецца { $running } { $running ->
-        [one] аперацыя
-        [few] аперацыі
-       *[other] аперацый
-    } ({ $percent }%)...
-operations-running-finished =
-    Выконваецца { $running } { $running ->
-        [one] аперацыя
-        [few] аперацыі
-       *[other] аперацый
-    } ({ $percent }%), { $finished } завершана...
 pause = Паўза
 resume = Працягнуць
+tasks-count = { $count } { $count ->
+    [one] задача
+    [few] задачы
+    [many] задач
+   *[other] задачы
+  }
+tasks-more = яшчэ { $count }
+task-loading = Загрузка { $name }
+task-mounting = Мантаванне { $name }
+task-unmounting = Адмантаванне { $name }
+task-done = Гатова
+task-failed = Памылка
 
 # Dialogs
 

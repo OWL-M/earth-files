@@ -300,7 +300,6 @@ removed-from-recents =
 repository = 軟體庫
 trashed-on = 丟入時間
 details = 詳細資訊
-dismiss = 關閉訊息
 delete = 刪除
 remove = 移除
 support = 支援
@@ -310,6 +309,13 @@ keywords = 資料夾;管理器;
 empty-trash-title = 清空垃圾桶？
 pause = 暫停
 resume = 繼續
+tasks-count = { $count } 個工作
+tasks-more = 還有 { $count } 個
+task-loading = 正在載入 { $name }
+task-mounting = 正在掛載 { $name }
+task-unmounting = 正在卸載 { $name }
+task-done = 完成
+task-failed = 失敗
 extract-password-required = 需要密碼
 extract-as-folder = 解壓縮至資料夾
 extract-to = 解壓縮至...
@@ -335,16 +341,6 @@ none = 無
 execute-only = 僅執行
 write-only = 僅寫入
 write-execute = 寫入和執行
-operations-running =
-    { $running } { $running ->
-        [one] 個操作
-       *[other] 個操作
-    }正在執行（{ $percent }%）...
-operations-running-finished =
-    { $running } { $running ->
-        [one] 個操作
-       *[other] 個操作
-    }正在執行（{ $percent }%）， { $finished } 個已經完成...
 permanently-delete-warning = 「{ $target }」將被永久刪除。此操作無法復原。
 open-with = 開啟檔案
 selected-items = 已經選定 { $items } 個項目

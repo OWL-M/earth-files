@@ -18,6 +18,11 @@ pub fn determinate_circular(progress: f32) -> circular::Circular<crate::ui::Them
     circular::Circular::new().progress(progress)
 }
 
+/// A linear bar that moves back and forth: work under way whose end is not known.
+pub fn indeterminate_linear() -> linear::Linear<crate::ui::Theme> {
+    linear::Linear::new()
+}
+
 /// A linear progress bar widget that can be used to indicate the progress of some operation.
 pub fn determinate_linear(progress: f32) -> linear::Linear<crate::ui::Theme> {
     linear::Linear::new().progress(progress)

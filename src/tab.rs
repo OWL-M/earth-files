@@ -35,7 +35,7 @@ use std::error::Error;
 use std::fmt::{self, Display};
 use std::fs::{self, File, Metadata};
 use std::hash::Hash;
-use std::io::{BufRead, BufReader, Read};
+use std::io::{self, BufRead, BufReader, Read};
 use std::os::unix::fs::MetadataExt;
 use std::path::{self, Path, PathBuf};
 use std::sync::{Arc, LazyLock, Mutex, RwLock, atomic};
@@ -1352,7 +1352,18 @@ pub fn item_from_path<P: Into<PathBuf>>(path: P, sizes: IconSizes) -> Result<Ite
     Ok(item_from_entry(path, name, metadata, sizes))
 }
 
+/// The folder's items, or an empty list if it could not be read (logged).
 pub fn scan_path(tab_path: &PathBuf, sizes: IconSizes) -> Vec<Item> {
+    try_scan_path(tab_path, sizes).unwrap_or_else(|err| {
+        log::warn!("failed to read directory {}: {}", tab_path.display(), err);
+        Vec::new()
+    })
+}
+
+/// The folder's items, or why it could not be read, so a caller can tell an
+/// unreadable folder from an empty one. Only the final `read_dir` counts: a
+/// GVFS folder that gio fails to enumerate falls back to it.
+pub fn try_scan_path(tab_path: &PathBuf, sizes: IconSizes) -> io::Result<Vec<Item>> {
     let mut items = Vec::new();
     let mut hidden_files = Box::from([]);
     let mut remote_scannable = false;
@@ -1401,73 +1412,63 @@ pub fn scan_path(tab_path: &PathBuf, sizes: IconSizes) -> Vec<Item> {
     }
 
     if !remote_scannable {
-        match fs::read_dir(tab_path) {
-            Ok(entries) => {
-                let trash = crate::trash::is_trash_path(tab_path);
-                items = entries
-                    .filter_map(|entry_res| {
-                        let entry = entry_res
-                            .inspect_err(|err| {
-                                log::warn!(
-                                    "failed to read entry in {}: {}",
-                                    tab_path.display(),
-                                    err
-                                )
-                            })
-                            .ok()?;
-
-                        let path = entry.path();
-
-                        let name = entry
-                            .file_name()
-                            .into_string()
-                            .inspect_err(|name_os| {
-                                log::warn!(
-                                    "failed to parse entry at {}: {:?} is not valid UTF-8",
-                                    path.display(),
-                                    name_os
-                                )
-                            })
-                            .ok()?;
-
-                        if name == ".hidden" && path.is_file() {
-                            hidden_files = parse_hidden_file(&path);
-                        }
-
-                        // Fall back to the link itself when the target cannot
-                        // be read, so a broken symlink is still listed and can
-                        // be selected and deleted instead of being invisible
-                        let metadata = match fs::metadata(&path) {
-                            Ok(metadata) => metadata,
-                            Err(err) => match fs::symlink_metadata(&path) {
-                                Ok(metadata) => metadata,
-                                Err(_) => {
-                                    log::warn!(
-                                        "failed to read metadata for entry at {}: {}",
-                                        path.display(),
-                                        err
-                                    );
-                                    return None;
-                                }
-                            },
-                        };
-
-                        let item = if trash {
-                            item_from_trash_child(path, name, metadata, sizes)
-                        } else {
-                            Some(item_from_entry(path, name, metadata, sizes))
-                        };
-                        if let Some(item) = &item {
-                            fill_image_dimensions(item);
-                        }
-                        item
+        let entries = fs::read_dir(tab_path)?;
+        let trash = crate::trash::is_trash_path(tab_path);
+        items = entries
+            .filter_map(|entry_res| {
+                let entry = entry_res
+                    .inspect_err(|err| {
+                        log::warn!("failed to read entry in {}: {}", tab_path.display(), err)
                     })
-                    .collect();
-            }
-            Err(err) => {
-                log::warn!("failed to read directory {}: {}", tab_path.display(), err);
-            }
-        }
+                    .ok()?;
+
+                let path = entry.path();
+
+                let name = entry
+                    .file_name()
+                    .into_string()
+                    .inspect_err(|name_os| {
+                        log::warn!(
+                            "failed to parse entry at {}: {:?} is not valid UTF-8",
+                            path.display(),
+                            name_os
+                        )
+                    })
+                    .ok()?;
+
+                if name == ".hidden" && path.is_file() {
+                    hidden_files = parse_hidden_file(&path);
+                }
+
+                // Fall back to the link itself when the target cannot
+                // be read, so a broken symlink is still listed and can
+                // be selected and deleted instead of being invisible
+                let metadata = match fs::metadata(&path) {
+                    Ok(metadata) => metadata,
+                    Err(err) => match fs::symlink_metadata(&path) {
+                        Ok(metadata) => metadata,
+                        Err(_) => {
+                            log::warn!(
+                                "failed to read metadata for entry at {}: {}",
+                                path.display(),
+                                err
+                            );
+                            return None;
+                        }
+                    },
+                };
+
+                let item = if trash {
+                    item_from_trash_child(path, name, metadata, sizes)
+                } else {
+                    Some(item_from_entry(path, name, metadata, sizes))
+                };
+                if let Some(item) = &item {
+                    fill_image_dimensions(item);
+                }
+                item
+            })
+            .collect();
     }
     items.sort_unstable_by(|a, b| match (a.metadata.is_dir(), b.metadata.is_dir()) {
         (true, false) => Ordering::Less,
@@ -1479,7 +1480,7 @@ pub fn scan_path(tab_path: &PathBuf, sizes: IconSizes) -> Vec<Item> {
             item.hidden = true;
         }
     }
-    items
+    Ok(items)
 }
 
 /// The eye that says whether a search descends into subfolders.
@@ -1709,17 +1710,28 @@ pub fn scan_recents(sizes: IconSizes) -> Vec<Item> {
     recents.into_iter().take(50).map(|(item, _)| item).collect()
 }
 
+/// The network location's items, or an empty list if no mounter could read
+/// it (each failure logged).
 pub fn scan_network(uri: &str, sizes: IconSizes) -> Vec<Item> {
+    try_scan_network(uri, sizes).unwrap_or_default()
+}
+
+/// The network location's items from the first mounter that reads it, or
+/// the last mounter's error if none did (each failure logged), so a caller
+/// can tell a read that failed or timed out from an empty location.
+pub fn try_scan_network(uri: &str, sizes: IconSizes) -> Result<Vec<Item>, String> {
+    let mut last_err = None;
     for mounter in MOUNTERS.values() {
         match mounter.network_scan(uri, sizes) {
-            Some(Ok(items)) => return items,
+            Some(Ok(items)) => return Ok(items),
             Some(Err(err)) => {
                 log::warn!("failed to scan {uri:?}: {err}");
+                last_err = Some(err);
             }
             None => {}
         }
     }
-    Vec::new()
+    Err(last_err.unwrap_or_else(|| "no mounter could read it".to_owned()))
 }
 
 #[derive(Clone, Debug)]
@@ -1996,16 +2008,35 @@ impl Location {
     }
 
     pub fn scan(&self, sizes: IconSizes) -> (Option<Box<Item>>, Vec<Item>) {
-        let items = match self {
-            Self::Path(path) => scan_path(path, sizes),
+        let (parent_item_opt, items, _) = self.try_scan(sizes);
+        (parent_item_opt, items)
+    }
+
+    /// As [`Self::scan`], and whether the read worked: false when a folder or
+    /// network location could not be read, whose listing is then empty
+    /// rather than truly empty. A search, the trash and recents always count
+    /// as read.
+    pub fn try_scan(&self, sizes: IconSizes) -> (Option<Box<Item>>, Vec<Item>, bool) {
+        let read_path = |path: &PathBuf| match try_scan_path(path, sizes) {
+            Ok(items) => (items, true),
+            Err(err) => {
+                log::warn!("failed to read directory {}: {}", path.display(), err);
+                (Vec::new(), false)
+            }
+        };
+        let (items, read_ok) = match self {
+            Self::Path(path) => read_path(path),
             Self::Search(..) => match self.empty_search_folder() {
-                Some(path) => scan_path(path, sizes),
+                Some(path) => read_path(path),
                 // Search is done incrementally
-                None => Vec::new(),
+                None => (Vec::new(), true),
             },
-            Self::Trash => Trash::scan(sizes),
-            Self::Recents => scan_recents(sizes),
-            Self::Network(uri, _, _) => scan_network(uri, sizes),
+            Self::Trash => (Trash::scan(sizes), true),
+            Self::Recents => (scan_recents(sizes), true),
+            Self::Network(uri, _, _) => match try_scan_network(uri, sizes) {
+                Ok(items) => (items, true),
+                Err(_) => (Vec::new(), false),
+            },
         };
         let parent_item_opt = match self.path_opt() {
             Some(path) => match item_from_path(path, sizes) {
@@ -2017,7 +2048,7 @@ impl Location {
             },
             None => None,
         };
-        (parent_item_opt, items)
+        (parent_item_opt, items, read_ok)
     }
 
     /// The tab's title, named as [`folder_name`] does for `look`.
@@ -8954,7 +8985,8 @@ mod tests {
     use test_log::test;
 
     use super::{
-        ItemMetadata, ItemThumbnail, Location, Message, Tab, respond_to_scroll_direction, scan_path,
+        ItemMetadata, ItemThumbnail, Location, Message, Tab, respond_to_scroll_direction,
+        scan_path, try_scan_path,
     };
     use crate::app::test_utils::{
         NAME_LEN, NUM_DIRS, NUM_FILES, NUM_HIDDEN, NUM_NESTED, assert_eq_tab_path, empty_fs,
@@ -9082,6 +9114,42 @@ mod tests {
         let actual = scan_path(&invalid_path, IconSizes::default());
 
         assert!(actual.is_empty());
+
+        Ok(())
+    }
+
+    #[test]
+    fn try_scan_path_fails_for_a_missing_path() -> io::Result<()> {
+        let fs = empty_fs()?;
+        let missing = fs.path().join("ferris");
+        assert!(!missing.exists());
+
+        assert!(try_scan_path(&missing, IconSizes::default()).is_err());
+
+        Ok(())
+    }
+
+    #[test]
+    fn try_scan_path_reads_an_empty_dir_as_empty() -> io::Result<()> {
+        let fs = empty_fs()?;
+
+        let items = try_scan_path(&fs.path().to_owned(), IconSizes::default())?;
+        assert!(items.is_empty());
+
+        Ok(())
+    }
+
+    #[test]
+    fn a_location_that_cannot_be_read_says_so() -> io::Result<()> {
+        let fs = empty_fs()?;
+        let missing = Location::Path(fs.path().join("ferris"));
+        let existing = Location::Path(fs.path().to_owned());
+
+        let (_, items, read_ok) = missing.try_scan(IconSizes::default());
+        assert!(items.is_empty());
+        assert!(!read_ok);
+        let (_, _, read_ok) = existing.try_scan(IconSizes::default());
+        assert!(read_ok);
 
         Ok(())
     }

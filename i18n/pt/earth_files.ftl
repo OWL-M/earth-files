@@ -207,7 +207,6 @@ menu-about = Acerca do { earth-files }...
 repository = Repositório
 support = Suporte
 details = Detalhes
-dismiss = Dispensar mensagem
 remove = Remover
 cancelled = Canceladas
 operation-failed-to-start = The file operation could not be started
@@ -216,18 +215,18 @@ recents = Recentes
 search-title = Pesquisar "{$term}": {$name}
 today = Hoje
 trashed-on = Enviado para o lixo
-operations-running =
-    { $running } { $running ->
-        [one] operação
-       *[other] operações
-    } em execução ({ $percent }%)...
-operations-running-finished =
-    { $running } { $running ->
-        [one] operação
-       *[other] operações
-    } em execução ({ $percent }%), { $finished } concluídas...
 pause = Pausa
 resume = Retomar
+tasks-count = { $count } { $count ->
+    [one] tarefa
+   *[other] tarefas
+  }
+tasks-more = mais { $count }
+task-loading = A carregar { $name }
+task-mounting = A montar { $name }
+task-unmounting = A desmontar { $name }
+task-done = Concluído
+task-failed = Falhou
 create-archive = Criar arquivo
 extract-password-required = Palavra-passe necessária
 extract-as-folder = Extrair para pasta

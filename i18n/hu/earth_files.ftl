@@ -29,21 +29,17 @@ file-type-archive = Archívum
 file-type-document = Dokumentum
 file-type-program = Program
 file-type-other = Egyéb
-# Progress footer
+# Progress card
 details = Részletek
-dismiss = Üzenet bezárása
-operations-running =
-    { $running } { $running ->
-        [one] művelet
-       *[other] művelet
-    } fut ({ $percent }%)…
-operations-running-finished =
-    { $running } { $running ->
-        [one] művelet
-       *[other] művelet
-    } fut ({ $percent }%), { $finished } befejeződött…
 pause = Szünet
 resume = Folytatás
+tasks-count = { $count } feladat
+tasks-more = még { $count }
+task-loading = { $name } betöltése
+task-mounting = { $name } csatolása
+task-unmounting = { $name } leválasztása
+task-done = Kész
+task-failed = Sikertelen
 
 # Dialogs
 

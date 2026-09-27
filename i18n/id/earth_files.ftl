@@ -26,19 +26,15 @@ file-type-document = Dokumen
 file-type-program = Program
 file-type-other = Lainnya
 details = Rincian
-dismiss = Abaikan pesan
-operations-running =
-    { $running } { $running ->
-        [one] operasi
-       *[other] operasi
-    } berjalan ({ $percent }%)...
-operations-running-finished =
-    { $running } { $running ->
-        [one] operasi
-       *[other] operasi
-    } berjalan ({ $percent }%), { $finished } selesai...
 pause = Jeda
 resume = Lanjutkan
+tasks-count = { $count } tugas
+tasks-more = { $count } lainnya
+task-loading = Memuat { $name }
+task-mounting = Mengaitkan { $name }
+task-unmounting = Melepas kait { $name }
+task-done = Selesai
+task-failed = Gagal
 create-archive = Buat arsip
 extract-password-required = Kata sandi diperlukan
 extract-as-folder = Ekstrak ke folder

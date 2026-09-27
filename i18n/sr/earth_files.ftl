@@ -34,7 +34,6 @@ deleted =
        *[other] ставки
     } из { trash }
 item-modified = Измењено: { $modified }
-dismiss = Одбаци поруку
 list-view = Преглед у виду списака
 reload-folder = Поново учитај фасциклу
 copy_noun = Копија
@@ -127,6 +126,17 @@ close-tab = Затвори језичак
 name = Назив
 open-in-terminal = Отвори у терминалу
 resume = Настави
+tasks-count = { $count } { $count ->
+    [one] задатак
+    [few] задатка
+   *[other] задатака
+  }
+tasks-more = још { $count }
+task-loading = Учитавање { $name }
+task-mounting = Монтирање { $name }
+task-unmounting = Демонтирање { $name }
+task-done = Готово
+task-failed = Неуспешно
 open-multiple-folders = Отвори више фасцикла
 remember-password = Запамти лозинку
 show-details = Прикажи детаље
@@ -232,11 +242,6 @@ operation-failed-to-start = The file operation could not be started
 new-folder = Нова фасцикла...
 match-desktop = Прати радну површину
 domain = Домен
-operations-running-finished =
-    { $running } { $running ->
-        [one] радња покренута
-       *[other] радње покренуте
-    } ({ $percent }%), { $finished } завршено...
 edit-history = Историјат уређивања
 sort = Поређај
 show-hidden-files = Прикажи скривене датотеке
@@ -311,11 +316,6 @@ name-no-slashes = Назив не може садржати косе црте
 permanently-delete-question = Трајно обриши?
 replace-title = „{ $filename }“ већ постоји на овој локацији
 name-invalid = Назив не може бити „{ $filename }“
-operations-running =
-    { $running } { $running ->
-        [one] радња покренута
-       *[other] радње покренуте
-    } ({ $percent }%)...
 comment = Управник датотека
 keywords = Folder;Manager;Фасцикла;Управник;fascikla;upravnik;
 copy-to-title = Изабери одредиште умножавања

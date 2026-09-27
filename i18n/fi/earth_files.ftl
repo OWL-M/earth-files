@@ -303,6 +303,16 @@ sort-largest-to-smallest = Suurimmasta pienimpään
 sort-type-a-z = Tyyppi A-Ö
 sort-type-z-a = Tyyppi Ö-A
 resume = Jatka
+tasks-count = { $count } { $count ->
+    [one] tehtävä
+   *[other] tehtävää
+  }
+tasks-more = { $count } lisää
+task-loading = Ladataan { $name }
+task-mounting = Liitetään { $name }
+task-unmounting = Irrotetaan { $name }
+task-done = Valmis
+task-failed = Epäonnistui
 extract-password-required = Salasana vaaditaan
 extract-to-title = Pura kansioon
 empty-trash-title = Tyhjennetäänkö roskakori?
@@ -326,17 +336,6 @@ copy-to-button-label = Kopioi
 move-to-button-label = Siirrä
 clear-recents-history = Tyhjennä viimeaikaisten historia
 copy-path = Kopioi polku
-dismiss = Hylkää viesti
-operations-running =
-    { $running } { $running ->
-        [one] toiminto
-       *[other] toimintoa
-    } käynnissä ({ $percent } %)...
-operations-running-finished =
-    { $running } { $running ->
-        [one] toiminto
-       *[other] toimintoa
-    } käynnissä ({ $percent } %), { $finished } valmistunut…
 pause = Keskeytä
 extract-as-folder = Pura kansioon
 extract-to = Pura sijaintiin…

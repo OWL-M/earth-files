@@ -25,14 +25,15 @@ file-type-document = ਦਸਤਾਵੇਜ਼
 file-type-program = ਪਰੋਗਰਾਮ
 file-type-other = ਹੋਰ
 details = ਵੇਰਵੇ
-dismiss = ਸੁਨੇਹੇ ਨੂੰ ਖ਼ਾਰਜ ਕਰੋ
-operations-running =
-    { $running } { $running ->
-        [one] ਕਾਰਵਾਈ
-       *[other] ਕਾਰਵਾਈਆਂ
-    } ਜਾਰੀ ਹਨ ({ $percent }%)...
 pause = ਵਿਰਾਮ
 resume = ਮੁੜ-ਚਾਲੂ
+tasks-count = { $count } ਕੰਮ
+tasks-more = { $count } ਹੋਰ
+task-loading = { $name } ਲੋਡ ਹੋ ਰਿਹਾ ਹੈ
+task-mounting = { $name } ਮਾਊਂਟ ਹੋ ਰਿਹਾ ਹੈ
+task-unmounting = { $name } ਅਣ-ਮਾਊਂਟ ਹੋ ਰਿਹਾ ਹੈ
+task-done = ਪੂਰਾ
+task-failed = ਅਸਫ਼ਲ
 create-archive = ਅਕਾਇਵ ਬਣਾਓ
 extract-password-required = ਪਾਸਵਰਡ ਚਾਹੀਦਾ ਹੈ
 extract-as-folder = ਫੋਲਡਰ ਵਿੱਚ ਖਿਲਾਰੋ
@@ -58,11 +59,6 @@ open-folder = ਫੋਲਡਰ ਨੂੰ ਖੋਲ੍ਹੋ
 open-in-new-tab = ਨਵੀਂ ਟੈਬ ਵਿੱਚ ਖੋਲ੍ਹੋ
 open-in-new-window = ਨਵੀਂ ਵਿੰਡੋ ਵਿੱਚ ਖੋਲ੍ਹੋ
 earth-files = Earth Files
-operations-running-finished =
-    { $running } { $running ->
-        [one] ਕਾਰਵਾਈ
-       *[other] ਕਾਰਵਾਈਆਂ
-    } ਚੱਲ ਰਹੀ ਹੈ ({ $percent }%), { $finished } ਮੁਕੰਮਲ...
 mount-error = ਡਰਾਇਵ ਵਰਤਣ ਲਈ ਅਸਮਰੱਥ
 open-item-location = ਆਈਟਮ ਟਿਕਾਣੇ ਨੂੰ ਖੋਲ੍ਹੋ
 open-multiple-files = ਕਈ ਫ਼ਾਇਲਾਂ ਨੂੰ ਖੋਲ੍ਹੋ

@@ -27,21 +27,17 @@ file-type-archive = Cartlann
 file-type-document = Cáipéis
 file-type-program = Clár
 file-type-other = Eile
-# Progress footer
+# Progress card
 details = Sonraí
-dismiss = Diúltaigh an teachtaireacht
-operations-running =
-    { $running } { $running ->
-        [one] oibríocht
-       *[other] oibríochtaí
-    } ag rith ({ $percent }%)...
-operations-running-finished =
-    { $running } { $running ->
-        [one] oibríocht
-       *[other] oibríochtaí
-    } ag rith ({ $percent }%), { $finished } críochnaithe...
 pause = Sos
 resume = Tosaigh arís
+tasks-count = { $count } tasc
+tasks-more = { $count } eile
+task-loading = { $name } á lódáil
+task-mounting = { $name } á fheistiú
+task-unmounting = { $name } á dhífheistiú
+task-done = Déanta
+task-failed = Theip air
 
 # Dialogs
 

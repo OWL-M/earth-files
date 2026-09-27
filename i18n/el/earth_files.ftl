@@ -15,7 +15,6 @@ close-tab = Κλείσιμο καρτέλας
 light = Ανοιχτόχρωμο
 dark = Σκουρόχρωμο
 connect = Σύνδεση
-dismiss = Απόρριψη μηνύματος
 copy_noun = Αντιγραφή
 open-file = Άνοιγμα αρχείου
 save = Αποθήκευση
@@ -33,6 +32,16 @@ theme = Θέμα
 appearance = Εμφάνιση
 name = Όνομα
 resume = Συνέχιση
+tasks-count = { $count } { $count ->
+    [one] εργασία
+   *[other] εργασίες
+  }
+tasks-more = { $count } ακόμη
+task-loading = Φόρτωση { $name }
+task-mounting = Προσάρτηση { $name }
+task-unmounting = Αποπροσάρτηση { $name }
+task-done = Ολοκληρώθηκε
+task-failed = Απέτυχε
 username = Όνομα χρήστη
 delete = Διαγραφή
 repository = Αποθετήριο
@@ -255,11 +264,6 @@ cancelled = Ακυρωμένες
 operation-failed-to-start = The file operation could not be started
 new-folder = Νέος φάκελος...
 match-desktop = Συμφωνία με την επιφάνεια εργασίας
-operations-running-finished =
-    Εκτέλεση { $running } { $running ->
-        [one] διεργασίας
-       *[other] διεργασιών
-    } ({ $percent }%), { $finished } ολοκληρωμένες...
 edit-history = Ιστορικό επεξεργασιών
 show-hidden-files = Εμφάνιση κρυφών αρχείων
 show-type-column = Εμφάνιση στήλης τύπου
@@ -316,11 +320,6 @@ notification-in-progress = Βρίσκονται σε εξέλιξη διεργα
 name-no-slashes = Το όνομα δεν μπορεί να περιέχει καθέτους
 replace-title = Το «{ $filename }» υπάρχει ήδη σε αυτήν την τοποθεσία
 name-invalid = Το όνομα δεν μπορεί να είναι «{ $filename }»
-operations-running =
-    Εκτέλεση { $running } { $running ->
-        [one] διεργασίας
-       *[other] διεργασιών
-    } ({ $percent }%)...
 context-action-confirm-title = Εκτέλεση του «{ $name }»;
 pasted-image = Επικολλημένη εικόνα
 pasted-text = Επικολλημένο κείμενο

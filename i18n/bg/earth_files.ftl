@@ -27,21 +27,20 @@ file-type-archive = Архив
 file-type-document = Документ
 file-type-program = Програма
 file-type-other = Друго
-# Progress footer
+# Progress card
 details = Подробности
-dismiss = Отмяна на съобщението
-operations-running =
-    { $running } { $running ->
-        [one] операция се изпълнява
-       *[other] операции се изпълняват
-    } ({ $percent }%)...
-operations-running-finished =
-    { $running } { $running ->
-        [one] операция се изпълнява
-       *[other] операции се изпълняват
-    } ({ $percent }%), { $finished } завършиха...
 pause = Пауза
 resume = Продължаване
+tasks-count = { $count } { $count ->
+    [one] задача
+   *[other] задачи
+  }
+tasks-more = още { $count }
+task-loading = Зареждане на { $name }
+task-mounting = Монтиране на { $name }
+task-unmounting = Демонтиране на { $name }
+task-done = Готово
+task-failed = Неуспешно
 
 # Dialogs
 

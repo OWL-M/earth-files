@@ -27,13 +27,17 @@ file-type-archive = بایگانی
 file-type-document = سند
 file-type-program = برنامه
 file-type-other = سایر
-# Progress footer
+# Progress card
 details = جزئیات
-dismiss = بستن پیام
-operations-running = { $running } عملیات در حال اجرا ({ $percent }%)...
-operations-running-finished = { $running } عملیات در حال اجرا ({ $percent }%)، { $finished } پایان یافته...
 pause = توقف
 resume = ادامه
+tasks-count = { $count } کار
+tasks-more = { $count } مورد دیگر
+task-loading = در حال بارگذاری { $name }
+task-mounting = در حال سوار کردن { $name }
+task-unmounting = در حال پیاده کردن { $name }
+task-done = انجام شد
+task-failed = ناموفق
 
 # Dialogs
 

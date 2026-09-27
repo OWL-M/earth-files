@@ -67,6 +67,17 @@ impl MounterItem {
         }
     }
 
+    /// A stable identity: the volume's id for a volume, the mount root's URI
+    /// for a mount. Unlike [`Self::uri`], never empty for a volume that has
+    /// no activation root, as most local drives have none.
+    pub fn id(&self) -> String {
+        match self {
+            #[cfg(feature = "gvfs")]
+            Self::Gvfs(item) => item.id(),
+            Self::None => unreachable!(),
+        }
+    }
+
     pub fn is_mounted(&self) -> bool {
         match self {
             #[cfg(feature = "gvfs")]
@@ -119,12 +130,26 @@ pub enum MounterMessage {
     NetworkResult(String, Result<bool, String>),
 }
 
+/// How a mount, network-drive connect or unmount ended.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Outcome {
+    Done,
+    /// The user called it off, e.g. dismissed the password prompt.
+    Cancelled,
+    Failed,
+}
+
 pub trait Mounter: Send + Sync {
-    fn mount(&self, item: MounterItem) -> Task<()>;
-    fn network_drive(&self, uri: String) -> Task<bool>;
+    /// Mounts `item`; resolves once that is done, with how it ended.
+    fn mount(&self, item: MounterItem) -> Task<Outcome>;
+    /// Connects the network drive at `uri`; resolves once that is done,
+    /// with how it ended.
+    fn network_drive(&self, uri: String) -> Task<Outcome>;
     fn network_scan(&self, uri: &str, sizes: IconSizes) -> Option<Result<Vec<tab::Item>, String>>;
     fn dir_info(&self, uri: &str) -> Option<(String, String, Option<PathBuf>)>;
-    fn unmount(&self, item: MounterItem) -> Task<()>;
+    /// Unmounts or ejects `item`; resolves once that is done, with how it
+    /// ended.
+    fn unmount(&self, item: MounterItem) -> Task<Outcome>;
     fn subscription(&self) -> Subscription<MounterMessage>;
 }
 

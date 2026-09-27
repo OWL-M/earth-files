@@ -27,21 +27,17 @@ file-type-archive = Arşiv
 file-type-document = Belge
 file-type-program = Program
 file-type-other = Diğer
-# Progress footer
+# Progress card
 details = Detaylar
-dismiss = Mesajı kapat
-operations-running =
-    { $running } { $running ->
-        [one] işlem
-       *[other] işlem
-    } çalışıyor ({ $percent }%)...
-operations-running-finished =
-    { $running } { $running ->
-        [one] işlem
-       *[other] işlem
-    } çalışıyor ({ $percent }%), { $finished } bitti...
 pause = Duraklat
 resume = Devam et
+tasks-count = { $count } görev
+tasks-more = { $count } tane daha
+task-loading = { $name } yükleniyor
+task-mounting = { $name } bağlanıyor
+task-unmounting = { $name } ayrılıyor
+task-done = Bitti
+task-failed = Başarısız
 
 # Dialogs
 

@@ -163,6 +163,16 @@ edit-history = ಸಂಪಾದನೆ ಇತಿಹಾಸ
 history = ಇತಿಹಾಸ
 no-history = ಇತಿಹಾಸದಲ್ಲಿ ಐಟಂಗಳಿಲ್ಲ
 pending = ಬಾಕಿ
+tasks-count = { $count } { $count ->
+    [one] ಕಾರ್ಯ
+   *[other] ಕಾರ್ಯಗಳು
+  }
+tasks-more = ಇನ್ನೂ { $count }
+task-loading = { $name } ಲೋಡ್ ಆಗುತ್ತಿದೆ
+task-mounting = { $name } ಮೌಂಟ್ ಆಗುತ್ತಿದೆ
+task-unmounting = { $name } ಅನ್‌ಮೌಂಟ್ ಆಗುತ್ತಿದೆ
+task-done = ಮುಗಿದಿದೆ
+task-failed = ವಿಫಲವಾಗಿದೆ
 failed = ವಿಫಲವಾಗಿದೆ
 operation-failed-to-start = The file operation could not be started
 complete = ಪೂರ್ಣವಾಗಿದೆ

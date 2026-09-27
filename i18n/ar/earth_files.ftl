@@ -144,7 +144,6 @@ show-type-column = أظهر عمود النوع
 list-directories-first = اسرد المجلدات اولاً
 menu-settings = الإعدادات...
 menu-about = عن { earth-files }...
-dismiss = أهمِل الرسالة
 no-results = لم يُعثر على نتائج
 networks = الشبكات
 notification-in-progress = عمليات الملفات جارية
@@ -154,6 +153,20 @@ trashed-on = مهمل
 details = تفاصيل
 pause = ألبث
 resume = استئناف
+tasks-count = { $count ->
+    [zero] لا مهام
+    [one] مهمة واحدة
+    [two] مهمتان
+    [few] { $count } مهام
+    [many] { $count } مهمة
+   *[other] { $count } مهمة
+  }
+tasks-more = { $count } أخرى
+task-loading = جارٍ تحميل { $name }
+task-mounting = جارٍ وصل { $name }
+task-unmounting = جارٍ فصل { $name }
+task-done = تم
+task-failed = فشل
 create-archive = أنشئ أرشيف
 extract-password-required = كلمة السر مطلوبة
 extract-as-folder = استخرِج إلى مجلد
@@ -257,16 +270,6 @@ sort-smallest-to-largest = من الأصغر إلى الأكبر
 sort-largest-to-smallest = من الأكبر إلي الأصغر
 sort-type-a-z = النوع أ-ي
 sort-type-z-a = النوع ي-أ
-operations-running =
-    { $running } { $running ->
-        [one] عملية
-       *[other] عمليات
-    } قيد التشغيل ({ $percent }%)...
-operations-running-finished =
-    { $running } { $running ->
-        [one] عملية
-       *[other] عمليات
-    } قيد التشغيل ({ $percent }%)، { $finished } انتهى...
 browse-store = تصفح { $store }
 other-apps = تطبيقات أخرى
 related-apps = تطبيقات ذات صلة

@@ -158,6 +158,21 @@ username = Uživatelské jméno
 details = Podrobnosti
 pause = Pozastavit
 resume = Pokračovat
+tasks-count = { $count } { $count ->
+    [one] úloha
+    [few] úlohy
+   *[other] úloh
+  }
+tasks-more = { $count ->
+    [one] a { $count } další
+    [few] a { $count } další
+   *[other] a { $count } dalších
+  }
+task-loading = Načítání { $name }
+task-mounting = Připojování { $name }
+task-unmounting = Odpojování { $name }
+task-done = Hotovo
+task-failed = Selhalo
 create-archive = Vytvořit archiv
 extract-password-required = Vyžadováno heslo
 extract-as-folder = Rozbalit do složky
@@ -231,23 +246,6 @@ permanently-deleted =
     }
 delete-permanently = Smazat trvale
 trashed-on = Smazáno
-dismiss = Zavřít zprávu
-operations-running =
-    Běží { $running } { $running ->
-        [one] operace
-        [few] operace
-       *[other] operací
-    } ({ $percent }%)...
-operations-running-finished =
-    Běží { $running } { $running ->
-        [one] operace
-        [few] operace
-       *[other] operací
-    } ({ $percent }%), { $finished } { $finished ->
-        [one] dokončena...
-        [few] dokončeny...
-       *[other] dokončeno...
-    }
 apply-to-all = Použít na vše
 owner = Vlastník
 group = Skupina

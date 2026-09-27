@@ -27,6 +27,16 @@ file-type-other = Ayen nniḍen
 details = Ifatusen
 pause = Serǧu
 resume = Kemmel
+tasks-count = { $count } { $count ->
+    [one] tawuri
+   *[other] tiwuriwin
+  }
+tasks-more = { $count } nniḍen
+task-loading = Asali n { $name }
+task-mounting = Aserkeb n { $name }
+task-unmounting = Tukksa n userkeb n { $name }
+task-done = Yemmed
+task-failed = Ur yeddi ara
 create-archive = Snulfu-d aɣbaṛ
 extract-as-folder = Ssef deg ukaram
 extract-to = Ssef ɣer...
@@ -34,7 +44,6 @@ extract-to-title = Ssef ɣer ukaram
 empty-trash = Silem iḍumman
 rename-folder = Snifel isem n ukaram
 filesystem = Anagraw n yifuyla
-dismiss = Zgel izen
 empty-trash-title = Silem iḍumman?
 empty-trash-warning = Iferdisen n ukaram n iḍumman ad ttwakksen i lebda
 create-new-file = Snulfu-d afaylu amaynut
@@ -55,19 +64,6 @@ open-in-new-window = Ldi deg usfaylu amaynut
 open-item-location = Ldi adig n uferdis
 open-multiple-files = Ldi aget n ifuyla
 mount-error = Ulamek anekcum ɣer umeɣri
-operations-running =
-    { $running } { $running ->
-        [one] n temhelt la tteddu
-       *[other] n temhal la tteddunt
-    } ({ $percent }%)...
-operations-running-finished =
-    { $running } { $running ->
-        [one] n temhelt la tteddu
-       *[other] n temhal la tteddunt
-    } ({ $percent }%), { $finished } { $finished ->
-        [one] tfukk
-       *[other] fukkent
-    }...
 copy-to-title = Fren taɣerwaḍt n unɣel
 copy-to-button-label = Nɣel
 move-to-title = Fren taɣerwaḍt n usmutti

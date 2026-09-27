@@ -197,7 +197,6 @@ menu-about = Про { earth-files }...
 repository = Сховище
 support = Підтримка
 details = Подробиці
-dismiss = Закрити повідомлення
 remove = Вилучити
 cancelled = Скасовані
 operation-failed-to-start = The file operation could not be started
@@ -206,18 +205,20 @@ networks = Мережі
 notification-in-progress = Триває обробка файлів
 today = Сьогодні
 trashed-on = У смітнику
-operations-running =
-    { $running } { $running ->
-        [one] операція
-       *[other] операції
-    } виконується ({ $percent }%)...
-operations-running-finished =
-    { $running } { $running ->
-        [one] операція
-       *[other] операціі
-    } виконується ({ $percent }%), { $finished } завершено...
 pause = Призупинити
 resume = Продовжити
+tasks-count = { $count } { $count ->
+    [one] завдання
+    [few] завдання
+    [many] завдань
+   *[other] завдання
+  }
+tasks-more = ще { $count }
+task-loading = Завантаження { $name }
+task-mounting = Монтування { $name }
+task-unmounting = Відмонтування { $name }
+task-done = Готово
+task-failed = Помилка
 create-archive = Створити архів
 extract-password-required = Потрібен пароль
 extract-as-folder = Видобути до теки

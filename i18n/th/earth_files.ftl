@@ -27,13 +27,17 @@ file-type-archive = ไฟล์บีบอัด
 file-type-document = เอกสาร
 file-type-program = โปรแกรม
 file-type-other = อื่นๆ
-# Progress footer
+# Progress card
 details = รายละเอียด
-dismiss = ไม่สนใจข้อความ
-operations-running = การดำเนินการ { $running } running ({ $percent }%)...
-operations-running-finished = { $running } operations running ({ $percent }%), { $finished } finished...
 pause = หยุด
 resume = ทำต่อ
+tasks-count = { $count } งาน
+tasks-more = อีก { $count }
+task-loading = กำลังโหลด { $name }
+task-mounting = กำลังเมานต์ { $name }
+task-unmounting = กำลังยกเลิกการเมานต์ { $name }
+task-done = เสร็จแล้ว
+task-failed = ล้มเหลว
 
 # Dialogs
 

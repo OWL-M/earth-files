@@ -29,25 +29,25 @@ file-type-archive = Archív
 file-type-document = Dokument
 file-type-program = Program
 file-type-other = Ostatné
-# Progress footer
+# Progress card
 details = Podrobnosti
-dismiss = Zavrieť správu
-operations-running =
-    { $running } { $running ->
-        [one] operácia
-        [few] operácie
-        [many] operácií
-       *[other] operácie
-    } prebieha ({ $percent }%)...
-operations-running-finished =
-    { $running } { $running ->
-        [one] operácia
-        [few] operácie
-        [many] operácií
-       *[other] operácie
-    } prebieha ({ $percent }%), { $finished } dokončených...
 pause = Pozastaviť
 resume = Pokračovať
+tasks-count = { $count } { $count ->
+    [one] úloha
+    [few] úlohy
+   *[other] úloh
+  }
+tasks-more = { $count ->
+    [one] ďalšia { $count }
+    [few] ďalšie { $count }
+   *[other] ďalších { $count }
+  }
+task-loading = Načítava sa { $name }
+task-mounting = Pripája sa { $name }
+task-unmounting = Odpája sa { $name }
+task-done = Hotovo
+task-failed = Zlyhalo
 
 # Dialogs
 

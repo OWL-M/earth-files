@@ -115,19 +115,18 @@ file-type-program = Program
 file-type-other = Övrigt
 # Framstegssidfot
 details = Detaljer
-dismiss = Avfärda meddelande
-operations-running =
-    { $running } { $running ->
-        [one] åtgärd
-       *[other] åtgärder
-    } kör ({ $percent }%)...
-operations-running-finished =
-    { $running } { $running ->
-        [one] åtgärd
-       *[other] åtgärder
-    } kör ({ $percent }%), { $finished } slutförda...
 pause = Pausa
 resume = Återuppta
+tasks-count = { $count } { $count ->
+    [one] uppgift
+   *[other] uppgifter
+  }
+tasks-more = { $count } till
+task-loading = Läser in { $name }
+task-mounting = Monterar { $name }
+task-unmounting = Avmonterar { $name }
+task-done = Klart
+task-failed = Misslyckades
 
 # Kontextsidor
 

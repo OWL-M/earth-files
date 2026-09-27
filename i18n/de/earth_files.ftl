@@ -29,19 +29,18 @@ file-type-program = Programm
 file-type-other = Sonstiges
 # Fortschrittsfußzeile
 details = Details
-dismiss = Meldung verwerfen
-operations-running =
-    { $running } { $running ->
-        [one] laufender Vorgang
-       *[other] laufende Vorgänge
-    } ({ $percent } %) ...
-operations-running-finished =
-    { $running } { $running ->
-        [one] laufender Vorgang
-       *[other] laufende Vorgänge
-    } ({ $percent } %), { $finished } abgeschlossen ...
 pause = Pause
 resume = Fortsetzen
+tasks-count = { $count } { $count ->
+    [one] Aufgabe
+   *[other] Aufgaben
+  }
+tasks-more = { $count } weitere
+task-loading = { $name } wird geladen
+task-mounting = { $name } wird eingehängt
+task-unmounting = { $name } wird ausgehängt
+task-done = Fertig
+task-failed = Fehlgeschlagen
 
 # Dialoge
 

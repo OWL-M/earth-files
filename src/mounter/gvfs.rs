@@ -12,7 +12,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 
-use super::{Mounter, MounterAuth, MounterItem, MounterItems, MounterMessage};
+use super::{Mounter, MounterAuth, MounterItem, MounterItems, MounterMessage, Outcome};
 use crate::config::IconSizes;
 use crate::err_str;
 use crate::tab::{self, ChecksumState, DirSize, ItemMetadata, ItemThumbnail, Location};
@@ -395,18 +395,15 @@ fn mount_op(
 
 enum Cmd {
     Rescan,
-    Mount(
-        MounterItem,
-        tokio::sync::oneshot::Sender<anyhow::Result<()>>,
-    ),
-    NetworkDrive(String, tokio::sync::oneshot::Sender<anyhow::Result<()>>),
+    Mount(MounterItem, tokio::sync::oneshot::Sender<Outcome>),
+    NetworkDrive(String, tokio::sync::oneshot::Sender<Outcome>),
     NetworkScan(
         String,
         IconSizes,
         mpsc::Sender<Result<Vec<tab::Item>, String>>,
     ),
     DirInfo(String, mpsc::Sender<DirInfoResult>),
-    Unmount(MounterItem),
+    Unmount(MounterItem, tokio::sync::oneshot::Sender<Outcome>),
 }
 
 enum Event {
@@ -463,6 +460,12 @@ impl Item {
 
     pub fn uri(&self) -> String {
         self.uri.clone()
+    }
+
+    /// A stable identity: the volume's id for a volume, the mount root's URI
+    /// for a mount.
+    pub fn id(&self) -> String {
+        self.id.clone()
     }
 
     /// Path of this item's icon.
@@ -601,11 +604,13 @@ impl Gvfs {
                         }
                         Cmd::Mount(mounter_item, complete_tx) => {
                             let MounterItem::Gvfs(ref item) = mounter_item else {
-                                _ = complete_tx.send(Err(anyhow::anyhow!("No mounter item")));
+                                log::warn!("mount: item is not a gvfs item");
+                                _ = complete_tx.send(Outcome::Failed);
                                 continue;
                             };
                             let ItemKind::Volume = item.kind else {
-                                _ = complete_tx.send(Err(anyhow::anyhow!("No mounter volume")));
+                                log::warn!("mount: {:?} is not a gvfs volume", item.name);
+                                _ = complete_tx.send(Outcome::Failed);
                                 continue;
                             };
                             let Some(volume) = monitor
@@ -614,10 +619,7 @@ impl Gvfs {
                                 .find(|volume| volume_id(volume) == item.id)
                             else {
                                 log::warn!("volume {:?} is no longer present", item.name);
-                                _ = complete_tx.send(Err(anyhow::anyhow!(
-                                    "volume {:?} is no longer present",
-                                    item.name
-                                )));
+                                _ = complete_tx.send(Outcome::Failed);
                                 continue;
                             };
                             {
@@ -656,20 +658,15 @@ impl Gvfs {
                                                     // Query if remote
                                                     item.is_remote = is_remote(&root).await;
                                                 }
+                                                _ = complete_tx.send(outcome(&res));
                                                 let Some(event_tx) = event_tx.upgrade() else {
                                                     return;
                                                 };
                                                 event_tx.send(Event::MountResult(
                                                     updated_item,
                                                     match res {
-                                                        Ok(()) => {
-                                                            _ = complete_tx.send(Ok(()));
-                                                            Ok(true)
-                                                        }
+                                                        Ok(()) => Ok(true),
                                                         Err(err) => {
-                                                            _ = complete_tx.send(Err(
-                                                                anyhow::anyhow!("{err:?}"),
-                                                            ));
                                                             match err.kind::<gio::IOErrorEnum>() {
                                                                 Some(
                                                                     gio::IOErrorEnum::FailedHandled,
@@ -695,25 +692,18 @@ impl Gvfs {
                                 gio::Cancellable::NONE,
                                 move |res| {
                                     log::info!("network drive {uri}: result {res:?}");
+                                    _ = result_tx.send(outcome(&res));
                                     let Some(event_tx) = event_tx.upgrade() else {
                                         return;
                                     };
                                     event_tx.send(Event::NetworkResult(
                                         uri,
                                         match res {
-                                            Ok(()) => {
-                                                _ = result_tx.send(Ok(()));
-                                                Ok(true)
-                                            }
-                                            Err(err) => {
-                                                _ = result_tx.send(Err(anyhow::anyhow!("{err:?}")));
-                                                match err.kind::<gio::IOErrorEnum>() {
-                                                    Some(gio::IOErrorEnum::FailedHandled) => {
-                                                        Ok(false)
-                                                    }
-                                                    _ => Err(format!("{err}")),
-                                                }
-                                            }
+                                            Ok(()) => Ok(true),
+                                            Err(err) => match err.kind::<gio::IOErrorEnum>() {
+                                                Some(gio::IOErrorEnum::FailedHandled) => Ok(false),
+                                                _ => Err(format!("{err}")),
+                                            },
                                         },
                                     ));
                                 },
@@ -801,17 +791,24 @@ impl Gvfs {
                                 }
                             });
                         }
-                        Cmd::Unmount(mounter_item) => {
+                        Cmd::Unmount(mounter_item, complete_tx) => {
                             let MounterItem::Gvfs(item) = mounter_item else {
+                                log::warn!("unmount: item is not a gvfs item");
+                                _ = complete_tx.send(Outcome::Failed);
                                 continue;
                             };
-                            let ItemKind::Mount = item.kind else { continue };
+                            let ItemKind::Mount = item.kind else {
+                                log::warn!("unmount: {:?} is not a gvfs mount", item.name);
+                                _ = complete_tx.send(Outcome::Failed);
+                                continue;
+                            };
                             let Some(mount) = monitor
                                 .mounts()
                                 .into_iter()
                                 .find(|mount| MountExt::root(mount).uri() == item.id)
                             else {
                                 log::warn!("mount {:?} is no longer present", item.name);
+                                _ = complete_tx.send(Outcome::Failed);
                                 continue;
                             };
                             {
@@ -825,6 +822,7 @@ impl Gvfs {
                                         gio::Cancellable::NONE,
                                         move |result| {
                                             log::info!("eject {name}: result {result:?}");
+                                            _ = complete_tx.send(outcome(&result));
                                         },
                                     );
                                 } else {
@@ -836,6 +834,7 @@ impl Gvfs {
                                         gio::Cancellable::NONE,
                                         move |result| {
                                             log::info!("unmount {name}: result {result:?}");
+                                            _ = complete_tx.send(outcome(&result));
                                         },
                                     );
                                 }
@@ -853,8 +852,33 @@ impl Gvfs {
     }
 }
 
+/// Maps a mount/unmount/eject result to an [`Outcome`]: success is `Done`,
+/// `FailedHandled` (the error was already shown to, or dismissed by, the
+/// user) is `Cancelled`, and anything else is `Failed`.
+fn outcome(res: &Result<(), glib::Error>) -> Outcome {
+    match res {
+        Ok(()) => Outcome::Done,
+        Err(err) => match err.kind::<gio::IOErrorEnum>() {
+            Some(gio::IOErrorEnum::FailedHandled) => Outcome::Cancelled,
+            _ => Outcome::Failed,
+        },
+    }
+}
+
+/// How a mounter command ended. A command whose sender was dropped
+/// unanswered counts as failed.
+fn done(result: Result<Outcome, tokio::sync::oneshot::error::RecvError>) -> Outcome {
+    match result {
+        Ok(outcome) => outcome,
+        Err(err) => {
+            log::error!("mounter command dropped unanswered: {err}");
+            Outcome::Failed
+        }
+    }
+}
+
 impl Mounter for Gvfs {
-    fn mount(&self, item: MounterItem) -> Task<()> {
+    fn mount(&self, item: MounterItem) -> Task<Outcome> {
         let command_tx = self.command_tx.clone();
         Task::perform(
             async move {
@@ -863,15 +887,11 @@ impl Mounter for Gvfs {
                 command_tx.send(Cmd::Mount(item, res_tx)).unwrap();
                 res_rx.await
             },
-            |x| {
-                if let Err(err) = x {
-                    log::error!("{err:?}");
-                }
-            },
+            done,
         )
     }
 
-    fn network_drive(&self, uri: String) -> Task<bool> {
+    fn network_drive(&self, uri: String) -> Task<Outcome> {
         let command_tx = self.command_tx.clone();
         Task::perform(
             async move {
@@ -880,17 +900,7 @@ impl Mounter for Gvfs {
                 command_tx.send(Cmd::NetworkDrive(uri, res_tx)).unwrap();
                 res_rx.await
             },
-            |result| match result {
-                Ok(Ok(())) => true,
-                Ok(Err(err)) => {
-                    log::error!("{err:?}");
-                    false
-                }
-                Err(err) => {
-                    log::error!("{err:?}");
-                    false
-                }
-            },
+            done,
         )
     }
 
@@ -910,11 +920,17 @@ impl Mounter for Gvfs {
         result_rx.blocking_recv().and_then(|res| res.ok())
     }
 
-    fn unmount(&self, item: MounterItem) -> Task<()> {
+    fn unmount(&self, item: MounterItem) -> Task<Outcome> {
         let command_tx = self.command_tx.clone();
-        Task::future(async move {
-            command_tx.send(Cmd::Unmount(item)).unwrap();
-        })
+        Task::perform(
+            async move {
+                let (res_tx, res_rx) = tokio::sync::oneshot::channel();
+
+                command_tx.send(Cmd::Unmount(item, res_tx)).unwrap();
+                res_rx.await
+            },
+            done,
+        )
     }
 
     fn subscription(&self) -> Subscription<MounterMessage> {

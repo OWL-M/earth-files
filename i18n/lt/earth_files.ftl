@@ -27,19 +27,20 @@ file-type-document = Dokumentas
 file-type-program = Programa
 file-type-other = Kita
 details = Išsami informacija
-dismiss = Atmesti pranešimą
-operations-running =
-    { $running } { $running ->
-        [one] vykdoma operaciją
-       *[other] vykdomos operacijos
-    } ({ $percent }%)...
-operations-running-finished =
-    { $running } { $running ->
-        [one] vykdoma operacija
-       *[other] vykdomos operacijos
-    } ({ $percent }%), { $finished } baigtos...
 pause = Pauzė
 resume = Tęsti
+tasks-count = { $count } { $count ->
+    [one] užduotis
+    [few] užduotys
+    [many] užduoties
+   *[other] užduočių
+  }
+tasks-more = dar { $count }
+task-loading = Įkeliama { $name }
+task-mounting = Prijungiama { $name }
+task-unmounting = Atjungiama { $name }
+task-done = Atlikta
+task-failed = Nepavyko
 create-archive = Sukurti archyvą
 extract-password-required = Reikalingas slaptažodis
 extract-as-folder = Išskleisti į aplanką
