@@ -301,6 +301,7 @@ async fn network_scan(uri: &str, sizes: IconSizes) -> Result<Vec<tab::Item>, Str
                 details: tab::MetadataState::Pending,
                 details_epoch: 0,
                 mime,
+                type_checked: true,
                 icon_handle_grid,
                 icon_handle_list,
                 icon_handle_list_condensed,

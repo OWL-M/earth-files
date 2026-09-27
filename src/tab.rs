@@ -837,7 +837,12 @@ pub fn parse_desktop_file(path: &Path) -> (Option<String>, Option<String>) {
     )
 }
 
-fn display_name_for_file(path: &Path, name: &str, get_from_gvfs: bool, is_desktop: bool) -> String {
+pub(crate) fn display_name_for_file(
+    path: &Path,
+    name: &str,
+    get_from_gvfs: bool,
+    is_desktop: bool,
+) -> String {
     if is_desktop {
         return get_desktop_file_display_name(path).map_or_else(
             || Item::display_name(name),
@@ -1009,7 +1014,7 @@ fn cached_or_placeholder(mime: &Mime, size: u16) -> widget::icon::Handle {
         .unwrap_or_else(|| crate::mime_icon::placeholder_icon(size))
 }
 
-fn file_icons(
+pub(crate) fn file_icons(
     path: &Path,
     mime: &Mime,
     sizes: IconSizes,
@@ -1047,7 +1052,8 @@ fn file_icons(
 /// a slower listing; item constructors do not, because items are also built
 /// while handling input, filesystem notifications and search results, and an
 /// image on a stalled mount would freeze the window. An item built outside a
-/// scan keeps an empty cache and shows no size.
+/// scan keeps an empty cache and shows no size. A name-first scan skips it
+/// too; there the content check fills the cache (`Item::take_check`).
 pub fn fill_image_dimensions(item: &Item) {
     if item.mime.type_() != mime::IMAGE {
         return;
@@ -1124,6 +1130,7 @@ pub fn item_from_gvfs_info(path: PathBuf, file_info: gio::FileInfo, sizes: IconS
         ),
         location_opt: Some(Location::Path(path)),
         mime,
+        type_checked: true,
         icon_handle_grid,
         icon_handle_list,
         icon_handle_list_condensed,
@@ -1151,11 +1158,36 @@ pub fn item_from_search_item(search_item: SearchItem, sizes: IconSizes) -> Item 
     }
 }
 
+/// How a folder scan works out each file's type.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Typing {
+    /// Read the head of each file, as everything that builds items always
+    /// has.
+    Content,
+    /// Go by the name only and leave the reading to the content check
+    /// (`crate::type_check`), so a folder on a slow drive is shown before its
+    /// files are opened -- apart from `.desktop` launchers, which are still
+    /// read for their icon and name.
+    NameFirst,
+}
+
+#[must_use]
 pub fn item_from_entry(
     path: PathBuf,
     name: String,
     metadata: fs::Metadata,
     sizes: IconSizes,
+) -> Item {
+    item_from_entry_typed(path, name, metadata, sizes, Typing::Content)
+}
+
+/// As [`item_from_entry`], typing the file as `typing` says.
+fn item_from_entry_typed(
+    path: PathBuf,
+    name: String,
+    metadata: fs::Metadata,
+    sizes: IconSizes,
+    typing: Typing,
 ) -> Item {
     let mut is_gvfs = false;
 
@@ -1179,6 +1211,10 @@ pub fn item_from_entry(
         }
     };
 
+    // Left for the content check: a local file, when the caller asked for
+    // names first. A remote file is always typed by name, as it was before.
+    let by_name = typing == Typing::NameFirst && !remote && !metadata.is_dir();
+
     let (is_desktop, mime, icon_handle_grid, icon_handle_list, icon_handle_list_condensed) =
         if metadata.is_dir() {
             (
@@ -1189,7 +1225,7 @@ pub fn item_from_entry(
                 folder_icon_or_placeholder(&path, sizes.list_condensed()),
             )
         } else {
-            let mime = mime_for_path(&path, Some(&metadata), remote);
+            let mime = mime_for_path(&path, Some(&metadata), remote || by_name);
             let (is_desktop, grid, list, condensed) = file_icons(&path, &mime, sizes);
             (is_desktop, mime, grid, list, condensed)
         };
@@ -1218,6 +1254,7 @@ pub fn item_from_entry(
         details_epoch: 0,
         location_opt: Some(Location::Path(path)),
         mime,
+        type_checked: !by_name,
         icon_handle_grid,
         icon_handle_list,
         icon_handle_list_condensed,
@@ -1275,6 +1312,7 @@ pub fn item_from_trash_entry(
         details: MetadataState::Pending,
         details_epoch: 0,
         mime,
+        type_checked: true,
         icon_handle_grid,
         icon_handle_list,
         icon_handle_list_condensed,
@@ -1364,6 +1402,11 @@ pub fn scan_path(tab_path: &PathBuf, sizes: IconSizes) -> Vec<Item> {
 /// unreadable folder from an empty one. Only the final `read_dir` counts: a
 /// GVFS folder that gio fails to enumerate falls back to it.
 pub fn try_scan_path(tab_path: &PathBuf, sizes: IconSizes) -> io::Result<Vec<Item>> {
+    scan_folder(tab_path, sizes, Typing::Content)
+}
+
+/// As [`try_scan_path`], typing files as `typing` says.
+fn scan_folder(tab_path: &PathBuf, sizes: IconSizes, typing: Typing) -> io::Result<Vec<Item>> {
     let mut items = Vec::new();
     let mut hidden_files = Box::from([]);
     let mut remote_scannable = false;
@@ -1461,9 +1504,13 @@ pub fn try_scan_path(tab_path: &PathBuf, sizes: IconSizes) -> io::Result<Vec<Ite
                 let item = if trash {
                     item_from_trash_child(path, name, metadata, sizes)
                 } else {
-                    Some(item_from_entry(path, name, metadata, sizes))
+                    Some(item_from_entry_typed(path, name, metadata, sizes, typing))
                 };
-                if let Some(item) = &item {
+                // An unchecked file is left to the content check, which reads
+                // its size along with its type.
+                if let Some(item) = &item
+                    && item.type_checked
+                {
                     fill_image_dimensions(item);
                 }
                 item
@@ -2008,16 +2055,20 @@ impl Location {
     }
 
     pub fn scan(&self, sizes: IconSizes) -> (Option<Box<Item>>, Vec<Item>) {
-        let (parent_item_opt, items, _) = self.try_scan(sizes);
+        let (parent_item_opt, items, _) = self.try_scan(sizes, Typing::Content);
         (parent_item_opt, items)
     }
 
-    /// As [`Self::scan`], and whether the read worked: false when a folder or
-    /// network location could not be read, whose listing is then empty
-    /// rather than truly empty. A search, the trash and recents always count
-    /// as read.
-    pub fn try_scan(&self, sizes: IconSizes) -> (Option<Box<Item>>, Vec<Item>, bool) {
-        let read_path = |path: &PathBuf| match try_scan_path(path, sizes) {
+    /// As [`Self::scan`], typing a folder's files as `typing` says, and
+    /// whether the read worked: false when a folder or network location could
+    /// not be read, whose listing is then empty rather than truly empty. A
+    /// search, the trash and recents always count as read.
+    pub fn try_scan(
+        &self,
+        sizes: IconSizes,
+        typing: Typing,
+    ) -> (Option<Box<Item>>, Vec<Item>, bool) {
+        let read_path = |path: &PathBuf| match scan_folder(path, sizes, typing) {
             Ok(items) => (items, true),
             Err(err) => {
                 log::warn!("failed to read directory {}: {}", path.display(), err);
@@ -2183,6 +2234,9 @@ pub enum Message {
     ItemDetails(PathBuf, u64, u64, Result<Metadata, String>),
     /// The icon cache has been filled, so placeholders can be replaced
     IconsReady,
+    /// What the content check read for files a name-first scan typed by
+    /// name, tagged with the listing they were read for.
+    TypesChecked(u64, Vec<crate::type_check::Checked>),
     AutoScroll(Option<f32>),
     Click(Option<usize>),
     DoubleClick(Option<usize>),
@@ -2777,13 +2831,18 @@ pub struct Item {
     pub hidden: bool,
     pub location_opt: Option<Location>,
     pub mime: Mime,
+    /// Whether [`Self::mime`] is final. False only for a file that a
+    /// [`Typing::NameFirst`] scan typed by its name, until the content check
+    /// has read the file.
+    pub type_checked: bool,
     /// Pixel size of an image, filled when it is first needed.
     ///
-    /// The scan paths that already know it fill it in up front. The rest
-    /// leave it empty, because items are also built while handling input and
-    /// filesystem notifications, where opening a file to read its header
-    /// would block the interface. Only the details pane fills it on demand,
-    /// for the one item it is describing.
+    /// The scan paths that already know it fill it in up front; a name-first
+    /// scan leaves it to the content check, which reads the file anyway. The
+    /// rest leave it empty, because items are also built while handling input
+    /// and filesystem notifications, where opening a file to read its header
+    /// would block the interface. Nothing fills it on demand; the details
+    /// pane shows a size only when one is already here.
     pub image_dimensions: OnceCell<Option<(u32, u32)>>,
     /// What the disk says about an item whose [`Self::metadata`] does not
     /// carry a [`Metadata`] of its own -- trashed and GVFS items. Filled in
@@ -2834,6 +2893,35 @@ impl Item {
             overlaps_drag_rect: self.overlaps_drag_rect,
             ..fresh
         };
+    }
+
+    /// Take on what the content check found reading this item's file.
+    /// Returns whether the type changed, in which case the icons were rebuilt
+    /// for the new one and still need refreshing from the icon cache.
+    pub fn take_check(&mut self, checked: crate::type_check::Checked) -> bool {
+        self.type_checked = true;
+        self.image_dimensions = OnceCell::from(checked.dims);
+        let Some(retyped) = checked.retyped else {
+            return false;
+        };
+        self.mime = retyped.mime;
+        if let Some(display_name) = retyped.display_name {
+            self.display_name = display_name;
+        }
+        self.icon_handle_grid = retyped.icon_handle_grid;
+        self.icon_handle_list = retyped.icon_handle_list;
+        self.icon_handle_list_condensed = retyped.icon_handle_list_condensed;
+        // Thumbnails wait for a checked type, so there is none yet; cleared
+        // anyway so one could never outlive the type it was made for
+        self.thumbnail_opt = None;
+        true
+    }
+
+    /// Whether a thumbnail should be made now: there is none yet, and the
+    /// type is final. The type picks the thumbnailer, and an image's size
+    /// picks its memory budget, so neither may be a guess from the name.
+    fn wants_thumbnail(&self) -> bool {
+        self.thumbnail_opt.is_none() && self.type_checked
     }
 
     fn display_name(name: &str) -> String {
@@ -2953,7 +3041,12 @@ impl Item {
             mime = self.mime.to_string()
         )));
         let mut settings = Vec::new();
-        if let Some(mime_app_cache) = mime_app_cache_opt {
+        // Choosing here sets the default application for the type, so it is
+        // offered only once the type is known rather than guessed from the
+        // name; it appears once the check has read the file.
+        if self.type_checked
+            && let Some(mime_app_cache) = mime_app_cache_opt
+        {
             let mime_apps = mime_app_cache.get_apps_for_mime(&self.mime, false);
             if !mime_apps.is_empty() {
                 let (names, icons) = mime_apps
@@ -3438,6 +3531,12 @@ pub struct Tab {
     /// listing that asked for it, and applying it to a later one would put
     /// back a snapshot the newer scan has already superseded.
     listing: u64,
+    /// The files of this listing still typed by name only, in the order the
+    /// content check reads them. Worked out once per listing, the first time
+    /// the subscription asks, because the subscription is asked for after
+    /// every update and sorting a large folder that often would cost more
+    /// than the check saves; forgotten by [`Self::new_listing`].
+    type_check_order: OnceCell<Arc<[crate::type_check::Unchecked]>>,
     /// How many times this tab has been sent somewhere. See
     /// [`Self::navigation`].
     navigation: u64,
@@ -3634,6 +3733,7 @@ impl Tab {
             navigation: 0,
             item_filter: None,
             refresh_batch: 0,
+            type_check_order: OnceCell::new(),
             refreshed_at: FxHashMap::default(),
             details_reads: FxHashMap::default(),
             next_network_request: 0,
@@ -3701,11 +3801,44 @@ impl Tab {
             .unwrap_or_default()
     }
 
+    /// The files of this listing typed by name only and not yet checked, in
+    /// the order they are shown -- hidden ones last while hidden files are not
+    /// shown -- so the first screen is checked first. `None` once everything
+    /// is checked, which ends the content check's subscription.
+    fn unchecked_files(&self) -> Option<Arc<[crate::type_check::Unchecked]>> {
+        let items = self.items_opt.as_ref()?;
+        if items.iter().all(|item| item.type_checked) {
+            return None;
+        }
+        let order = self.type_check_order.get_or_init(|| {
+            let mut shown = self.column_sort().unwrap_or_default();
+            if !self.config.show_hidden {
+                // Stable, so the shown order holds within each part
+                shown.sort_by_key(|(_, item)| item.hidden);
+            }
+            shown
+                .into_iter()
+                .filter(|(_, item)| !item.type_checked)
+                .filter_map(|(_, item)| {
+                    Some(crate::type_check::Unchecked {
+                        path: item.path_opt()?.clone(),
+                        name: item.name.clone(),
+                        mime: item.mime.clone(),
+                    })
+                })
+                .collect()
+        });
+        Some(Arc::clone(order))
+    }
+
     /// Note a new set of items, and forget what was being re-read for the old
     /// one: a scan reads everything fresh, so an older re-read of one file has
     /// nothing left to say.
     fn new_listing(&mut self) {
         self.listing = self.listing.wrapping_add(1);
+        // The content check of the old listing ends with its subscription;
+        // the new one is ordered afresh
+        self.type_check_order = OnceCell::new();
         // Reads out for the old listing answer questions nobody is asking any
         // more. Those not yet started will not start; those running finish,
         // and are declined on arrival. Either way each still holds its permit
@@ -6071,6 +6204,38 @@ impl Tab {
                     let _ = refresh_icons(items, sizes);
                 }
             }
+            Message::TypesChecked(listing, checked) => {
+                if listing == self.listing
+                    && let Some(items) = self.items_opt.as_mut()
+                {
+                    let mut checked: FxHashMap<PathBuf, crate::type_check::Checked> = checked
+                        .into_iter()
+                        .map(|check| (check.path.clone(), check))
+                        .collect();
+                    let mut retyped = false;
+                    for item in items.iter_mut() {
+                        // Every answer in this batch has found its item
+                        if checked.is_empty() {
+                            break;
+                        }
+                        // Checked since by other means: a refresh reads the
+                        // file by content, and is newer than this answer
+                        if item.type_checked {
+                            continue;
+                        }
+                        if let Some(check) = item.path_opt().and_then(|path| checked.remove(path)) {
+                            retyped |= item.take_check(check);
+                        }
+                    }
+                    if retyped {
+                        let sizes = self.config.icon_sizes;
+                        let warmup = refresh_icons(items, sizes);
+                        if !warmup.is_empty() {
+                            commands.push(Command::WarmIcons(warmup, sizes));
+                        }
+                    }
+                }
+            }
             Message::Thumbnail(path, thumbnail) => {
                 if let Some(ref mut items) = self.items_opt {
                     let location = Location::Path(path);
@@ -8029,8 +8194,11 @@ impl Tab {
         column = column.push(widget::button::standard(fl!("open")).on_press(Message::Open(None)));
 
         let mut settings = Vec::new();
-        // Only allow modifying open-with if all mime types are the same
-        if mime_types.len() == 1
+        // Only allow modifying open-with if all mime types are the same, and
+        // only once they are known rather than guessed from the names: this
+        // sets the default application for the type
+        if selected_items.iter().all(|item| item.type_checked)
+            && mime_types.len() == 1
             && let Some(mime) = mime_types
                 .first()
                 .and_then(|(mime, _)| mime.parse::<Mime>().ok())
@@ -8188,6 +8356,59 @@ impl Tab {
         let jobs = self.thumb_config.jobs.get() as usize;
         let mut subscriptions = Vec::with_capacity(jobs + 3);
 
+        // Read the files this listing typed by name, one at a time on a
+        // worker. Keyed by the listing (the app adds the tab), so a rescan or
+        // closing the tab drops it, and with it the receiver the worker checks
+        // before each file.
+        if let Some(files) = self.unchecked_files() {
+            struct TypeCheckJob {
+                listing: u64,
+                files: Arc<[crate::type_check::Unchecked]>,
+                sizes: IconSizes,
+            }
+            impl Hash for TypeCheckJob {
+                fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+                    self.listing.hash(state);
+                }
+            }
+
+            subscriptions.push(Subscription::run_with(
+                TypeCheckJob {
+                    listing: self.listing,
+                    files,
+                    sizes: self.config.icon_sizes,
+                },
+                |job| {
+                    let (listing, files, sizes) = (job.listing, Arc::clone(&job.files), job.sizes);
+                    stream::channel(
+                        1,
+                        move |mut output: futures::channel::mpsc::Sender<_>| async move {
+                            let (results, mut received) = mpsc::channel(4);
+                            tokio::task::spawn_blocking(move || {
+                                let start = Instant::now();
+                                let checked = crate::type_check::run(&files, sizes, &results);
+                                log::debug!(
+                                    "checked the types of {checked} of {} files in {:?}",
+                                    files.len(),
+                                    start.elapsed()
+                                );
+                            });
+                            while let Some(batch) = received.recv().await {
+                                if output
+                                    .send(Message::TypesChecked(listing, batch))
+                                    .await
+                                    .is_err()
+                                {
+                                    break;
+                                }
+                            }
+                            std::future::pending::<()>().await;
+                        },
+                    )
+                },
+            ));
+        }
+
         if let Some(items) = &self.items_opt {
             let visible_rect = self.visible_rect(self.size_opt.get().unwrap_or_default());
 
@@ -8267,8 +8488,9 @@ impl Tab {
             }
 
             for item in items {
-                if item.thumbnail_opt.is_some() {
-                    // Skip items that already have a mime type and thumbnail
+                if !item.wants_thumbnail() {
+                    // Already thumbnailed, or its type is still a guess from
+                    // its name
                     continue;
                 }
 
@@ -9001,8 +9223,8 @@ mod tests {
     use test_log::test;
 
     use super::{
-        ItemMetadata, ItemThumbnail, Location, Message, Tab, respond_to_scroll_direction,
-        scan_path, try_scan_path,
+        HeadingOptions, ItemMetadata, ItemThumbnail, Location, Message, Tab, Typing,
+        respond_to_scroll_direction, scan_path, try_scan_path,
     };
     use crate::app::test_utils::{
         NAME_LEN, NUM_DIRS, NUM_FILES, NUM_HIDDEN, NUM_NESTED, assert_eq_tab_path, empty_fs,
@@ -9161,10 +9383,10 @@ mod tests {
         let missing = Location::Path(fs.path().join("ferris"));
         let existing = Location::Path(fs.path().to_owned());
 
-        let (_, items, read_ok) = missing.try_scan(IconSizes::default());
+        let (_, items, read_ok) = missing.try_scan(IconSizes::default(), Typing::Content);
         assert!(items.is_empty());
         assert!(!read_ok);
-        let (_, _, read_ok) = existing.try_scan(IconSizes::default());
+        let (_, _, read_ok) = existing.try_scan(IconSizes::default(), Typing::Content);
         assert!(read_ok);
 
         Ok(())
@@ -9344,6 +9566,271 @@ mod tests {
             fresh.image_dimensions.get().is_none(),
             "constructing an item must not read the file"
         );
+        Ok(())
+    }
+
+    /// A fresh folder holding one JPEG with no extension: its name says
+    /// nothing about its type, its content says `image/jpeg`.
+    fn folder_with_unnamed_jpeg() -> io::Result<TempDir> {
+        let fs = empty_fs()?;
+        let named = fs.path().join("photo.jpg");
+        image::RgbImage::new(4, 2)
+            .save(&named)
+            .expect("the test image should be written");
+        fs::rename(&named, fs.path().join("photo"))?;
+        Ok(fs)
+    }
+
+    /// A name-first scan types files by their names and leaves images
+    /// unopened for their size; only folders count as checked.
+    #[test]
+    fn a_name_first_scan_types_by_name() -> io::Result<()> {
+        let fs = folder_with_unnamed_jpeg()?;
+        fs::create_dir(fs.path().join("sub"))?;
+        image::RgbImage::new(4, 2)
+            .save(fs.path().join("named.jpg"))
+            .expect("the test image should be written");
+
+        let (_parent, items, read_ok) =
+            Location::Path(fs.path().to_owned()).try_scan(IconSizes::default(), Typing::NameFirst);
+        assert!(read_ok);
+        let by_name = |name: &str| {
+            items
+                .iter()
+                .find(|item| item.name == name)
+                .expect("the scan should list it")
+        };
+
+        let photo = by_name("photo");
+        assert_eq!(
+            photo.mime,
+            mime::APPLICATION_OCTET_STREAM,
+            "the name says nothing about the type"
+        );
+        assert!(!photo.type_checked, "a file typed by name is not checked");
+        assert!(
+            photo.image_dimensions.get().is_none(),
+            "no file is opened for its size"
+        );
+        let named = by_name("named.jpg");
+        assert_eq!(named.mime, mime::IMAGE_JPEG, "the name gives the type");
+        assert!(!named.type_checked, "but it is still to be checked");
+        assert!(
+            named.image_dimensions.get().is_none(),
+            "an image is not opened for its size until it is checked"
+        );
+        assert!(
+            by_name("sub").type_checked,
+            "a folder's type needs no reading"
+        );
+        Ok(())
+    }
+
+    /// Every other scan still reads content for the type, as before. (Its
+    /// image size comes from the extension, as it always has; that path is
+    /// covered by `image_dimensions_are_filled_by_the_scan_only`.)
+    #[test]
+    fn a_content_scan_still_reads_the_file() -> io::Result<()> {
+        let fs = folder_with_unnamed_jpeg()?;
+        let (_parent, items) = Location::Path(fs.path().to_owned()).scan(IconSizes::default());
+        let photo = items
+            .iter()
+            .find(|item| item.name == "photo")
+            .expect("the scan should list it");
+        assert_eq!(photo.mime, mime::IMAGE_JPEG);
+        assert!(photo.type_checked);
+        Ok(())
+    }
+
+    /// The content check's answer retypes a file its name got wrong, fills
+    /// in its size and lets it be thumbnailed; an answer for an older listing
+    /// is dropped.
+    #[test]
+    fn the_content_check_retypes_what_the_name_got_wrong() -> io::Result<()> {
+        let fs = folder_with_unnamed_jpeg()?;
+        let location = Location::Path(fs.path().to_owned());
+        let (_parent, items, _) = location.try_scan(IconSizes::default(), Typing::NameFirst);
+        let mut tab = Tab::new(
+            location,
+            TabConfig::default(),
+            ThumbCfg::default(),
+            None,
+            std::borrow::Cow::Borrowed("Undefined"),
+            None,
+        );
+        tab.set_items(items);
+        let find_photo = |tab: &Tab| {
+            tab.items_opt()
+                .expect("populated")
+                .iter()
+                .find(|item| item.name == "photo")
+                .expect("listed")
+                .clone()
+        };
+        assert!(
+            !find_photo(&tab).wants_thumbnail(),
+            "a file typed by name only is not thumbnailed"
+        );
+
+        let listing = tab.listing();
+        let files = tab.unchecked_files().expect("the photo is unchecked");
+        assert_eq!(files.len(), 1);
+        let checked = crate::type_check::check(&files[0], IconSizes::default());
+
+        tab.update(
+            Message::TypesChecked(listing.wrapping_sub(1), vec![checked.clone()]),
+            Modifiers::empty(),
+        );
+        assert!(
+            !find_photo(&tab).type_checked,
+            "an answer for an older listing was applied"
+        );
+
+        tab.update(
+            Message::TypesChecked(listing, vec![checked]),
+            Modifiers::empty(),
+        );
+        let photo = find_photo(&tab);
+        assert!(photo.type_checked);
+        assert_eq!(photo.mime, mime::IMAGE_JPEG);
+        assert_eq!(
+            photo.image_dimensions.get().copied().flatten(),
+            Some((4, 2))
+        );
+        assert!(photo.wants_thumbnail(), "checked, and no thumbnail yet");
+        assert!(tab.unchecked_files().is_none(), "nothing is left to check");
+        Ok(())
+    }
+
+    /// Files are checked in the order they are shown, hidden ones last when
+    /// they are not shown, and folders not at all.
+    #[test]
+    fn unchecked_files_come_in_the_order_shown() -> io::Result<()> {
+        let fs = empty_fs()?;
+        for name in ["b.txt", ".h.txt", "a.txt"] {
+            fs::write(fs.path().join(name), b"x")?;
+        }
+        fs::create_dir(fs.path().join("dir"))?;
+        let location = Location::Path(fs.path().to_owned());
+        let (_parent, items, _) = location.try_scan(IconSizes::default(), Typing::NameFirst);
+        let mut tab = Tab::new(
+            location,
+            TabConfig::default(),
+            ThumbCfg::default(),
+            None,
+            std::borrow::Cow::Borrowed("Undefined"),
+            None,
+        );
+        tab.sort_name = HeadingOptions::Name;
+        tab.sort_direction = true;
+        tab.set_items(items);
+
+        let files = tab.unchecked_files().expect("the files are unchecked");
+        let names: Vec<&str> = files.iter().map(|file| file.name.as_str()).collect();
+        assert_eq!(names, ["a.txt", "b.txt", ".h.txt"]);
+
+        // The order is fixed for the listing: a new sort does not reorder
+        // what is still waiting
+        tab.sort_direction = false;
+        let files = tab.unchecked_files().expect("the files are unchecked");
+        let names: Vec<&str> = files.iter().map(|file| file.name.as_str()).collect();
+        assert_eq!(names, ["a.txt", "b.txt", ".h.txt"]);
+
+        // A new listing is ordered afresh
+        let (_parent, items, _) =
+            Location::Path(fs.path().to_owned()).try_scan(IconSizes::default(), Typing::NameFirst);
+        tab.set_items(items);
+        let files = tab.unchecked_files().expect("the files are unchecked");
+        let names: Vec<&str> = files.iter().map(|file| file.name.as_str()).collect();
+        assert_eq!(names, ["b.txt", "a.txt", ".h.txt"]);
+        Ok(())
+    }
+
+    /// A refresh reads the file by content and is newer than the check, so
+    /// the check's answer must not overwrite it.
+    #[test]
+    fn a_check_does_not_overwrite_a_refresh() -> io::Result<()> {
+        let fs = folder_with_unnamed_jpeg()?;
+        let location = Location::Path(fs.path().to_owned());
+        let (_parent, items, _) = location.try_scan(IconSizes::default(), Typing::NameFirst);
+        let mut tab = Tab::new(
+            location,
+            TabConfig::default(),
+            ThumbCfg::default(),
+            None,
+            std::borrow::Cow::Borrowed("Undefined"),
+            None,
+        );
+        tab.set_items(items);
+        let listing = tab.listing();
+        let files = tab.unchecked_files().expect("the photo is unchecked");
+        let checked = crate::type_check::check(&files[0], IconSizes::default());
+
+        {
+            let photo = tab
+                .items_opt
+                .as_mut()
+                .expect("populated")
+                .iter_mut()
+                .find(|item| item.name == "photo")
+                .expect("listed");
+            photo.type_checked = true;
+            photo.mime = mime::TEXT_PLAIN;
+        }
+
+        tab.update(
+            Message::TypesChecked(listing, vec![checked]),
+            Modifiers::empty(),
+        );
+        let photo = tab
+            .items_opt()
+            .expect("populated")
+            .iter()
+            .find(|item| item.name == "photo")
+            .expect("listed");
+        assert_eq!(photo.mime, mime::TEXT_PLAIN, "the refresh was overwritten");
+        assert!(
+            photo.image_dimensions.get().is_none(),
+            "the check's answer was applied"
+        );
+        Ok(())
+    }
+
+    /// A retype clears any thumbnail; an answer that keeps the type keeps it.
+    #[test]
+    fn take_check_clears_the_thumbnail_only_on_a_retype() -> io::Result<()> {
+        let fs = folder_with_unnamed_jpeg()?;
+        let (_parent, items, _) =
+            Location::Path(fs.path().to_owned()).try_scan(IconSizes::default(), Typing::NameFirst);
+        let photo = items
+            .iter()
+            .find(|item| item.name == "photo")
+            .expect("the scan should list it");
+        let path = photo.path_opt().expect("a local file").clone();
+        let file = crate::type_check::Unchecked {
+            path: path.clone(),
+            name: photo.name.clone(),
+            mime: photo.mime.clone(),
+        };
+
+        let mut retyped = photo.clone();
+        retyped.thumbnail_opt = Some(ItemThumbnail::NotImage);
+        assert!(
+            retyped.take_check(crate::type_check::check(&file, IconSizes::default())),
+            "the content says image/jpeg, the name said nothing"
+        );
+        assert!(retyped.type_checked);
+        assert!(retyped.thumbnail_opt.is_none());
+
+        let mut kept = photo.clone();
+        kept.thumbnail_opt = Some(ItemThumbnail::NotImage);
+        assert!(!kept.take_check(crate::type_check::Checked {
+            path,
+            dims: None,
+            retyped: None,
+        }));
+        assert!(kept.type_checked);
+        assert!(matches!(kept.thumbnail_opt, Some(ItemThumbnail::NotImage)));
         Ok(())
     }
 

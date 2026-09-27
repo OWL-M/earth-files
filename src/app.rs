@@ -2074,7 +2074,10 @@ impl App {
             // stall per folder: worker's work, like the listing itself.
             let read = tokio::task::spawn_blocking(move || {
                 let location = location.normalize();
-                let (parent_item_opt, items, read_ok) = location.try_scan(icon_sizes);
+                // Names first: a slow drive's folder is shown before its files
+                // are opened, and `Tab::subscription` reads them afterwards.
+                let (parent_item_opt, items, read_ok) =
+                    location.try_scan(icon_sizes, tab::Typing::NameFirst);
                 let ancestors = location.ancestors(true);
                 let title = location.title(true);
                 (location, parent_item_opt, items, ancestors, title, read_ok)
@@ -2120,6 +2123,47 @@ impl App {
                 }
             }
         })
+    }
+
+    /// Offer applications for `path` once its type has been read from the
+    /// disk, which may take a while: a bookmarked mount may have gone away,
+    /// and a file on a slow drive may so far be typed by its name only. The
+    /// dialog goes up at once, saying so, with a way out, and the reading
+    /// happens on a worker. Cancel discards the answer; it cannot interrupt
+    /// the read.
+    fn open_with_after_reading(&mut self, path: PathBuf) -> Task<Message> {
+        let request = self.next_open_with_request;
+        self.next_open_with_request = self.next_open_with_request.wrapping_add(1);
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let shown = self.push_dialog(
+            DialogPage::OpenWithLoading {
+                path: path.clone(),
+                request,
+                cancelled: Arc::clone(&cancelled),
+            },
+            None,
+        );
+        let resolve = Task::future(async move {
+            let resolved = tab::bounded_blocking(Arc::clone(&OPEN_SEMAPHORE), {
+                let path = path.clone();
+                move || {
+                    // Dismissed while this waited for its turn:
+                    // do not start a read nobody wants
+                    if cancelled.load(Ordering::Relaxed) {
+                        return None;
+                    }
+                    Some(tab::item_from_path(&path, IconSizes::default()).map(|item| item.mime))
+                }
+            })
+            .await;
+            match resolved {
+                Some(Some(resolved)) => {
+                    crate::ui::action::app(Message::OpenWithResolved(request, path, resolved))
+                }
+                _ => crate::ui::action::none(),
+            }
+        });
+        Task::batch([shown, resolve])
     }
 
     fn rescan_trash(&mut self) -> Task<Message> {
@@ -4752,10 +4796,15 @@ impl Application for App {
                     .and_then(|items| {
                         items.iter().filter(|item| item.selected).find_map(|item| {
                             item.path_opt()
-                                .map(|path| (path.clone(), item.mime.clone()))
+                                .map(|path| (path.clone(), item.mime.clone(), item.type_checked))
                         })
                     });
-                if let Some((path, mime)) = chosen {
+                if let Some((path, mime, type_checked)) = chosen {
+                    // Typed by its name only so far: the applications offered
+                    // have to be for what the file is
+                    if !type_checked {
+                        return self.open_with_after_reading(path);
+                    }
                     return self.update(Message::OpenWithFor(path, mime, None));
                 }
             }
@@ -6181,53 +6230,13 @@ impl Application for App {
                     }
                 }
                 NavMenuAction::OpenWith(entity) => {
-                    // The path is known now; its type is not, and finding out
-                    // means reading the disk -- for a bookmarked mount that
-                    // has gone away, possibly for a long time. So the dialog
-                    // goes up at once, saying so, with a way out, and the
-                    // reading happens on a worker. Cancel discards the answer;
-                    // it cannot interrupt the read.
                     if let Some(path) = self
                         .nav_model
                         .data::<Location>(entity)
                         .and_then(Location::path_opt)
                         .cloned()
                     {
-                        let request = self.next_open_with_request;
-                        self.next_open_with_request = self.next_open_with_request.wrapping_add(1);
-                        let cancelled = Arc::new(AtomicBool::new(false));
-                        let shown = self.push_dialog(
-                            DialogPage::OpenWithLoading {
-                                path: path.clone(),
-                                request,
-                                cancelled: Arc::clone(&cancelled),
-                            },
-                            None,
-                        );
-                        let resolve = Task::future(async move {
-                            let resolved = tab::bounded_blocking(Arc::clone(&OPEN_SEMAPHORE), {
-                                let path = path.clone();
-                                move || {
-                                    // Dismissed while this waited for its turn:
-                                    // do not start a read nobody wants
-                                    if cancelled.load(Ordering::Relaxed) {
-                                        return None;
-                                    }
-                                    Some(
-                                        tab::item_from_path(&path, IconSizes::default())
-                                            .map(|item| item.mime),
-                                    )
-                                }
-                            })
-                            .await;
-                            match resolved {
-                                Some(Some(resolved)) => crate::ui::action::app(
-                                    Message::OpenWithResolved(request, path, resolved),
-                                ),
-                                _ => crate::ui::action::none(),
-                            }
-                        });
-                        return Task::batch([shown, resolve]);
+                        return self.open_with_after_reading(path);
                     }
                 }
                 NavMenuAction::RunContextAction(entity, action) => {

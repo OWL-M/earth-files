@@ -44,6 +44,7 @@ pub mod tab;
 mod thumbnail_cacher;
 mod thumbnailer;
 pub(crate) mod trash;
+pub mod type_check;
 pub mod ui;
 mod zoom;
 
