@@ -2785,16 +2785,17 @@ impl App {
         } = spacing();
 
         let action = shown.action;
-        let button = widget::button::standard(action.label()).on_press_maybe(
-            (!shown.leaving).then(|| Message::TabMessage(Some(shown.entity), action.message())),
+        let (title, icon_name, label, message) = action.parts();
+        let button = widget::button::standard(label).on_press_maybe(
+            (!shown.leaving).then(|| Message::TabMessage(Some(shown.entity), message)),
         );
         // The detail drops under the title only when the two do not fit on
         // one line beside the button.
         let info = widget::Row::with_capacity(2)
             .push(
                 widget::Row::with_children([
-                    icon::from_name(action.icon_name()).size(16).icon().into(),
-                    widget::text::heading(action.title()).into(),
+                    icon::from_name(icon_name).size(16).icon().into(),
+                    widget::text::heading(title).into(),
                 ])
                 .spacing(space_xxs.to_pixels())
                 .align_y(Alignment::Center),
@@ -3727,7 +3728,7 @@ impl Application for App {
         let connected = self
             .mounter_items
             .values()
-            .flat_map(|items| items.iter())
+            .flatten()
             .filter(|item| item.is_remote() && item.is_mounted())
             .count();
         let current = self
@@ -8171,11 +8172,6 @@ fn main_window_closed(core: &mut Core, id: window::Id) -> bool {
 mod tests {
     use super::*;
 
-    /// The action card's height for `action`, laid out on its own.
-    fn action_card_height(action: tab::TabAction) -> f32 {
-        action_card_heights(action).0
-    }
-
     /// The action card's height for `action`, laid out on its own, and the
     /// room it recorded for the tab to keep under its files.
     fn action_card_heights(action: tab::TabAction) -> (f32, f32) {
@@ -8256,12 +8252,12 @@ mod tests {
         // At 360 px, "Recents · 3 items" beside "Clear Recents history" does
         // not fit on one line (measured 2026-09-28: 70 px against 56 px for
         // the title alone; one line from 420 px).
-        let title_only = action_card_height(tab::TabAction::ClearRecents(None));
-        let recents = action_card_height(tab::TabAction::ClearRecents(Some(3)));
+        let title_only = action_card_heights(tab::TabAction::ClearRecents(None)).0;
+        let recents = action_card_heights(tab::TabAction::ClearRecents(Some(3))).0;
         assert!(recents > title_only, "{recents} > {title_only}");
         // With nothing connected, the network card has no detail: one line
         assert_eq!(
-            action_card_height(tab::TabAction::AddNetworkDrive(0)),
+            action_card_heights(tab::TabAction::AddNetworkDrive(0)).0,
             title_only
         );
     }

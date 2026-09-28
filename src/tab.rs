@@ -3732,40 +3732,29 @@ pub enum TabAction {
 }
 
 impl TabAction {
-    /// The button's label.
-    pub fn label(self) -> String {
+    /// The location's name and icon, as the sidebar gives them, then the
+    /// button's label and message. The trash is never empty while it offers
+    /// to be emptied, so its icon is the full one without asking the disk.
+    pub fn parts(self) -> (String, &'static str, String, Message) {
         match self {
-            Self::EmptyTrash(_) => fl!("empty-trash"),
-            Self::ClearRecents(_) => fl!("clear-recents-history"),
-            Self::AddNetworkDrive(_) => fl!("add-network-drive"),
-        }
-    }
-
-    pub const fn message(self) -> Message {
-        match self {
-            Self::EmptyTrash(_) => Message::EmptyTrash,
-            Self::ClearRecents(_) => Message::ClearRecents,
-            Self::AddNetworkDrive(_) => Message::AddNetworkDrive,
-        }
-    }
-
-    /// The location's name, as the sidebar gives it.
-    pub fn title(self) -> String {
-        match self {
-            Self::EmptyTrash(_) => fl!("trash"),
-            Self::ClearRecents(_) => fl!("recents"),
-            Self::AddNetworkDrive(_) => fl!("networks"),
-        }
-    }
-
-    /// The location's icon, as the sidebar gives it. The trash is never
-    /// empty while it offers to be emptied, so its icon is the full one
-    /// without asking the disk.
-    pub const fn icon_name(self) -> &'static str {
-        match self {
-            Self::EmptyTrash(_) => "user-trash-full-symbolic",
-            Self::ClearRecents(_) => "document-open-recent-symbolic",
-            Self::AddNetworkDrive(_) => "network-workgroup-symbolic",
+            Self::EmptyTrash(_) => (
+                fl!("trash"),
+                "user-trash-full-symbolic",
+                fl!("empty-trash"),
+                Message::EmptyTrash,
+            ),
+            Self::ClearRecents(_) => (
+                fl!("recents"),
+                "document-open-recent-symbolic",
+                fl!("clear-recents-history"),
+                Message::ClearRecents,
+            ),
+            Self::AddNetworkDrive(_) => (
+                fl!("networks"),
+                "network-workgroup-symbolic",
+                fl!("add-network-drive"),
+                Message::AddNetworkDrive,
+            ),
         }
     }
 
@@ -9540,17 +9529,12 @@ mod tests {
         Ok(())
     }
 
-    fn trash_tab(items: Vec<super::Item>) -> Tab {
-        let mut tab = Tab::new(
-            Location::Trash,
-            TabConfig::default(),
-            ThumbCfg::default(),
-            None,
-            std::borrow::Cow::Borrowed("Undefined"),
-            None,
-        );
-        tab.set_items(items);
-        tab
+    /// What `input` adds up to, walked on a runtime of its own.
+    fn trash_total(input: &super::TrashSizeInput) -> io::Result<super::TrashSize> {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()?;
+        Ok(runtime.block_on(input.total(super::Controller::default())))
     }
 
     /// A trash entry whose `.trashinfo` is `root/info/<name>.trashinfo`, so
@@ -9589,11 +9573,7 @@ mod tests {
         assert_eq!(input.files, 7);
         assert_eq!(input.folders, [Some(root.join("files/folder"))]);
 
-        let runtime = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()?;
-        let size = runtime.block_on(input.total(super::Controller::default()));
-        assert_eq!(size, TrashSize::Known(7 + 5 + 6));
+        assert_eq!(trash_total(&input)?, TrashSize::Known(7 + 5 + 6));
         Ok(())
     }
 
@@ -9622,11 +9602,7 @@ mod tests {
         ]);
         assert_eq!(input.folders, [None]);
 
-        let runtime = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()?;
-        let size = runtime.block_on(input.total(super::Controller::default()));
-        assert_eq!(size, TrashSize::Partial(7));
+        assert_eq!(trash_total(&input)?, TrashSize::Partial(7));
         Ok(())
     }
 
@@ -9643,11 +9619,7 @@ mod tests {
             trashed(root, "gone", trash::TrashItemSize::Entries(1)),
         ]);
 
-        let runtime = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()?;
-        let size = runtime.block_on(input.total(super::Controller::default()));
-        assert_eq!(size, TrashSize::Known(7));
+        assert_eq!(trash_total(&input)?, TrashSize::Known(7));
         Ok(())
     }
 
@@ -9662,7 +9634,15 @@ mod tests {
                 trash::TrashItemSize::Bytes(7),
             )
         };
-        let mut tab = trash_tab(vec![file()]);
+        let mut tab = Tab::new(
+            Location::Trash,
+            TabConfig::default(),
+            ThumbCfg::default(),
+            None,
+            std::borrow::Cow::Borrowed("Undefined"),
+            None,
+        );
+        tab.set_items(vec![file()]);
         let listing = tab.listing;
 
         let _ = tab.update(
