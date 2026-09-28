@@ -1375,6 +1375,11 @@ impl Application for App {
         Some(self.button_view())
     }
 
+    /// The tab's history and crumb pills, or its path field.
+    fn header_center(&self) -> Vec<Element<'_, Message>> {
+        vec![self.tab.header_view().map(Message::TabMessage)]
+    }
+
     fn header_end(&self) -> Vec<Element<'_, Message>> {
         let mut elements = Vec::with_capacity(3);
 

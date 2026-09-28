@@ -19,7 +19,7 @@ use crate::ui::theme::menu_bar::StyleSheet;
 use crate::ui::widget::RcWrapper;
 use crate::ui::widget::menu::menu_inner::init_root_menu;
 
-use crate::ui::convert::ToRadius;
+use crate::ui::convert::{ToColor, ToRadius};
 use iced::{Point, Shadow, Vector, window};
 use iced_core::Border;
 use iced_core::layout::{Limits, Node};
@@ -822,16 +822,23 @@ where
                 }
             }
 
+            // The open menu's root is written in the accent colour; a root
+            // (`Button::MenuRoot`) has no text colour of its own
+            let open = state.active_root.first().copied();
+            let open_style = renderer::Style {
+                text_color: theme.cosmic().accent_text_color().to_color(),
+            };
             self.menu_roots
                 .iter()
                 .zip(&tree.children)
                 .zip(layout.children())
-                .for_each(|((root, t), lo)| {
+                .enumerate()
+                .for_each(|(i, ((root, t), lo))| {
                     root.item.draw(
                         &t.children[root.index],
                         renderer,
                         theme,
-                        style,
+                        if open == Some(i) { &open_style } else { style },
                         lo,
                         position,
                         viewport,

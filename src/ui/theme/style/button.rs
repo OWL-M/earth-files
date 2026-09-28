@@ -131,17 +131,18 @@ pub fn appearance(
             return appearance;
         }
 
+        // Breadcrumbs: in the colour of what they sit on (the header's), as plain text
         Button::Link => {
             appearance.background = None;
-            appearance.icon_color = Some(cosmic.accent_text_color().to_color());
-            appearance.text_color = Some(cosmic.accent_text_color().to_color());
+            appearance.icon_color = None;
+            appearance.text_color = None;
             corner_radii = &cosmic.corner_radii.radius_0;
         }
 
         Button::LinkActive => {
             appearance.background = Some(Background::Color(cosmic.text_button.hover.to_color()));
-            appearance.icon_color = Some(cosmic.accent_text_color().to_color());
-            appearance.text_color = Some(cosmic.accent_text_color().to_color());
+            appearance.icon_color = None;
+            appearance.text_color = None;
             corner_radii = &cosmic.corner_radii.radius_xs;
         }
 

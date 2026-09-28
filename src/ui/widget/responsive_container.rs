@@ -14,6 +14,29 @@ use crate::ui::iced_core::{
     renderer,
 };
 
+thread_local! {
+    /// Width the header keeps for its centre while it lays out its start;
+    /// see [`with_reserve`].
+    static RESERVE: std::cell::Cell<f32> = const { std::cell::Cell::new(0.0) };
+}
+
+/// Runs `f`, a layout, with `reserve` of the room kept for something else.
+///
+/// A responsive container laid out inside decides whether its content fits
+/// as if its limits were `reserve` narrower, while still laying the content
+/// out in the whole room. The header uses it so the menu bar folds once the
+/// crumbs would not fit beside it, and the folded bar is not squeezed.
+pub fn with_reserve<R>(reserve: f32, f: impl FnOnce() -> R) -> R {
+    struct Restore(f32);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            RESERVE.with(|cell| cell.set(self.0));
+        }
+    }
+    let _restore = Restore(RESERVE.with(|cell| cell.replace(reserve)));
+    f()
+}
+
 pub fn responsive_container<'a, Message: 'static, Theme, E>(
     content: E,
     id: Id,
@@ -101,23 +124,35 @@ where
         limits: &layout::Limits,
     ) -> layout::Node {
         let state = tree.state.downcast_mut::<State>();
+
+        // What the content must fit in, less any width kept for something
+        // else: see `with_reserve`
+        let reserve = RESERVE.with(std::cell::Cell::get);
+
+        // Content nested in this one fits by its own room, not the header's reserve
         let mut unrestricted_size = self.size.unwrap_or_else(|| {
-            let node =
+            let node = with_reserve(0.0, || {
                 self.content
                     .as_widget_mut()
-                    .layout(&mut tree.children[0], renderer, &Limits::NONE);
+                    .layout(&mut tree.children[0], renderer, &Limits::NONE)
+            });
             node.size()
         });
 
         let cur_unrestricted_size = {
-            let node =
+            let node = with_reserve(0.0, || {
                 self.content
                     .as_widget_mut()
-                    .layout(&mut tree.children[0], renderer, &Limits::NONE);
+                    .layout(&mut tree.children[0], renderer, &Limits::NONE)
+            });
             node.size()
         };
 
-        let max_size = limits.max();
+        let fit_limits = Limits::new(
+            Size::ZERO,
+            Size::new((limits.max().width - reserve).max(0.0), limits.max().height),
+        );
+        let max_size = fit_limits.max();
 
         let old_max = state.limits.max();
 
@@ -137,14 +172,15 @@ where
             state.needs_update = true;
             unrestricted_size.height = cur_unrestricted_size.height;
         }
-        let node = self
-            .content
-            .as_widget_mut()
-            .layout(&mut tree.children[0], renderer, limits);
+        let node = with_reserve(0.0, || {
+            self.content
+                .as_widget_mut()
+                .layout(&mut tree.children[0], renderer, limits)
+        });
         let size = node.size();
 
         if state.needs_update {
-            state.limits = *limits;
+            state.limits = fit_limits;
             state.size = unrestricted_size;
         }
 

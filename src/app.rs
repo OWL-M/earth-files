@@ -7553,6 +7553,19 @@ impl Application for App {
         )]
     }
 
+    /// The active tab's history and crumb pills, or its path field.
+    fn header_center(&self) -> Vec<Element<'_, Self::Message>> {
+        let entity = self.tab_model.active();
+        self.tab_model
+            .data::<Tab>(entity)
+            .map(|tab| {
+                tab.header_view()
+                    .map(move |message| Message::TabMessage(Some(entity), message))
+            })
+            .into_iter()
+            .collect()
+    }
+
     fn header_end(&self) -> Vec<Element<'_, Self::Message>> {
         let mut elements = Vec::with_capacity(2);
 

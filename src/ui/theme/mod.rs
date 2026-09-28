@@ -182,8 +182,7 @@ pub fn active() -> Theme {
 ///
 /// `iced_core::renderer::Style` has only `text_color`, which containers
 /// propagate to their subtree. The icon colour follows `text_color` for every
-/// container class in [`crate::ui::theme::style::iced`] except
-/// [`Container::HeaderBar`].
+/// container class in [`crate::ui::theme::style::iced`].
 ///
 /// Widgets with different icon and text colours call [`with_icon_color`].
 /// The override records both colours. [`icon_color`] uses the override while
@@ -192,10 +191,8 @@ pub fn active() -> Theme {
 /// colour also supplies its icon colour.
 ///
 /// [`crate::ui::widget::button`] installs an override around its content.
-/// [`crate::ui::widget::header_bar`] installs one for `HeaderBar`, the only
-/// container class with different icon and text colours. `segmented_button`
-/// and `text_input` draw standalone icons with the icon colour passed as
-/// `text_color`.
+/// `segmented_button` and `text_input` draw standalone icons with the icon
+/// colour passed as `text_color`.
 ///
 /// [`crate::ui::widget::svg::Svg::symbolic`] reads this colour, as do `button`
 /// and `text_input` for icons they paint themselves.

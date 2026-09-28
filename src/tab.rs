@@ -1,6 +1,5 @@
-use crate::ui::iced::advanced::graphics;
-use crate::ui::iced::advanced::text::{self, Paragraph};
-use crate::ui::iced::alignment::Vertical;
+use crate::ui::Element;
+use crate::ui::iced::advanced::text;
 use crate::ui::iced::futures::{self, SinkExt};
 use crate::ui::iced::keyboard::Modifiers;
 use crate::ui::iced::widget::{rule, stack};
@@ -14,7 +13,6 @@ use crate::ui::widget::menu::action::MenuAction;
 use crate::ui::widget::menu::key_bind::KeyBind;
 use crate::ui::widget::scrollable::{self, AbsoluteOffset, Viewport};
 use crate::ui::widget::{self, Id, space};
-use crate::ui::{Element, font};
 #[cfg(feature = "desktop")]
 use freedesktop_desktop_entry::{DesktopEntry, get_languages_from_env};
 use i18n_embed::LanguageLoader;
@@ -62,7 +60,7 @@ use crate::thumbnailer::thumbnailer;
 use crate::trash::{Trash, TrashExt};
 use crate::ui::convert::{ToColor, ToPixels, ToRadius};
 use crate::ui::shell::panel_slide::ColumnSlide;
-use crate::ui::theme::{Button, Container, Rule, Spacing, spacing};
+use crate::ui::theme::{Button, Container, Spacing, spacing};
 use crate::{FxOrderMap, fl, menu, mime_app, mouse_area};
 use iced_texture_cache::{TextureCache, cached};
 
@@ -7057,37 +7055,385 @@ impl Tab {
             .into()
     }
 
-    pub fn location_view(&self, column_slide: Option<&ColumnSlide>) -> Element<'_, Message> {
-        fn text_width<'a>(
-            content: &'a str,
-            font: font::Font,
-            font_size: f32,
-            line_height: f32,
-        ) -> f32 {
-            let text: text::Text<&'a str, font::Font> = text::Text {
-                content,
-                bounds: Size::INFINITE,
-                size: font_size.into(),
-                line_height: text::LineHeight::Absolute(line_height.into()),
-                font,
-                align_x: text::Alignment::Left,
-                align_y: Vertical::Top,
-                shaping: text::Shaping::default(),
-                wrapping: text::Wrapping::None,
-                // Bounds are infinite here, so no ellipsizing can occur: this is a
-                // measurement paragraph, not a drawn one.
-            };
-            graphics::text::Paragraph::with_text(text)
-                .min_bounds()
-                .width
-        }
-        fn text_width_body(content: &str) -> f32 {
-            text_width(content, font::default(), 14.0, 20.0)
-        }
-        fn text_width_heading(content: &str) -> f32 {
-            text_width(content, font::semibold(), 14.0, 20.0)
+    /// The tab's part of the window's header: the history pill, then the
+    /// crumb pill, or the path field while the location is being edited.
+    pub fn header_view(&self) -> Element<'_, Message> {
+        let Spacing { space_xxs, .. } = spacing();
+
+        // Thin chevrons, drawn here rather than taken from the icon theme,
+        // whose arrows vary and mostly have a shaft
+        const PREVIOUS: &[u8] = br#"<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16"><path d="M10 3 5 8l5 5" fill="none" stroke="black" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>"#;
+        const NEXT: &[u8] = br#"<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16"><path d="m6 3 5 5-5 5" fill="none" stroke="black" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>"#;
+
+        // 30 by 28, in a pill 2 px around them
+        let history_button = |svg: &'static [u8], message: Option<Message>| {
+            widget::button::custom(
+                widget::icon::icon(widget::icon::from_svg_bytes(svg).symbolic(true)).size(16),
+            )
+            .padding([6, 7])
+            .class(Button::Icon)
+            .on_press_maybe(message)
+        };
+        let history = widget::container(
+            widget::Row::with_children([
+                history_button(
+                    PREVIOUS,
+                    (self.history_i > 0 && !self.history.is_empty()).then_some(Message::GoPrevious),
+                )
+                .into(),
+                history_button(
+                    NEXT,
+                    (self.history_i + 1 < self.history.len()).then_some(Message::GoNext),
+                )
+                .into(),
+            ])
+            .spacing(2),
+        )
+        .padding(2)
+        .class(Container::Pill);
+
+        let mut row = widget::Row::with_capacity(2)
+            .align_y(Alignment::Center)
+            .spacing(space_xxs.to_pixels())
+            .push(history);
+
+        /// The crumb pill around `crumbs`, with its background only where it
+        /// is seen.
+        fn pill(crumbs: widget::Crumbs<'_, Message>, seen: bool) -> Element<'_, Message> {
+            let Spacing { space_xxxs, .. } = spacing();
+            widget::container(crumbs.spacing(space_xxxs.into()))
+                // The icon 12 in from the left end; the last name as far in
+                // from the right as the menus' labels are from their pill's
+                // (2 + 12), its button adding its own 4
+                .padding(padding::left(12).right(f32::from(14 - space_xxxs)))
+                .center_y(Length::Fixed(32.0))
+                .class(if seen {
+                    Container::Pill
+                } else {
+                    Container::Transparent
+                })
+                .into()
         }
 
+        if let Some(edit_location) = &self.edit_location {
+            let mut text_input = None;
+
+            if let Location::Network(ref uri, ..) = edit_location.location {
+                let location = edit_location.location.clone();
+                text_input = Some(
+                    widget::text_input("", uri.clone())
+                        .id(self.edit_location_id.clone())
+                        .on_input(move |input| {
+                            Message::EditLocation(Some(location.with_uri(input).into()))
+                        })
+                        .on_submit(|_| Message::EditLocationSubmit)
+                        .on_unfocus(Message::EditLocation(None))
+                        .line_height(1.0),
+                );
+            } else if let Some(resolved_location) = edit_location.resolve()
+                && let Some(path) = resolved_location.path_opt().cloned()
+            {
+                text_input = Some(
+                    widget::text_input("", path.to_string_lossy().into_owned())
+                        .id(self.edit_location_id.clone())
+                        .on_input(move |input| {
+                            Message::EditLocation(Some(
+                                resolved_location.with_path(PathBuf::from(input)).into(),
+                            ))
+                        })
+                        .on_submit(|_| Message::EditLocationSubmit)
+                        .on_tab(Message::EditLocationTab)
+                        .on_unfocus(Message::EditLocation(None))
+                        .line_height(1.0),
+                );
+            }
+            if let Some(text_input) = text_input {
+                // As wide as the crumbs it stands in for, which stay laid out
+                // under it unseen: the header keeps the room it kept for
+                // them, so the menus do not fold or unfold as the field opens
+                // and closes. With no crumbs, at most 360 wide. Round, as the
+                // search field is.
+                let crumbs = self.crumbs();
+                let text_input = text_input
+                    .width(if crumbs.is_some() {
+                        Length::Fill
+                    } else {
+                        Length::Fixed(360.0)
+                    })
+                    .style(crate::ui::theme::TextInput::Search)
+                    // The text as far in from the ends as the menus' labels
+                    // are from their pill's (2 + 12)
+                    .padding([space_xxs, 14]);
+                let mut popover =
+                    widget::popover(text_input).position(widget::popover::Position::Bottom);
+                if let Some((completions, choosable)) = edit_location.shown() {
+                    let mut column =
+                        widget::Column::with_capacity(completions.len()).padding(space_xxs);
+                    for (i, (name, _path)) in completions.iter().enumerate() {
+                        let text = widget::text::body(name);
+                        let item: Element<_> = if choosable {
+                            let selected = edit_location.selected == Some(i);
+                            widget::button::custom(text)
+                                .class(if selected {
+                                    Button::Standard
+                                } else {
+                                    Button::HeaderBar
+                                })
+                                .on_press(Message::EditLocationComplete(i))
+                                .padding(space_xxs)
+                                .width(Length::Fill)
+                                .into()
+                        } else {
+                            // The previous list, on show until this edit's own
+                            // arrives. Drawn exactly like an unselected real
+                            // row, so nothing changes colour or size when the
+                            // real list lands, but never highlighted. Its press
+                            // is taken and does nothing: without a handler a
+                            // button is drawn disabled, and a row that did not
+                            // take the press would let it through to the list
+                            // underneath and to the field, which closes on a
+                            // press outside it.
+                            //
+                            // Wrapped so the row is a different widget from a
+                            // real one in the same place. A button remembers a
+                            // press until the release; if the real list lands
+                            // in between, the same button state would carry
+                            // over and the release would choose a row the user
+                            // never saw. A column rather than a container: a
+                            // container shares its content's widget state, so
+                            // it changes nothing, while a column holds its
+                            // children under a node of its own. With no
+                            // padding or spacing, and drawing nothing itself,
+                            // it looks and measures as the bare button would.
+                            widget::Column::new()
+                                .push(
+                                    widget::button::custom(text)
+                                        .class(Button::HeaderBar)
+                                        .on_press(Message::EditLocationStalePressed)
+                                        .padding(space_xxs)
+                                        .width(Length::Fill),
+                                )
+                                .into()
+                        };
+                        column = column.push(item);
+                    }
+                    // Unrolls on a spring, and springs to each new height as
+                    // typing changes how many completions there are.
+                    popover = popover.popup(widget::spring_height(
+                        widget::container(column)
+                            .class(Container::Dropdown)
+                            .width(Length::Fixed(360.0)),
+                    ));
+                }
+                let field = widget::container(popover).center_y(Length::Fill);
+                return match crumbs {
+                    Some(crumbs) => row.push(stack![pill(crumbs.invisible(), false), field]),
+                    None => row.push(field),
+                }
+                .into();
+            }
+        }
+
+        if let Some(crumbs) = self.crumbs() {
+            row = row.push(pill(crumbs, true));
+        }
+        row.into()
+    }
+
+    /// The crumbs of the header's crumb pill, from the outermost folder to
+    /// this one, with the icon of the outermost. See [`widget::crumbs`].
+    fn crumbs(&self) -> Option<widget::Crumbs<'_, Message>> {
+        // The "›" between crumbs: the header's text colour, faded
+        fn separator_style(theme: &crate::ui::Theme) -> crate::ui::widget::text::Style {
+            let mut color = theme.cosmic().background(theme.transparent).on;
+            color.alpha *= 0.45;
+            crate::ui::widget::text::Style {
+                color: Some(color.to_color()),
+                ..Default::default()
+            }
+        }
+
+        let Spacing { space_xxxs, .. } = spacing();
+
+        // The location's icon, in the accent colour
+        let icon = |handle: widget::icon::Handle| {
+            widget::icon::icon(handle)
+                .size(16)
+                .class(theme::Svg::custom(|theme| {
+                    crate::ui::iced::widget::svg::Style {
+                        color: Some(theme.cosmic().accent_text_color().to_color()),
+                    }
+                }))
+        };
+        let single = |handle: widget::icon::Handle, label: String, message: Message| {
+            widget::crumbs(
+                icon(handle),
+                vec![
+                    widget::button::custom(widget::text::heading(label))
+                        .padding(space_xxxs)
+                        .on_press(message)
+                        .class(Button::Text)
+                        .into(),
+                ],
+                Vec::new(),
+                Vec::new(),
+            )
+        };
+
+        // A crumb's button with everything a crumb does: going to its
+        // folder (or, for this folder, opening the path field), its context
+        // menu, a middle-click opening it in a new tab and, for an ancestor,
+        // taking dropped files. A "…" standing for hidden crumbs is wrapped
+        // the same way as the crumb it goes to.
+        let crumb = |content,
+                     index: usize,
+                     ancestor_location: &Location,
+                     ancestor: &PathBuf,
+                     current: bool| {
+            let mouse_area = crate::mouse_area::MouseArea::new(
+                widget::button::custom(content)
+                    .padding(space_xxxs)
+                    // Reuse `LinkActive`, the highlight for an open breadcrumb
+                    // context menu, when a drag hovers over a breadcrumb.
+                    .class(
+                        if self.location_context_menu_index == Some(index)
+                            || self.dnd_ancestor == Some(index)
+                        {
+                            Button::LinkActive
+                        } else {
+                            Button::Link
+                        },
+                    )
+                    .on_press(if current {
+                        Message::EditLocation(Some(self.location.clone().into()))
+                    } else {
+                        Message::Location(ancestor_location.clone())
+                    }),
+            );
+
+            let mouse_area = if let Location::Path(_) = &self.location {
+                let ancestor = ancestor.clone();
+                mouse_area.on_middle_press(move |_| Message::OpenInNewTab(ancestor.clone()))
+            } else {
+                mouse_area
+            };
+
+            // The last segment is the displayed directory; clicking it opens
+            // the location editor. Exclude it as a drop target because the
+            // files are already there. All ancestor segments are valid
+            // destinations.
+            let mouse_area = if current {
+                mouse_area
+            } else {
+                let ancestor = ancestor.clone();
+                mouse_area.on_dnd(move |dnd| Message::DndAncestor(index, ancestor.clone(), dnd))
+            };
+
+            // Each breadcrumb carries the menu for its own ancestor index
+            let mut context_menu = widget::context_menu(
+                mouse_area,
+                Some(menu::location_context_menu(index, &self.mode)),
+            )
+            .on_open(Message::LocationContextMenuIndex(Some(index)))
+            .on_close(Message::LocationContextMenuIndex(None))
+            .on_surface_action(Message::Surface);
+            if let Some(window_id) = self.window_id {
+                context_menu = context_menu.window_id(window_id);
+            }
+            let crumb: Element<'_, Message> = context_menu.into();
+            crumb
+        };
+
+        match &self.location {
+            Location::Path(_) | Location::Search(SearchLocation::Path(_), ..) => {
+                // `location_ancestors` runs from this folder outwards; the
+                // pill runs the other way
+                let ancestors: Vec<(usize, &Location, &PathBuf, &String)> = self
+                    .location_ancestors
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(index, (location, name))| {
+                        location
+                            .path_opt()
+                            .map(|ancestor| (index, location, ancestor, name))
+                    })
+                    .rev()
+                    .collect();
+                let (_, _, outermost, _) = ancestors.first()?;
+                let icon = icon(folder_icon_symbolic(outermost, 16));
+
+                let mut crumbs = Vec::with_capacity(ancestors.len());
+                let mut separators = Vec::with_capacity(ancestors.len());
+                let mut more = Vec::with_capacity(ancestors.len());
+                let last = ancestors.len() - 1;
+                for (position, &(index, ancestor_location, ancestor, name)) in
+                    ancestors.iter().enumerate()
+                {
+                    // The innermost is this folder: `ancestors` starts at it
+                    let current = position == last;
+                    if position > 0 {
+                        separators.push(
+                            widget::text::body("›")
+                                .class(theme::Text::Custom(separator_style))
+                                .into(),
+                        );
+                    }
+                    let name_text: Element<'_, Message> = if current {
+                        widget::ellipsize::heading(name.clone(), widget::EllipsizeMode::End(1))
+                            .wrapping(text::Wrapping::None)
+                            .into()
+                    } else {
+                        widget::text::body(name.clone())
+                            .wrapping(text::Wrapping::None)
+                            .into()
+                    };
+                    if !current {
+                        // Stands for this crumb and all before it when they
+                        // do not fit, and goes where this one goes
+                        more.push(crumb(
+                            widget::text::body("...").into(),
+                            index,
+                            ancestor_location,
+                            ancestor,
+                            false,
+                        ));
+                    }
+
+                    crumbs.push(crumb(
+                        name_text,
+                        index,
+                        ancestor_location,
+                        ancestor,
+                        current,
+                    ));
+                }
+                Some(widget::crumbs(icon, crumbs, separators, more))
+            }
+            Location::Trash | Location::Search(SearchLocation::Trash, ..) => Some(single(
+                Trash::icon_symbolic(16),
+                fl!("trash"),
+                Message::Location(Location::Trash),
+            )),
+            Location::Recents | Location::Search(SearchLocation::Recents, ..) => Some(single(
+                widget::icon::from_name("document-open-recent-symbolic")
+                    .size(16)
+                    .handle(),
+                fl!("recents"),
+                Message::Location(Location::Recents),
+            )),
+            Location::Network(_, display_name, _) => Some(single(
+                widget::icon::from_name("network-workgroup-symbolic")
+                    .size(16)
+                    .handle(),
+                display_name.clone(),
+                Message::EditLocation(Some(self.location.clone().into())),
+            )),
+        }
+    }
+
+    /// The top of the tab: the list's column headings and the rule under
+    /// them, in list view when there is room for them; nothing otherwise.
+    pub fn location_view(&self, column_slide: Option<&ColumnSlide>) -> Element<'_, Message> {
         let Spacing {
             space_xxxs,
             space_xxs,
@@ -7095,36 +7441,6 @@ impl Tab {
             space_m,
             ..
         } = spacing();
-
-        let size = self.size_opt.get().unwrap_or(Size::new(0.0, 0.0));
-
-        let mut row = widget::Row::with_capacity(5)
-            .align_y(Alignment::Center)
-            .padding([space_xxxs, 0]);
-        let mut w = 0.0;
-
-        let mut prev_button =
-            widget::button::custom(widget::icon::from_name("go-previous-symbolic").size(16))
-                .padding(space_xxs)
-                .class(Button::Icon);
-        if self.history_i > 0 && !self.history.is_empty() {
-            prev_button = prev_button.on_press(Message::GoPrevious);
-        }
-        row = row.push(prev_button);
-        w += f32::from(space_xxs).mul_add(2.0, 16.0);
-
-        let mut next_button =
-            widget::button::custom(widget::icon::from_name("go-next-symbolic").size(16))
-                .padding(space_xxs)
-                .class(Button::Icon);
-        if self.history_i + 1 < self.history.len() {
-            next_button = next_button.on_press(Message::GoNext);
-        }
-        row = row.push(next_button);
-        w += f32::from(space_xxs).mul_add(2.0, 16.0);
-
-        row = row.push(widget::space::horizontal().width(Length::Fixed(space_s.into())));
-        w += f32::from(space_s);
 
         let geometry = self.list_geometry();
         let condensed = geometry.is_none();
@@ -7242,298 +7558,14 @@ impl Tab {
             .height(Length::Fixed((space_m + 4).into()))
             .padding([0, space_xxs]);
 
-        let accent_rule = rule::horizontal(1).class(Rule::Custom(Box::new(|theme| rule::Style {
-            color: theme.cosmic().accent_color().to_color(),
-            radius: 0.0.into(),
-            fill_mode: rule::FillMode::Full,
-            snap: true,
-        })));
         let heading_rule = widget::container(rule::horizontal(1))
             .padding([0, theme::active().cosmic().corner_radii.radius_xs[0] as u16]);
 
-        if let Some(edit_location) = &self.edit_location {
-            let mut text_input = None;
-
-            if let Location::Network(ref uri, ..) = edit_location.location {
-                let location = edit_location.location.clone();
-                text_input = Some(
-                    widget::text_input("", uri.clone())
-                        .id(self.edit_location_id.clone())
-                        .on_input(move |input| {
-                            Message::EditLocation(Some(location.with_uri(input).into()))
-                        })
-                        .on_submit(|_| Message::EditLocationSubmit)
-                        .line_height(1.0),
-                );
-            } else if let Some(resolved_location) = edit_location.resolve()
-                && let Some(path) = resolved_location.path_opt().cloned()
-            {
-                text_input = Some(
-                    widget::text_input("", path.to_string_lossy().into_owned())
-                        .id(self.edit_location_id.clone())
-                        .on_input(move |input| {
-                            Message::EditLocation(Some(
-                                resolved_location.with_path(PathBuf::from(input)).into(),
-                            ))
-                        })
-                        .on_submit(|_| Message::EditLocationSubmit)
-                        .on_tab(Message::EditLocationTab)
-                        .on_unfocus(Message::EditLocation(None))
-                        .line_height(1.0),
-                );
-            }
-            if let Some(text_input) = text_input {
-                row = row.push(
-                    widget::button::custom(
-                        widget::icon::from_name("window-close-symbolic").size(16),
-                    )
-                    .on_press(Message::EditLocation(None))
-                    .padding(space_xxs)
-                    .class(Button::Icon),
-                );
-                let mut popover =
-                    widget::popover(text_input).position(widget::popover::Position::Bottom);
-                if let Some((completions, choosable)) = edit_location.shown() {
-                    let mut column =
-                        widget::Column::with_capacity(completions.len()).padding(space_xxs);
-                    for (i, (name, _path)) in completions.iter().enumerate() {
-                        let text = widget::text::body(name);
-                        let item: Element<_> = if choosable {
-                            let selected = edit_location.selected == Some(i);
-                            widget::button::custom(text)
-                                .class(if selected {
-                                    Button::Standard
-                                } else {
-                                    Button::HeaderBar
-                                })
-                                .on_press(Message::EditLocationComplete(i))
-                                .padding(space_xxs)
-                                .width(Length::Fill)
-                                .into()
-                        } else {
-                            // The previous list, on show until this edit's own
-                            // arrives. Drawn exactly like an unselected real
-                            // row, so nothing changes colour or size when the
-                            // real list lands, but never highlighted. Its press
-                            // is taken and does nothing: without a handler a
-                            // button is drawn disabled, and a row that did not
-                            // take the press would let it through to the list
-                            // underneath and to the field, which closes on a
-                            // press outside it.
-                            //
-                            // Wrapped so the row is a different widget from a
-                            // real one in the same place. A button remembers a
-                            // press until the release; if the real list lands
-                            // in between, the same button state would carry
-                            // over and the release would choose a row the user
-                            // never saw. A column rather than a container: a
-                            // container shares its content's widget state, so
-                            // it changes nothing, while a column holds its
-                            // children under a node of its own. With no
-                            // padding or spacing, and drawing nothing itself,
-                            // it looks and measures as the bare button would.
-                            widget::Column::new()
-                                .push(
-                                    widget::button::custom(text)
-                                        .class(Button::HeaderBar)
-                                        .on_press(Message::EditLocationStalePressed)
-                                        .padding(space_xxs)
-                                        .width(Length::Fill),
-                                )
-                                .into()
-                        };
-                        column = column.push(item);
-                    }
-                    // Unrolls on a spring, and springs to each new height as
-                    // typing changes how many completions there are.
-                    popover = popover.popup(widget::spring_height(
-                        widget::container(column)
-                            .class(Container::Dropdown)
-                            .max_width(size.width - 140.0),
-                    ));
-                }
-                row = row.push(popover);
-                let mut column = widget::Column::with_capacity(4).padding([0, space_s]);
-                column = column.push(row);
-                column = column.push(accent_rule);
-                if self.config.view == View::List && !condensed {
-                    column = column.push(heading_row);
-                    column = column.push(heading_rule);
-                }
-                return column.into();
-            }
-        } else if let Some(path) = self.location.path_opt() {
-            row = row.push(
-                crate::mouse_area::MouseArea::new(
-                    widget::button::custom(widget::icon::from_name("edit-symbolic").size(16))
-                        .padding(space_xxs)
-                        .class(Button::Icon)
-                        .on_press(Message::EditLocation(Some(self.location.clone().into()))),
-                )
-                .on_middle_press(move |_| Message::OpenInNewTab(path.clone())),
-            );
-            w += f32::from(space_xxs).mul_add(2.0, 16.0);
-        }
-
-        let mut children: Vec<Element<_>> = Vec::new();
-        match &self.location {
-            Location::Path(path) | Location::Search(SearchLocation::Path(path), ..) => {
-                let excess_str = "...";
-                let excess_width = text_width_body(excess_str);
-                // Read from the list built when the location changed. Naming a
-                // segment means stating it, and on a network mount querying
-                // it, which must not happen once per segment per frame.
-                for (index, (ancestor_location, name)) in self.location_ancestors.iter().enumerate()
-                {
-                    let Some(ancestor) = ancestor_location.path_opt() else {
-                        continue;
-                    };
-                    let name = name.clone();
-                    let (name_width, name_text): (f32, Element<'_, Message>) =
-                        if children.is_empty() {
-                            (
-                                text_width_heading(&name),
-                                widget::ellipsize::heading(name, widget::EllipsizeMode::End(1))
-                                    .wrapping(text::Wrapping::None)
-                                    .into(),
-                            )
-                        } else {
-                            children.push(
-                                widget::icon::from_name("go-next-symbolic")
-                                    .size(16)
-                                    .icon()
-                                    .into(),
-                            );
-                            w += 16.0;
-                            (
-                                text_width_body(&name),
-                                widget::text::body(name)
-                                    .wrapping(text::Wrapping::None)
-                                    .into(),
-                            )
-                        };
-
-                    // Add padding for mouse area
-                    w += 2.0 * f32::from(space_xxxs);
-
-                    let mut row = widget::Row::with_capacity(2)
-                        .align_y(Alignment::Center)
-                        .spacing(space_xxxs.to_pixels());
-                    let overflow_offset = 64.0;
-                    let overflow = w + name_width + overflow_offset > size.width && index > 0;
-                    if overflow {
-                        row = row.push(widget::text::body(excess_str));
-                        w += excess_width;
-                    } else {
-                        row = row.push(name_text);
-                        w += name_width;
-                    }
-
-                    let location = ancestor_location.clone();
-                    let mouse_area = crate::mouse_area::MouseArea::new(
-                        widget::button::custom(row)
-                            .padding(space_xxxs)
-                            // Reuse `LinkActive`, the highlight for an open breadcrumb
-                            // context menu, when a drag hovers over a breadcrumb.
-                            .class(
-                                if self.location_context_menu_index == Some(index)
-                                    || self.dnd_ancestor == Some(index)
-                                {
-                                    Button::LinkActive
-                                } else {
-                                    Button::Link
-                                },
-                            )
-                            .on_press(if ancestor == path {
-                                Message::EditLocation(Some(self.location.clone().into()))
-                            } else {
-                                Message::Location(location.clone())
-                            }),
-                    );
-
-                    let mouse_area = if let Location::Path(_) = &self.location {
-                        mouse_area
-                            .on_middle_press(move |_| Message::OpenInNewTab(ancestor.to_path_buf()))
-                    } else {
-                        mouse_area
-                    };
-
-                    // The last segment is the displayed directory; clicking it opens
-                    // the location editor. Exclude it as a drop target because the
-                    // files are already there. All ancestor segments are valid
-                    // destinations.
-                    let mouse_area = if ancestor == path {
-                        mouse_area
-                    } else {
-                        mouse_area.on_dnd(move |dnd| {
-                            Message::DndAncestor(index, ancestor.to_path_buf(), dnd)
-                        })
-                    };
-
-                    // Each breadcrumb carries the menu for its own ancestor index
-                    let mut context_menu = widget::context_menu(
-                        mouse_area,
-                        Some(menu::location_context_menu(index, &self.mode)),
-                    )
-                    .on_open(Message::LocationContextMenuIndex(Some(index)))
-                    .on_close(Message::LocationContextMenuIndex(None))
-                    .on_surface_action(Message::Surface);
-                    if let Some(window_id) = self.window_id {
-                        context_menu = context_menu.window_id(window_id);
-                    }
-                    children.push(context_menu.into());
-
-                    // The list already stops at home, so overflow is the
-                    // only reason left to stop early
-                    if overflow {
-                        break;
-                    }
-                }
-                children.reverse();
-            }
-            Location::Trash | Location::Search(SearchLocation::Trash, ..) => {
-                children.push(
-                    widget::button::custom(widget::text::heading(fl!("trash")))
-                        .padding(space_xxxs)
-                        .on_press(Message::Location(Location::Trash))
-                        .class(Button::Text)
-                        .into(),
-                );
-            }
-            Location::Recents | Location::Search(SearchLocation::Recents, ..) => {
-                children.push(
-                    widget::button::custom(widget::text::heading(fl!("recents")))
-                        .padding(space_xxxs)
-                        .on_press(Message::Location(Location::Recents))
-                        .class(Button::Text)
-                        .into(),
-                );
-            }
-            Location::Network(uri, display_name, path) => {
-                children.push(
-                    widget::button::custom(widget::text::heading(display_name))
-                        .padding(space_xxxs)
-                        .on_press(Message::Location(Location::Network(
-                            uri.clone(),
-                            display_name.clone(),
-                            path.clone(),
-                        )))
-                        .class(Button::Text)
-                        .into(),
-                );
-            }
-        }
-
-        row = row.extend(children);
-        let mut column = widget::Column::with_capacity(4).padding([0, space_s]);
-        column = column.push(row);
-        column = column.push(accent_rule);
-
+        let mut column = widget::Column::with_capacity(2).padding([0, space_s]);
         if self.config.view == View::List && !condensed {
             column = column.push(heading_row);
             column = column.push(heading_rule);
         }
-
         column.into()
     }
 
@@ -11089,7 +11121,7 @@ mod tests {
 
             let mut messages = Vec::new();
             let mut ui = UserInterface::build(
-                tab.location_view(None),
+                tab.header_view(),
                 Self::WINDOW,
                 self.cache.take().expect("the cache is put back"),
                 &mut self.renderer,
@@ -11131,7 +11163,7 @@ mod tests {
 
             let mut containers = Containers(Vec::new());
             let mut ui = UserInterface::build(
-                tab.location_view(None),
+                tab.header_view(),
                 Self::WINDOW,
                 self.cache.take().expect("the cache is put back"),
                 &mut self.renderer,
@@ -12029,6 +12061,63 @@ mod tests {
             opens(false)?,
             1,
             "double-click mode opened it more than once"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn the_history_pill_follows_the_history() -> io::Result<()> {
+        use crate::ui::iced_core::{Event, Point, clipboard, mouse};
+        use crate::ui::iced_runtime::user_interface::{Cache, UserInterface};
+
+        // What a click on the middle of back (x 2 to 32) and of forward (x 34
+        // to 64) sends, in a header 32 high
+        let clicks = |tab: &Tab| {
+            [17.0, 49.0].map(|x| {
+                let mut renderer = iced_texture_cache::testing::headless_tiny_skia();
+                let mut ui = UserInterface::build(
+                    tab.header_view(),
+                    crate::ui::iced::Size::new(800.0, 32.0),
+                    Cache::default(),
+                    &mut renderer,
+                );
+                let mut messages = Vec::new();
+                let _ = ui.update(
+                    &[
+                        Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)),
+                        Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)),
+                    ],
+                    mouse::Cursor::Available(Point::new(x, 16.0)),
+                    &mut renderer,
+                    &mut clipboard::Null,
+                    &mut messages,
+                );
+                messages
+            })
+        };
+
+        let (_fs, mut tab, _dirs) = tab_history()?;
+        let [back, forward] = clicks(&tab);
+        assert!(matches!(back.as_slice(), [Message::GoPrevious]), "{back:?}");
+        assert!(forward.is_empty(), "nothing to go forward to: {forward:?}");
+
+        tab.update(Message::GoPrevious, Modifiers::empty());
+        let [back, forward] = clicks(&tab);
+        assert!(matches!(back.as_slice(), [Message::GoPrevious]), "{back:?}");
+        assert!(
+            matches!(forward.as_slice(), [Message::GoNext]),
+            "{forward:?}"
+        );
+
+        // At the start of the history there is nothing to go back to
+        while tab.history_i > 0 {
+            tab.update(Message::GoPrevious, Modifiers::empty());
+        }
+        let [back, forward] = clicks(&tab);
+        assert!(back.is_empty(), "nothing to go back to: {back:?}");
+        assert!(
+            matches!(forward.as_slice(), [Message::GoNext]),
+            "{forward:?}"
         );
         Ok(())
     }

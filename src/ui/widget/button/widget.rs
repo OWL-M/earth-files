@@ -413,7 +413,8 @@ impl<'a, Message: 'a + Clone> Widget<Message, crate::ui::Theme, crate::ui::Rende
             .icon_color
             .unwrap_or_else(|| crate::ui::theme::icon_color(renderer_style));
 
-        // Menu roots should share the accent color that icons get in the header.
+        // Menu roots take the colour icons inherit, as the header's icons
+        // do; the menu bar hands the open one the accent colour.
         let mut text_color = if matches!(self.style, crate::ui::theme::Button::MenuRoot) {
             icon_color
         } else {

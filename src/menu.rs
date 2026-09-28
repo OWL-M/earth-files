@@ -604,10 +604,10 @@ pub fn menu_bar<'a>(
         (fl!("move-to-trash"), Action::Delete)
     };
 
-    responsive_menu_bar()
+    let bar = responsive_menu_bar()
         .item_height(ItemHeight::Dynamic(40))
         .item_width(ItemWidth::Uniform(360))
-        .spacing(spacing().space_xxxs.into())
+        .spacing(2.0)
         .into_element(
             core,
             key_binds,
@@ -763,7 +763,12 @@ pub fn menu_bar<'a>(
                     ],
                 ),
             ],
-        )
+        );
+    // In a pill, 2 px around the roots as between them
+    widget::container(bar)
+        .padding(2)
+        .class(crate::ui::theme::Container::Pill)
+        .into()
 }
 
 /// The breadcrumb context menu. Tabs, windows and the sidebar only exist in

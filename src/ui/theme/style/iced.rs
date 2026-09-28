@@ -6,8 +6,7 @@
 //! iced has no `icon_color` field on `iced_core::theme::Style`,
 //! `iced_core::renderer::Style` or `iced_widget::container::Style`, so the
 //! styles use `text_color` for symbolic icon inheritance; see
-//! [`crate::ui::theme::icon_color`] and [`header_bar_colors`] for the
-//! [`Container::HeaderBar`] override.
+//! [`crate::ui::theme::icon_color`].
 
 use iced::overlay::menu;
 use iced::theme::Base;
@@ -406,6 +405,8 @@ pub enum Container<'a> {
         transparent: bool,
     },
     List,
+    /// The header's pills: the menus, the history buttons and the crumbs.
+    Pill,
     Primary,
     Secondary,
     Tooltip,
@@ -473,29 +474,23 @@ impl<'a> From<iced_container::StyleFn<'a, Theme>> for Container<'a> {
     }
 }
 
-/// The header bar's `(icon colour, text colour)`.
-///
-/// `Container::HeaderBar` is the only container class with different icon and
-/// text colours. `crate::ui::widget::header_bar` reads this pair to install an
-/// override with `crate::ui::theme::with_icon_color`.
+/// The header bar's text and icon colour: plain while the window is focused
+/// (the accent is kept for the open menu and the location's icon), dimmed
+/// while it is not.
 #[must_use]
-pub fn header_bar_colors(theme: &Theme, focused: bool) -> (Color, Color) {
+pub fn header_bar_color(theme: &Theme, focused: bool) -> Color {
     let cosmic = theme.cosmic();
 
     if focused {
-        (
-            cosmic.accent_text_color().to_color(),
-            cosmic.background(theme.transparent).on.to_color(),
-        )
+        cosmic.background(theme.transparent).on.to_color()
     } else {
         use crate::ui::widget::text_input::input::ColorExt;
-        let unfocused_color = cosmic
+        cosmic
             .background(theme.transparent)
             .component
             .on
             .to_color()
-            .blend_alpha(cosmic.background(theme.transparent).base.to_color(), 0.5);
-        (unfocused_color, unfocused_color)
+            .blend_alpha(cosmic.background(theme.transparent).base.to_color(), 0.5)
     }
 }
 
@@ -568,7 +563,7 @@ impl iced_container::Catalog for Theme {
                 sharp_corners,
                 transparent,
             } => {
-                let (_icon_color, text_color) = header_bar_colors(self, *focused);
+                let text_color = header_bar_color(self, *focused);
 
                 iced_container::Style {
                     text_color: Some(text_color),
@@ -611,6 +606,21 @@ impl iced_container::Catalog for Theme {
                 }
                 a
             }
+
+            // The navigation bar's background (`nav_bar_style`), as the
+            // popups have
+            Container::Pill => iced_container::Style {
+                text_color: None,
+                background: Some(iced::Background::Color(
+                    cosmic.primary(self.transparent).base.to_color(),
+                )),
+                border: Border {
+                    radius: cosmic.corner_radii.radius_m.to_radius(),
+                    ..Default::default()
+                },
+                shadow: Shadow::default(),
+                snap: true,
+            },
 
             Container::Background => Container::background(cosmic, self.transparent),
 
