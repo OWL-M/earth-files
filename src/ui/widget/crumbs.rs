@@ -15,6 +15,7 @@
 //! handling events, choosing the cursor, operating and finding overlays. What
 //! every child sends is fixed when the view is built.
 
+use iced_core::Renderer as _;
 use iced_core::event::Event;
 use iced_core::widget::Operation;
 use iced_core::widget::tree::{self, Tree};
@@ -262,6 +263,7 @@ impl<Message> Widget<Message, Theme, Renderer> for Crumbs<'_, Message> {
     ) {
         let hidden = tree.state.downcast_ref::<State>().hidden;
         let shown = self.live(hidden);
+        let cursor = within(cursor, layout);
         for (c, ((child, tree), layout)) in self
             .children
             .iter_mut()
@@ -300,6 +302,7 @@ impl<Message> Widget<Message, Theme, Renderer> for Crumbs<'_, Message> {
     ) -> mouse::Interaction {
         let hidden = tree.state.downcast_ref::<State>().hidden;
         let shown = self.live(hidden);
+        let cursor = within(cursor, layout);
         self.children
             .iter()
             .zip(&tree.children)
@@ -327,19 +330,22 @@ impl<Message> Widget<Message, Theme, Renderer> for Crumbs<'_, Message> {
     ) {
         let hidden = tree.state.downcast_ref::<State>().hidden;
         let shown = self.live(hidden);
-        for (c, ((child, tree), layout)) in self
-            .children
-            .iter()
-            .zip(&tree.children)
-            .zip(layout.children())
-            .enumerate()
-        {
-            if shown.contains(&c) {
-                child
-                    .as_widget()
-                    .draw(tree, renderer, theme, style, layout, cursor, viewport);
+        // Clipped to its own bounds: see `within`
+        renderer.with_layer(layout.bounds(), |renderer| {
+            for (c, ((child, tree), layout)) in self
+                .children
+                .iter()
+                .zip(&tree.children)
+                .zip(layout.children())
+                .enumerate()
+            {
+                if shown.contains(&c) {
+                    child
+                        .as_widget()
+                        .draw(tree, renderer, theme, style, layout, cursor, viewport);
+                }
             }
-        }
+        });
     }
 
     fn overlay<'b>(
@@ -366,6 +372,18 @@ impl<Message> Widget<Message, Theme, Renderer> for Crumbs<'_, Message> {
             })
             .collect();
         (!overlays.is_empty()).then(|| overlay::Group::with_children(overlays).overlay())
+    }
+}
+
+/// `cursor` as the children see it: only over them within the row's own
+/// bounds. When even the icon, a "more" and a separator do not fit, they run
+/// past the row's end; what they overlap there (in the header, the search and
+/// window buttons) keeps the pointer, as it keeps the drawing.
+fn within(cursor: mouse::Cursor, layout: Layout<'_>) -> mouse::Cursor {
+    if cursor.is_over(layout.bounds()) {
+        cursor
+    } else {
+        cursor.levitate()
     }
 }
 
@@ -583,6 +601,29 @@ mod tests {
         let shown = shown(row.into(), 400.0);
         assert_eq!(ids(&shown), [Id::new("after")]);
         assert_eq!(shown[0].1.x, 340.0);
+    }
+
+    #[test]
+    fn what_runs_past_the_end_takes_no_press() {
+        // In 30, the icon (0 to 20), "more1" (20 to 40) and the separator
+        // (40 to 50) cannot all fit: a press on "more1" past the row's end
+        // does not reach it, one within the row does
+        let press = |x: f32| {
+            let (mut ui, mut renderer) = build(view(), 30.0);
+            let mut messages = Vec::new();
+            let _ = ui.update(
+                &[Event::Mouse(mouse::Event::ButtonPressed(
+                    mouse::Button::Left,
+                ))],
+                mouse::Cursor::Available(Point::new(x, 10.0)),
+                &mut renderer,
+                &mut clipboard::Null,
+                &mut messages,
+            );
+            messages
+        };
+        assert!(press(35.0).is_empty());
+        assert_eq!(press(25.0), ["more1"]);
     }
 
     #[test]

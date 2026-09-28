@@ -7105,7 +7105,7 @@ impl Tab {
                 // The icon 12 in from the left end; the last name as far in
                 // from the right as the menus' labels are from their pill's
                 // (2 + 12), its button adding its own 4
-                .padding(padding::left(12).right(f32::from(14 - space_xxxs)))
+                .padding(padding::left(12).right(f32::from(14u16.saturating_sub(space_xxxs))))
                 .center_y(Length::Fixed(32.0))
                 .class(if seen {
                     Container::Pill
