@@ -3498,6 +3498,11 @@ pub struct Tab {
     /// item a second time. In single-click mode the first release has already
     /// opened it, and a double click is still two presses and two releases.
     opened_by_this_click: bool,
+    /// An item pressed while already selected. The press keeps the rest of
+    /// the selection, so it can be dragged as a whole; if the release comes
+    /// on the same item with no drag started in between, the selection
+    /// narrows to it.
+    narrow_on_release: Option<usize>,
     last_right_click: Option<usize>,
     search_context: Option<SearchContext>,
     search_select: SearchSelect,
@@ -3907,6 +3912,7 @@ impl Tab {
             select_range: None,
             clicked: None,
             opened_by_this_click: false,
+            narrow_on_release: None,
             last_right_click: None,
             search_context: None,
             search_select: SearchSelect::Off,
@@ -5057,6 +5063,16 @@ impl Tab {
                     }
                 }
 
+                if let Some(narrow_to) = self.narrow_on_release.take()
+                    && click_i_opt == Some(narrow_to)
+                    && let Some(ref mut items) = self.items_opt
+                {
+                    for (i, item) in items.iter_mut().enumerate() {
+                        item.selected = i == narrow_to;
+                    }
+                    self.select_range = Some((narrow_to, narrow_to));
+                }
+
                 if click_i_opt != self.clicked.take()
                     && let Some(ref mut items) = self.items_opt
                 {
@@ -5097,6 +5113,7 @@ impl Tab {
             }
             Message::Click(click_i_opt) => {
                 self.dismiss_edit_location();
+                self.narrow_on_release = None;
                 if click_i_opt.is_none() {
                     self.clicked = click_i_opt;
                 }
@@ -5215,6 +5232,8 @@ impl Tab {
                                 if !item.selected {
                                     self.clicked = click_i_opt;
                                     item.selected = true;
+                                } else if !mod_ctrl {
+                                    self.narrow_on_release = click_i_opt;
                                 }
                                 self.select_range = Some((i, i));
                                 self.select_focus = click_i_opt;
@@ -5338,6 +5357,7 @@ impl Tab {
             }
             Message::Drag(rect_opt) => {
                 self.watch_drag = false;
+                self.narrow_on_release = None;
                 if let Some(rect) = rect_opt {
                     if self.mode.multiple() {
                         self.select_rect(rect, mod_ctrl, mod_shift);
@@ -5351,6 +5371,8 @@ impl Tab {
                 }
             }
             Message::DragFiles(i) => {
+                // The pressed selection is being dragged: it stays whole
+                self.narrow_on_release = None;
                 // `on_drag` fires again on every pixel of the gesture; only the
                 // first one may start a drag.
                 if !self.dnd_source {
@@ -9950,6 +9972,42 @@ mod tests {
     fn tab_click_ctrl_selects_multiple() -> io::Result<()> {
         // Select the first and second directory by holding down ctrl
         tab_selects_item(&[0, 1], Modifiers::CTRL, &[true, true])
+    }
+
+    #[test]
+    fn tab_click_on_a_selected_item_narrows_to_it_on_release() -> io::Result<()> {
+        let (_fs, mut tab) = tab_click_new(NUM_FILES, NUM_NESTED, NUM_DIRS, NUM_NESTED, NAME_LEN)?;
+        let selected = |tab: &Tab| -> Vec<usize> {
+            tab.items_opt
+                .as_deref()
+                .expect("tab should be populated with items")
+                .iter()
+                .enumerate()
+                .filter_map(|(i, item)| item.selected.then_some(i))
+                .collect()
+        };
+
+        // This tab lists two folders
+        for i in 0..2 {
+            tab.update(Message::Click(Some(i)), Modifiers::CTRL);
+            tab.update(Message::ClickRelease(Some(i)), Modifiers::CTRL);
+        }
+        assert_eq!(selected(&tab), [0, 1]);
+
+        // The press keeps the other, so the selection can still be dragged
+        // as a whole; a release with no drag in between leaves only this one
+        tab.update(Message::Click(Some(1)), Modifiers::empty());
+        assert_eq!(selected(&tab), [0, 1]);
+        tab.update(Message::ClickRelease(Some(1)), Modifiers::empty());
+        assert_eq!(selected(&tab), [1]);
+
+        // Ctrl still toggles the clicked one, keeping the rest
+        tab.update(Message::Click(Some(0)), Modifiers::CTRL);
+        tab.update(Message::ClickRelease(Some(0)), Modifiers::CTRL);
+        tab.update(Message::Click(Some(0)), Modifiers::CTRL);
+        tab.update(Message::ClickRelease(Some(0)), Modifiers::CTRL);
+        assert_eq!(selected(&tab), [1]);
+        Ok(())
     }
 
     /// Scanning must not resolve icons. Each one searches the icon theme on
