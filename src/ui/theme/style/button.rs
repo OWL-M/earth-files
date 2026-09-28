@@ -105,11 +105,15 @@ pub fn appearance(
                 corner_radii = &cosmic.corner_radii.radius_s;
             }
 
-            let (background, text, icon) = color(&cosmic.icon_button);
+            let (background, _, _) = color(&cosmic.icon_button);
             appearance.background = Some(Background::Color(background));
-            // Only override icon button colors when it is disabled
-            appearance.icon_color = if disabled { icon } else { None };
-            appearance.text_color = if disabled { text } else { None };
+            // Enabled, an icon button takes the colour of what it sits on.
+            // Disabled, it is always the colour the header's buttons take in
+            // an unfocused window, focused or not
+            let disabled_color =
+                disabled.then(|| crate::ui::theme::style::iced::header_bar_color(theme, false));
+            appearance.icon_color = disabled_color;
+            appearance.text_color = disabled_color;
         }
 
         Button::Image => {
@@ -327,5 +331,23 @@ impl Catalog for Theme {
 
     fn selection_background(&self) -> Background {
         Background::Color(self.cosmic().primary(self.transparent).base.to_color())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_disabled_icon_button_is_the_unfocused_header_colour() {
+        let theme = Theme::dark();
+        let unfocused = crate::ui::theme::style::iced::header_bar_color(&theme, false);
+        for style in [Button::Icon, Button::HeaderBar] {
+            let disabled = theme.disabled(&style);
+            assert_eq!(disabled.icon_color, Some(unfocused));
+            assert_eq!(disabled.text_color, Some(unfocused));
+            // Enabled, it keeps the colour of what it sits on
+            assert_eq!(theme.active(false, false, &style).icon_color, None);
+        }
     }
 }

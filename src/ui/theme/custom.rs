@@ -160,10 +160,9 @@ fn text_on(base: Srgba, surface: Srgba) -> Srgba {
 
 /// Every state of a widget, worked out from the one colour the user gave.
 ///
-/// States move away from the base towards the text colour, so the same rule
-/// reads correctly on a light and a dark theme.
-fn component_from(base: Srgba, surface: Srgba) -> Component {
-    let on = text_on(base, surface);
+/// States move away from the base towards the text colour `on`, so the same
+/// rule reads correctly on a light and a dark theme.
+fn component_from(base: Srgba, on: Srgba) -> Component {
     Component {
         base,
         hover: mix(base, on, HOVER_MIX),
@@ -180,13 +179,41 @@ fn component_from(base: Srgba, surface: Srgba) -> Component {
     }
 }
 
-/// A surface and the widgets drawn on it, from the surface colour alone
-fn container_from(base: Srgba, component_base: Srgba, surface: Srgba) -> Container {
-    let on = text_on(base, surface);
+/// The text colour to draw on `base`: whichever of black and white reads
+/// best, or, with the contrast check off, `current`, the one this part already
+/// has.
+fn text_for(base: Srgba, surface: Srgba, check_contrast: bool, current: Srgba) -> Srgba {
+    if check_contrast {
+        text_on(base, surface)
+    } else {
+        current
+    }
+}
+
+/// A surface and the widgets drawn on it, from the surface colour alone;
+/// `current` is the surface being replaced, whose text colours are kept when
+/// the contrast check is off
+fn container_from(
+    base: Srgba,
+    component_base: Srgba,
+    surface: Srgba,
+    check_contrast: bool,
+    current: &Container,
+) -> Container {
+    let on = text_for(base, surface, check_contrast, current.on);
+    // Widgets on this surface are seen against the surface itself
+    let control_surface = over(base, surface);
     Container {
         base,
-        // Widgets on this surface are seen against the surface itself
-        component: component_from(component_base, over(base, surface)),
+        component: component_from(
+            component_base,
+            text_for(
+                component_base,
+                control_surface,
+                check_contrast,
+                current.component.on,
+            ),
+        ),
         divider: with_alpha(on, DIVIDER_ALPHA),
         on,
         small_widget: with_alpha(on, SMALL_WIDGET_ALPHA),
@@ -256,16 +283,12 @@ impl ComponentOverride {
     ///
     /// A new base means every state that was not named is worked out from it,
     /// because the built-in states belong to the colour being replaced.
-    fn apply(&self, current: &Component, surface: Srgba) -> Component {
+    fn apply(&self, current: &Component, surface: Srgba, check_contrast: bool) -> Component {
+        let derive =
+            |base: Srgba| component_from(base, text_for(base, surface, check_contrast, current.on));
         let (states, derived) = match self {
-            Self::Base(color) => (
-                ComponentStates::default(),
-                Some(component_from(color.0, surface)),
-            ),
-            Self::States(states) => (
-                (**states).clone(),
-                states.base.map(|base| component_from(base.0, surface)),
-            ),
+            Self::Base(color) => (ComponentStates::default(), Some(derive(color.0))),
+            Self::States(states) => ((**states).clone(), states.base.map(|base| derive(base.0))),
         };
         let from = derived.as_ref().unwrap_or(current);
         Component {
@@ -456,6 +479,11 @@ pub struct ThemeFile {
     pub corner_radii: Option<RadiiOverride>,
     pub spacing: Option<SpacingOverride>,
     pub is_high_contrast: Option<bool>,
+    /// Whether the text on a colour this file replaces is picked, black or
+    /// white, for legibility. `false` keeps the text colour that part already
+    /// had (the built-in one, or `text_tint`), whatever it sits on. Left out,
+    /// `true`.
+    pub check_contrast: Option<bool>,
     /// The outline this window draws around itself, as a corner radius in
     /// logical pixels.
     ///
@@ -494,6 +522,7 @@ const KNOWN_KEYS: &[&str] = &[
     "corner_radii",
     "spacing",
     "is_high_contrast",
+    "check_contrast",
     "window_outline",
 ];
 
@@ -502,6 +531,7 @@ impl ThemeFile {
     #[must_use]
     pub fn apply(&self, base: &Palette) -> Palette {
         let mut palette = base.clone();
+        let check_contrast = self.check_contrast.unwrap_or(true);
 
         if let Some(name) = &self.name {
             palette.name = Box::leak(name.clone().into_boxed_str());
@@ -549,7 +579,8 @@ impl ThemeFile {
             let Some(color) = over else {
                 continue;
             };
-            let mut built = container_from(color.0, component_base, surface);
+            let mut built =
+                container_from(color.0, component_base, surface, check_contrast, current);
             if let Some(tint) = self.text_tint {
                 tint_text(&mut built, tint.0);
             }
@@ -568,7 +599,7 @@ impl ThemeFile {
             (&self.list_button, &mut palette.list_button),
         ] {
             if let Some(over) = over {
-                *current = over.apply(current, control_surface);
+                *current = over.apply(current, control_surface, check_contrast);
             }
         }
 
@@ -1041,13 +1072,30 @@ mod tests {
 
         // The pressed fill moves towards the text, and must stay readable
         for hex in ["#888800", "#d65d0e", "#3c3836", "#7c6f64", "#bdae93"] {
-            let component = component_from(color(hex), color("#282828"));
+            let component = component_from(color(hex), text_on(color(hex), color("#282828")));
             assert!(
                 contrast(component.pressed, component.on) > 3.0,
                 "{hex} leaves its pressed state at {:.2}:1",
                 contrast(component.pressed, component.on)
             );
         }
+    }
+
+    #[test]
+    fn with_the_contrast_check_off_text_keeps_its_colour() {
+        // On white, the check picks black; off, the dark theme's light text
+        // stays, on the surface and on the controls drawn on it
+        let checked = parse("(bg_color: \"#ffffff\", accent: \"#ffffff\")").apply(&DARK);
+        assert_eq!(checked.background.on, color("#000000"));
+        assert_eq!(checked.accent.on, color("#000000"));
+
+        let kept = parse("(check_contrast: false, bg_color: \"#ffffff\", accent: \"#ffffff\")")
+            .apply(&DARK);
+        assert_eq!(kept.background.on, DARK.background.on);
+        assert_eq!(kept.background.component.on, DARK.background.component.on);
+        assert_eq!(kept.accent.on, DARK.accent.on);
+        // The states still lean towards the text they now carry
+        assert_eq!(kept.accent.selected_text, DARK.accent.on);
     }
 
     #[test]
