@@ -77,6 +77,10 @@ rustPlatform.buildRustPackage rec {
   ];
   cargoTestFlags = [ "--lib" ];
 
+  preCheck = ''
+    export XDG_DATA_DIRS="${shared-mime-info}/share''${XDG_DATA_DIRS:+:$XDG_DATA_DIRS}"
+  '';
+
   postInstall = ''
     install -Dm644 target/xdgen/${appId}.desktop \
       "$out/share/applications/${appId}.desktop"
