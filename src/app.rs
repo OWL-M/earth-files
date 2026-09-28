@@ -1743,6 +1743,11 @@ impl App {
     }
 
     fn operation(&mut self, operation: Operation) -> Task<Message> {
+        // A drop back where the drag started, or a cut pasted into the folder
+        // it came from, moves nothing: it is not started at all
+        let Some(operation) = operation.without_no_op_moves() else {
+            return Task::none();
+        };
         let id = self.pending_operation_id;
         let controller = Controller::default();
         let compio_tx = self.compio_tx.clone();

@@ -913,6 +913,29 @@ impl std::fmt::Display for OperationError {
 }
 
 impl Operation {
+    /// This operation less what would change nothing: moving something into
+    /// the folder it is already in, as when a drag is dropped back where it
+    /// started. `None` when nothing is left to do. A copy into its own folder
+    /// is kept, as that makes a duplicate.
+    #[must_use]
+    pub fn without_no_op_moves(self) -> Option<Self> {
+        match self {
+            Self::Move {
+                mut paths,
+                to,
+                cross_device_copy,
+            } => {
+                paths.retain(|path| path.parent() != Some(to.as_path()));
+                (!paths.is_empty()).then_some(Self::Move {
+                    paths,
+                    to,
+                    cross_device_copy,
+                })
+            }
+            other => Some(other),
+        }
+    }
+
     pub fn pending_text(&self, ratio: f32, state: ControllerState) -> String {
         let percent = (ratio * 100.0) as i32;
         let progress = || match state {
@@ -2034,6 +2057,39 @@ mod tests {
     };
     use crate::app::{DialogPage, Message};
     use crate::fl;
+
+    #[test]
+    fn a_move_into_the_folder_things_are_in_leaves_them_out() {
+        let here = PathBuf::from("/files/here");
+        let moving = |paths: &[&str]| Operation::Move {
+            paths: paths.iter().map(PathBuf::from).collect(),
+            to: here.clone(),
+            cross_device_copy: false,
+        };
+
+        // Dropped back where they came from: nothing to do
+        assert!(
+            moving(&["/files/here/a", "/files/here/b"])
+                .without_no_op_moves()
+                .is_none()
+        );
+
+        // Only what really moves is kept
+        match moving(&["/files/here/a", "/files/there/b"]).without_no_op_moves() {
+            Some(Operation::Move { paths, to, .. }) => {
+                assert_eq!(paths, [PathBuf::from("/files/there/b")]);
+                assert_eq!(to, here);
+            }
+            other => panic!("expected the move of b, got {other:?}"),
+        }
+
+        // A copy into its own folder makes a duplicate, which is wanted
+        let copy = Operation::Copy {
+            paths: vec![PathBuf::from("/files/here/a")],
+            to: here.clone(),
+        };
+        assert!(copy.without_no_op_moves().is_some());
+    }
 
     /// Simple wrapper around `[Operation::Copy]`
     pub async fn operation_copy(

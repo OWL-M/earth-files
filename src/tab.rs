@@ -4585,11 +4585,14 @@ impl Tab {
     /// lay their `Item::rect_opt` out in: measured from the top of the whole
     /// listing, not from the top of what is on screen. See [`Self::scrolled_by`].
     /// Only directories accept drops; a drag over a file or a gap between rows
-    /// drops into the displayed directory.
+    /// drops into the displayed directory. So does a drag over what this tab
+    /// is itself dragging (the selection, see [`Self::drag_paths`]): let go
+    /// where it started, it is put back rather than into one of its folders.
     fn drop_target(&self, point: Point) -> Option<usize> {
         self.items_opt.as_ref()?.iter().position(|item| {
             item.metadata.is_dir()
                 && item.path_opt().is_some()
+                && !(self.dnd_source && item.selected)
                 && item.rect_opt.get().is_some_and(|rect| rect.contains(point))
         })
     }
@@ -9972,6 +9975,32 @@ mod tests {
     fn tab_click_ctrl_selects_multiple() -> io::Result<()> {
         // Select the first and second directory by holding down ctrl
         tab_selects_item(&[0, 1], Modifiers::CTRL, &[true, true])
+    }
+
+    #[test]
+    fn a_dragged_folder_is_no_place_to_drop_the_drag() -> io::Result<()> {
+        use crate::ui::iced::{Point, Rectangle, Size};
+
+        let (_fs, mut tab) = tab_click_new(NUM_FILES, NUM_NESTED, NUM_DIRS, NUM_NESTED, NAME_LEN)?;
+        let items = tab
+            .items_opt
+            .as_mut()
+            .expect("tab should be populated with items");
+        assert!(items[0].metadata.is_dir());
+        items[0]
+            .rect_opt
+            .set(Some(Rectangle::new(Point::ORIGIN, Size::new(100.0, 20.0))));
+        items[0].selected = true;
+        let over_it = Point::new(10.0, 10.0);
+
+        // Someone else's drag, or an unselected folder: it takes the drop
+        assert_eq!(tab.drop_target(over_it), Some(0));
+
+        // This tab's drag of it: over itself, the drop goes to the folder it
+        // is in, as if on the background
+        tab.dnd_source = true;
+        assert_eq!(tab.drop_target(over_it), None);
+        Ok(())
     }
 
     #[test]
