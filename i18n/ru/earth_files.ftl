@@ -89,6 +89,10 @@ other = Прочие
 ## Add Network Drive
 
 add-network-drive = Добавить сетевой диск
+network-drives-connected = { $count } { $count ->
+    [one] подключён
+   *[other] подключено
+  }
 connect = Подключиться
 connect-anonymously = Подключиться анонимно
 connecting = Подключение…

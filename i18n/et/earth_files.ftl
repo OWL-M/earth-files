@@ -129,6 +129,7 @@ permanently-delete-question = Kas kustutame jäädavalt?
 permanently-delete-warning = Kas sa oled kindel, et soovid jäädavalt kustutada: { $target }? Seda tegevust ei saa tagasi pöörata.
 favorite-path-error = Viga kausta avamisel
 add-network-drive = Lisa võrguketas
+network-drives-connected = { $count } ühendatud
 connect-anonymously = Ühenda anonüümselt
 connecting = Ühendamisel...
 domain = Domeen

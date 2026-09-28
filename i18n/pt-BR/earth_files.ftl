@@ -198,6 +198,10 @@ support = Suporte
 ## Add Network Drive
 
 add-network-drive = Adicionar local de rede
+network-drives-connected = { $count } { $count ->
+    [one] conectado
+   *[other] conectados
+  }
 connect = Conectar
 connect-anonymously = Conectar anonimamente
 connecting = Conectando...

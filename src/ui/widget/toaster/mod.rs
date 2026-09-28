@@ -18,17 +18,21 @@ use widget::Toaster;
 
 use crate::ui::convert::{PushMaybe, ToPadding, ToPixels};
 use crate::ui::theme::{Container as ContainerClass, Spacing, spacing};
-use crate::ui::widget::{Column, Row, button, container, icon, text};
+use crate::ui::widget::{Column, Row, Space, button, container, icon, text};
 
 mod widget;
 
+/// How far the toasts and pinned cards sit from the window's edges.
+pub(crate) use widget::OFFSET;
+
 /// Create a new Toaster widget.
 ///
-/// `pinned`, when given, is drawn in the corner below the toasts, which
-/// stack above it and move with its height: e.g. a progress card.
+/// `pinned` holds up to two cards drawn in the corner below the toasts, the
+/// first above the second: e.g. an action card over a progress card. The
+/// toasts stack above them and move with their height.
 pub fn toaster<'a, Message: Clone + 'static>(
     toasts: &'a Toasts<Message>,
-    pinned: Option<Element<'a, Message, crate::ui::Theme, crate::ui::Renderer>>,
+    pinned: [Option<Element<'a, Message, crate::ui::Theme, crate::ui::Renderer>>; 2],
     content: impl Into<Element<'a, Message, crate::ui::Theme, crate::ui::Renderer>>,
 ) -> Element<'a, Message, crate::ui::Theme, crate::ui::Renderer> {
     let Spacing {
@@ -63,7 +67,7 @@ pub fn toaster<'a, Message: Clone + 'static>(
     };
 
     let has_toasts = !toasts.toasts.is_empty();
-    let has_pinned = pinned.is_some();
+    let has_pinned = pinned.iter().any(Option::is_some);
     let is_empty = !has_toasts && !has_pinned;
 
     // The toasts and the pinned card are kept in separate columns, nested in
@@ -89,9 +93,14 @@ pub fn toaster<'a, Message: Clone + 'static>(
         toasts_col
     };
 
-    let col = Column::with_capacity(2)
+    // Each card keeps its own slot, an empty space standing in for one not
+    // shown, for the same reason: so either can come or go without the
+    // other's state being rebuilt.
+    let [upper, lower] = pinned.map(|card| card.unwrap_or_else(|| Space::new().into()));
+    let col = Column::with_capacity(3)
         .push(toasts_col)
-        .push_maybe(pinned)
+        .push(upper)
+        .push(lower)
         .align_x(iced::Alignment::End);
 
     Toaster::new(col.into(), content.into(), is_empty).into()
@@ -388,7 +397,7 @@ mod tests {
                 .height(Length::Fixed(40.0)),
             Id::new("card"),
         );
-        let view = toaster(toasts, Some(card.into()), space::horizontal());
+        let view = toaster(toasts, [None, Some(card.into())], space::horizontal());
         let mut renderer = iced_texture_cache::testing::headless_tiny_skia();
         let mut ui = UserInterface::build(view, WINDOW, Cache::default(), &mut renderer);
         let mut bounds = Bounds(None, Vec::new());
@@ -480,7 +489,7 @@ mod tests {
         let mut height = 0.0;
         let mut settled = false;
         for _ in 0..200 {
-            let view = toaster(&toasts, Some(card().into()), space::horizontal());
+            let view = toaster(&toasts, [None, Some(card().into())], space::horizontal());
             let mut ui = UserInterface::build(view, WINDOW, cache, &mut renderer);
             now += Duration::from_millis(16);
             let (state, _) = ui.update(
@@ -513,7 +522,7 @@ mod tests {
         // further frames.
         let mut toasts = toasts;
         let _ = toasts.push(Toast::new("hello"));
-        let view = toaster(&toasts, Some(card().into()), space::horizontal());
+        let view = toaster(&toasts, [None, Some(card().into())], space::horizontal());
         let mut ui = UserInterface::build(view, WINDOW, cache, &mut renderer);
         let height = bounds_of(&mut ui, &renderer, &Id::new("card"))
             .expect("the card is laid out")
@@ -523,6 +532,106 @@ mod tests {
             height, 40.0,
             "the card's spring state was rebuilt from scratch when a toast arrived"
         );
+    }
+
+    #[test]
+    fn the_first_pinned_card_sits_above_the_second() {
+        let card = |id: &'static str, height: f32| {
+            id_container(
+                space::vertical()
+                    .width(Length::Fixed(100.0))
+                    .height(Length::Fixed(height)),
+                Id::new(id),
+            )
+        };
+        let toasts = Toasts::new(|_| ());
+        let view = toaster(
+            &toasts,
+            [
+                Some(card("upper", 20.0).into()),
+                Some(card("lower", 40.0).into()),
+            ],
+            space::horizontal(),
+        );
+        let mut renderer = iced_texture_cache::testing::headless_tiny_skia();
+        let mut ui = UserInterface::build(view, WINDOW, Cache::default(), &mut renderer);
+        let upper = bounds_of(&mut ui, &renderer, &Id::new("upper")).expect("upper is laid out");
+        let lower = bounds_of(&mut ui, &renderer, &Id::new("lower")).expect("lower is laid out");
+
+        assert_eq!(lower.y + lower.height, WINDOW.height - widget::OFFSET);
+        assert_eq!(upper.y + upper.height, lower.y);
+        assert_eq!(upper.x + upper.width, lower.x + lower.width);
+    }
+
+    #[test]
+    fn the_second_pinned_card_keeps_its_state_when_the_first_comes_and_goes() {
+        // As `the_pinned_card_keeps_its_state_when_a_toast_arrives`, with the
+        // other card coming and going instead of a toast.
+        let lower = || {
+            id_container(
+                spring_height(
+                    space::vertical()
+                        .width(Length::Fixed(100.0))
+                        .height(Length::Fixed(40.0)),
+                ),
+                Id::new("lower"),
+            )
+        };
+        let upper = || {
+            space::vertical()
+                .width(Length::Fixed(100.0))
+                .height(Length::Fixed(20.0))
+        };
+
+        let toasts = Toasts::new(|_| ());
+        let mut renderer = iced_texture_cache::testing::headless_tiny_skia();
+        let mut cache = Cache::default();
+        let mut now = Instant::now();
+
+        let mut height = 0.0;
+        let mut settled = false;
+        for _ in 0..200 {
+            let view = toaster(&toasts, [None, Some(lower().into())], space::horizontal());
+            let mut ui = UserInterface::build(view, WINDOW, cache, &mut renderer);
+            now += Duration::from_millis(16);
+            let (state, _) = ui.update(
+                &[Event::Window(window::Event::RedrawRequested(now))],
+                mouse::Cursor::Unavailable,
+                &mut renderer,
+                &mut clipboard::Null,
+                &mut Vec::new(),
+            );
+            height = bounds_of(&mut ui, &renderer, &Id::new("lower"))
+                .expect("the card is laid out")
+                .height;
+            cache = ui.into_cache();
+            let redraw = matches!(
+                state,
+                iced_runtime::user_interface::State::Updated {
+                    redraw_request: window::RedrawRequest::NextFrame,
+                    ..
+                }
+            );
+            if !redraw {
+                settled = true;
+                break;
+            }
+        }
+        assert!(settled, "never settled: last height {height}");
+        assert_eq!(height, 40.0);
+
+        for upper in [Some(upper().into()), None] {
+            let view = toaster(&toasts, [upper, Some(lower().into())], space::horizontal());
+            let mut ui = UserInterface::build(view, WINDOW, cache, &mut renderer);
+            let height = bounds_of(&mut ui, &renderer, &Id::new("lower"))
+                .expect("the card is laid out")
+                .height;
+            cache = ui.into_cache();
+            assert_eq!(
+                height, 40.0,
+                "the second card's spring state was rebuilt when the first came or went"
+            );
+        }
     }
 
     #[test]
@@ -536,7 +645,7 @@ mod tests {
         );
         let content =
             mouse_area(space::horizontal().width(Length::Fill).height(Length::Fill)).on_press(());
-        let view = toaster(&toasts, Some(card.into()), content);
+        let view = toaster(&toasts, [None, Some(card.into())], content);
         let mut renderer = iced_texture_cache::testing::headless_tiny_skia();
         let mut ui = UserInterface::build(view, WINDOW, Cache::default(), &mut renderer);
 
@@ -577,6 +686,47 @@ mod tests {
     }
 
     #[test]
+    fn a_press_on_either_card_does_not_reach_the_content() {
+        let card = |id: &'static str| {
+            id_container(
+                text("x")
+                    .width(Length::Fixed(100.0))
+                    .height(Length::Fixed(40.0)),
+                Id::new(id),
+            )
+        };
+        let toasts = Toasts::new(|_| ());
+        let content =
+            mouse_area(space::horizontal().width(Length::Fill).height(Length::Fill)).on_press(());
+        let view = toaster(
+            &toasts,
+            [Some(card("upper").into()), Some(card("lower").into())],
+            content,
+        );
+        let mut renderer = iced_texture_cache::testing::headless_tiny_skia();
+        let mut ui = UserInterface::build(view, WINDOW, Cache::default(), &mut renderer);
+
+        for id in ["upper", "lower"] {
+            let card = bounds_of(&mut ui, &renderer, &Id::new(id)).expect("the card is laid out");
+            let center = Point::new(card.x + card.width / 2.0, card.y + card.height / 2.0);
+            let mut messages = Vec::new();
+            let _ = ui.update(
+                &[Event::Mouse(mouse::Event::ButtonPressed(
+                    mouse::Button::Left,
+                ))],
+                mouse::Cursor::Available(center),
+                &mut renderer,
+                &mut clipboard::Null,
+                &mut messages,
+            );
+            assert!(
+                messages.is_empty(),
+                "a press on the {id} card reached the content: {messages:?}"
+            );
+        }
+    }
+
+    #[test]
     fn a_scroll_over_the_card_does_not_reach_the_content() {
         let toasts = Toasts::new(|_| ());
         let card = id_container(
@@ -587,7 +737,7 @@ mod tests {
         );
         let content: Element<'_, (), crate::ui::Theme, crate::ui::Renderer> =
             Element::new(Sink(()));
-        let view = toaster(&toasts, Some(card.into()), content);
+        let view = toaster(&toasts, [None, Some(card.into())], content);
         let mut renderer = iced_texture_cache::testing::headless_tiny_skia();
         let mut ui = UserInterface::build(view, WINDOW, Cache::default(), &mut renderer);
 
@@ -649,7 +799,7 @@ mod tests {
         );
         let content: Element<'_, (), crate::ui::Theme, crate::ui::Renderer> =
             Element::new(Sink(()));
-        let view = toaster(&toasts, Some(card.into()), content);
+        let view = toaster(&toasts, [None, Some(card.into())], content);
         let mut renderer = iced_texture_cache::testing::headless_tiny_skia();
         let mut ui = UserInterface::build(view, WINDOW, Cache::default(), &mut renderer);
 

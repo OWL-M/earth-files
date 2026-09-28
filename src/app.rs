@@ -30,6 +30,7 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use serde::{Deserialize, Serialize};
 use slotmap::Key as SlotMapKey;
 use std::any::TypeId;
+use std::cell::Cell;
 use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
 use std::future::Future;
 use std::path::{Path, PathBuf};
@@ -41,6 +42,7 @@ use std::{env, fmt, process};
 use tokio::sync::mpsc;
 use trash::TrashItem;
 
+use crate::action_card::{ActionCard, Shown};
 use crate::clipboard::{
     ClipboardCache, ClipboardCopy, ClipboardKind, ClipboardPaste, ClipboardPasteImage,
     ClipboardPasteText, ClipboardPasteVideo,
@@ -860,6 +862,11 @@ pub struct App {
     pending_operations: BTreeMap<u64, (Operation, Controller)>,
     /// The long-running work the card in the bottom-right corner shows.
     progress: progress::Tasks,
+    /// The active tab's button, on a card above the progress card.
+    action_card: ActionCard,
+    /// The action card's height and margin from the window's edge, as last
+    /// laid out: the room the active tab keeps under its files.
+    action_card_height: Cell<f32>,
     complete_operations: BTreeMap<u64, Operation>,
     failed_operations: BTreeMap<u64, (Operation, Controller, String)>,
     /// What undoes each of the last completed operations, newest last
@@ -2748,6 +2755,77 @@ impl App {
         )
     }
 
+    /// The card above the progress card holding the active tab's button.
+    fn action_card(&self, above_progress: bool) -> Option<Element<'_, Message>> {
+        let shown = self.action_card.shown()?;
+        Some(Self::action_card_view(
+            shown,
+            above_progress,
+            &self.action_card_height,
+        ))
+    }
+
+    /// The action card for `shown`: the location's icon, name and what it
+    /// holds, then the button. `above_progress` leaves a gap under it for
+    /// the progress card; the gap is inside the slide, so it closes with the
+    /// card. The card's height and its margin from the window's edge go
+    /// into `height`, for the tab to keep that much room under its files;
+    /// the progress card, which comes and goes, gets none.
+    fn action_card_view<'a>(
+        shown: Shown,
+        above_progress: bool,
+        height: &'a Cell<f32>,
+    ) -> Element<'a, Message> {
+        let Spacing {
+            space_xxxs,
+            space_xxs,
+            space_xs,
+            space_s,
+            ..
+        } = spacing();
+
+        let action = shown.action;
+        let button = widget::button::standard(action.label()).on_press_maybe(
+            (!shown.leaving).then(|| Message::TabMessage(Some(shown.entity), action.message())),
+        );
+        // The detail drops under the title only when the two do not fit on
+        // one line beside the button.
+        let info = widget::Row::with_capacity(2)
+            .push(
+                widget::Row::with_children([
+                    icon::from_name(action.icon_name()).size(16).icon().into(),
+                    widget::text::heading(action.title()).into(),
+                ])
+                .spacing(space_xxs.to_pixels())
+                .align_y(Alignment::Center),
+            )
+            .push_maybe(
+                action
+                    .detail()
+                    .map(|detail| widget::text::body(format!("· {detail}"))),
+            )
+            .spacing(space_xxs.to_pixels())
+            .align_y(Alignment::Center)
+            .width(Length::Fill)
+            .wrap()
+            .vertical_spacing(space_xxxs.to_pixels());
+        let card = widget::container(
+            widget::Row::with_children([info.into(), button.into()])
+                .spacing(space_xs.to_pixels())
+                .align_y(Alignment::Center),
+        )
+        .width(Length::Fixed(360.0))
+        .padding([space_xs, space_s])
+        .class(Container::Tooltip);
+        let card = widget::measure_height(card, height).plus(widget::toaster::OFFSET);
+        let gap = if above_progress { space_xxxs } else { 0 };
+        widget::spring_height(
+            widget::container(card).padding(iced::padding::bottom(gap.to_pixels())),
+        )
+        .collapsed(shown.leaving)
+        .into()
+    }
+
     /// One row of the progress card.
     fn progress_row<'a>(&'a self, row: &progress::Row<'a>) -> Element<'a, Message> {
         let bar_height = Length::Fixed(4.0);
@@ -3186,6 +3264,8 @@ impl Application for App {
             pending_operation_id: 0,
             pending_operations: BTreeMap::new(),
             progress: progress::Tasks::default(),
+            action_card: ActionCard::default(),
+            action_card_height: Cell::new(0.0),
             complete_operations: BTreeMap::new(),
             failed_operations: BTreeMap::new(),
             undo_stack: Vec::new(),
@@ -3637,6 +3717,26 @@ impl Application for App {
         }
 
         Task::none()
+    }
+
+    /// The action card follows the active tab, which changes tab, location
+    /// and listing from many places: re-read after each message.
+    fn after_update(&mut self) {
+        let entity = self.tab_model.active();
+        // The network drives connected now, as the sidebar lists them
+        let connected = self
+            .mounter_items
+            .values()
+            .flat_map(|items| items.iter())
+            .filter(|item| item.is_remote() && item.is_mounted())
+            .count();
+        let current = self
+            .tab_model
+            .data::<Tab>(entity)
+            .and_then(|tab| tab.action(connected))
+            .map(|action| (entity, action));
+
+        self.action_card.sync(current, Instant::now());
     }
 
     /// Handle application events here.
@@ -5137,6 +5237,8 @@ impl Application for App {
                 Outcome::Cancelled => self.progress.remove(&key),
             },
             Message::ProgressTick => {
+                // A slid-shut action card is forgotten by `after_update`,
+                // which runs after this
                 self.progress.prune(Instant::now());
             }
             Message::PermanentlyDelete(entity_opt) => {
@@ -7556,6 +7658,13 @@ impl Application for App {
 
         let entity = self.tab_model.active();
         if let Some(tab) = self.tab_model.data::<Tab>(entity) {
+            // Room under the files for the action card over them, while it
+            // is this tab's and not sliding shut
+            let bottom_reserve = self
+                .action_card
+                .shown()
+                .filter(|shown| shown.entity == entity && !shown.leaving)
+                .map(|_| &self.action_card_height);
             let tab_view = tab
                 .view(
                     &self.key_binds,
@@ -7563,16 +7672,18 @@ impl Application for App {
                     self.clipboard_has_content(),
                     &self.config.context_actions,
                     self.core.drawer_slide.column_slide(),
+                    bottom_reserve,
                 )
                 .map(move |message| Message::TabMessage(Some(entity), message));
             tab_column = tab_column.push(tab_view);
         }
 
         // The toaster is added on top of an empty element to ensure that it does not override context menus
-        // The progress card is pinned under them, in the same corner.
+        // The action and progress cards are pinned under them, in the same corner.
+        let progress_card = self.progress_card();
         tab_column = tab_column.push(widget::toaster(
             &self.toasts,
-            self.progress_card(),
+            [self.action_card(progress_card.is_some()), progress_card],
             widget::space::horizontal(),
         ));
 
@@ -7915,8 +8026,17 @@ impl Application for App {
             subscriptions.push(dialog.subscription().map(Message::FileDialogMessage));
         }
 
-        if let Some(at) = self.progress.next_deadline(Instant::now()) {
-            // Rows appear after their delay and leave after their linger
+        let now = Instant::now();
+        if let Some(at) = [
+            self.progress.next_deadline(now),
+            self.action_card.next_deadline(now),
+        ]
+        .into_iter()
+        .flatten()
+        .min()
+        {
+            // Rows appear after their delay and leave after their linger,
+            // and the action card is forgotten once it has slid shut,
             // without anything else happening to redraw them: one wake-up at
             // the next such moment, not a steady tick. Keyed on the moment,
             // so a new deadline starts a new wait.
@@ -8050,6 +8170,101 @@ fn main_window_closed(core: &mut Core, id: window::Id) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The action card's height for `action`, laid out on its own.
+    fn action_card_height(action: tab::TabAction) -> f32 {
+        action_card_heights(action).0
+    }
+
+    /// The action card's height for `action`, laid out on its own, and the
+    /// room it recorded for the tab to keep under its files.
+    fn action_card_heights(action: tab::TabAction) -> (f32, f32) {
+        use crate::ui::iced_core::Rectangle;
+        use crate::ui::iced_core::widget::{Id as WidgetId, Operation};
+        use crate::ui::iced_runtime::user_interface::{Cache, UserInterface};
+
+        struct Bounds(Option<Rectangle>);
+        impl Operation for Bounds {
+            fn traverse(&mut self, operate: &mut dyn FnMut(&mut dyn Operation)) {
+                operate(self);
+            }
+            fn container(&mut self, id: Option<&WidgetId>, bounds: Rectangle) {
+                if id == Some(&WidgetId::new("card")) {
+                    self.0 = Some(bounds);
+                }
+            }
+        }
+
+        let shown = Shown {
+            entity: Entity::default(),
+            action,
+            leaving: false,
+        };
+        let recorded = Cell::new(0.0);
+        let card = widget::id_container(
+            App::action_card_view(shown, false, &recorded),
+            WidgetId::new("card"),
+        );
+        let mut renderer = iced_texture_cache::testing::headless_tiny_skia();
+        let mut ui = UserInterface::build(
+            Element::from(card),
+            Size::new(800.0, 600.0),
+            Cache::default(),
+            &mut renderer,
+        );
+        // The card springs open from nothing: run frames until it has
+        // settled at its natural height.
+        let mut now = Instant::now();
+        for _ in 0..200 {
+            now += Duration::from_millis(16);
+            let _ = ui.update(
+                &[Event::Window(WindowEvent::RedrawRequested(now))],
+                iced::mouse::Cursor::Unavailable,
+                &mut renderer,
+                &mut crate::ui::iced_core::clipboard::Null,
+                &mut Vec::new(),
+            );
+        }
+        let mut bounds = Bounds(None);
+        ui.operate(&renderer, &mut bounds);
+        drop(ui);
+        (
+            bounds.0.expect("the card is laid out").height,
+            recorded.get(),
+        )
+    }
+
+    #[test]
+    fn the_card_records_its_height_and_margin() {
+        use tab::{TabAction, TrashSize};
+        for action in [
+            TabAction::EmptyTrash(None),
+            TabAction::EmptyTrash(Some((12, TrashSize::Calculating))),
+            TabAction::EmptyTrash(Some((12, TrashSize::Partial(340_000_000)))),
+            TabAction::ClearRecents(None),
+            TabAction::ClearRecents(Some(137)),
+            TabAction::AddNetworkDrive(0),
+            TabAction::AddNetworkDrive(2),
+        ] {
+            let (height, recorded) = action_card_heights(action);
+            assert_eq!(recorded, height + widget::toaster::OFFSET, "{action:?}");
+        }
+    }
+
+    #[test]
+    fn the_detail_drops_under_the_title_when_it_does_not_fit() {
+        // At 360 px, "Recents · 3 items" beside "Clear Recents history" does
+        // not fit on one line (measured 2026-09-28: 70 px against 56 px for
+        // the title alone; one line from 420 px).
+        let title_only = action_card_height(tab::TabAction::ClearRecents(None));
+        let recents = action_card_height(tab::TabAction::ClearRecents(Some(3)));
+        assert!(recents > title_only, "{recents} > {title_only}");
+        // With nothing connected, the network card has no detail: one line
+        assert_eq!(
+            action_card_height(tab::TabAction::AddNetworkDrive(0)),
+            title_only
+        );
+    }
 
     #[test]
     fn a_uri_is_shown_without_its_credentials() {

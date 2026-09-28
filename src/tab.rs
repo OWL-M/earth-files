@@ -14,7 +14,7 @@ use crate::ui::widget::menu::action::MenuAction;
 use crate::ui::widget::menu::key_bind::KeyBind;
 use crate::ui::widget::scrollable::{self, AbsoluteOffset, Viewport};
 use crate::ui::widget::{self, Id, space};
-use crate::ui::{Apply, Element, font};
+use crate::ui::{Element, font};
 #[cfg(feature = "desktop")]
 use freedesktop_desktop_entry::{DesktopEntry, get_languages_from_env};
 use i18n_embed::LanguageLoader;
@@ -60,10 +60,9 @@ use crate::operation::{Controller, ControllerState, OperationError};
 use crate::thumbnail_cacher::{CachedThumbnail, ThumbnailCacher, ThumbnailSize};
 use crate::thumbnailer::thumbnailer;
 use crate::trash::{Trash, TrashExt};
-use crate::ui::convert::{ToColor, ToRadius};
-use crate::ui::convert::{ToPadding, ToPixels};
+use crate::ui::convert::{ToColor, ToPixels, ToRadius};
 use crate::ui::shell::panel_slide::ColumnSlide;
-use crate::ui::theme::{Button, Container, Layer, Rule, Spacing, spacing};
+use crate::ui::theme::{Button, Container, Rule, Spacing, spacing};
 use crate::{FxOrderMap, fl, menu, mime_app, mouse_area};
 use iced_texture_cache::{TextureCache, cached};
 
@@ -2237,6 +2236,9 @@ pub enum Message {
     /// What the content check read for files a name-first scan typed by
     /// name, tagged with the listing they were read for.
     TypesChecked(u64, Vec<crate::type_check::Checked>),
+    /// How much a Trash listing holds, tagged with the listing it was
+    /// worked out for.
+    TrashSize(u64, TrashSize),
     AutoScroll(Option<f32>),
     Click(Option<usize>),
     DoubleClick(Option<usize>),
@@ -3463,6 +3465,10 @@ pub struct Tab {
     pub(crate) item_filter: Option<ItemFilter>,
     pub size_opt: Cell<Option<Size>>,
     pub content_height_opt: Cell<Option<f32>>,
+    /// Room kept free under the last item, in pixels, so it can be scrolled
+    /// clear of the card the app floats over the bottom-right corner: what
+    /// [`Self::view`] was given, read at each layout. 0 without a card.
+    bottom_reserve: Cell<f32>,
     pub viewport_opt: Option<Rectangle>,
     pub item_view_size_opt: Cell<Option<Size>>,
     pub edit_location: Option<EditLocation>,
@@ -3537,6 +3543,10 @@ pub struct Tab {
     /// every update and sorting a large folder that often would cost more
     /// than the check saves; forgotten by [`Self::new_listing`].
     type_check_order: OnceCell<Arc<[crate::type_check::Unchecked]>>,
+    /// How much a Trash listing holds; worked out afresh for each listing.
+    trash_size: TrashSize,
+    /// What working that out needs, taken from the listing once.
+    trash_size_input: OnceCell<Arc<TrashSizeInput>>,
     /// How many times this tab has been sent somewhere. See
     /// [`Self::navigation`].
     navigation: u64,
@@ -3698,6 +3708,151 @@ impl Drop for Tab {
     }
 }
 
+/// How much the trash holds, as far as it could be read.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum TrashSize {
+    /// Still being worked out.
+    Calculating,
+    Known(u64),
+    /// At least this much: a trashed folder had no copy to walk, or its
+    /// walk failed outright.
+    Partial(u64),
+}
+
+/// The one button a location offers, shown on a card in the bottom-right
+/// corner for as long as the tab is there, with what the card says beside
+/// it. The counts are `None` in a search: the listing then holds only the
+/// matches, while the button acts on everything.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum TabAction {
+    EmptyTrash(Option<(usize, TrashSize)>),
+    ClearRecents(Option<usize>),
+    /// With how many network drives are connected now.
+    AddNetworkDrive(usize),
+}
+
+impl TabAction {
+    /// The button's label.
+    pub fn label(self) -> String {
+        match self {
+            Self::EmptyTrash(_) => fl!("empty-trash"),
+            Self::ClearRecents(_) => fl!("clear-recents-history"),
+            Self::AddNetworkDrive(_) => fl!("add-network-drive"),
+        }
+    }
+
+    pub const fn message(self) -> Message {
+        match self {
+            Self::EmptyTrash(_) => Message::EmptyTrash,
+            Self::ClearRecents(_) => Message::ClearRecents,
+            Self::AddNetworkDrive(_) => Message::AddNetworkDrive,
+        }
+    }
+
+    /// The location's name, as the sidebar gives it.
+    pub fn title(self) -> String {
+        match self {
+            Self::EmptyTrash(_) => fl!("trash"),
+            Self::ClearRecents(_) => fl!("recents"),
+            Self::AddNetworkDrive(_) => fl!("networks"),
+        }
+    }
+
+    /// The location's icon, as the sidebar gives it. The trash is never
+    /// empty while it offers to be emptied, so its icon is the full one
+    /// without asking the disk.
+    pub const fn icon_name(self) -> &'static str {
+        match self {
+            Self::EmptyTrash(_) => "user-trash-full-symbolic",
+            Self::ClearRecents(_) => "document-open-recent-symbolic",
+            Self::AddNetworkDrive(_) => "network-workgroup-symbolic",
+        }
+    }
+
+    /// What the card says after the title, if anything.
+    pub fn detail(self) -> Option<String> {
+        match self {
+            Self::EmptyTrash(counts) => counts.map(|(items, size)| {
+                let size = match size {
+                    TrashSize::Calculating => fl!("calculating"),
+                    TrashSize::Known(bytes) => format_size(bytes),
+                    TrashSize::Partial(bytes) => format!("{}+", format_size(bytes)),
+                };
+                format!("{} · {size}", fl!("item-count", count = items))
+            }),
+            Self::ClearRecents(items) => items.map(|items| fl!("item-count", count = items)),
+            // Nothing to say when none is connected
+            Self::AddNetworkDrive(connected) => {
+                (connected > 0).then(|| fl!("network-drives-connected", count = connected))
+            }
+        }
+    }
+}
+
+/// What working out a Trash listing's size needs: the bytes its files
+/// already carry, and the copies inside the trash of its folders, to walk
+/// (`None` for one whose copy could not be found).
+#[derive(Debug, Default, Eq, PartialEq)]
+struct TrashSizeInput {
+    files: u64,
+    folders: Vec<Option<PathBuf>>,
+}
+
+impl TrashSizeInput {
+    fn new(items: &[Item]) -> Self {
+        let mut input = Self::default();
+        for item in items {
+            if let ItemMetadata::Trash { metadata, entry } = &item.metadata {
+                match metadata.size {
+                    trash::TrashItemSize::Bytes(bytes) => input.files += bytes,
+                    trash::TrashItemSize::Entries(_) => {
+                        input.folders.push(crate::trash::trash_item_path(entry))
+                    }
+                }
+            }
+        }
+        input
+    }
+
+    /// The total, walking each folder in turn. A folder with no copy to
+    /// walk, or whose walk fails outright, is left out and makes the total
+    /// partial. What a walk cannot read inside a folder, the folder itself
+    /// included, it skips as [`calculate_dir_size`] does everywhere: a
+    /// missing copy counts as nothing (decided 2026-09-28). A cancelled
+    /// walk stops there, as nobody is waiting for the answer any more.
+    async fn total(&self, controller: Controller) -> TrashSize {
+        let mut total = self.files;
+        let mut partial = false;
+        for folder in &self.folders {
+            if controller.is_cancelled() {
+                break;
+            }
+            let Some(path) = folder else {
+                log::warn!("a trashed folder has no copy in the trash to measure");
+                partial = true;
+                continue;
+            };
+            match calculate_dir_size(path, controller.clone()).await {
+                Ok(size) => total += size,
+                Err(err) => {
+                    if !controller.is_cancelled() {
+                        log::warn!(
+                            "failed to calculate the size of trashed folder {}: {err}",
+                            path.display()
+                        );
+                    }
+                    partial = true;
+                }
+            }
+        }
+        if partial {
+            TrashSize::Partial(total)
+        } else {
+            TrashSize::Known(total)
+        }
+    }
+}
+
 impl Tab {
     pub fn new(
         location: Location,
@@ -3734,6 +3889,8 @@ impl Tab {
             item_filter: None,
             refresh_batch: 0,
             type_check_order: OnceCell::new(),
+            trash_size: TrashSize::Calculating,
+            trash_size_input: OnceCell::new(),
             refreshed_at: FxHashMap::default(),
             details_reads: FxHashMap::default(),
             next_network_request: 0,
@@ -3741,6 +3898,7 @@ impl Tab {
             scroll_opt: None,
             size_opt: Cell::new(None),
             content_height_opt: Cell::new(None),
+            bottom_reserve: Cell::new(0.0),
             viewport_opt: None,
             item_view_size_opt: Cell::new(None),
             edit_location: None,
@@ -3788,6 +3946,31 @@ impl Tab {
 
     pub const fn items_opt_mut(&mut self) -> Option<&mut Vec<Item>> {
         self.items_opt.as_mut()
+    }
+
+    /// The button this tab's location offers now, if any: emptying a trash
+    /// or clearing a recents list that has something in it, and adding a
+    /// network drive from the network root. `connected_network_drives` is
+    /// what the network root's card counts; the tab does not know the
+    /// mounts.
+    pub fn action(&self, connected_network_drives: usize) -> Option<TabAction> {
+        let items = self.items_opt().map(Vec::len).filter(|&items| items > 0);
+        match &self.location {
+            Location::Trash => {
+                items.map(|items| TabAction::EmptyTrash(Some((items, self.trash_size))))
+            }
+            Location::Search(SearchLocation::Trash, ..) => {
+                items.map(|_| TabAction::EmptyTrash(None))
+            }
+            Location::Recents => items.map(|items| TabAction::ClearRecents(Some(items))),
+            Location::Search(SearchLocation::Recents, ..) => {
+                items.map(|_| TabAction::ClearRecents(None))
+            }
+            Location::Network(uri, ..) if uri == "network:///" => {
+                Some(TabAction::AddNetworkDrive(connected_network_drives))
+            }
+            _ => None,
+        }
     }
 
     /// Take any icons the cache has learned, and report what it still lacks.
@@ -3839,6 +4022,9 @@ impl Tab {
         // The content check of the old listing ends with its subscription;
         // the new one is ordered afresh
         self.type_check_order = OnceCell::new();
+        // So is the trash's size
+        self.trash_size = TrashSize::Calculating;
+        self.trash_size_input = OnceCell::new();
         // Reads out for the old listing answer questions nobody is asking any
         // more. Those not yet started will not start; those running finish,
         // and are declined on arrival. Either way each still holds its permit
@@ -6204,6 +6390,11 @@ impl Tab {
                     let _ = refresh_icons(items, sizes);
                 }
             }
+            Message::TrashSize(listing, size) => {
+                if listing == self.listing {
+                    self.trash_size = size;
+                }
+            }
             Message::TypesChecked(listing, checked) => {
                 if listing == self.listing
                     && let Some(items) = self.items_opt.as_mut()
@@ -7567,8 +7758,13 @@ impl Tab {
                     }
                 }
 
+                // Room under the last row for the corner card, counted as
+                // content so scrolling may reach it
+                let reserve = self.bottom_reserve.get().ceil() as usize;
+
                 // Cache content height for scroll clamping on next frame
-                self.content_height_opt.set(Some(max_bottom as f32));
+                self.content_height_opt
+                    .set(Some((max_bottom + reserve) as f32));
 
                 let top_deduct = 7 * (space_xxs as usize);
 
@@ -7578,7 +7774,7 @@ impl Tab {
                         height: s.height - top_deduct as f32,
                     }));
 
-                let spacer_height = height.saturating_sub(max_bottom + top_deduct);
+                let spacer_height = height.saturating_sub(max_bottom + top_deduct).max(reserve);
                 if spacer_height > 0 {
                     column = column.push(widget::container(
                         space::vertical().height(Length::Fixed(spacer_height as f32)),
@@ -7881,8 +8077,10 @@ impl Tab {
                 return (self.empty_view(hidden > 0), false);
             }
 
-            // Cache content height for scroll clamping on next frame
-            self.content_height_opt.set(Some(y));
+            // Cache content height for scroll clamping on next frame, with
+            // the room kept under the last row for the corner card
+            self.content_height_opt
+                .set(Some(y + self.bottom_reserve.get()));
         }
         // Pad the content to the bottom of the view so the whole view is scrollable
         {
@@ -7894,7 +8092,8 @@ impl Tab {
                     height: s.height - f32::from(top_deduct),
                 }));
 
-            let spacer_height = size.height - y - f32::from(top_deduct);
+            let spacer_height =
+                (size.height - y - f32::from(top_deduct)).max(self.bottom_reserve.get());
             if spacer_height > 0. {
                 column = column.push(widget::container(space::vertical().height(spacer_height)));
             }
@@ -7925,12 +8124,6 @@ impl Tab {
     ) -> Element<'a, Message> {
         // Update cached size
         self.size_opt.set(Some(size));
-
-        let Spacing {
-            space_xxs,
-            space_xs,
-            ..
-        } = spacing();
 
         let location_view = self.location_view(column_slide);
         let (item_view, can_scroll) = match self.config.view {
@@ -7982,62 +8175,9 @@ impl Tab {
             context_menu = context_menu.window_id(window_id);
         }
 
-        let mut tab_column = widget::Column::with_capacity(3);
+        let mut tab_column = widget::Column::with_capacity(2);
         tab_column = tab_column.push(location_view);
         tab_column = tab_column.push(context_menu);
-        match &self.location {
-            Location::Trash | Location::Search(SearchLocation::Trash, ..) => {
-                if let Some(items) = self.items_opt()
-                    && !items.is_empty()
-                {
-                    tab_column = tab_column.push(
-                        widget::layer_container(widget::Row::with_children([
-                            widget::space::horizontal().into(),
-                            widget::button::standard(fl!("empty-trash"))
-                                .on_press(Message::EmptyTrash)
-                                .into(),
-                        ]))
-                        .padding([space_xxs, space_xs])
-                        .layer(Layer::Primary)
-                        .apply(widget::container)
-                        .padding(([0, 0, 7, 0]).to_padding()),
-                    );
-                }
-            }
-            Location::Recents | Location::Search(SearchLocation::Recents, ..) => {
-                if let Some(items) = self.items_opt()
-                    && !items.is_empty()
-                {
-                    tab_column = tab_column.push(
-                        widget::layer_container(widget::Row::with_children([
-                            widget::space::horizontal().into(),
-                            widget::button::standard(fl!("clear-recents-history"))
-                                .on_press(Message::ClearRecents)
-                                .into(),
-                        ]))
-                        .padding([space_xxs, space_xs])
-                        .layer(Layer::Primary)
-                        .apply(widget::container)
-                        .padding(([0, 0, 7, 0]).to_padding()),
-                    );
-                }
-            }
-            Location::Network(uri, _display_name, _path) if uri == "network:///" => {
-                tab_column = tab_column.push(
-                    widget::layer_container(widget::Row::with_children([
-                        widget::space::horizontal().into(),
-                        widget::button::standard(fl!("add-network-drive"))
-                            .on_press(Message::AddNetworkDrive)
-                            .into(),
-                    ]))
-                    .padding([space_xxs, space_xs])
-                    .layer(Layer::Primary)
-                    .apply(widget::container)
-                    .padding(([0, 0, 7, 0]).to_padding()),
-                );
-            }
-            _ => {}
-        }
         let tab_view = widget::container(tab_column)
             .height(Length::Fill)
             .width(Length::Fill);
@@ -8331,8 +8471,13 @@ impl Tab {
         clipboard_paste_available: bool,
         context_actions: &'a [ContextActionPreset],
         column_slide: Option<ColumnSlide>,
+        bottom_reserve: Option<&'a Cell<f32>>,
     ) -> Element<'a, Message> {
         widget::responsive(move |size| {
+            // Read at layout, not when the view was built: the card it makes
+            // room for records its height as it is laid out
+            self.bottom_reserve
+                .set(bottom_reserve.map_or(0.0, Cell::get));
             widget::id_container(
                 self.view_responsive(
                     key_binds,
@@ -8402,6 +8547,54 @@ impl Tab {
                                     break;
                                 }
                             }
+                            std::future::pending::<()>().await;
+                        },
+                    )
+                },
+            ));
+        }
+
+        // Add up what the trash holds, walking its folders on the same
+        // bounded pool as the other folder sizes. Keyed by the listing, so a
+        // new one starts over and leaving the trash cancels the walk.
+        if self.location == Location::Trash
+            && self.trash_size == TrashSize::Calculating
+            && let Some(items) = self.items_opt()
+        {
+            struct TrashSizeJob {
+                listing: u64,
+                input: Arc<TrashSizeInput>,
+            }
+            impl Hash for TrashSizeJob {
+                fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+                    self.listing.hash(state);
+                }
+            }
+
+            let input = Arc::clone(
+                self.trash_size_input
+                    .get_or_init(|| Arc::new(TrashSizeInput::new(items))),
+            );
+            subscriptions.push(Subscription::run_with(
+                TrashSizeJob {
+                    listing: self.listing,
+                    input,
+                },
+                |job| {
+                    let (listing, input) = (job.listing, Arc::clone(&job.input));
+                    stream::channel(
+                        1,
+                        move |mut output: futures::channel::mpsc::Sender<_>| async move {
+                            let controller = Controller::default();
+                            let _cancel = CancelOnDrop(controller.clone());
+                            let start = Instant::now();
+                            let size = input.total(controller).await;
+                            log::debug!(
+                                "added up the trash ({} folders) in {:?}",
+                                input.folders.len(),
+                                start.elapsed()
+                            );
+                            let _ = output.send(Message::TrashSize(listing, size)).await;
                             std::future::pending::<()>().await;
                         },
                     )
@@ -9231,6 +9424,272 @@ mod tests {
         eq_path_item, filter_dirs, read_dir_sorted, simple_fs, tab_click_new,
     };
     use crate::config::{IconSizes, TabConfig, ThumbCfg};
+
+    #[test]
+    fn the_action_follows_the_location_and_its_items() -> io::Result<()> {
+        use super::{SearchLocation, SearchOptions, TabAction, TrashSize};
+
+        let fs = empty_fs()?;
+        let file = fs.path().join("a.txt");
+        fs::write(&file, b"x")?;
+
+        let action = |location: Location, with_item: bool| {
+            let mut tab = Tab::new(
+                location,
+                TabConfig::default(),
+                ThumbCfg::default(),
+                None,
+                std::borrow::Cow::Borrowed("Undefined"),
+                None,
+            );
+            if with_item {
+                let item = super::item_from_path(&file, IconSizes::default())
+                    .expect("the file should be read");
+                tab.set_items(vec![item]);
+            } else {
+                tab.set_items(Vec::new());
+            }
+            tab.action(2)
+        };
+        let search = |location| {
+            Location::Search(
+                location,
+                "a".into(),
+                SearchOptions {
+                    show_hidden: false,
+                    recursive: false,
+                },
+                std::time::Instant::now(),
+            )
+        };
+
+        assert_eq!(
+            action(Location::Trash, true),
+            Some(TabAction::EmptyTrash(Some((1, TrashSize::Calculating))))
+        );
+        assert_eq!(action(Location::Trash, false), None);
+        assert_eq!(
+            action(search(SearchLocation::Trash), true),
+            Some(TabAction::EmptyTrash(None))
+        );
+        assert_eq!(
+            action(Location::Recents, true),
+            Some(TabAction::ClearRecents(Some(1)))
+        );
+        assert_eq!(action(Location::Recents, false), None);
+        assert_eq!(
+            action(search(SearchLocation::Recents), true),
+            Some(TabAction::ClearRecents(None))
+        );
+        assert_eq!(
+            action(
+                Location::Network("network:///".into(), "Network".into(), None),
+                false
+            ),
+            Some(TabAction::AddNetworkDrive(2))
+        );
+        assert_eq!(
+            action(
+                Location::Network("smb://host/".into(), "host".into(), None),
+                false
+            ),
+            None
+        );
+        assert_eq!(action(Location::Path(fs.path().to_owned()), true), None);
+        Ok(())
+    }
+
+    #[test]
+    fn the_network_card_counts_connected_drives_only_when_there_are_some() {
+        use super::TabAction;
+
+        assert_eq!(TabAction::AddNetworkDrive(0).detail(), None);
+        let detail = TabAction::AddNetworkDrive(2)
+            .detail()
+            .expect("two connected drives are counted");
+        assert!(detail.contains('2'), "{detail}");
+    }
+
+    #[test]
+    fn the_bottom_reserve_is_scrollable_room_under_the_last_item() -> io::Result<()> {
+        let fs = simple_fs(NUM_FILES, NUM_HIDDEN, NUM_DIRS, NUM_NESTED, NAME_LEN)?;
+        let location = Location::Path(fs.path().to_owned());
+        let (_, items) = location.scan(IconSizes::default());
+        let mut tab = Tab::new(
+            location,
+            TabConfig::default(),
+            ThumbCfg::default(),
+            None,
+            std::borrow::Cow::Borrowed("Undefined"),
+            None,
+        );
+        tab.set_items(items);
+        tab.size_opt
+            .set(Some(crate::ui::iced::Size::new(800.0, 600.0)));
+
+        let content_height = |tab: &Tab| {
+            let _ = tab.list_view(None);
+            let list = tab.content_height_opt.get().expect("the list is measured");
+            let _ = tab.grid_view();
+            let grid = tab.content_height_opt.get().expect("the grid is measured");
+            (list, grid)
+        };
+        let (list, grid) = content_height(&tab);
+        tab.bottom_reserve.set(85.0);
+        assert_eq!(content_height(&tab), (list + 85.0, grid + 85.0));
+        Ok(())
+    }
+
+    fn trash_tab(items: Vec<super::Item>) -> Tab {
+        let mut tab = Tab::new(
+            Location::Trash,
+            TabConfig::default(),
+            ThumbCfg::default(),
+            None,
+            std::borrow::Cow::Borrowed("Undefined"),
+            None,
+        );
+        tab.set_items(items);
+        tab
+    }
+
+    /// A trash entry whose `.trashinfo` is `root/info/<name>.trashinfo`, so
+    /// its copy is `root/files/<name>`.
+    fn trashed(root: &std::path::Path, name: &str, size: trash::TrashItemSize) -> super::Item {
+        let entry = trash::TrashItem {
+            id: root
+                .join("info")
+                .join(format!("{name}.trashinfo"))
+                .into_os_string(),
+            name: name.into(),
+            original_parent: "/nonexistent".into(),
+            time_deleted: 0,
+        };
+        super::item_from_trash_entry(
+            entry,
+            trash::TrashItemMetadata { size },
+            IconSizes::default(),
+        )
+    }
+
+    #[test]
+    fn the_trash_size_counts_files_and_walks_folders() -> io::Result<()> {
+        use super::{TrashSize, TrashSizeInput};
+
+        let fs = empty_fs()?;
+        let root = fs.path();
+        fs::create_dir_all(root.join("files/folder/sub"))?;
+        fs::write(root.join("files/folder/a"), [0; 5])?;
+        fs::write(root.join("files/folder/sub/b"), [0; 6])?;
+
+        let input = TrashSizeInput::new(&[
+            trashed(root, "file", trash::TrashItemSize::Bytes(7)),
+            trashed(root, "folder", trash::TrashItemSize::Entries(2)),
+        ]);
+        assert_eq!(input.files, 7);
+        assert_eq!(input.folders, [Some(root.join("files/folder"))]);
+
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()?;
+        let size = runtime.block_on(input.total(super::Controller::default()));
+        assert_eq!(size, TrashSize::Known(7 + 5 + 6));
+        Ok(())
+    }
+
+    #[test]
+    fn a_folder_without_a_copy_makes_the_trash_size_partial() -> io::Result<()> {
+        use super::{TrashSize, TrashSizeInput};
+
+        let fs = empty_fs()?;
+        let root = fs.path();
+        // An id with no trash root above it names no copy to walk
+        let orphan = super::item_from_trash_entry(
+            trash::TrashItem {
+                id: "orphan.trashinfo".into(),
+                name: "orphan".into(),
+                original_parent: "/nonexistent".into(),
+                time_deleted: 0,
+            },
+            trash::TrashItemMetadata {
+                size: trash::TrashItemSize::Entries(1),
+            },
+            IconSizes::default(),
+        );
+        let input = TrashSizeInput::new(&[
+            trashed(root, "file", trash::TrashItemSize::Bytes(7)),
+            orphan,
+        ]);
+        assert_eq!(input.folders, [None]);
+
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()?;
+        let size = runtime.block_on(input.total(super::Controller::default()));
+        assert_eq!(size, TrashSize::Partial(7));
+        Ok(())
+    }
+
+    #[test]
+    fn a_missing_folder_copy_counts_as_nothing() -> io::Result<()> {
+        use super::{TrashSize, TrashSizeInput};
+
+        // As the folder-size walk does everywhere: what it cannot read, it
+        // skips (decided 2026-09-28)
+        let fs = empty_fs()?;
+        let root = fs.path();
+        let input = TrashSizeInput::new(&[
+            trashed(root, "file", trash::TrashItemSize::Bytes(7)),
+            trashed(root, "gone", trash::TrashItemSize::Entries(1)),
+        ]);
+
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()?;
+        let size = runtime.block_on(input.total(super::Controller::default()));
+        assert_eq!(size, TrashSize::Known(7));
+        Ok(())
+    }
+
+    #[test]
+    fn the_trash_size_of_an_old_listing_is_ignored() {
+        use super::{TabAction, TrashSize};
+
+        let file = || {
+            trashed(
+                std::path::Path::new("/nonexistent"),
+                "file",
+                trash::TrashItemSize::Bytes(7),
+            )
+        };
+        let mut tab = trash_tab(vec![file()]);
+        let listing = tab.listing;
+
+        let _ = tab.update(
+            Message::TrashSize(listing.wrapping_sub(1), TrashSize::Known(1)),
+            Modifiers::empty(),
+        );
+        assert_eq!(
+            tab.action(0),
+            Some(TabAction::EmptyTrash(Some((1, TrashSize::Calculating))))
+        );
+
+        let _ = tab.update(
+            Message::TrashSize(listing, TrashSize::Known(7)),
+            Modifiers::empty(),
+        );
+        assert_eq!(
+            tab.action(0),
+            Some(TabAction::EmptyTrash(Some((1, TrashSize::Known(7)))))
+        );
+
+        // A new listing works it out again
+        tab.set_items(vec![file()]);
+        assert_eq!(
+            tab.action(0),
+            Some(TabAction::EmptyTrash(Some((1, TrashSize::Calculating))))
+        );
+    }
 
     // Boilerplate for tab tests. Checks if simulated clicks selected items.
     fn tab_selects_item(

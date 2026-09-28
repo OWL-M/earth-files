@@ -207,6 +207,10 @@ support = Supporto
 ## Add Network Drive
 
 add-network-drive = Aggiungi dispositivo di rete
+network-drives-connected = { $count } { $count ->
+    [one] connesso
+   *[other] connessi
+  }
 connect = Connetti
 connect-anonymously = Connetti in modo anonimo
 connecting = Connessione in corso...

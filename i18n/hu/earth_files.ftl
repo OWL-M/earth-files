@@ -190,6 +190,7 @@ keep = Megtartás
 ## Add Network Drive
 
 add-network-drive = Hálózati meghajtó hozzáadása
+network-drives-connected = { $count } csatlakoztatva
 connect = Kapcsolódás
 connect-anonymously = Kapcsolódás névtelenül
 connecting = Kapcsolódás…

@@ -134,6 +134,7 @@ launch-desktop-entry = Launch application?
 launch-desktop-entry-description = "{$name}" is not an installed application. Launching it runs the command below.
 launch-anyway = Launch
 add-network-drive = Rnu ameɣri n uẓeṭṭa
+network-drives-connected = { $count } yeqqnen
 connect = Qqen
 connect-anonymously = Qqen s wudem udrig
 connecting = Tuqqna…

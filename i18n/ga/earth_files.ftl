@@ -179,6 +179,7 @@ keep = Coimeád
 ## Add Network Drive
 
 add-network-drive = Cuir tiomántán líonra leis
+network-drives-connected = { $count } ceangailte
 connect = Ceangail
 connect-anonymously = Ceangail gan ainm
 connecting = Ag ceangal...

@@ -100,6 +100,7 @@ other = その他
 ## Add Network Drive
 
 add-network-drive = ネットワークドライブを追加
+network-drives-connected = { $count } 件接続中
 connect = 接続する
 connect-anonymously = 匿名的に接続
 connecting = 接続中...

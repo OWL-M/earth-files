@@ -191,6 +191,14 @@ keep = أبقِ
 repository = المستودع
 support = الدعم
 add-network-drive = أضِف قرص شبكة
+network-drives-connected = { $count ->
+    [zero] لا أقراص متصلة
+    [one] قرص واحد متصل
+    [two] قرصان متصلان
+    [few] { $count } أقراص متصلة
+    [many] { $count } قرصًا متصلًا
+   *[other] { $count } قرص متصل
+  }
 connect = اتصل
 connect-anonymously = اتصل بمجهولية
 connecting = يتصل...

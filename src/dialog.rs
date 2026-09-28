@@ -2341,6 +2341,7 @@ impl Application for App {
                     false,
                     &[],
                     self.core.drawer_slide.column_slide(),
+                    None,
                 )
                 .map(Message::TabMessage),
         );

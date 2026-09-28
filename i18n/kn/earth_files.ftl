@@ -132,6 +132,7 @@ other = ಇತರ
 ## Add Network Drive
 
 add-network-drive = ನೆಟ್ವರ್ಕ್ ಡ್ರೈವ್ ಸೇರಿಸಿ
+network-drives-connected = { $count } ಸಂಪರ್ಕಿತ
 connect = ಸಂಪರ್ಕಿಸಿ
 connect-anonymously = ಅನಾಮಿಕವಾಗಿ ಸಂಪರ್ಕಿಸಿ
 connecting = ಸಂಪರ್ಕಿಸುತ್ತಿದೆ...

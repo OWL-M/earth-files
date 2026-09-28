@@ -632,9 +632,13 @@ impl iced_container::Catalog for Theme {
                 snap: true,
             },
 
+            // The navigation bar's background (`nav_bar_style`), so the
+            // popups read as part of the same chrome
             Container::Tooltip => iced_container::Style {
                 text_color: None,
-                background: Some(iced::Background::Color(cosmic.palette.neutral_2.to_color())),
+                background: Some(iced::Background::Color(
+                    cosmic.primary(self.transparent).base.to_color(),
+                )),
                 border: Border {
                     radius: cosmic.corner_radii.radius_l.to_radius(),
                     ..Default::default()

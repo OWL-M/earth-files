@@ -189,6 +189,10 @@ keep = Conserver
 ## Add Network Drive
 
 add-network-drive = Ajouter un lecteur réseau
+network-drives-connected = { $count } { $count ->
+    [one] connecté
+   *[other] connectés
+  }
 connect = Se connecter
 connect-anonymously = Se connecter anonymement
 connecting = Connexion...

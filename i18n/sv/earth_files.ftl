@@ -137,6 +137,10 @@ task-failed = Misslyckades
 ## Lägg till en Nätverksenhet
 
 add-network-drive = Lägg till en Nätverksenhet
+network-drives-connected = { $count } { $count ->
+    [one] ansluten
+   *[other] anslutna
+  }
 connect = Anslut
 connect-anonymously = Anslut anonymt
 connecting = Ansluter...

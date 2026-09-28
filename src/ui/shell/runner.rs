@@ -417,6 +417,7 @@ impl<App: Application> Shell<App> {
 
         self.sync_drawer_slide();
         self.sync_nav_slide();
+        self.app.after_update();
 
         #[cfg(all(target_env = "gnu", not(target_os = "windows")))]
         super::malloc::trim(0);

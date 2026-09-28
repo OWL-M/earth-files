@@ -97,6 +97,7 @@ other = 其他
 ## Add Network Drive
 
 add-network-drive = 新增網路磁碟機
+network-drives-connected = 已連線 { $count } 個
 connect = 連線
 connect-anonymously = 匿名連線
 connecting = 連線中...

@@ -17,7 +17,7 @@ use iced_core::{
 };
 
 /// How far the overlay stays clear of the window's right and bottom edges.
-pub(super) const OFFSET: f32 = 15.0;
+pub(crate) const OFFSET: f32 = 15.0;
 
 pub struct Toaster<'a, Message, Theme, Renderer> {
     toasts: Element<'a, Message, Theme, Renderer>,
@@ -172,12 +172,12 @@ where
     }
 }
 
-/// Whether the cursor is over a drawn item — a toast or the pinned element —
+/// Whether the cursor is over a drawn item — a toast or a pinned card —
 /// rather than just somewhere in the column's bounds: the outer column's
-/// children are the toasts column and the pinned element (if any), and the
-/// toasts column's children are the individual toasts. Checking each item's
-/// own bounds, rather than the whole column's, keeps the column's
-/// transparent gaps click-through.
+/// children are the toasts column and then the pinned cards' slots (an empty
+/// slot has no size), and the toasts column's children are the individual
+/// toasts. Checking each item's own bounds, rather than the whole column's,
+/// keeps the column's transparent gaps click-through.
 fn over_item(layout: Layout<'_>, cursor: mouse::Cursor) -> bool {
     let mut children = layout.children();
     let over_toast = children.next().is_some_and(|toasts| {
@@ -185,9 +185,7 @@ fn over_item(layout: Layout<'_>, cursor: mouse::Cursor) -> bool {
             .children()
             .any(|toast| cursor.is_over(toast.bounds()))
     });
-    let over_pinned = children
-        .next()
-        .is_some_and(|pinned| cursor.is_over(pinned.bounds()));
+    let over_pinned = children.any(|pinned| cursor.is_over(pinned.bounds()));
     over_toast || over_pinned
 }
 

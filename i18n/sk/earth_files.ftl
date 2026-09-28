@@ -214,6 +214,11 @@ keep = Ponechať
 ## Add Network Drive
 
 add-network-drive = Pridať sieťový disk
+network-drives-connected = { $count } { $count ->
+    [one] pripojený
+    [few] pripojené
+   *[other] pripojených
+  }
 connect = Pripojiť
 connect-anonymously = Pripojiť anonymne
 connecting = Pripájanie...

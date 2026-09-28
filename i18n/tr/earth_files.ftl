@@ -143,6 +143,7 @@ other = Diğer
 ## Add Network Drive
 
 add-network-drive = Ağ sürücüsü ekle
+network-drives-connected = { $count } bağlı
 connect = Bağlan
 connect-anonymously = Anonim olarak bağlan
 connecting = Bağlanılıyor...

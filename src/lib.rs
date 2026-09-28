@@ -12,6 +12,7 @@ use crate::app::{App, Flags};
 use crate::config::{Config, State};
 use crate::tab::Location;
 
+mod action_card;
 pub mod app;
 mod archive;
 mod batch_rename;

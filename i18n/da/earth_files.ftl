@@ -131,6 +131,7 @@ other = Andet
 ## Add Network Drive
 
 add-network-drive = Tilføj netværksdrev
+network-drives-connected = { $count } tilsluttet
 connect = Opret forbindelse
 connect-anonymously = Opret forbindelse anonymt
 connecting = Opretter forbindelse...

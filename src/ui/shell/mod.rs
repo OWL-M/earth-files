@@ -174,6 +174,12 @@ where
         Task::none()
     }
 
+    /// Called after every message the shell handles, the application's own
+    /// or not, once it has been handled: for state that follows from
+    /// several places at once and is simpler to re-derive than to update at
+    /// each of them.
+    fn after_update(&mut self) {}
+
     /// Constructs the view for the main window.
     fn view(&self) -> Element<'_, Self::Message>;
 

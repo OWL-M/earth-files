@@ -140,6 +140,7 @@ other = ผู้อื่น
 ## Add Network Drive
 
 add-network-drive = เพิ่มไดรฟ์เครือข่าย
+network-drives-connected = เชื่อมต่อแล้ว { $count } รายการ
 connect = เชื่อมต่อ
 connect-anonymously = เชื่อมต่อแบบไม่ระบุตัวตน
 connecting = กำลังเชื่อมต่อ...

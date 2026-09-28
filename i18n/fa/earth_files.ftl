@@ -203,6 +203,7 @@ keep = نگه داشتن
 ## Add Network Drive
 
 add-network-drive = افزودن درایو شبکه
+network-drives-connected = { $count } متصل
 connect = اتصال
 connect-anonymously = اتصال ناشناس
 connecting = در حال اتصال...

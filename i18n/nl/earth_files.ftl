@@ -206,6 +206,7 @@ keep = Behouden
 ## Add Network Drive
 
 add-network-drive = Netwerkschijf toevoegen
+network-drives-connected = { $count } verbonden
 connect = Verbinden
 connect-anonymously = Anoniem verbinden
 connecting = Verbinding maken…

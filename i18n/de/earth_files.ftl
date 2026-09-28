@@ -183,6 +183,7 @@ keep = Behalten
 ## Netzlaufwerk hinzufügen
 
 add-network-drive = Netzlaufwerk hinzufügen
+network-drives-connected = { $count } verbunden
 connect = Verbinden
 connect-anonymously = Anonym verbinden
 connecting = Wird verbunden ...

@@ -260,6 +260,7 @@ favorite-path-error-description =
     Вилучити з бічної панелі?
 keep = Залишити
 add-network-drive = Додати мережевий диск
+network-drives-connected = { $count } з’єднано
 connect = З’єднати
 connect-anonymously = З'єднатись анонімно
 connecting = З'єднання…

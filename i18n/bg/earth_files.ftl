@@ -208,6 +208,10 @@ support = Поддръжка
 ## Add Network Drive
 
 add-network-drive = Добавяне на мрежово устройство
+network-drives-connected = { $count } { $count ->
+    [one] свързано
+   *[other] свързани
+  }
 connect = Свързване
 connect-anonymously = Свързване анонимно
 connecting = Свързване...

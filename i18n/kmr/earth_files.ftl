@@ -91,6 +91,7 @@ light = Ronî
 extract-as-folder = Derxîne bo peldankê
 extract-to = Derxîne bo...
 add-network-drive = Ajokarê torê tevlî bike
+network-drives-connected = { $count } girêdayî
 copying =
     { $items } { $items ->
         [one] hêman

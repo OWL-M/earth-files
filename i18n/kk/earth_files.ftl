@@ -113,6 +113,7 @@ keep = Қалдыру
 repository = Репозиторий
 support = Қолдау
 add-network-drive = Желілік дискіні қосу
+network-drives-connected = { $count } қосылған
 connect = Байланысу
 connect-anonymously = Анонимді түрде байланысу
 connecting = Байланысуда...

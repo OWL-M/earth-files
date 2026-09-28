@@ -148,6 +148,7 @@ favorite-path-error-description =
     Vil du fjerne den fra sidepanelet?
 keep = Behold
 add-network-drive = Legg til nettverksdisk
+network-drives-connected = { $count } tilkoblet
 connect-anonymously = Koble til anonymt
 connecting = Kobler til...
 cancelled = Avbrutt

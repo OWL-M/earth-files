@@ -189,6 +189,10 @@ show-details = Εμφάνιση λεπτομερειών
 extract-as-folder = Αποσυμπίεση σε φάκελο
 extract-to = Αποσυμπίεση σε...
 add-network-drive = Προσθήκη μονάδας δικτύου
+network-drives-connected = { $count } { $count ->
+    [one] συνδεδεμένη
+   *[other] συνδεδεμένες
+  }
 copying =
     Αντιγραφή { $items } { $items ->
         [one] στοιχείου

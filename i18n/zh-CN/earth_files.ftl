@@ -188,6 +188,7 @@ keep = 保留
 ## Add Network Drive
 
 add-network-drive = 添加网络驱动器
+network-drives-connected = 已连接 { $count } 个
 connect = 连接
 connect-anonymously = 匿名连接
 connecting = 正在连接…

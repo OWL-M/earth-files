@@ -128,6 +128,10 @@ other = Otro
 ## Add Network Drive
 
 add-network-drive = Agregar unidad de red
+network-drives-connected = { $count } { $count ->
+    [one] conectada
+   *[other] conectadas
+  }
 connect = Conectar
 connect-anonymously = Conectar de forma anónima
 connecting = Conectando...

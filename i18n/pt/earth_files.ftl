@@ -265,6 +265,10 @@ favorite-path-error-description =
     Pretende removê-lo da barra lateral?
 keep = Manter
 add-network-drive = Adicionar unidade de rede
+network-drives-connected = { $count } { $count ->
+    [one] ligada
+   *[other] ligadas
+  }
 connect = Ligar
 connect-anonymously = Ligar anonimamente
 connecting = A ligar…

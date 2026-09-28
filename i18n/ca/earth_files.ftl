@@ -183,6 +183,10 @@ read-write-execute = Llegir, escriure i executar
 ## Add Network Drive
 
 add-network-drive = Afegeix una unitat de la xarxa
+network-drives-connected = { $count } { $count ->
+    [one] connectada
+   *[other] connectades
+  }
 connect = Connecta
 connect-anonymously = Connecta anònimament
 connecting = Connectant...

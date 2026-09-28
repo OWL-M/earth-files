@@ -140,6 +140,10 @@ favorite-path-error-description =
 remove = Fjarlægja
 keep = Geyma
 add-network-drive = Bæta við netdrifi
+network-drives-connected = { $count } { $count ->
+    [one] tengt
+   *[other] tengd
+  }
 connect = Tengjast
 connect-anonymously = Tengjast nafnlaust
 connecting = Tengist…

@@ -254,6 +254,11 @@ write-only = Pouze zápis
 write-execute = Zápis a spouštění
 read-only = Pouze čtení
 add-network-drive = Přidat síťový disk
+network-drives-connected = { $count } { $count ->
+    [one] připojený
+    [few] připojené
+   *[other] připojených
+  }
 connect-anonymously = Připojit se anonymně
 connecting = Připojování...
 domain = Doména

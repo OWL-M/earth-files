@@ -121,6 +121,10 @@ other = Muut
 ## Add Network Drive
 
 add-network-drive = Lisää verkkolevy
+network-drives-connected = { $count } { $count ->
+    [one] yhdistetty
+   *[other] yhdistettyä
+  }
 connect = Yhdistä
 connect-anonymously = Yhdistä nimettömästi
 connecting = Yhdistetään…

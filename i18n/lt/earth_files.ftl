@@ -119,6 +119,12 @@ keep = Išlaikyti
 repository = Saugykla
 support = Palaikymas
 add-network-drive = Pridėti tinklo talpyklą
+network-drives-connected = { $count } { $count ->
+    [one] prijungta
+    [few] prijungtos
+    [many] prijungtos
+   *[other] prijungtų
+  }
 connect = Prijungti
 connect-anonymously = Prijungti anonimiškai
 connecting = Jungiamasi...

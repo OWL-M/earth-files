@@ -99,6 +99,8 @@ pub use popover::{Popover, popover};
 pub mod popup_genie;
 pub use popup_genie::{PopupGenie, popup_genie};
 
+pub mod measure_height;
+pub use measure_height::{MeasureHeight, measure_height};
 pub mod spring_height;
 pub use spring_height::{SpringHeight, spring_height};
 

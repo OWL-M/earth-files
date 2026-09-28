@@ -124,6 +124,7 @@ favorite-path-error-description =
     Apakah anda ingin menghapus dari bilah sisi?
 support = Dukungan
 add-network-drive = Tambahkan drive jaringan
+network-drives-connected = { $count } tersambung
 connect = Sambungkan
 connect-anonymously = Sambungkan secara anonim
 connecting = Menyambungkan...

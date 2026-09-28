@@ -199,6 +199,10 @@ keep = Păstrează
 ## Add Network Drive
 
 add-network-drive = Adaugă o unitate de rețea
+network-drives-connected = { $count } { $count ->
+    [one] conectată
+   *[other] conectate
+  }
 connect = Conectează
 connect-anonymously = Conectare anonimă
 connecting = Se conectează...

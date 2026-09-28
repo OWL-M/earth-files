@@ -158,6 +158,7 @@ show-details = 세부 사항 표시
 extract-as-folder = 폴더로 압축 해제
 extract-to = 다른 위치에 압축 해제...
 add-network-drive = 네트워크 드라이브 추가
+network-drives-connected = { $count }개 연결됨
 delete = 삭제
 repository = 저장소
 replace-warning-operation = 해당 항목을 대체할까요? 대체 시 내용을 덮어쓰게 됩니다.

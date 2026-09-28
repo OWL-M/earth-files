@@ -168,6 +168,10 @@ favorite-path-error-description =
 remove = Eliminar
 keep = Manter
 add-network-drive = Engadir unidade de rede
+network-drives-connected = { $count } { $count ->
+    [one] conectada
+   *[other] conectadas
+  }
 connect = Conectar
 connect-anonymously = Conectar de xeito anonimo
 connecting = Conectando...

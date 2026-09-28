@@ -201,6 +201,10 @@ keep = Захаваць
 ## Add Network Drive
 
 add-network-drive = Дадаць сеткавы дыск
+network-drives-connected = { $count } { $count ->
+    [one] падключаны
+   *[other] падключана
+  }
 connect = Падключыцца
 connect-anonymously = Падлучыць ананімна
 connecting = Падлучэнне...

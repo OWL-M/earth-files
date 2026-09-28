@@ -202,6 +202,7 @@ support = Support
 
 ## Add Network Drive
 add-network-drive = Add network drive
+network-drives-connected = {$count} connected
 connect = Connect
 connect-anonymously = Connect anonymously
 connecting = Connecting...

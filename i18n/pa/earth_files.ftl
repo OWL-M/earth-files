@@ -131,6 +131,7 @@ selected-items = { $items } ਚੁਣੀਆਂ ਆਈਟਮਾਂ
 replace-title = "{ $filename }" ਪਹਿਲਾਂ ਹੀ ਇਸ ਟਿਕਾਣੇ ਉੱਤੇ ਮੌਜੂਦ ਹੈ
 favorite-path-error = ਡਾਇਰੈਕਟਰੀ ਖੋਲ੍ਹਣ ਦੌਰਾਨ ਗਲਤੀ
 add-network-drive = ਨੈੱਟਵਰਕ ਡਰਾਇਵ ਜੋੜੋ
+network-drives-connected = { $count } ਕਨੈਕਟ ਕੀਤੇ
 connect-anonymously = ਅਣਪਛਾਤੇ ਵਜੋਂ ਕਨੈਕਟ ਕਰੋ
 connecting = ਕਨੈਕਟ ਕੀਤਾ ਜਾ ਰਿਹਾ ਹੈ...
 domain = ਡੋਮੇਨ

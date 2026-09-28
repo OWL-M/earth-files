@@ -117,6 +117,7 @@ other = अन्य
 ## Add Network Drive
 
 add-network-drive = नेटवर्क ड्राइव जोड़ें
+network-drives-connected = { $count } कनेक्टेड
 connect = कनेक्ट करें
 connect-anonymously = गुमनाम रूप से कनेक्ट करें
 connecting = कनेक्ट हो रहा है...

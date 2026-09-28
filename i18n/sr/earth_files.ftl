@@ -143,6 +143,11 @@ show-details = Прикажи детаље
 extract-as-folder = Распакуј у фасциклу
 extract-to = Распакуј у...
 add-network-drive = Додај мрежни уређај
+network-drives-connected = { $count } { $count ->
+    [one] повезан
+    [few] повезана
+   *[other] повезаних
+  }
 copying =
     Умножавање { $items } { $items ->
         [one] ставке
