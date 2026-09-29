@@ -127,6 +127,16 @@ impl<'a, Message: Clone + 'static> NavBar<'a, Message> {
         self
     }
 
+    /// Emit a message when a file drag is held over an entry that accepts it
+    /// for [`crate::ui::dnd::HOVER_OPEN`], if there is one for that entry.
+    pub fn on_drag_hover_open<T>(mut self, on_drag_hover_open: T) -> Self
+    where
+        T: Fn(Id) -> Option<Message> + 'static,
+    {
+        self.segmented_button = self.segmented_button.on_drag_hover_open(on_drag_hover_open);
+        self
+    }
+
     /// Let the entries `reorderable` answers `true` for be dragged to a new
     /// place among themselves, or off the panel. See
     /// [`segmented_button::SegmentedButton::reorderable`].

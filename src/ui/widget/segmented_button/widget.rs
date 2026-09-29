@@ -204,6 +204,12 @@ where
     /// destination, which is also how the drop hint knows not to light it up.
     #[setters(skip)]
     pub(super) on_file_drop: Option<Box<dyn Fn(Entity) -> Option<Message> + 'static>>,
+    /// What to do when a file drag is held over one of these buttons for
+    /// [`crate::ui::dnd::HOVER_OPEN`]: switch to the tab, show the place.
+    /// Only buttons `on_file_drop` accepts are held over, and `None` opens
+    /// nothing: the tab or place already showing, which still takes a drop.
+    #[setters(skip)]
+    pub(super) on_drag_hover_open: Option<Box<dyn Fn(Entity) -> Option<Message> + 'static>>,
 
     #[setters(skip)]
     pub(super) on_reorder: Option<Box<dyn Fn(ReorderEvent) -> Message + 'static>>,
@@ -273,6 +279,7 @@ where
             tab_drag: None,
             on_drop_hint: None,
             on_file_drop: None,
+            on_drag_hover_open: None,
             on_reorder: None,
             reorderable: None,
             can_pin: None,
@@ -417,6 +424,17 @@ where
         T: Fn(Entity) -> Option<Message> + 'static,
     {
         self.on_file_drop = Some(Box::new(on_file_drop));
+        self
+    }
+
+    /// Emit a message when a file drag is held over a button that accepts it
+    /// (see [`Self::on_file_drop`]) for [`crate::ui::dnd::HOVER_OPEN`], if
+    /// there is one for that button.
+    pub fn on_drag_hover_open<T>(mut self, on_drag_hover_open: T) -> Self
+    where
+        T: Fn(Entity) -> Option<Message> + 'static,
+    {
+        self.on_drag_hover_open = Some(Box::new(on_drag_hover_open));
         self
     }
 
@@ -1249,6 +1267,7 @@ where
             if state.file_drop_target.take().is_some() {
                 shell.request_redraw();
             }
+            state.drag_hover = crate::ui::dnd::HoverOpen::default();
             // The gap of an entry drag is `poll_nav_drag`'s to close.
             if state.dragging_tab.is_none() {
                 self.set_nav_gap(state, None, shell);
@@ -1314,8 +1333,16 @@ where
         }
 
         if !drag.ended {
+            // Held over a button long enough, it opens
+            if let Some(on_drag_hover_open) = self.on_drag_hover_open.as_ref()
+                && let Some(entity) = state.drag_hover.step(target, Instant::now())
+                && let Some(message) = on_drag_hover_open(entity)
+            {
+                shell.publish(message);
+            }
             return;
         }
+        state.drag_hover = crate::ui::dnd::HoverOpen::default();
         state.file_drag_done = Some(drag.id);
 
         if drag.dropped
@@ -1615,6 +1642,7 @@ where
             drop_hint: None,
             file_drop_target: None,
             file_drag_done: None,
+            drag_hover: crate::ui::dnd::HoverOpen::default(),
             nav: NavState::default(),
             tabs: TabState::default(),
         })
@@ -2978,6 +3006,9 @@ pub struct LocalState {
     /// the next one starts, is acted on exactly once rather than on every
     /// pass that follows it.
     file_drag_done: Option<u64>,
+    /// The button a file drag is held over, to open it; see
+    /// [`SegmentedButton::on_drag_hover_open`].
+    drag_hover: crate::ui::dnd::HoverOpen<Entity>,
     /// Time since last tab activation from wheel movements.
     wheel_timestamp: Option<Instant>,
     /// Tracks multi-touch events
@@ -3128,6 +3159,7 @@ mod tests {
             drop_hint: None,
             file_drop_target: None,
             file_drag_done: None,
+            drag_hover: crate::ui::dnd::HoverOpen::default(),
             nav: NavState::default(),
             tabs: TabState::default(),
         };

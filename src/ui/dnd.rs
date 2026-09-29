@@ -429,6 +429,44 @@ pub fn start_drag(mime: &str, payload: LocalPayload) -> bool {
     start_drag_data(Arc::new(Placeholder(mime.to_owned())), payload)
 }
 
+/// How long a file drag held over a place opens it: a folder in the list, an
+/// ancestor crumb, a tab or a sidebar entry.
+pub const HOVER_OPEN: std::time::Duration = std::time::Duration::from_millis(1500);
+
+/// What a file drag is held over, for a widget that sees the drag on every
+/// frame, so it can open the place once the drag has stayed [`HOVER_OPEN`].
+#[derive(Debug)]
+pub struct HoverOpen<K> {
+    /// What the drag is over, since when, and whether it has been opened
+    over: Option<(K, std::time::Instant, bool)>,
+}
+
+impl<K> Default for HoverOpen<K> {
+    fn default() -> Self {
+        Self { over: None }
+    }
+}
+
+impl<K: PartialEq + Copy> HoverOpen<K> {
+    /// The drag is over `target` at `now` (`None`: over nothing that opens).
+    /// What to open, once, when it has been over the same target for
+    /// [`HOVER_OPEN`]; leaving and coming back starts again.
+    pub fn step(&mut self, target: Option<K>, now: std::time::Instant) -> Option<K> {
+        match (&mut self.over, target) {
+            (Some((over, since, opened)), Some(target)) if *over == target => {
+                (!*opened && now.duration_since(*since) >= HOVER_OPEN).then(|| {
+                    *opened = true;
+                    target
+                })
+            }
+            (_, target) => {
+                self.over = target.map(|target| (target, now, false));
+                None
+            }
+        }
+    }
+}
+
 /// Begin a drag offering everything `contents` advertises, from the surface the
 /// pointer is on.
 ///
@@ -1418,6 +1456,29 @@ pub(crate) mod fake {
 
 #[cfg(test)]
 mod tests {
+    use super::HoverOpen;
+
+    #[test]
+    fn a_hold_opens_once_after_the_delay_and_restarts_on_a_change() {
+        let start = std::time::Instant::now();
+        let at = |ms: u64| start + std::time::Duration::from_millis(ms);
+        let mut hover = HoverOpen::default();
+        assert_eq!(hover.step(Some(1), at(0)), None);
+        assert_eq!(hover.step(Some(1), at(1499)), None);
+        assert_eq!(hover.step(Some(1), at(1500)), Some(1));
+        // Once
+        assert_eq!(hover.step(Some(1), at(3000)), None);
+        // A new target starts again
+        assert_eq!(hover.step(Some(2), at(3000)), None);
+        assert_eq!(hover.step(Some(2), at(4499)), None);
+        assert_eq!(hover.step(Some(2), at(4500)), Some(2));
+        // Leaving and coming back starts again
+        assert_eq!(hover.step(None, at(4600)), None);
+        assert_eq!(hover.step(Some(2), at(4700)), None);
+        assert_eq!(hover.step(Some(2), at(6199)), None);
+        assert_eq!(hover.step(Some(2), at(6200)), Some(2));
+    }
+
     use super::*;
 
     /// `wl_data_device` reports surface-local coordinates; iced lays out in

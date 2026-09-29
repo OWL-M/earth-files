@@ -3361,9 +3361,10 @@ impl Application for App {
         .close_icon(icon::from_name("media-eject-symbolic").size(16).icon());
 
         {
-            // A bookmark accepts drops only if it is a directory this app can paste
-            // into and differs from the visible tab's directory. Resolve it here
-            // because the callback outlives this borrow of the model.
+            // A bookmark accepts drops if it is a directory this app can paste
+            // into, the one on show included: a drag held over a place opens
+            // it, and may then be let go there. Resolve it here because the
+            // callback outlives this borrow of the model.
             let showing = self
                 .tab_model
                 .data::<Tab>(self.tab_model.active())
@@ -3372,17 +3373,28 @@ impl Application for App {
                 .iter()
                 .filter(|entity| {
                     nav_model.data::<Location>(*entity).is_some_and(|location| {
-                        location.supports_paste()
-                            && location.path_opt().is_some()
-                            && showing.as_ref() != Some(location)
+                        location.supports_paste() && location.path_opt().is_some()
                     })
                 })
                 .collect();
-            nav = nav.on_file_drop(move |entity| {
-                droppable
-                    .contains(&entity)
-                    .then(|| crate::ui::Action::App(Message::NavBarDrop(entity)))
-            });
+            let shown: Vec<Entity> = nav_model
+                .iter()
+                .filter(|entity| {
+                    showing.is_some() && nav_model.data::<Location>(*entity) == showing.as_ref()
+                })
+                .collect();
+            nav = nav
+                .on_file_drop(move |entity| {
+                    droppable
+                        .contains(&entity)
+                        .then(|| crate::ui::Action::App(Message::NavBarDrop(entity)))
+                })
+                // Held over by a file drag, a place is shown, as on a click;
+                // the one already on show has nothing to open
+                .on_drag_hover_open(move |entity| {
+                    (!shown.contains(&entity))
+                        .then(|| crate::ui::Action::Cosmic(crate::ui::app::Action::NavBar(entity)))
+                });
         }
 
         {
@@ -7648,17 +7660,17 @@ impl Application for App {
                         // Files dropped on a tab go to that tab's directory.
                         // `Drag::files` distinguishes file drags from tab drags, so
                         // this callback and `on_reorder` cannot both fire.
+                        // The active tab included: a drag held over a tab
+                        // switches to it, and may then be let go there.
                         .on_file_drop({
-                            let active = self.tab_model.active();
                             let droppable: Vec<Entity> = self
                                 .tab_model
                                 .iter()
                                 .filter(|entity| {
-                                    *entity != active
-                                        && self.tab_model.data::<Tab>(*entity).is_some_and(|tab| {
-                                            tab.location.supports_paste()
-                                                && tab.location.path_opt().is_some()
-                                        })
+                                    self.tab_model.data::<Tab>(*entity).is_some_and(|tab| {
+                                        tab.location.supports_paste()
+                                            && tab.location.path_opt().is_some()
+                                    })
                                 })
                                 .collect();
                             move |entity| {
@@ -7666,6 +7678,12 @@ impl Application for App {
                                     .contains(&entity)
                                     .then(|| Message::TabDrop(entity))
                             }
+                        })
+                        // Held over by a file drag, a tab is switched to;
+                        // the active one has nothing to switch
+                        .on_drag_hover_open({
+                            let active = self.tab_model.active();
+                            move |entity| (entity != active).then_some(Message::TabActivate(entity))
                         })
                         .on_activate(Message::TabActivate)
                         .on_close(|entity| Message::TabClose(Some(entity))),

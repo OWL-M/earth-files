@@ -2256,6 +2256,10 @@ pub enum Message {
     /// The same, for the breadcrumb segment of the ancestor at `usize`, whose
     /// directory the drop would move the files into.
     DndAncestor(usize, PathBuf, crate::mouse_area::DndDrag),
+    /// A file drag has been held over the same folder or crumb for
+    /// [`crate::ui::dnd::HOVER_OPEN`], if the `u64` is still the current
+    /// [`Tab::drag_hover_generation`].
+    DragHoverElapsed(u64),
     DragEnd,
     EditLocation(Option<EditLocation>),
     EditLocationComplete(usize),
@@ -3445,6 +3449,40 @@ impl fmt::Debug for SearchContextWrapper {
 /// Keeps only the items a host is willing to show; see [`Tab::item_filter`].
 pub(crate) type ItemFilter = Box<dyn Fn(&Item) -> bool>;
 
+/// What a file drag can be held over in a tab to open it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum DragHover {
+    /// The folder at this path in the list: by path, not position, so a
+    /// refresh that moves or removes rows cannot make the hold open another
+    Item(PathBuf),
+    /// The ancestor crumb at this index of `Tab::location_ancestors`
+    Ancestor(usize),
+}
+
+/// How fast a file drag at `y`, measured from the top of the visible list
+/// `height` tall, scrolls it: pixels per 10 ms tick, negative for up, or
+/// `None` outside the edge zones. The zones are the top and bottom
+/// [`DRAG_EDGE_ZONE`] of the list, and the speed grows with how far into one
+/// the drag is, up to half the zone at the very edge.
+///
+/// Not the wheel: a Wayland compositor such as Hyprland takes pointer focus
+/// from every window for the length of a drag, so no window gets wheel events
+/// until it ends.
+fn drag_edge_scroll(y: f32, height: f32) -> Option<f32> {
+    if !(0.0..=height).contains(&y) {
+        None
+    } else if y < DRAG_EDGE_ZONE {
+        Some(-(DRAG_EDGE_ZONE - y) / 2.0)
+    } else if y > height - DRAG_EDGE_ZONE {
+        Some((y - (height - DRAG_EDGE_ZONE)) / 2.0)
+    } else {
+        None
+    }
+}
+
+/// See [`drag_edge_scroll`].
+const DRAG_EDGE_ZONE: f32 = 48.0;
+
 pub struct Tab {
     pub location: Location,
     pub location_ancestors: Vec<(Location, String)>,
@@ -3512,6 +3550,20 @@ pub struct Tab {
     /// This tab started the file drag currently in flight, so its `on_drag`
     /// must not start a second one for every further pixel of motion.
     dnd_source: bool,
+    /// What this tab's drag carries, which is no place to drop it.
+    dnd_dragged: Vec<PathBuf>,
+    /// Where a live file drag last was over the list, from the top of what
+    /// is on screen: the drop target is worked out again from it as the list
+    /// scrolls under a still pointer.
+    dnd_position: Option<Point>,
+    /// How fast a file drag near an edge of the list is scrolling it; see
+    /// [`drag_edge_scroll`].
+    dnd_auto_scroll: Option<f32>,
+    /// The folder or crumb a file drag is held over, to open it.
+    drag_hover: Option<DragHover>,
+    /// Counts changes of `drag_hover`, so only the timer of the current one
+    /// opens anything.
+    drag_hover_generation: u64,
     /// The item a live file drag is over and would drop into, drawn as
     /// highlighted. Only ever a directory.
     dnd_target: Option<usize>,
@@ -3920,6 +3972,11 @@ impl Tab {
             time_formatter: time_formatter(),
             watch_drag: true,
             dnd_source: false,
+            dnd_dragged: Vec::new(),
+            dnd_position: None,
+            dnd_auto_scroll: None,
+            drag_hover: None,
+            drag_hover_generation: 0,
             dnd_target: None,
             dnd_ancestor: None,
             window_id,
@@ -4586,14 +4643,71 @@ impl Tab {
     /// listing, not from the top of what is on screen. See [`Self::scrolled_by`].
     /// Only directories accept drops; a drag over a file or a gap between rows
     /// drops into the displayed directory. So does a drag over what this tab
-    /// is itself dragging (the selection, see [`Self::drag_paths`]): let go
-    /// where it started, it is put back rather than into one of its folders.
+    /// is itself dragging: let go where it started, it is put back rather than
+    /// into one of its folders.
     fn drop_target(&self, point: Point) -> Option<usize> {
         self.items_opt.as_ref()?.iter().position(|item| {
             item.metadata.is_dir()
-                && item.path_opt().is_some()
-                && !(self.dnd_source && item.selected)
+                && item
+                    .path_opt()
+                    .is_some_and(|path| !self.dnd_dragged.contains(path))
                 && item.rect_opt.get().is_some_and(|rect| rect.contains(point))
+        })
+    }
+
+    /// A file drag is at `position` over the list, measured from the top of
+    /// what is on screen: highlight the folder it would drop into, time a
+    /// hold over it, and scroll when it is near an edge.
+    fn drag_over_list(&mut self, position: Point) -> Vec<Command> {
+        self.dnd_position = Some(position);
+        let scrolled_by = self.scrolled_by();
+        let target = self.drop_target(Point::new(
+            position.x + scrolled_by.x,
+            position.y + scrolled_by.y,
+        ));
+        if target != self.dnd_target {
+            self.highlight_drop_target(target);
+        }
+        let held = target
+            .and_then(|i| self.items_opt.as_ref()?.get(i)?.path_opt().cloned())
+            .map(DragHover::Item);
+        let mut commands: Vec<Command> = self.set_drag_hover(held).into_iter().collect();
+        let height = self
+            .item_view_size_opt
+            .get()
+            .map_or(0.0, |size| size.height);
+        commands.extend(self.set_drag_auto_scroll(drag_edge_scroll(position.y, height)));
+        commands
+    }
+
+    /// Scroll at `speed` for a file drag near an edge, or stop.
+    fn set_drag_auto_scroll(&mut self, speed: Option<f32>) -> Option<Command> {
+        (speed != self.dnd_auto_scroll).then(|| {
+            self.dnd_auto_scroll = speed;
+            Command::AutoScroll(speed)
+        })
+    }
+
+    /// The drag is now held over `hover` (`None`: over nothing that opens).
+    /// A change starts the timer again: after [`crate::ui::dnd::HOVER_OPEN`]
+    /// the timer's message opens it, unless it has changed again by then.
+    fn set_drag_hover(&mut self, hover: Option<DragHover>) -> Option<Command> {
+        if hover == self.drag_hover {
+            return None;
+        }
+        let starts = hover.is_some();
+        self.drag_hover = hover;
+        self.drag_hover_generation += 1;
+        let generation = self.drag_hover_generation;
+        starts.then(|| {
+            Command::Iced(
+                // Made when the task runs, as it needs the runtime
+                crate::ui::iced::Task::future(async {
+                    tokio::time::sleep(crate::ui::dnd::HOVER_OPEN).await;
+                })
+                .map(move |()| Message::DragHoverElapsed(generation))
+                .into(),
+            )
         })
     }
 
@@ -4609,6 +4723,10 @@ impl Tab {
         }
         self.dnd_ancestor = None;
         self.dnd_source = false;
+        self.dnd_dragged.clear();
+        self.dnd_position = None;
+        self.drag_hover = None;
+        self.drag_hover_generation += 1;
         crate::ui::dnd::end_drag();
     }
 
@@ -5086,6 +5204,39 @@ impl Tab {
                     }
                 }
             }
+            Message::DragHoverElapsed(generation) => {
+                if generation == self.drag_hover_generation {
+                    match self.drag_hover.take() {
+                        Some(DragHover::Item(path)) => {
+                            // The list may have been refreshed under a still
+                            // pointer, moving the folder away: only open it if
+                            // it is what the drag is over now
+                            let scrolled_by = self.scrolled_by();
+                            let under = self
+                                .dnd_position
+                                .map(|p| Point::new(p.x + scrolled_by.x, p.y + scrolled_by.y))
+                                .and_then(|point| self.drop_target(point))
+                                .and_then(|i| self.items_opt.as_ref()?.get(i));
+                            if let Some(item) = under
+                                && item.path_opt() == Some(&path)
+                            {
+                                cd = item.location_opt.clone();
+                            } else if let Some(position) = self.dnd_position {
+                                // Something else is there now: that is held
+                                // over from here on
+                                commands.extend(self.drag_over_list(position));
+                            }
+                        }
+                        Some(DragHover::Ancestor(index)) => {
+                            cd = self
+                                .location_ancestors
+                                .get(index)
+                                .map(|(location, _)| location.clone());
+                        }
+                        None => {}
+                    }
+                }
+            }
             Message::DragEnd => {
                 self.clicked = None;
                 self.watch_drag = true;
@@ -5394,6 +5545,7 @@ impl Tab {
                         ) {
                             self.dnd_source = true;
                             log::debug!("started a file drag of {} path(s)", paths.len());
+                            self.dnd_dragged = paths;
                         }
                     }
                 }
@@ -5410,10 +5562,24 @@ impl Tab {
                     .position
                     .map(|point| Point::new(point.x + scrolled_by.x, point.y + scrolled_by.y))
                     .and_then(|point| self.drop_target(point));
-                if target != self.dnd_target {
-                    self.highlight_drop_target(target);
+                if !dnd.ended {
+                    if let Some(position) = dnd.position {
+                        commands.extend(self.drag_over_list(position));
+                    } else {
+                        // Off the list: no scrolling, and a hold timed here
+                        // ends, though not one a crumb is timing
+                        self.dnd_position = None;
+                        if target != self.dnd_target {
+                            self.highlight_drop_target(target);
+                        }
+                        commands.extend(self.set_drag_auto_scroll(None));
+                        if matches!(self.drag_hover, Some(DragHover::Item(_))) {
+                            commands.extend(self.set_drag_hover(None));
+                        }
+                    }
                 }
                 if dnd.ended {
+                    commands.extend(self.set_drag_auto_scroll(None));
                     if dnd.dropped
                         && dnd.position.is_some()
                         && self.location.supports_paste()
@@ -5432,11 +5598,18 @@ impl Tab {
                 // the segment.
                 if dnd.position.is_some() {
                     self.dnd_ancestor = Some(index);
+                    // Held there, it opens; not the current folder's own crumb
+                    if index > 0 && !dnd.ended {
+                        commands.extend(self.set_drag_hover(Some(DragHover::Ancestor(index))));
+                    }
                 } else if self.dnd_ancestor == Some(index) {
                     // Every segment reports each change, but only the highlighted
                     // segment may clear its highlight. Otherwise, a segment the drag
                     // just left could clear the highlight set by the segment it entered.
                     self.dnd_ancestor = None;
+                    if self.drag_hover == Some(DragHover::Ancestor(index)) {
+                        commands.extend(self.set_drag_hover(None));
+                    }
                 }
                 if dnd.ended {
                     if dnd.dropped && dnd.position.is_some() && self.location.supports_paste() {
@@ -6162,6 +6335,10 @@ impl Tab {
             Message::Scroll(viewport) => {
                 self.scroll_opt = Some(viewport.absolute_offset());
                 self.watch_drag = true;
+                // The list moved under a still file drag: what it is over now
+                if let Some(position) = self.dnd_position {
+                    commands.extend(self.drag_over_list(position));
+                }
             }
             Message::ScrollTab(scroll_speed) => {
                 commands.push(Command::Iced(
@@ -9990,15 +10167,15 @@ mod tests {
         items[0]
             .rect_opt
             .set(Some(Rectangle::new(Point::ORIGIN, Size::new(100.0, 20.0))));
-        items[0].selected = true;
+        let dragged = items[0].path_opt().cloned().expect("the folder has a path");
         let over_it = Point::new(10.0, 10.0);
 
-        // Someone else's drag, or an unselected folder: it takes the drop
+        // Someone else's drag: the folder takes the drop
         assert_eq!(tab.drop_target(over_it), Some(0));
 
         // This tab's drag of it: over itself, the drop goes to the folder it
         // is in, as if on the background
-        tab.dnd_source = true;
+        tab.dnd_dragged = vec![dragged];
         assert_eq!(tab.drop_target(over_it), None);
         Ok(())
     }
@@ -12093,6 +12270,273 @@ mod tests {
             Some(1),
             "scrolled a row down, the same place on screen is the second row"
         );
+        Ok(())
+    }
+
+    #[test]
+    fn a_drag_near_an_edge_scrolls_faster_the_nearer_it_is() {
+        use super::drag_edge_scroll;
+
+        // A list 400 high: zones 0 to 48 and 352 to 400
+        assert_eq!(drag_edge_scroll(0.0, 400.0), Some(-24.0));
+        assert_eq!(drag_edge_scroll(24.0, 400.0), Some(-12.0));
+        assert_eq!(drag_edge_scroll(48.0, 400.0), None);
+        assert_eq!(drag_edge_scroll(200.0, 400.0), None);
+        assert_eq!(drag_edge_scroll(352.0, 400.0), None);
+        assert_eq!(drag_edge_scroll(376.0, 400.0), Some(12.0));
+        assert_eq!(drag_edge_scroll(400.0, 400.0), Some(24.0));
+        // Off the list
+        assert_eq!(drag_edge_scroll(-1.0, 400.0), None);
+        assert_eq!(drag_edge_scroll(401.0, 400.0), None);
+    }
+
+    /// A tab showing two folders, `first` and `second`, each a row 100 high,
+    /// in a view 400 high.
+    fn drag_tab() -> io::Result<(TempDir, Tab)> {
+        use crate::ui::iced::{Point, Rectangle, Size};
+
+        let fs = empty_fs()?;
+        fs::create_dir(fs.path().join("first"))?;
+        fs::create_dir(fs.path().join("second"))?;
+        let location = Location::Path(fs.path().to_owned());
+        let (_parent, items) = location.scan(IconSizes::default());
+        let mut tab = Tab::new(
+            location,
+            TabConfig::default(),
+            ThumbCfg::default(),
+            None,
+            std::borrow::Cow::Borrowed("Undefined"),
+            None,
+        );
+        tab.set_items(items);
+        for (i, item) in tab
+            .items_opt
+            .as_deref()
+            .expect("populated")
+            .iter()
+            .enumerate()
+        {
+            item.rect_opt.set(Some(Rectangle::new(
+                Point::new(0.0, 100.0 + i as f32 * 100.0),
+                Size::new(200.0, 100.0),
+            )));
+        }
+        tab.content_height_opt.set(Some(400.0));
+        tab.item_view_size_opt.set(Some(Size::new(200.0, 400.0)));
+        Ok((fs, tab))
+    }
+
+    fn drag_at(tab: &mut Tab, y: Option<f32>, ended: bool) -> Vec<super::Command> {
+        tab.update(
+            Message::Dnd(crate::mouse_area::DndDrag {
+                position: y.map(|y| crate::ui::iced::Point::new(10.0, y)),
+                dropped: false,
+                ended,
+            }),
+            Modifiers::empty(),
+        )
+    }
+
+    fn goes_to(commands: &[super::Command]) -> Option<PathBuf> {
+        commands.iter().find_map(|command| match command {
+            super::Command::ChangeLocation(_, location, _) => location.path_opt().cloned(),
+            _ => None,
+        })
+    }
+
+    #[test]
+    fn a_drag_held_over_a_folder_opens_it() -> io::Result<()> {
+        let (fs, mut tab) = drag_tab()?;
+        let first = fs.path().join("first");
+
+        // Over `first` (100 to 200): its timer starts
+        drag_at(&mut tab, Some(150.0), false);
+        let generation = tab.drag_hover_generation;
+
+        // A timer from before is stale and opens nothing
+        let stale = tab.update(
+            Message::DragHoverElapsed(generation - 1),
+            Modifiers::empty(),
+        );
+        assert_eq!(goes_to(&stale), None);
+
+        // Still over it when the timer runs out: it opens
+        let opened = tab.update(Message::DragHoverElapsed(generation), Modifiers::empty());
+        assert_eq!(goes_to(&opened), Some(first));
+        Ok(())
+    }
+
+    #[test]
+    fn a_hold_follows_its_folder_through_a_refresh() -> io::Result<()> {
+        let (fs, mut tab) = drag_tab()?;
+        let first = fs.path().join("first");
+
+        // Held over `first`, which is at 0
+        drag_at(&mut tab, Some(150.0), false);
+        let generation = tab.drag_hover_generation;
+
+        // Refreshed with `second` now at 0: the hold is still on `first`
+        let mut items = tab.items_opt.take().expect("populated");
+        items.reverse();
+        tab.set_items(items);
+        let opened = tab.update(Message::DragHoverElapsed(generation), Modifiers::empty());
+        assert_eq!(goes_to(&opened), Some(first.clone()));
+        Ok(())
+    }
+
+    #[test]
+    fn a_hold_whose_folder_moves_from_under_the_pointer_starts_again() -> io::Result<()> {
+        use crate::ui::iced::{Point, Rectangle, Size};
+
+        let (fs, mut tab) = drag_tab()?;
+        let second = fs.path().join("second");
+
+        // Held over `first`, in the row at 100 to 200
+        drag_at(&mut tab, Some(150.0), false);
+        let generation = tab.drag_hover_generation;
+
+        // A refresh sorts `second` into that row and `first` below it, as the
+        // next layout draws them, with the pointer not moving
+        for item in tab.items_opt.as_deref().expect("populated") {
+            let row = if item.path_opt() == Some(&second) {
+                1.0
+            } else {
+                2.0
+            };
+            item.rect_opt.set(Some(Rectangle::new(
+                Point::new(0.0, row * 100.0),
+                Size::new(200.0, 100.0),
+            )));
+        }
+
+        // `first` has moved away: nothing opens, and the hold starts again on
+        // `second`, which is under the pointer now
+        let opened = tab.update(Message::DragHoverElapsed(generation), Modifiers::empty());
+        assert_eq!(goes_to(&opened), None);
+        let restarted = tab.drag_hover_generation;
+        assert_ne!(restarted, generation);
+        let opened = tab.update(Message::DragHoverElapsed(restarted), Modifiers::empty());
+        assert_eq!(goes_to(&opened), Some(second));
+        Ok(())
+    }
+
+    #[test]
+    fn a_hold_over_a_folder_that_goes_opens_nothing() -> io::Result<()> {
+        let (fs, mut tab) = drag_tab()?;
+        let first = fs.path().join("first");
+
+        drag_at(&mut tab, Some(150.0), false);
+        let generation = tab.drag_hover_generation;
+
+        // Refreshed without `first`: `second` takes its place, and is not
+        // what was held over
+        let items: Vec<_> = tab
+            .items_opt
+            .take()
+            .expect("populated")
+            .into_iter()
+            .filter(|item| item.path_opt() != Some(&first))
+            .collect();
+        tab.set_items(items);
+        let opened = tab.update(Message::DragHoverElapsed(generation), Modifiers::empty());
+        assert_eq!(goes_to(&opened), None);
+        Ok(())
+    }
+
+    #[test]
+    fn a_drag_that_moves_on_or_ends_opens_nothing() -> io::Result<()> {
+        let (_fs, mut tab) = drag_tab()?;
+
+        drag_at(&mut tab, Some(150.0), false);
+        let over_first = tab.drag_hover_generation;
+        // On to `second`: the first timer is stale
+        drag_at(&mut tab, Some(250.0), false);
+        let opened = tab.update(Message::DragHoverElapsed(over_first), Modifiers::empty());
+        assert_eq!(goes_to(&opened), None);
+
+        // Ended: the second timer is stale too
+        let over_second = tab.drag_hover_generation;
+        drag_at(&mut tab, None, true);
+        let opened = tab.update(Message::DragHoverElapsed(over_second), Modifiers::empty());
+        assert_eq!(goes_to(&opened), None);
+        Ok(())
+    }
+
+    #[test]
+    fn a_drag_near_the_list_edges_scrolls_and_stops() -> io::Result<()> {
+        let (_fs, mut tab) = drag_tab()?;
+        let scrolls = |commands: &[super::Command]| -> Vec<Option<f32>> {
+            commands
+                .iter()
+                .filter_map(|command| match command {
+                    super::Command::AutoScroll(speed) => Some(*speed),
+                    _ => None,
+                })
+                .collect()
+        };
+
+        assert_eq!(
+            scrolls(&drag_at(&mut tab, Some(24.0), false)),
+            [Some(-12.0)]
+        );
+        // The same speed again says nothing new
+        assert!(scrolls(&drag_at(&mut tab, Some(24.0), false)).is_empty());
+        assert_eq!(scrolls(&drag_at(&mut tab, Some(200.0), false)), [None]);
+        assert_eq!(
+            scrolls(&drag_at(&mut tab, Some(376.0), false)),
+            [Some(12.0)]
+        );
+        // Leaving the list stops it
+        assert_eq!(scrolls(&drag_at(&mut tab, None, false)), [None]);
+        Ok(())
+    }
+
+    #[test]
+    fn a_drag_held_over_a_crumb_opens_that_folder() -> io::Result<()> {
+        let (fs, tab) = drag_tab()?;
+        drop(tab);
+        let first = fs.path().join("first");
+        let mut tab = Tab::new(
+            Location::Path(first.clone()),
+            TabConfig::default(),
+            ThumbCfg::default(),
+            None,
+            std::borrow::Cow::Borrowed("Undefined"),
+            None,
+        );
+        // Crumb 0 is `first` itself, 1 its parent
+        let parent = fs.path().to_owned();
+        let hold = |tab: &mut Tab, index: usize, position: bool| {
+            tab.update(
+                Message::DndAncestor(
+                    index,
+                    PathBuf::new(),
+                    crate::mouse_area::DndDrag {
+                        position: position.then(|| crate::ui::iced::Point::new(1.0, 1.0)),
+                        dropped: false,
+                        ended: false,
+                    },
+                ),
+                Modifiers::empty(),
+            );
+            tab.drag_hover_generation
+        };
+
+        // Its own crumb never opens
+        let own = hold(&mut tab, 0, true);
+        let opened = tab.update(Message::DragHoverElapsed(own), Modifiers::empty());
+        assert_eq!(goes_to(&opened), None);
+
+        // The parent's does
+        let generation = hold(&mut tab, 1, true);
+        let opened = tab.update(Message::DragHoverElapsed(generation), Modifiers::empty());
+        assert_eq!(goes_to(&opened), Some(parent));
+
+        // Left before the timer runs out, it does not
+        let generation = hold(&mut tab, 1, true);
+        hold(&mut tab, 1, false);
+        let opened = tab.update(Message::DragHoverElapsed(generation), Modifiers::empty());
+        assert_eq!(goes_to(&opened), None);
         Ok(())
     }
 
