@@ -14,6 +14,7 @@ use derive_setters::Setters;
 
 #[derive(Setters)]
 pub struct NavBarToggle<Message> {
+    /// Whether the sidebar is shown, which the icon tells
     active: bool,
     #[setters(strip_option)]
     on_toggle: Option<Message>,
@@ -33,20 +34,13 @@ pub const fn nav_bar_toggle<Message>() -> NavBarToggle<Message> {
 
 impl<Message: 'static + Clone> From<NavBarToggle<Message>> for Element<'_, Message> {
     fn from(nav_bar_toggle: NavBarToggle<Message>) -> Self {
-        // Standard names (GNOME 45+ and most themes), with older spellings as
-        // fallbacks; the COSMIC-only `navbar-*` names exist in no other theme
+        // The header's outlines: the pane, or the pane folded away
         let icon = if nav_bar_toggle.active {
-            "sidebar-hide-symbolic"
+            widget::icon::line::SIDEBAR_SHOWN
         } else {
-            "sidebar-show-symbolic"
+            widget::icon::line::SIDEBAR_HIDDEN
         };
-        let mut named = widget::icon::from_name(icon);
-        named.fallback = Some(widget::icon::IconFallback::Names(vec![
-            "view-sidebar-symbolic".into(),
-            "open-menu-symbolic".into(),
-        ]));
-
-        widget::button::icon(named)
+        widget::button::icon(widget::icon::line::handle(icon))
             .padding([8, 16])
             .on_press_maybe(nav_bar_toggle.on_toggle)
             .selected(nav_bar_toggle.selected)

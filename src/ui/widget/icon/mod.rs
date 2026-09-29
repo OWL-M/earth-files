@@ -11,6 +11,8 @@ use std::sync::Arc;
 
 pub use named::{IconFallback, Named};
 
+pub mod line;
+
 mod handle;
 pub use handle::{Data, Handle, from_path, from_raster_bytes, from_raster_pixels, from_svg_bytes};
 

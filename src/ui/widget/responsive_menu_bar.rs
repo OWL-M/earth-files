@@ -133,7 +133,7 @@ impl ResponsiveMenuBar {
                 id_container(
                     menu::bar(vec![menu::Tree::<_>::with_children(
                         Element::from(
-                            button::icon(icon::from_name("open-menu-symbolic"))
+                            button::icon(icon::line::handle(icon::line::MENU))
                                 .padding([4, 12])
                                 .class(crate::ui::theme::Button::MenuRoot),
                         ),
@@ -165,5 +165,119 @@ impl ResponsiveMenuBar {
             .size(menu_bar_size.unwrap().1)
             .apply(Element::from)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::ui::Element;
+    use crate::ui::iced::{Rectangle, Size};
+    use crate::ui::iced_core::widget::{Id, Operation};
+    use crate::ui::iced_core::{Event, clipboard, mouse, window};
+    use crate::ui::iced_runtime::user_interface::{Cache, UserInterface};
+    use crate::ui::widget::{icon, menu};
+
+    fn header(core: &'static crate::ui::shell::Core) -> Element<'static, crate::app::Message> {
+        let key_binds: &'static _ = Box::leak(Box::new(std::collections::HashMap::new()));
+        let trees: Vec<(String, Vec<menu::Item<crate::app::Action, String>>)> =
+            ["File", "Edit", "View", "Sort"]
+                .into_iter()
+                .map(|name| {
+                    (
+                        name.to_string(),
+                        vec![menu::Item::Button(
+                            "New tab".to_string(),
+                            None,
+                            crate::app::Action::TabNew,
+                        )],
+                    )
+                })
+                .collect();
+        let bar = super::responsive_menu_bar()
+            .item_height(menu::ItemHeight::Dynamic(40))
+            .item_width(menu::ItemWidth::Uniform(360))
+            .spacing(2.0)
+            .into_element(core, key_binds, "menu", crate::app::Message::Surface, trees);
+        let pill: Element<'_, crate::app::Message> = crate::ui::widget::container(bar)
+            .padding(2)
+            .class(crate::ui::theme::Container::Pill)
+            .into();
+        crate::ui::widget::header_bar()
+            .focused(true)
+            .start(crate::ui::widget::nav_bar_toggle().on_toggle(crate::app::Message::None))
+            .start(pill)
+            .end(
+                crate::ui::widget::button::icon(icon::line::handle(icon::line::SEARCH))
+                    .on_press(crate::app::Message::None)
+                    .padding(8),
+            )
+            .on_minimize(crate::app::Message::None)
+            .on_maximize(crate::app::Message::None)
+            .on_close(crate::app::Message::None)
+            .into()
+    }
+
+    struct Find(Vec<(Id, Rectangle)>);
+    impl Operation for Find {
+        fn traverse(&mut self, operate: &mut dyn FnMut(&mut dyn Operation)) {
+            operate(self);
+        }
+        fn container(&mut self, id: Option<&Id>, bounds: Rectangle) {
+            if let Some(id) = id {
+                self.0.push((id.clone(), bounds));
+            }
+        }
+    }
+
+    /// The bar is drawn expanded first, finds it does not fit, and folds on
+    /// a later frame, keeping the widget tree it had: as in the app.
+    #[test]
+    fn a_bar_that_folds_lays_its_button_out_whole() {
+        let mut core = crate::ui::shell::Core::default();
+        let mut renderer = iced_texture_cache::testing::headless_tiny_skia();
+        let mut cache = Cache::default();
+        let mut folded = None;
+        for _frame in 0..3 {
+            let core_ref: &'static _ = Box::leak(Box::new(core.clone()));
+            let mut ui = UserInterface::build(
+                header(core_ref),
+                Size::new(298.0, 47.0),
+                cache,
+                &mut renderer,
+            );
+            let mut messages = Vec::new();
+            let _ = ui.update(
+                &[Event::Window(window::Event::RedrawRequested(
+                    std::time::Instant::now(),
+                ))],
+                mouse::Cursor::Unavailable,
+                &mut renderer,
+                &mut clipboard::Null,
+                &mut messages,
+            );
+            let mut find = Find(Vec::new());
+            ui.operate(&renderer, &mut find);
+            folded = find
+                .0
+                .into_iter()
+                .find(|(id, _)| *id == Id::new("menu_bar_collapsed_menu"))
+                .map(|(_, bounds)| bounds);
+            cache = ui.into_cache();
+            for message in messages {
+                if let crate::app::Message::Surface(
+                    crate::ui::surface::Action::ResponsiveMenuBar {
+                        menu_bar,
+                        limits,
+                        size,
+                    },
+                ) = message
+                {
+                    core.menu_bars.insert(menu_bar, (limits, size));
+                }
+            }
+        }
+        let folded = folded.expect("the bar folds");
+        // 16 of icon in 12 + 12 by 4 + 4 of padding
+        assert_eq!((folded.width, folded.height), (40.0, 24.0));
     }
 }

@@ -1389,7 +1389,7 @@ impl Application for App {
                 // its own beside the button that clears the search.
                 elements.extend(self.search_scope_button());
                 elements.push(
-                    widget::button::icon(widget::icon::from_name("system-search-symbolic"))
+                    widget::button::icon(widget::icon::line::handle(widget::icon::line::SEARCH))
                         .on_press(Message::SearchClear)
                         .padding(8)
                         .selected(true)
@@ -1407,7 +1407,7 @@ impl Application for App {
             }
         } else {
             elements.push(
-                widget::button::icon(widget::icon::from_name("system-search-symbolic"))
+                widget::button::icon(widget::icon::line::handle(widget::icon::line::SEARCH))
                     .on_press(Message::SearchActivate)
                     .padding(8)
                     .into(),

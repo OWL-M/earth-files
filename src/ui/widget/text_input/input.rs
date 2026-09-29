@@ -96,11 +96,13 @@ where
         .padding([0, spacing])
         .style(crate::ui::theme::TextInput::Search)
         .leading_icon(
-            crate::ui::widget::icon::from_name("system-search-symbolic")
-                .size(16)
-                .apply(crate::ui::widget::container)
-                .padding(8)
-                .into(),
+            crate::ui::widget::icon::icon(crate::ui::widget::icon::line::handle(
+                crate::ui::widget::icon::line::SEARCH,
+            ))
+            .size(16)
+            .apply(crate::ui::widget::container)
+            .padding(8)
+            .into(),
         )
 }
 /// Creates a new secure [`TextInput`].

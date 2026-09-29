@@ -446,7 +446,11 @@ where
             }
 
             widgets
-        });
+        })
+        // The layers above take this row's size (see `panel_slide::layers`).
+        // Condensed, nothing is built beside a sidebar at rest, so without
+        // this the row, and with it the sidebar, would be no height at all.
+        .height(Length::Fill);
 
         // Always a three-layer stack, so the panels' layers never change the
         // shape of the tree above the main content. The layers above it hold
@@ -661,5 +665,102 @@ where
         // The daemon's `.title(..)` closure supplies the compositor with the
         // title from the `title` map.
         Task::none()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ui::iced::{Rectangle, Size};
+    use crate::ui::iced_core::widget::{Id, Operation};
+    use crate::ui::iced_runtime::user_interface::{Cache, UserInterface};
+
+    /// An app with a sidebar of two places and nothing else.
+    struct SidebarApp {
+        core: Core,
+        nav: segmented_button::SingleSelectModel,
+    }
+
+    impl Application for SidebarApp {
+        type Flags = ();
+        type Message = ();
+        const APP_ID: &'static str = "test.Sidebar";
+
+        fn core(&self) -> &Core {
+            &self.core
+        }
+        fn core_mut(&mut self) -> &mut Core {
+            &mut self.core
+        }
+        fn init(core: Core, (): ()) -> (Self, Task<()>) {
+            let nav = segmented_button::ModelBuilder::default()
+                .insert(|b| b.text("Home"))
+                .insert(|b| b.text("Documents"))
+                .build();
+            (Self { core, nav }, Task::none())
+        }
+        fn nav_model(&self) -> Option<&segmented_button::SingleSelectModel> {
+            Some(&self.nav)
+        }
+        fn nav_bar(&self) -> Option<Element<'_, crate::ui::Action<()>>> {
+            Some(
+                crate::ui::widget::nav_bar(&self.nav, |entity| {
+                    crate::ui::Action::Cosmic(crate::ui::app::Action::NavBar(entity))
+                })
+                .into(),
+            )
+        }
+        fn view(&self) -> Element<'_, ()> {
+            crate::ui::widget::text("the file list").into()
+        }
+    }
+
+    fn bounds_of(app: &SidebarApp, window: Size, id: &'static str) -> Option<Rectangle> {
+        struct Find(&'static str, Option<Rectangle>);
+        impl Operation for Find {
+            fn traverse(&mut self, operate: &mut dyn FnMut(&mut dyn Operation)) {
+                operate(self);
+            }
+            fn container(&mut self, id: Option<&Id>, bounds: Rectangle) {
+                if id == Some(&Id::new(self.0)) {
+                    self.1 = Some(bounds);
+                }
+            }
+        }
+        let mut renderer = iced_texture_cache::testing::headless_tiny_skia();
+        let mut ui = UserInterface::build(app.view_main(), window, Cache::default(), &mut renderer);
+        let mut find = Find(id, None);
+        ui.operate(&renderer, &mut find);
+        find.1
+    }
+
+    /// The sidebar's height at rest and shown, in a window `width` wide,
+    /// opened the way that width opens it.
+    fn nav_height_at_rest(width: f32) -> f32 {
+        let (mut app, _) = SidebarApp::init(Core::default(), ());
+        let window = Size::new(width, 600.0);
+        app.core.set_window_width(window.width);
+        if app.core.is_condensed() {
+            app.core.nav_bar_set_toggled_condensed(true);
+        }
+        assert!(app.core.nav_bar_active(), "the sidebar is shown");
+        // The first look latches the slide at rest, shown
+        app.core
+            .nav_slide
+            .sync(true, app.core.is_condensed(), 0.0, false);
+        assert!(!app.core.nav_slide.is_moving());
+        bounds_of(&app, window, "COSMIC_nav_bar")
+            .expect("the sidebar is laid out")
+            .height
+    }
+
+    #[test]
+    fn a_condensed_sidebar_at_rest_keeps_its_height() {
+        // Condensed, nothing is built beside a sidebar at rest; the layers
+        // above take the content row's size, so it must fill the window
+        // rather than shrink to its empty slot
+        let condensed = nav_height_at_rest(500.0);
+        assert!(condensed > 0.0, "the condensed sidebar is {condensed} high");
+        assert_eq!(condensed, nav_height_at_rest(1200.0));
     }
 }

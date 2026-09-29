@@ -7262,29 +7262,22 @@ impl Tab {
     pub fn header_view(&self) -> Element<'_, Message> {
         let Spacing { space_xxs, .. } = spacing();
 
-        // Thin chevrons, drawn here rather than taken from the icon theme,
-        // whose arrows vary and mostly have a shaft
-        const PREVIOUS: &[u8] = br#"<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16"><path d="M10 3 5 8l5 5" fill="none" stroke="black" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>"#;
-        const NEXT: &[u8] = br#"<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16"><path d="m6 3 5 5-5 5" fill="none" stroke="black" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>"#;
-
         // 30 by 28, in a pill 2 px around them
         let history_button = |svg: &'static [u8], message: Option<Message>| {
-            widget::button::custom(
-                widget::icon::icon(widget::icon::from_svg_bytes(svg).symbolic(true)).size(16),
-            )
-            .padding([6, 7])
-            .class(Button::Icon)
-            .on_press_maybe(message)
+            widget::button::custom(widget::icon::icon(widget::icon::line::handle(svg)).size(16))
+                .padding([6, 7])
+                .class(Button::Icon)
+                .on_press_maybe(message)
         };
         let history = widget::container(
             widget::Row::with_children([
                 history_button(
-                    PREVIOUS,
+                    widget::icon::line::PREVIOUS,
                     (self.history_i > 0 && !self.history.is_empty()).then_some(Message::GoPrevious),
                 )
                 .into(),
                 history_button(
-                    NEXT,
+                    widget::icon::line::NEXT,
                     (self.history_i + 1 < self.history.len()).then_some(Message::GoNext),
                 )
                 .into(),

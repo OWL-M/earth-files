@@ -544,6 +544,11 @@ where
     }
 
     fn diff(&self, tree: &mut Tree) {
+        // The bar's own children, which `layout` and `draw` read, as well as
+        // the popups' tree below: a bar whose roots change (the menus folding
+        // into one button) would otherwise lay the new roots out against the
+        // old ones' state
+        menu_roots_diff(&self.menu_roots, tree);
         let state = tree.state.downcast_mut::<MenuBarState>();
         // A popup collapsing out keeps a state of its own, so this one never
         // has to wait for it: see `detach`.

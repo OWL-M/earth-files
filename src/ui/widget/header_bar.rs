@@ -488,8 +488,8 @@ impl<'a, Message: Clone + 'static> HeaderBar<'a, Message> {
     /// Creates the widget for window controls.
     fn window_controls(&mut self, spacing: u16) -> Element<'a, Message> {
         macro_rules! icon {
-            ($name:expr, $size:expr, $on_press:expr) => {{
-                widget::icon::from_name($name)
+            ($svg:expr, $size:expr, $on_press:expr) => {{
+                widget::icon::line::handle($svg)
                     .apply(widget::button::icon)
                     .padding(8)
                     .class(theme::Button::HeaderBar)
@@ -503,19 +503,19 @@ impl<'a, Message: Clone + 'static> HeaderBar<'a, Message> {
             .push_maybe(
                 self.on_minimize
                     .take()
-                    .map(|m| icon!("window-minimize-symbolic", 16, m)),
+                    .map(|m| icon!(widget::icon::line::MINIMIZE, 16, m)),
             )
-            .push_maybe(self.on_maximize.take().map(|m| {
-                if self.maximized {
-                    icon!("window-restore-symbolic", 16, m)
-                } else {
-                    icon!("window-maximize-symbolic", 16, m)
-                }
-            }))
+            // One icon either way: whether the window is maximized is not
+            // reliably known (see `Core::is_maximized`)
+            .push_maybe(
+                self.on_maximize
+                    .take()
+                    .map(|m| icon!(widget::icon::line::MAXIMIZE, 16, m)),
+            )
             .push_maybe(
                 self.on_close
                     .take()
-                    .map(|m| icon!("window-close-symbolic", 16, m)),
+                    .map(|m| icon!(widget::icon::line::CLOSE, 16, m)),
             )
             .spacing(spacing.to_pixels())
             .align_y(iced::Alignment::Center)

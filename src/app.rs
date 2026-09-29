@@ -7593,7 +7593,7 @@ impl Application for App {
                 // it a narrow window could not widen a search at all.
                 elements.extend(self.search_scope_button());
                 elements.push(
-                    widget::button::icon(icon::from_name("system-search-symbolic"))
+                    widget::button::icon(icon::line::handle(icon::line::SEARCH))
                         .on_press(Message::SearchClear)
                         .padding(8)
                         .selected(true)
@@ -7612,7 +7612,7 @@ impl Application for App {
             }
         } else {
             elements.push(
-                widget::button::icon(icon::from_name("system-search-symbolic"))
+                widget::button::icon(icon::line::handle(icon::line::SEARCH))
                     .on_press(Message::SearchActivate)
                     .padding(8)
                     .into(),
