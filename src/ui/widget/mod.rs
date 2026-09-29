@@ -106,6 +106,8 @@ pub mod measure_height;
 pub use measure_height::{MeasureHeight, measure_height};
 pub mod spring_height;
 pub use spring_height::{SpringHeight, spring_height};
+pub mod spring_width;
+pub use spring_width::{SpringWidth, spring_width};
 
 pub mod settle_watch;
 pub use settle_watch::{SettleWatch, settle_watch};

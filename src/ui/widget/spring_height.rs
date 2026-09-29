@@ -33,14 +33,14 @@ use iced_texture_cache::iced_animate::{Spring, SpringParams};
 use crate::ui::{Renderer, Theme};
 
 /// How the height moves: a small overshoot, then it settles.
-const SPRING: SpringParams = SpringParams::new(0.25, Duration::from_millis(300));
+pub(super) const SPRING: SpringParams = SpringParams::new(0.25, Duration::from_millis(300));
 
 /// How close to its target the height has to be to stop, in pixels.
-const SETTLED: f32 = 0.5;
+pub(super) const SETTLED: f32 = 0.5;
 
 /// A frame longer than this is advanced as this, so a stall resumes the
 /// motion where it stopped instead of landing it in one step.
-const MAX_FRAME: f32 = 1.0 / 15.0;
+pub(super) const MAX_FRAME: f32 = 1.0 / 15.0;
 
 /// Wraps `content` so its height springs to fit it. See the
 /// [module documentation](self).
@@ -50,6 +50,7 @@ pub fn spring_height<'a, Message>(
     SpringHeight {
         content: content.into(),
         collapsed: false,
+        on_collapsed: None,
     }
 }
 
@@ -57,6 +58,7 @@ pub fn spring_height<'a, Message>(
 pub struct SpringHeight<'a, Message> {
     content: Element<'a, Message, Theme, Renderer>,
     collapsed: bool,
+    on_collapsed: Option<Message>,
 }
 
 impl<Message> SpringHeight<'_, Message> {
@@ -69,6 +71,14 @@ impl<Message> SpringHeight<'_, Message> {
         self.collapsed = collapsed;
         self
     }
+
+    /// Publishes `message` once the box has sprung shut and come to rest,
+    /// so the caller knows it can remove it.
+    #[must_use]
+    pub fn on_collapsed(mut self, message: Message) -> Self {
+        self.on_collapsed = Some(message);
+        self
+    }
 }
 
 #[derive(Default)]
@@ -77,6 +87,8 @@ struct State {
     spring: Option<Spring>,
     /// When the last frame advanced the spring; `None` while it is at rest.
     last_frame: Option<Instant>,
+    /// Whether `on_collapsed` was published for the current collapse.
+    collapse_published: bool,
 }
 
 impl State {
@@ -203,6 +215,14 @@ impl<Message> Widget<Message, Theme, Renderer> for SpringHeight<'_, Message> {
                     shell.request_redraw();
                 }
             }
+            if !self.collapsed {
+                state.collapse_published = false;
+            } else if !state.is_moving() && !state.collapse_published {
+                state.collapse_published = true;
+                if let Some(message) = self.on_collapsed.take() {
+                    shell.publish(message);
+                }
+            }
         }
 
         self.content.as_widget_mut().update(
@@ -282,7 +302,7 @@ impl<Message> Widget<Message, Theme, Renderer> for SpringHeight<'_, Message> {
 /// The cursor as the content may see it: only over the part revealed. A
 /// `Levitating` cursor (e.g. over another layer) is landed first, so it is
 /// still treated as over the box when it is.
-fn revealed(cursor: mouse::Cursor, bounds: Rectangle) -> mouse::Cursor {
+pub(super) fn revealed(cursor: mouse::Cursor, bounds: Rectangle) -> mouse::Cursor {
     if cursor.land().is_over(bounds) {
         cursor
     } else {
@@ -309,12 +329,16 @@ mod tests {
 
     /// A 100 px wide column of `rows` rows, 20 px each, that publishes on a
     /// press, inside a box whose height springs.
-    fn rows(rows: usize, collapsed: bool) -> Element<'static, (), Theme, Renderer> {
+    fn rows(rows: usize, collapsed: bool, notify: bool) -> Element<'static, (), Theme, Renderer> {
         let rows = space::vertical()
             .width(Length::Fixed(100.0))
             .height(Length::Fixed(20.0 * rows as f32));
         let content = id_container(mouse_area(rows).on_press(()), Id::new("content"));
-        id_container(spring_height(content).collapsed(collapsed), Id::new("box")).into()
+        let mut spring = spring_height(content).collapsed(collapsed);
+        if notify {
+            spring = spring.on_collapsed(());
+        }
+        id_container(spring, Id::new("box")).into()
     }
 
     struct Harness {
@@ -323,6 +347,8 @@ mod tests {
         collapsed: bool,
         /// Whether the box is shown as a popover's popup instead of inline.
         popup: bool,
+        /// Whether the box publishes once it has sprung shut.
+        notify: bool,
         published: usize,
         redraw: bool,
         layout_changed: bool,
@@ -338,6 +364,7 @@ mod tests {
                 rows,
                 collapsed: false,
                 popup: false,
+                notify: false,
                 published: 0,
                 redraw: false,
                 layout_changed: false,
@@ -352,10 +379,10 @@ mod tests {
             if self.popup {
                 crate::ui::widget::popover(space::horizontal().width(Length::Fixed(100.0)))
                     .position(crate::ui::widget::popover::Position::Bottom)
-                    .popup(rows(self.rows, self.collapsed))
+                    .popup(rows(self.rows, self.collapsed, self.notify))
                     .into()
             } else {
-                rows(self.rows, self.collapsed)
+                rows(self.rows, self.collapsed, self.notify)
             }
         }
 
@@ -463,6 +490,22 @@ mod tests {
             seen.iter().any(|h| *h > 0.0 && *h < 100.0),
             "animated: {seen:?}"
         );
+    }
+
+    #[test]
+    fn once_shut_it_says_so_once() {
+        let mut harness = Harness::new(5);
+        harness.notify = true;
+        let _ = harness.settle();
+        assert_eq!(harness.published, 0, "open");
+
+        harness.collapsed = true;
+        harness.frame();
+        assert_eq!(harness.published, 0, "still closing");
+        let _ = harness.settle();
+        assert_eq!(harness.published, 1, "shut");
+        harness.frame();
+        assert_eq!(harness.published, 1, "once");
     }
 
     #[test]

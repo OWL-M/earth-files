@@ -468,6 +468,8 @@ pub enum Message {
     ScrollTab(i16),
     SearchActivate,
     SearchClear,
+    /// The search field has sprung shut after the search ended.
+    SearchClosed,
     SearchInput(String),
     SearchSubmit,
     SetShowDetails(bool),
@@ -875,6 +877,9 @@ pub struct App {
     undo_ids: BTreeSet<u64>,
     scrollable_name: std::borrow::Cow<'static, str>,
     search_id: widget::Id,
+    /// The tab whose search just ended, with its last term: its field stays
+    /// in the header, springing shut, until `SearchClosed`.
+    search_closing: Option<(Entity, String)>,
     size: Option<Size>,
     toasts: widget::toaster::Toasts<Message>,
     watcher_opt: Option<(
@@ -2268,6 +2273,32 @@ impl App {
             .into()
     }
 
+    /// The header's search field, springing open to the left out of the
+    /// search button it replaces, or, `closing`, back into it.
+    fn search_field<'a>(&'a self, term: &'a str, closing: bool) -> Element<'a, Message> {
+        // The search button: a 16 px icon with 8 px of padding around it.
+        const SEARCH_BUTTON_WIDTH: f32 = 32.0;
+
+        widget::spring_width(
+            SEARCH_BUTTON_WIDTH,
+            search_text_input(&self.search_id, term, closing)
+                .width(Length::Fixed(240.0))
+                .trailing_icon(self.search_trailing()),
+        )
+        .collapsed(closing)
+        .on_collapsed(Message::SearchClosed)
+        .into()
+    }
+
+    /// The last term of the active tab's search while its field springs
+    /// shut, after the search ended.
+    fn search_closing_term(&self) -> Option<&str> {
+        self.search_closing
+            .as_ref()
+            .filter(|(entity, _)| *entity == self.tab_model.active())
+            .map(|(_, term)| term.as_str())
+    }
+
     fn search_get(&self) -> Option<&str> {
         let entity = self.tab_model.active();
         let tab = self.tab_model.data::<Tab>(entity)?;
@@ -2279,6 +2310,10 @@ impl App {
 
     fn search_set_active(&mut self, term_opt: Option<String>) -> Task<Message> {
         let entity = self.tab_model.active();
+        self.search_closing = match (&term_opt, self.search_get()) {
+            (None, Some(term)) => Some((entity, term.to_owned())),
+            _ => None,
+        };
         self.search_set(entity, term_opt, None, true)
     }
 
@@ -3278,6 +3313,7 @@ impl Application for App {
             undo_ids: BTreeSet::new(),
             scrollable_name: std::borrow::Cow::Borrowed("File Scrollable"),
             search_id: widget::Id::new("File Search"),
+            search_closing: None,
             size: None,
             toasts: widget::toaster::Toasts::new(Message::CloseToast),
             watcher_opt: None,
@@ -5526,6 +5562,9 @@ impl Application for App {
             Message::SearchClear => {
                 return self.search_set_active(None);
             }
+            Message::SearchClosed => {
+                self.search_closing = None;
+            }
             Message::SearchInput(input) => {
                 return self.search_set_active(Some(input));
             }
@@ -7586,6 +7625,7 @@ impl Application for App {
     fn header_end(&self) -> Vec<Element<'_, Self::Message>> {
         let mut elements = Vec::with_capacity(2);
 
+        let closing = self.search_closing_term();
         if let Some(term) = self.search_get() {
             if self.core.is_condensed() {
                 // The field itself is collapsed here, so the eye stands on
@@ -7600,16 +7640,10 @@ impl Application for App {
                         .into(),
                 );
             } else {
-                elements.push(
-                    widget::text_input::search_input("", term)
-                        .width(Length::Fixed(240.0))
-                        .id(self.search_id.clone())
-                        .trailing_icon(self.search_trailing())
-                        .on_input(Message::SearchInput)
-                        .on_submit(|_| Message::SearchSubmit)
-                        .into(),
-                );
+                elements.push(self.search_field(term, false));
             }
+        } else if let Some(term) = closing.filter(|_| !self.core.is_condensed()) {
+            elements.push(self.search_field(term, true));
         } else {
             elements.push(
                 widget::button::icon(icon::line::handle(icon::line::SEARCH))
@@ -7630,20 +7664,23 @@ impl Application for App {
 
         let mut tab_column = widget::Column::with_capacity(4);
 
-        if self.core.is_condensed()
-            && let Some(term) = self.search_get()
-        {
-            tab_column = tab_column.push(
-                widget::container(
-                    widget::text_input::search_input("", term)
-                        .width(Length::Fill)
-                        .id(self.search_id.clone())
-                        .on_clear(Message::SearchClear)
-                        .on_input(Message::SearchInput)
-                        .on_submit(|_| Message::SearchSubmit),
-                )
-                .padding(space_xxs),
-            );
+        if self.core.is_condensed() {
+            let open = self.search_get();
+            if let Some(term) = open.or(self.search_closing_term()) {
+                let closing = open.is_none();
+                let mut input =
+                    search_text_input(&self.search_id, term, closing).width(Length::Fill);
+                if !closing {
+                    input = input.on_clear(Message::SearchClear);
+                }
+                // Unrolls under the header, and rolls back up once the
+                // search ends.
+                tab_column = tab_column.push(
+                    widget::spring_height(widget::container(input).padding(space_xxs))
+                        .collapsed(closing)
+                        .on_collapsed(Message::SearchClosed),
+                );
+            }
         }
 
         if self.tab_model.len() > 1 {
@@ -8204,9 +8241,82 @@ fn main_window_closed(core: &mut Core, id: window::Id) -> bool {
     true
 }
 
+/// The search field's input. `closing`, once its search has ended and it
+/// springs shut, it takes no input: without `on_input` it lets go of the
+/// focus, so keys go to type-to-search again instead of reopening the old
+/// term.
+fn search_text_input<'a>(
+    id: &widget::Id,
+    term: &'a str,
+    closing: bool,
+) -> widget::TextInput<'a, Message> {
+    let input = widget::text_input::search_input("", term).id(id.clone());
+    if closing {
+        input
+    } else {
+        input
+            .on_input(Message::SearchInput)
+            .on_submit(|_| Message::SearchSubmit)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Clearing a focused search and typing at once, while its field springs
+    /// shut: the keys do not reach the old term.
+    #[test]
+    fn a_closing_search_field_takes_no_keys() {
+        use crate::ui::iced_core::keyboard::{self, Key, key};
+        use crate::ui::iced_core::widget::operation::focusable;
+        use crate::ui::iced_core::{Event, Size, clipboard, mouse};
+        use crate::ui::iced_runtime::user_interface::{Cache, UserInterface};
+
+        let id = widget::Id::new("search");
+        let mut renderer = iced_texture_cache::testing::headless_tiny_skia();
+        let window = Size::new(400.0, 100.0);
+        let press = |text: &str| {
+            Event::Keyboard(keyboard::Event::KeyPressed {
+                key: Key::Character(text.into()),
+                modified_key: Key::Character(text.into()),
+                physical_key: key::Physical::Code(key::Code::KeyA),
+                location: keyboard::Location::Standard,
+                modifiers: keyboard::Modifiers::empty(),
+                text: Some(text.into()),
+                repeat: false,
+            })
+        };
+        let view: Element<'_, Message> = search_text_input(&id, "old", false).into();
+        let mut ui = UserInterface::build(view, window, Cache::default(), &mut renderer);
+        ui.operate(&renderer, &mut focusable::focus(id.clone()));
+        let cache = ui.into_cache();
+
+        let mut send = |cache: Cache, closing: bool, event: Event| {
+            let view: Element<'_, Message> = search_text_input(&id, "old", closing).into();
+            let mut ui = UserInterface::build(view, window, cache, &mut renderer);
+            let mut messages = Vec::new();
+            let _ = ui.update(
+                &[event],
+                mouse::Cursor::Unavailable,
+                &mut renderer,
+                &mut clipboard::Null,
+                &mut messages,
+            );
+            (ui.into_cache(), messages)
+        };
+
+        let (cache, messages) = send(cache, false, press("x"));
+        assert!(
+            matches!(messages.as_slice(), [Message::SearchInput(term)] if term == "oldx"),
+            "open, it takes keys: {messages:?}"
+        );
+
+        let (cache, messages) = send(cache, true, press("a"));
+        assert!(messages.is_empty(), "closing: {messages:?}");
+        let (_, messages) = send(cache, true, press("b"));
+        assert!(messages.is_empty(), "still closing: {messages:?}");
+    }
 
     /// The action card's height for `action`, laid out on its own, and the
     /// room it recorded for the tab to keep under its files.
