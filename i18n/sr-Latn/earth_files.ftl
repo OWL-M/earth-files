@@ -111,3 +111,10 @@ failed-operations-title = {$count ->
     [few] {$count} operacije nisu uspele
     *[other] {$count} operacija nije uspelo
   }
+merge = Spoji
+replace-folder-warning = Da li želite da ih spojite ili da zamenite fasciklu koja se tu nalazi? Zamena će je poslati u otpad.
+folder-totals = { $files ->
+    [one] { $files } datoteka, { $size }
+    [few] { $files } datoteke, { $size }
+   *[other] { $files } datoteka, { $size }
+}

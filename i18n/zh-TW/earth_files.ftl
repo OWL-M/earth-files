@@ -80,6 +80,11 @@ original-file = 原始檔案
 replace-with = 取代為
 apply-to-all = 套用至全部
 keep-both = 保留兩者
+merge = 合併
+replace-folder-warning = 你要合併它們，還是取代該處已有的資料夾？取代會將其移至垃圾桶。
+folder-totals = { $files ->
+   *[other] { $files } 個檔案，{ $size }
+}
 skip = 跳過
 
 ## Metadata Dialog

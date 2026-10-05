@@ -156,6 +156,12 @@ original-file = Originaldatei
 replace-with = Ersetzen mit
 apply-to-all = Auf alle anwenden
 keep-both = Beide behalten
+merge = Zusammenführen
+replace-folder-warning = Möchtest du sie zusammenführen oder den vorhandenen Ordner ersetzen? Beim Ersetzen wird er in den Papierkorb verschoben.
+folder-totals = { $files ->
+    [one] { $files } Datei, { $size }
+   *[other] { $files } Dateien, { $size }
+}
 skip = Überspringen
 
 ## Dialog zum Festlegen als ausführbar und starten

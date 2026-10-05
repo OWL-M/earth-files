@@ -340,6 +340,16 @@ original-file = الملف الأصلي
 replace-with = استبدل بـ
 apply-to-all = طبِّق على الكلّ
 keep-both = احتفظ بكليهما
+merge = ادمج
+replace-folder-warning = هل تريد دمجهما، أم استبدال المجلد الموجود؟ استبداله سيرسله إلى المهملات.
+folder-totals = { $files ->
+    [zero] لا ملفات، { $size }
+    [one] ملف واحد، { $size }
+    [two] ملفان، { $size }
+    [few] { $files } ملفات، { $size }
+    [many] { $files } ملفًا، { $size }
+   *[other] { $files } ملف، { $size }
+}
 skip = تخطَّ
 set-executable-and-launch = عيِّن كقابل للتنفيذ وشغِّل
 set-and-launch = عيِّن وشغِّل

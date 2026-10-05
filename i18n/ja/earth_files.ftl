@@ -83,6 +83,11 @@ original-file = 元のファイル
 replace-with = これで置き換える：
 apply-to-all = 全てに適用
 keep-both = 両方を保管
+merge = マージ
+replace-folder-warning = マージしますか？それとも、そこにあるフォルダを置き換えますか？置き換えると、フォルダはゴミ箱に移動されます。
+folder-totals = { $files ->
+   *[other] { $files }個のファイル、{ $size }
+}
 skip = スキップ
 
 ## Metadata Dialog

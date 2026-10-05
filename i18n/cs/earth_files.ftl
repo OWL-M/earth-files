@@ -237,6 +237,14 @@ replace-warning-operation = Chcete soubor nahradit? Nahrazení přepíše veške
 original-file = Původní soubor
 replace-with = Nahradit za
 keep-both = Ponechat oba
+merge = Sloučit
+replace-folder-warning = Chcete je sloučit, nebo nahradit složku, která tam je? Nahrazením se přesune do koše.
+folder-totals = { $files ->
+    [one] { $files } soubor, { $size }
+    [few] { $files } soubory, { $size }
+    [many] { $files } souboru, { $size }
+   *[other] { $files } souborů, { $size }
+}
 skip = Přeskočit
 set-executable-and-launch = Povolit spouštění a spustit
 set-executable-and-launch-description = Chcete povolit spouštění souboru „{ $name }“ a následně ho spustit?

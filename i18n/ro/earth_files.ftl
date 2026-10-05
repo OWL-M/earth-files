@@ -174,6 +174,13 @@ original-file = Fișier original
 replace-with = Înlocuiește cu
 apply-to-all = Aplică la toate
 keep-both = Păstrează ambele
+merge = Îmbină
+replace-folder-warning = Dorești să le îmbini sau să înlocuiești dosarul existent? Înlocuirea îl va muta în coșul de gunoi.
+folder-totals = { $files ->
+    [one] { $files } fișier, { $size }
+    [few] { $files } fișiere, { $size }
+   *[other] { $files } de fișiere, { $size }
+}
 skip = Omitere
 
 ## Set as Executable and Launch Dialog

@@ -56,3 +56,9 @@ failed-operations-title = {$count ->
     [one] Operasjonen mislukkast
     *[other] {$count} operasjonar mislukkast
   }
+merge = Slå saman
+replace-folder-warning = Vil du slå dei saman, eller erstatte mappa som ligg der? Når du erstattar mappa, blir ho flytta til papirkorga.
+folder-totals = { $files ->
+    [one] { $files } fil, { $size }
+   *[other] { $files } filer, { $size }
+}

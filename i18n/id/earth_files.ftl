@@ -137,6 +137,11 @@ replace-with = Ganti dengan
 apply-to-all = Terapkan ke semua
 replace-warning = Apakah anda ingin menggantinya dengan yang sedang anda simpan? Menggantinya akan menimpa konten tersebut.
 keep-both = Pertahankan keduanya
+merge = Gabungkan
+replace-folder-warning = Apakah anda ingin menggabungkannya, atau mengganti map yang ada di sana? Menggantinya akan mengirimnya ke sampah.
+folder-totals = { $files ->
+   *[other] { $files } berkas, { $size }
+}
 skip = Lewati
 set-executable-and-launch = Atur sebagai dijalankan dan luncurkan
 set-and-launch = Atur dan luncurkan

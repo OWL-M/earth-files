@@ -160,6 +160,12 @@ original-file = Orijinal dosya
 replace-with = Bununla değiştir
 apply-to-all = Tümüne uygula
 keep-both = İkisini de sakla
+merge = Birleştir
+replace-folder-warning = Bunları birleştirmek mi yoksa oradaki klasörü değiştirmek mi istiyorsunuz? Değiştirme, klasörü çöpe gönderir.
+folder-totals = { $files ->
+    [one] { $files } dosya, { $size }
+   *[other] { $files } dosya, { $size }
+}
 skip = Atla
 
 ## Set as Executable and Launch Dialog

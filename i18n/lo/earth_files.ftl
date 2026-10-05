@@ -44,3 +44,8 @@ rollback-failed = {$more ->
 failed-operations-title = {$count ->
     *[other] ການດຳເນີນການ {$count} ລາຍການລົ້ມເຫຼວ
   }
+merge = ລວມ
+replace-folder-warning = ທ່ານຕ້ອງການລວມພວກມັນ ຫຼື ແທນທີ່ໂຟລເດີທີ່ມີຢູ່ບໍ? ການແທນທີ່ຈະສົ່ງມັນໄປຖັງຂີ້ເຫຍື້ອ.
+folder-totals = { $files ->
+   *[other] { $files } ໄຟລ໌, { $size }
+}

@@ -379,6 +379,12 @@ sort = Rêz bike
 item-accessed = Gihîştin: { $accessed }
 open-with = Veke bi riya
 keep-both = Herduyan bihêle
+merge = Yek bike
+replace-folder-warning = Tu dixwazî wan yek bikî, an peldanka li wir biguherînî? Guherandin wê bişîne Jêbirdankê.
+folder-totals = { $files ->
+    [one] { $files } pel, { $size }
+   *[other] { $files } pel, { $size }
+}
 permanently-deleted =
     { $items } bi mayînde hate jêbirin{ $items ->
         [one] hêman

@@ -179,6 +179,12 @@ original-file = Oorspronkelijk bestand
 replace-with = Vervangen door
 apply-to-all = Op alles toepassen
 keep-both = Beide behouden
+merge = Samenvoegen
+replace-folder-warning = Wilt u ze samenvoegen of de map die er staat vervangen? Bij vervangen wordt de map naar de prullenbak verplaatst.
+folder-totals = { $files ->
+    [one] { $files } bestand, { $size }
+   *[other] { $files } bestanden, { $size }
+}
 skip = Overslaan
 
 ## Set as Executable and Launch Dialog

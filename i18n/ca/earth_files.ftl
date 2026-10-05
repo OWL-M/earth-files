@@ -167,6 +167,12 @@ original-file = Fitxer original
 replace-with = Reemplaça amb
 apply-to-all = Aplica-ho a tot
 keep-both = Mantén els dos
+merge = Combina
+replace-folder-warning = Voleu combinar-les o reemplaçar la carpeta que hi ha? Si la reemplaceu, s'enviarà a la paperera.
+folder-totals = { $files ->
+    [one] { $files } fitxer, { $size }
+   *[other] { $files } fitxers, { $size }
+}
 skip = Omet
 
 ## Set as Executable and Launch Dialog

@@ -302,6 +302,13 @@ item-accessed = Приступљено: { $accessed }
 extract-to-title = Распакуј у фасциклу
 open-with = Отвори помоћу
 keep-both = Задржи оба
+merge = Споји
+replace-folder-warning = Да ли желите да их спојите или да замените фасциклу која се ту налази? Замена ће је послати у смеће.
+folder-totals = { $files ->
+    [one] { $files } датотека, { $size }
+    [few] { $files } датотеке, { $size }
+   *[other] { $files } датотека, { $size }
+}
 open-with-title = Како желите да отворите „{ $name }“?
 extracting =
     Извлачење { $items } { $items ->

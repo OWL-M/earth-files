@@ -137,6 +137,14 @@ original-file = Originalus failas
 replace-with = Pakeisti su
 apply-to-all = Pritaikyti visiems
 keep-both = Palikti abu
+merge = Sujungti
+replace-folder-warning = Ar norite juos sujungti, ar pakeisti ten esantį aplanką? Pakeičiant aplankas bus perkeltas į šiukšlinę.
+folder-totals = { $files ->
+    [one] { $files } failas, { $size }
+    [few] { $files } failai, { $size }
+    [many] { $files } failo, { $size }
+   *[other] { $files } failų, { $size }
+}
 skip = Praleisti
 set-executable-and-launch = Nustatyti kaip paleidžiamą ir paleisti
 set-executable-and-launch-description = Ar norite nustatyti „{ $name }“ kaip paleidžiamą ir paleisti iš karto?

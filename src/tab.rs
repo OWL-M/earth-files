@@ -68,6 +68,10 @@ pub const DOUBLE_CLICK_DURATION: Duration = Duration::from_millis(500);
 pub const TYPE_SELECT_TIMEOUT: Duration = Duration::from_millis(1000);
 const MAX_SEARCH_LATENCY: Duration = Duration::from_millis(20);
 const THUMBNAIL_SIZE: u32 = (ICON_SIZE_GRID as u32) * (ICON_SCALE_MAX as u32);
+
+/// The side of an item's preview in a dialog about it, such as the one for
+/// a name already taken.
+const DIALOG_PREVIEW: f32 = 128.0;
 /// How long an external thumbnailer may run before it is killed.
 ///
 /// Thumbnail work is bounded by [`THUMB_SEMAPHORE`], so a thumbnailer that
@@ -3273,11 +3277,55 @@ impl Item {
         column.into()
     }
 
+    /// Gives the item the preview the file view would show, made now: for a
+    /// dialog about it, where nothing else will. Blocking: it may decode an
+    /// image or run a thumbnailer, so call it on a worker.
+    pub fn load_preview(&mut self) {
+        let Some(path) = self.path_opt().cloned() else {
+            return;
+        };
+        let limits = crate::config::ThumbCfg::default();
+        let thumbnail = ItemThumbnail::new(
+            &path,
+            self.metadata.clone(),
+            self.mime.clone(),
+            THUMBNAIL_SIZE,
+            u64::from(limits.max_mem_mb.get()),
+            usize::from(limits.jobs.get()),
+            u64::from(limits.max_size_mb.get()),
+        );
+        let handle = match &thumbnail {
+            ItemThumbnail::Image(handle, _) => Some(widget::icon::Handle {
+                symbolic: false,
+                data: widget::icon::Data::Image(handle.clone()),
+            }),
+            ItemThumbnail::Svg(handle) => Some(widget::icon::Handle {
+                symbolic: false,
+                data: widget::icon::Data::Svg(handle.clone()),
+            }),
+            ItemThumbnail::NotImage | ItemThumbnail::Text(_) => None,
+        };
+        if let Some(handle) = handle {
+            self.icon_handle_grid.clone_from(&handle);
+            self.icon_handle_list.clone_from(&handle);
+            self.icon_handle_list_condensed = handle;
+        }
+        self.thumbnail_opt = Some(thumbnail);
+    }
+
     pub fn replace_view(&self, heading: String) -> Element<'_, Message> {
         let Spacing { space_xxxs, .. } = spacing();
 
         let mut row = widget::Row::with_capacity(2).spacing(space_xxxs.to_pixels());
-        row = row.push(self.preview());
+        // A little larger than a grid icon, and a real preview where there
+        // is one; never larger, whatever the image
+        row = row.push(
+            widget::container(self.preview())
+                .width(Length::Fixed(DIALOG_PREVIEW))
+                .height(Length::Fixed(DIALOG_PREVIEW))
+                .align_x(Alignment::Center)
+                .align_y(Alignment::Center),
+        );
 
         let mut column = widget::Column::with_capacity(3).spacing(space_xxxs.to_pixels());
         column = column.push(widget::text::heading(heading));

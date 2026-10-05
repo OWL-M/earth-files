@@ -50,3 +50,11 @@ failed-operations-title = {$count ->
     [few] Dh’fhàillig {$count} gnìomhan
     *[other] Dh’fhàillig {$count} gnìomh
   }
+merge = Aonaich
+replace-folder-warning = A bheil thu airson an aonachadh no am pasgan a tha ann a chur na àite? Ma chuireas tu na àite e, thèid a chur dhan sgudal.
+folder-totals = { $files ->
+    [one] { $files } fhaidhle, { $size }
+    [two] { $files } fhaidhle, { $size }
+    [few] { $files } faidhlichean, { $size }
+   *[other] { $files } faidhle, { $size }
+}

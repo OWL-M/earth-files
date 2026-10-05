@@ -189,6 +189,14 @@ original-file = Pôvodný súbor
 replace-with = Nahradiť s
 apply-to-all = Použiť na všetky
 keep-both = Ponechať oboje
+merge = Zlúčiť
+replace-folder-warning = Chcete ich zlúčiť, alebo nahradiť priečinok, ktorý tam je? Nahradením sa presunie do koša.
+folder-totals = { $files ->
+    [one] { $files } súbor, { $size }
+    [few] { $files } súbory, { $size }
+    [many] { $files } súboru, { $size }
+   *[other] { $files } súborov, { $size }
+}
 skip = Preskočiť
 
 ## Set as Executable and Launch Dialog

@@ -45,3 +45,9 @@ failed-operations-title = {$count ->
     [one] Amal bajarilmadi
     *[other] {$count} ta amal bajarilmadi
   }
+merge = Birlashtirish
+replace-folder-warning = Ularni birlashtirmoqchimisiz yoki u yerdagi jildni almashtirmoqchimisiz? Almashtirsangiz, u axlat qutisiga yuboriladi.
+folder-totals = { $files ->
+    [one] { $files } ta fayl, { $size }
+   *[other] { $files } ta fayl, { $size }
+}

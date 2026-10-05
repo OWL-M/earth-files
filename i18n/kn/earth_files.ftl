@@ -106,6 +106,12 @@ original-file = ಮೂಲ ಫೈಲ್
 replace-with = ಇದರೊಂದಿಗೆ ಬದಲಾಯಿಸಿ
 apply-to-all = ಎಲ್ಲರಿಗೂ ಅನ್ವಯಿಸಿ
 keep-both = ಎರಡನ್ನೂ ಇಟ್ಟುಕೊಳ್ಳಿ
+merge = ವಿಲೀನಗೊಳಿಸಿ
+replace-folder-warning = ನೀವು ಅವುಗಳನ್ನು ವಿಲೀನಗೊಳಿಸಲು ಬಯಸುತ್ತೀರಾ, ಅಥವಾ ಅಲ್ಲಿರುವ ಫೋಲ್ಡರ್ ಅನ್ನು ಬದಲಾಯಿಸಲು ಬಯಸುತ್ತೀರಾ? ಬದಲಾಯಿಸಿದರೆ ಅದನ್ನು ಕಸಕ್ಕೆ ಕಳುಹಿಸಲಾಗುತ್ತದೆ.
+folder-totals = { $files ->
+    [one] { $files } ಫೈಲ್, { $size }
+   *[other] { $files } ಫೈಲ್‌ಗಳು, { $size }
+}
 skip = ಬಿಟ್ಟುಬಿಡಿ
 
 ## Set as Executable and Launch Dialog

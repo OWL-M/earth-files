@@ -50,3 +50,10 @@ failed-operations-title = {$count ->
     [two] {$count} ᱠᱟᱹᱢᱤ ᱰᱤᱜᱟᱹᱣ ᱮᱱᱟ
     *[other] {$count} ᱠᱟᱹᱢᱤ ᱰᱤᱜᱟᱹᱣ ᱮᱱᱟ
   }
+merge = ᱢᱟᱨᱡ ᱢᱮ
+replace-folder-warning = ᱟᱢ ᱫᱚ ᱥᱟᱶᱛᱮ ᱢᱟᱨᱡ ᱥᱮ ᱥᱮᱱᱟ ᱵᱟᱨᱥᱮ ᱥᱮ ᱚᱸᱰᱮ ᱢᱮᱱᱟᱜ ᱯᱷᱚᱞᱰᱟᱨ ᱵᱚᱫᱚᱞ ᱨᱮᱭᱟᱜ? ᱵᱚᱫᱚᱞ ᱠᱟᱛᱮ ᱱᱚᱶᱟ ᱫᱚ ᱴᱨᱟᱥ ᱨᱮ ᱵᱷᱮᱡᱟᱜ ᱠᱟᱱᱟ.
+folder-totals = { $files ->
+    [one] { $files } ᱯᱷᱟᱭᱤᱞ, { $size }
+    [two] { $files } ᱯᱷᱟᱭᱤᱞ, { $size }
+   *[other] { $files } ᱯᱷᱟᱭᱤᱞ, { $size }
+}

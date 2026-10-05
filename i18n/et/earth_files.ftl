@@ -220,6 +220,12 @@ original-file = Algfail
 replace-with = Asenda järgnevaga
 apply-to-all = Kohalda kõigile
 keep-both = Jäta mõlemad alles
+merge = Ühenda
+replace-folder-warning = Kas sa soovid need ühendada või asendada seal oleva kausta? Asendamisel liigub see prügikasti.
+folder-totals = { $files ->
+    [one] { $files } fail, { $size }
+   *[other] { $files } faili, { $size }
+}
 set-executable-and-launch = Märgi käivitatavaks ja käivita
 set-executable-and-launch-description = Kas sa soovid „{ $name }“ faili märkida käivitatavaks ja ta käivitada?
 set-and-launch = Märgi ja käivita

@@ -36,21 +36,20 @@ async fn handle_replace(
     multiple: bool,
     conflict_count: usize,
 ) -> ReplaceResult {
-    let item_from = match tab::item_from_path(file_from, IconSizes::default()) {
-        Ok(ok) => Box::new(ok),
-        Err(err) => {
-            log::warn!("{err}");
-            return ReplaceResult::Cancel;
-        }
+    let (Some(item_from), Some(item_to)) = (
+        dialog_item(file_from.clone()).await,
+        dialog_item(file_to.clone()).await,
+    ) else {
+        return ReplaceResult::Cancel;
     };
-
-    let item_to = match tab::item_from_path(file_to, IconSizes::default()) {
-        Ok(ok) => Box::new(ok),
-        Err(err) => {
-            log::warn!("{err}");
-            return ReplaceResult::Cancel;
-        }
-    };
+    // Two folders are compared by what they hold
+    let totals = compio::runtime::spawn_blocking(move || {
+        (file_from.is_dir() && file_to.is_dir())
+            .then(|| (folder_totals(&file_from), folder_totals(&file_to)))
+    })
+    .await
+    .ok()
+    .flatten();
 
     let (tx, mut rx) = mpsc::channel(1);
     let _ = msg_tx
@@ -60,6 +59,7 @@ async fn handle_replace(
             DialogPage::Replace {
                 from: item_from,
                 to: item_to,
+                totals,
                 multiple,
                 apply_to_all: false,
                 conflict_count,
@@ -84,10 +84,7 @@ async fn handle_blocked(
 ) -> BlockedAnswer {
     // What the dialog shows of the path; it is still there to look at, only
     // not to read, list, link or remove
-    let item = tab::item_from_path(blocked.path(), IconSizes::default())
-        .map(Box::new)
-        .map_err(|err| log::warn!("{err}"))
-        .ok();
+    let item = dialog_item(blocked.path().to_path_buf()).await;
     let (tx, mut rx) = mpsc::channel(1);
     let _ = msg_tx
         .lock()
@@ -420,12 +417,57 @@ pub enum ReplaceResult {
     KeepBoth,
     Skip(bool),
     Cancel,
+    /// For a folder whose name is taken by a folder: put its contents into
+    /// the one there. `true` merges every later such folder too.
+    Merge(bool),
 }
 
+/// A folder's files and their size in all, walking all of it; for a dialog
+/// comparing two folders. Blocking.
+pub(crate) fn folder_totals(dir: &Path) -> (u64, u64) {
+    let (mut files, mut bytes) = (0, 0);
+    let mut folders = vec![dir.to_path_buf()];
+    while let Some(folder) = folders.pop() {
+        let Ok(entries) = fs::read_dir(&folder) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let Ok(meta) = entry.path().symlink_metadata() else {
+                continue;
+            };
+            if meta.is_dir() {
+                folders.push(entry.path());
+            } else {
+                files += 1;
+                bytes += meta.len();
+            }
+        }
+    }
+    (files, bytes)
+}
+
+/// An item for a dialog about `path`, with its preview made. `None` when it
+/// cannot be looked at.
+async fn dialog_item(path: PathBuf) -> Option<Box<tab::Item>> {
+    compio::runtime::spawn_blocking(move || {
+        let mut item = tab::item_from_path(path, IconSizes::default())
+            .map_err(|err| log::warn!("{err}"))
+            .ok()?;
+        item.load_preview();
+        Some(Box::new(item))
+    })
+    .await
+    .ok()
+    .flatten()
+}
+
+/// `merge_folders`: a folder whose name is taken by a folder goes into it
+/// without asking, as an extraction's do.
 async fn copy_or_move(
     paths: Vec<PathBuf>,
     to: PathBuf,
     method: Method,
+    merge_folders: bool,
     msg_tx: &Arc<TokioMutex<Sender<Message>>>,
     controller: Controller,
 ) -> Result<OperationSelection, OperationError> {
@@ -558,7 +600,15 @@ async fn copy_or_move(
             op_sel.selected.push(to);
         }
 
-        recursive_pairs(from_to_pairs, method, op_sel, msg_tx, controller).await
+        recursive_pairs(
+            from_to_pairs,
+            method,
+            op_sel,
+            merge_folders,
+            msg_tx,
+            controller,
+        )
+        .await
     })
     .await
     .map_err(wrap_compio_spawn_error)?
@@ -572,11 +622,13 @@ async fn recursive_pairs(
     pairs: PathPairs,
     method: Method,
     op_sel: OperationSelection,
+    merge_folders: bool,
     msg_tx: Arc<TokioMutex<Sender<Message>>>,
     controller: Controller,
 ) -> Result<OperationSelection, OperationError> {
     let mut context = Context::new(controller.clone());
     context.op_sel = op_sel;
+    context.merge_folders = merge_folders;
 
     context = context.on_progress(move |_op, progress| {
         let item_progress = match progress.total_bytes {
@@ -749,6 +801,10 @@ impl Operation {
                     }
                     roots.push(to);
                 }
+                // Then what the move replaced comes back from the trash
+                let restore = (!result.trash_items.is_empty()).then(|| Self::Restore {
+                    items: result.trash_items.clone(),
+                });
                 by_parent
                     .into_iter()
                     .map(|(to, paths)| Self::Move {
@@ -757,14 +813,35 @@ impl Operation {
                         cross_device_copy: false,
                     })
                     .chain(renamed)
+                    .chain(restore)
                     .collect()
             }
             // Only the paths the copy created are removed, and they go to the
             // trash rather than being destroyed, so an undo of a copy that
             // replaced or merged into existing files is still recoverable
-            Self::Copy { .. } if !created_only(result).is_empty() => vec![Self::Delete {
-                paths: created_only(result),
-            }],
+            // The copies go to the trash, those that replaced files too; then
+            // the replaced files come back from it, in their place
+            Self::Copy { .. }
+                if !created_only(result).is_empty() || !result.trash_items.is_empty() =>
+            {
+                let mut paths = created_only(result);
+                for path in result
+                    .trash_items
+                    .iter()
+                    .map(trash::TrashItem::original_path)
+                {
+                    if !paths.contains(&path) {
+                        paths.push(path);
+                    }
+                }
+                let mut undo = vec![Self::Delete { paths }];
+                if !result.trash_items.is_empty() {
+                    undo.push(Self::Restore {
+                        items: result.trash_items.clone(),
+                    });
+                }
+                undo
+            }
             // A new folder may have been filled since it was created, so an
             // undo trashes it rather than destroying it and its contents
             Self::NewFile { path } | Self::NewFolder { path } => vec![Self::Delete {
@@ -1722,7 +1799,7 @@ impl Operation {
                 .map_err(wrap_compio_spawn_error)?
             }
             Self::Copy { paths, to } => {
-                copy_or_move(paths, to, Method::Copy, msg_tx, controller).await
+                copy_or_move(paths, to, Method::Copy, false, msg_tx, controller).await
             }
             Self::Delete { paths } => {
                 let total = paths.len();
@@ -1924,6 +2001,7 @@ impl Operation {
                                     Method::Move {
                                         cross_device_copy: false,
                                     },
+                                    true,
                                     &msg_tx,
                                     controller.clone(),
                                 )
@@ -1975,6 +2053,7 @@ impl Operation {
                     paths,
                     to,
                     Method::Move { cross_device_copy },
+                    false,
                     msg_tx,
                     controller,
                 )
@@ -2188,6 +2267,7 @@ impl Operation {
                                     ignored: vec![from],
                                     ..Default::default()
                                 },
+                                false,
                                 msg_tx,
                                 controller,
                             )
@@ -3357,9 +3437,14 @@ mod tests {
         let untouched = to.join("folder/existing.txt");
         fs::write(&untouched, b"EXISTING")?;
 
-        let result = operation_move(vec![from.join("folder")], to.clone(), ReplaceResult::Cancel)
-            .await
-            .expect("nothing conflicts, the names inside the folders differ");
+        // The folder is asked about, and merged; nothing inside it clashes
+        let result = operation_move(
+            vec![from.join("folder")],
+            to.clone(),
+            ReplaceResult::Merge(false),
+        )
+        .await
+        .expect("merged, the names inside the folders differ");
 
         assert_eq!(fs::read(to.join("folder/moved.txt"))?, b"MOVED");
         assert_eq!(fs::read(&untouched)?, b"EXISTING");
@@ -3918,6 +4003,29 @@ mod tests {
                 paths: vec![PathBuf::from("/dest/one")]
             }]
         );
+        // What a copy replaced went to the trash: its copy goes there too,
+        // then it comes back
+        let replaced = trash::TrashItem {
+            id: "/trash/info/one.trashinfo".into(),
+            name: "one".into(),
+            original_parent: "/dest".into(),
+            time_deleted: 1,
+        };
+        assert_eq!(
+            copy.undo(&OperationSelection {
+                created: vec!["/dest/one".into()],
+                trash_items: vec![replaced.clone()],
+                ..Default::default()
+            }),
+            vec![
+                Operation::Delete {
+                    paths: vec![PathBuf::from("/dest/one")]
+                },
+                Operation::Restore {
+                    items: vec![replaced.clone()]
+                }
+            ]
+        );
         assert!(
             copy.undo(&sel(&["/dest/one"])).is_empty(),
             "a copy that created nothing, because every destination was \
@@ -3973,6 +4081,44 @@ mod tests {
             .is_empty(),
             "a trash operation with no recorded entries cannot be undone"
         );
+    }
+
+    /// A file a copy replaced is in the trash, and the restore its undo
+    /// ends with puts it back once the copy is gone
+    #[test(compio::test)]
+    async fn a_replaced_file_comes_back_on_undo() -> io::Result<()> {
+        let fs = empty_fs()?;
+        let path = fs.path();
+        fs::create_dir(path.join("from"))?;
+        fs::write(path.join("from/b"), b"new")?;
+        fs::create_dir(path.join("to"))?;
+        fs::write(path.join("to/b"), b"old")?;
+        let copy = Operation::Copy {
+            paths: vec![path.join("from/b")],
+            to: path.join("to"),
+        };
+        let result = perform(copy.clone(), ReplaceResult::Replace(false))
+            .await
+            .expect("copied");
+        assert_eq!(fs::read(path.join("to/b"))?, b"new");
+
+        let undo = copy.undo(&result);
+        let [
+            Operation::Delete { paths },
+            restore @ Operation::Restore { .. },
+        ] = undo.as_slice()
+        else {
+            panic!("a delete, then a restore: {undo:?}");
+        };
+        assert_eq!(paths, &vec![path.join("to/b")]);
+        // The delete would send the copy to the user's trash; here it is
+        // only removed
+        fs::remove_file(path.join("to/b"))?;
+        perform(restore.clone(), ReplaceResult::Cancel)
+            .await
+            .expect("restored");
+        assert_eq!(fs::read(path.join("to/b"))?, b"old");
+        Ok(())
     }
 
     /// A trash operation that failed part-way is retried without the

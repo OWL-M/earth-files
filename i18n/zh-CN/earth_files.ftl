@@ -160,6 +160,11 @@ original-file = 原始文件
 replace-with = 替换为
 apply-to-all = 全部应用
 keep-both = 保留两者
+merge = 合并
+replace-folder-warning = 您想要合并它们，还是替换已有的文件夹？替换会将其移至回收站。
+folder-totals = { $files ->
+   *[other] { $files } 个文件，{ $size }
+}
 skip = 跳过
 
 ## Set as Executable and Launch Dialog

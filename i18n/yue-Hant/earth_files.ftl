@@ -44,3 +44,8 @@ rollback-failed = {$more ->
 failed-operations-title = {$count ->
     *[other] {$count} 項操作失敗咗
   }
+merge = 合併
+replace-folder-warning = 你想合併佢哋，定係取代嗰度已有嘅資料夾？取代會將佢移去垃圾桶。
+folder-totals = { $files ->
+   *[other] { $files } 個檔案，{ $size }
+}

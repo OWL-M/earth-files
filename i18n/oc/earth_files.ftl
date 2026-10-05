@@ -77,3 +77,9 @@ failed-operations-title = {$count ->
     [one] L'operacion a fracassat
     *[other] {$count} operacions an fracassat
   }
+merge = Fusionar
+replace-folder-warning = Volètz los fusionar, o remplaçar lo dossièr qu'es aquí? Lo remplaçament l'enviarà a l'escobilha.
+folder-totals = { $files ->
+    [one] { $files } fichièr, { $size }
+   *[other] { $files } fichièrs, { $size }
+}

@@ -45,3 +45,9 @@ failed-operations-title = {$count ->
     [one] Li operation ha fallit
     *[other] {$count} operationes ha fallit
   }
+merge = Fusionar
+replace-folder-warning = Esque vu vole fusionar les, o remplazzar li fólder quel es ta? Remplazzar va transportar it al paper-corb.
+folder-totals = { $files ->
+    [one] { $files } file, { $size }
+   *[other] { $files } files, { $size }
+}

@@ -45,3 +45,9 @@ failed-operations-title = {$count ->
     [one] অপারেশনটি ব্যর্থ হয়েছে
     *[other] {$count}টি অপারেশন ব্যর্থ হয়েছে
   }
+merge = মার্জ করুন
+replace-folder-warning = আপনি কি এগুলো মার্জ করতে চান, নাকি সেখানে থাকা ফোল্ডারটি প্রতিস্থাপন করতে চান? প্রতিস্থাপন করলে সেটি ট্র্যাশে পাঠানো হবে।
+folder-totals = { $files ->
+    [one] { $files }টি ফাইল, { $size }
+   *[other] { $files }টি ফাইল, { $size }
+}

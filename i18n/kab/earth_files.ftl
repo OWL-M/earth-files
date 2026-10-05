@@ -169,6 +169,12 @@ original-file = Afaylu aneṣli
 replace-with = Semselsi s
 apply-to-all = Snes i meṛṛa
 keep-both = Eǧǧ-iten deg sin
+merge = Sdukkel
+replace-folder-warning = Tebɣiḍ ad ten-tesdukleḍ neɣ ad tsemselsiḍ akaram yellan dinna? Asemselsi ad t-yazen ɣer iḍumman.
+folder-totals = { $files ->
+    [one] { $files } n ufaylu, { $size }
+   *[other] { $files } n yifuyla, { $size }
+}
 skip = Zgel
 set-executable-and-launch = Sbeddet am umselkam syinna senker
 set-executable-and-launch-description = Tebɣiḍ ad tesbeddeḍ "{ $name }" am umselkam syinna ad tessenkreḍ?

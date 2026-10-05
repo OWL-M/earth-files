@@ -95,6 +95,12 @@ original-file = Alkuperäinen tiedosto
 replace-with = Korvaa käyttäen
 apply-to-all = Toteuta kaikkiin
 keep-both = Pidä molemmat
+merge = Yhdistä
+replace-folder-warning = Haluatko yhdistää ne vai korvata siellä olevan kansion? Korvaaminen siirtää sen roskakoriin.
+folder-totals = { $files ->
+    [one] { $files } tiedosto, { $size }
+   *[other] { $files } tiedostoa, { $size }
+}
 skip = Ohita
 
 ## Set as Executable and Launch Dialog

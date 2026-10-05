@@ -182,6 +182,12 @@ original-file = Ficheiro orixinal
 replace-with = Remplazar con
 apply-to-all = Aplicar a todo
 keep-both = Manter ambos
+merge = Combinar
+replace-folder-warning = Queres combinalos ou substituír o cartafol que está aí? Ao substituílo, envíase ao lixo.
+folder-totals = { $files ->
+    [one] { $files } ficheiro, { $size }
+   *[other] { $files } ficheiros, { $size }
+}
 skip = Saltar
 set-executable-and-launch = Marcar como executable e lanzalo
 set-executable-and-launch-description = Queres marcar «{ $name }» como executábel e lanzalo?

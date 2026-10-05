@@ -136,6 +136,12 @@ original-file = ਅਸਲ ਫ਼ਾਇਲ
 replace-with = ਇਸ ਨਾਲ ਬਦਲੋ
 apply-to-all = ਸਭ ਉੱਤੇ ਲਾਗੂ ਕਰੋ
 keep-both = ਦੋਵਾਂ ਨੂੰ ਰੱਖੋ
+merge = ਮਿਲਾਓ
+replace-folder-warning = ਕੀ ਤੁਸੀਂ ਇਹਨਾਂ ਨੂੰ ਮਿਲਾਉਣਾ ਚਾਹੁੰਦੇ ਹੋ, ਜਾਂ ਉੱਥੇ ਮੌਜੂਦ ਫੋਲਡਰ ਨੂੰ ਬਦਲਣਾ ਚਾਹੁੰਦੇ ਹੋ? ਬਦਲਣ ਨਾਲ ਇਹ ਰੱਦੀ ਵਿੱਚ ਭੇਜਿਆ ਜਾਵੇਗਾ।
+folder-totals = { $files ->
+    [one] { $files } ਫ਼ਾਇਲ, { $size }
+   *[other] { $files } ਫ਼ਾਇਲਾਂ, { $size }
+}
 skip = ਛੱਡੋ
 set-and-launch = ਸੈੱਟ ਕਰੋ ਅਤੇ ਚਲਾਓ
 launch-desktop-entry = Launch application?

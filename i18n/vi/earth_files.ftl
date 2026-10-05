@@ -44,3 +44,8 @@ rollback-failed = {$more ->
 failed-operations-title = {$count ->
     *[other] {$count} thao tác không thành công
   }
+merge = Hợp nhất
+replace-folder-warning = Bạn muốn hợp nhất chúng, hay thay thế thư mục đang có ở đó? Thay thế sẽ chuyển thư mục đó vào thùng rác.
+folder-totals = { $files ->
+   *[other] { $files } tệp, { $size }
+}

@@ -686,6 +686,9 @@ pub enum DialogPage {
     Replace {
         from: Box<tab::Item>,
         to: Box<tab::Item>,
+        /// For two folders: the files each holds and their size, `(from,
+        /// to)`, to compare them by
+        totals: Option<((u64, u64), (u64, u64))>,
         multiple: bool,
         apply_to_all: bool,
         conflict_count: usize,
@@ -1004,6 +1007,9 @@ pub struct App {
     undo_stack: Vec<Vec<Operation>>,
     /// Operations started by an undo; their completion is not undoable again
     undo_ids: BTreeSet<u64>,
+    /// The parts of an undo still to run, after the one with this id: each
+    /// waits for the one before, as a restore needs its place free first.
+    undo_queue: Option<(u64, VecDeque<Operation>)>,
     scrollable_name: std::borrow::Cow<'static, str>,
     search_id: widget::Id,
     /// The tab whose search just ended, with its last term: its field stays
@@ -1983,6 +1989,7 @@ impl App {
         let mut commands = Vec::with_capacity(4 * completed.len());
         let mut op_sel = OperationSelection::default();
         for (id, op_sel_pending) in completed {
+            commands.push(self.undo_next(id));
             let trash_items = op_sel_pending.trash_items.clone();
             if let Some((op, _)) = self.pending_operations.get(&id) {
                 let undo = op.undo(&op_sel_pending);
@@ -2076,6 +2083,36 @@ impl App {
         Task::batch(commands)
     }
 
+    /// Starts `part` of an undo, with `rest` to follow once it completes.
+    fn undo_part(&mut self, part: Operation, rest: VecDeque<Operation>) -> Task<Message> {
+        // A move that emptied a folder removed it, and undoing it has to put
+        // the files back inside; a paste into a folder that is gone must fail
+        // instead, so only an undo recreates it
+        if let Operation::Move { to, .. } = &part
+            && let Err(err) = std::fs::create_dir_all(to)
+        {
+            log::warn!("failed to create {}: {err}", to.display());
+        }
+        let id = self.pending_operation_id;
+        self.undo_ids.insert(id);
+        self.undo_queue = (!rest.is_empty()).then_some((id, rest));
+        self.operation(part)
+    }
+
+    /// The next part of an undo, once the part before, `id`, completed.
+    fn undo_next(&mut self, id: u64) -> Task<Message> {
+        match self.undo_queue.take() {
+            Some((running, mut rest)) if running == id => match rest.pop_front() {
+                Some(next) => self.undo_part(next, rest),
+                None => Task::none(),
+            },
+            queue => {
+                self.undo_queue = queue;
+                Task::none()
+            }
+        }
+    }
+
     /// Keep `undo` as the way back from operation `id`, unless that
     /// operation was itself an undo
     fn record_undo(&mut self, id: u64, undo: Vec<Operation>) {
@@ -2091,6 +2128,14 @@ impl App {
     fn handle_operation_errors(&mut self, errors: Vec<(u64, OperationError)>) -> Task<Message> {
         let mut tasks = Vec::new();
         for (id, err) in errors.into_iter() {
+            // An undo part that failed stops the parts after it
+            if self
+                .undo_queue
+                .as_ref()
+                .is_some_and(|(running, _)| *running == id)
+            {
+                self.undo_queue = None;
+            }
             tasks.push(self.drop_question(id));
             if let Some((op, controller)) = self.pending_operations.remove(&id) {
                 // What was done before the failure can be undone on its own,
@@ -3822,6 +3867,7 @@ impl Application for App {
             stalls: BTreeMap::new(),
             undo_stack: Vec::new(),
             undo_ids: BTreeSet::new(),
+            undo_queue: None,
             scrollable_name: std::borrow::Cow::Borrowed("File Scrollable"),
             search_id: widget::Id::new("File Search"),
             search_closing: None,
@@ -6728,23 +6774,12 @@ impl Application for App {
                 // Skip entries whose files have changed since; they can no longer apply
                 while let Some(undo) = self.undo_stack.pop() {
                     if undo.iter().all(Operation::is_applicable) {
-                        let tasks: Vec<_> = undo
-                            .into_iter()
-                            .map(|op| {
-                                // A move that emptied a folder removed it, and
-                                // undoing it has to put the files back inside;
-                                // a paste into a folder that is gone must fail
-                                // instead, so only an undo recreates it
-                                if let Operation::Move { to, .. } = &op
-                                    && let Err(err) = std::fs::create_dir_all(to)
-                                {
-                                    log::warn!("failed to create {}: {err}", to.display());
-                                }
-                                self.undo_ids.insert(self.pending_operation_id);
-                                self.operation(op)
-                            })
-                            .collect();
-                        return Task::batch(tasks);
+                        // One part at a time, in order
+                        let mut parts: VecDeque<Operation> = undo.into();
+                        return match parts.pop_front() {
+                            Some(first) => self.undo_part(first, parts),
+                            None => Task::none(),
+                        };
                     }
                     log::info!("skipping an undo that no longer applies");
                 }
@@ -8088,65 +8123,100 @@ impl Application for App {
             DialogPage::Replace {
                 from,
                 to,
+                totals,
                 multiple,
                 apply_to_all,
                 conflict_count,
                 tx,
             } => {
-                let dialog = widget::dialog()
+                // A block per side, with a folder's totals under it
+                fn side(
+                    item: &tab::Item,
+                    heading: String,
+                    totals: Option<(u64, u64)>,
+                ) -> Element<'_, Message> {
+                    let mut column = widget::Column::with_capacity(2)
+                        .push(
+                            item.replace_view(heading)
+                                .map(|x| Message::TabMessage(None, x)),
+                        )
+                        .spacing(spacing().space_xxxs.to_pixels());
+                    if let Some((files, bytes)) = totals {
+                        column = column.push(widget::text::caption(fl!(
+                            "folder-totals",
+                            files = files,
+                            size = tab::format_size(bytes)
+                        )));
+                    }
+                    column.into()
+                }
+                let folders = totals.is_some();
+                let mut dialog = widget::dialog()
                     .title(fl!("replace-title", filename = to.name.as_str()))
-                    .body(fl!("replace-warning-operation"))
-                    .control(
-                        to.replace_view(fl!("original-file"))
-                            .map(|x| Message::TabMessage(None, x)),
-                    )
-                    .control(
-                        from.replace_view(fl!("replace-with"))
-                            .map(|x| Message::TabMessage(None, x)),
-                    )
+                    .body(if folders {
+                        fl!("replace-folder-warning")
+                    } else {
+                        fl!("replace-warning-operation")
+                    })
+                    .control(side(to, fl!("original-file"), totals.map(|(_, to)| to)))
+                    .control(side(
+                        from,
+                        fl!("replace-with"),
+                        totals.map(|(from, _)| from),
+                    ))
                     .primary_action(
                         widget::button::suggested(fl!("replace"))
                             .on_press(Message::ReplaceResult(ReplaceResult::Replace(
                                 *apply_to_all,
                             )))
                             .id(REPLACE_BUTTON_ID.clone()),
+                    )
+                    .tertiary_action(
+                        widget::button::standard(fl!("cancel"))
+                            .on_press(Message::ReplaceResult(ReplaceResult::Cancel)),
                     );
-                if *multiple {
-                    dialog
-                        .control(
-                            widget::checkbox(*apply_to_all)
-                                .label(format!("{} ({})", fl!("apply-to-all"), *conflict_count))
-                                .on_toggle(|apply_to_all| {
-                                    Message::DialogUpdate(DialogPage::Replace {
-                                        from: from.clone(),
-                                        to: to.clone(),
-                                        multiple: *multiple,
-                                        apply_to_all,
-                                        conflict_count: *conflict_count,
-                                        tx: tx.clone(),
-                                    })
-                                }),
-                        )
-                        .secondary_action(
-                            widget::button::standard(fl!("skip")).on_press(Message::ReplaceResult(
-                                ReplaceResult::Skip(*apply_to_all),
-                            )),
-                        )
-                        .tertiary_action(
-                            widget::button::text(fl!("cancel"))
-                                .on_press(Message::ReplaceResult(ReplaceResult::Cancel)),
-                        )
-                } else {
-                    dialog
-                        .secondary_action(
-                            widget::button::standard(fl!("cancel"))
-                                .on_press(Message::ReplaceResult(ReplaceResult::Cancel)),
-                        )
-                        .tertiary_action(
-                            widget::button::text(fl!("keep-both"))
-                                .on_press(Message::ReplaceResult(ReplaceResult::KeepBoth)),
-                        )
+                // Beside it: Merge for two folders, Keep both, Skip
+                let mut others: Vec<Element<'_, Message>> = Vec::new();
+                if folders {
+                    others.push(
+                        widget::button::standard(fl!("merge"))
+                            .on_press(Message::ReplaceResult(ReplaceResult::Merge(*apply_to_all)))
+                            .into(),
+                    );
                 }
+                others.push(
+                    widget::button::standard(fl!("keep-both"))
+                        .on_press(Message::ReplaceResult(ReplaceResult::KeepBoth))
+                        .into(),
+                );
+                if *multiple {
+                    others.push(
+                        widget::button::standard(fl!("skip"))
+                            .on_press(Message::ReplaceResult(ReplaceResult::Skip(*apply_to_all)))
+                            .into(),
+                    );
+                }
+                dialog = dialog.secondary_action(
+                    widget::Row::with_children(others).spacing(spacing().space_xxs.to_pixels()),
+                );
+                if *multiple && *conflict_count > 1 {
+                    dialog = dialog.control(
+                        widget::checkbox(*apply_to_all)
+                            .label(format!("{} ({})", fl!("apply-to-all"), *conflict_count))
+                            .on_toggle(|apply_to_all| {
+                                Message::DialogUpdate(DialogPage::Replace {
+                                    from: from.clone(),
+                                    to: to.clone(),
+                                    totals: *totals,
+                                    multiple: *multiple,
+                                    apply_to_all,
+                                    conflict_count: *conflict_count,
+                                    tx: tx.clone(),
+                                })
+                            }),
+                    );
+                }
+                dialog
             }
             DialogPage::SetExecutableAndLaunch { path } => {
                 let name = match path.file_name() {

@@ -55,3 +55,9 @@ failed-operations-title = {$count ->
     [one] De operaasje is mislearre
     *[other] {$count} operaasjes binne mislearre
   }
+merge = Gearfoegje
+replace-folder-warning = Wolle jo se gearfoegje of de map dy't der stiet ferfange? Ferfange stjoert him nei de jiskefet.
+folder-totals = { $files ->
+    [one] { $files } bestân, { $size }
+   *[other] { $files } bestannen, { $size }
+}

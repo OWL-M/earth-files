@@ -179,6 +179,14 @@ original-file = Зыходны файл
 replace-with = Замяніць на
 apply-to-all = Прымяніць да ўсіх
 keep-both = Захаваць абодва
+merge = Аб’яднаць
+replace-folder-warning = Вы хочаце аб’яднаць іх або замяніць папку, якая там ёсць? Пры замене яна будзе перамешчана ў сметніцу.
+folder-totals = { $files ->
+    [one] { $files } файл, { $size }
+    [few] { $files } файлы, { $size }
+    [many] { $files } файлаў, { $size }
+   *[other] { $files } файла, { $size }
+}
 skip = Прапусціць
 
 ## Set as Executable and Launch Dialog

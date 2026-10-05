@@ -161,6 +161,12 @@ original-file = Upprunaleg skrá
 replace-with = Skipta út fyrir
 apply-to-all = Nota á allt
 keep-both = Halda báðum
+merge = Sameina
+replace-folder-warning = Viltu sameina þær eða skipta út möppunni sem er þar? Ef henni er skipt út fer hún í ruslið.
+folder-totals = { $files ->
+    [one] { $files } skrá, { $size }
+   *[other] { $files } skrár, { $size }
+}
 set-executable-and-launch = Gera að keyrsluskrá og keyra
 set-executable-and-launch-description = Viltu gera „{ $name }“ að keyrsluskrá og keyra hana?
 set-and-launch = Stilla og keyra

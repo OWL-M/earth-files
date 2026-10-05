@@ -45,3 +45,9 @@ failed-operations-title = {$count ->
     [one] ოპერაცია ვერ შესრულდა
     *[other] {$count} ოპერაცია ვერ შესრულდა
   }
+merge = შერწყმა
+replace-folder-warning = გსურთ მათი შერწყმა თუ იქ არსებული საქაღალდის ჩანაცვლება? ჩანაცვლებისას ის ნაგვის ყუთში გადავა.
+folder-totals = { $files ->
+    [one] { $files } ფაილი, { $size }
+   *[other] { $files } ფაილი, { $size }
+}

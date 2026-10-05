@@ -168,6 +168,12 @@ original-file = Orginalfil
 replace-with = Erstatt med
 apply-to-all = Bruk på alle
 keep-both = Behold begge
+merge = Slå sammen
+replace-folder-warning = Vil du slå dem sammen, eller erstatte mappen som ligger der? Erstatning flytter den til papirkurven.
+folder-totals = { $files ->
+    [one] { $files } fil, { $size }
+   *[other] { $files } filer, { $size }
+}
 skip = Hopp over
 set-executable-and-launch = Gjør kjørbar og start
 set-executable-and-launch-description = Vil du gjøre «{ $name }» kjørbar og starte den?

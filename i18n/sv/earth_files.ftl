@@ -80,6 +80,12 @@ original-file = Originalfil
 replace-with = Ersätt med
 apply-to-all = Verkställ för alla
 keep-both = Behåll båda
+merge = Slå ihop
+replace-folder-warning = Vill du slå ihop dem eller ersätta mappen som finns där? Om du ersätter den skickas den till papperskorgen.
+folder-totals = { $files ->
+    [one] { $files } fil, { $size }
+   *[other] { $files } filer, { $size }
+}
 skip = Hoppa över
 
 ## Ställ in som körbar och starta dialogruta

@@ -164,6 +164,14 @@ original-file = Oryginalny plik
 replace-with = Zastąpiony przez
 apply-to-all = Zastosuj do wszystkich
 keep-both = Zachowaj oba
+merge = Scal
+replace-folder-warning = Czy chcesz je scalić, czy zastąpić istniejący tam katalog? Zastąpienie przeniesie go do kosza.
+folder-totals = { $files ->
+    [one] { $files } plik, { $size }
+    [few] { $files } pliki, { $size }
+    [many] { $files } plików, { $size }
+   *[other] { $files } pliku, { $size }
+}
 skip = Pomiń
 
 ## Set as Executable and Launch Dialog

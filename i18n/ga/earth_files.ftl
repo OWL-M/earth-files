@@ -152,6 +152,15 @@ original-file = Comhad bunaidh
 replace-with = Cuir in ionad le
 apply-to-all = Cuir i bhfeidhm ar gach ceann
 keep-both = Coinnigh an dá cheann
+merge = Cumasc
+replace-folder-warning = An bhfuil tú ag iarraidh iad a chumasc, nó an fillteán atá ann a chur in ionad? Má chuirtear in ionad é, seolfar chuig an mbruscar é.
+folder-totals = { $files ->
+    [one] { $files } comhad, { $size }
+    [two] { $files } chomhad, { $size }
+    [few] { $files } chomhad, { $size }
+    [many] { $files } gcomhad, { $size }
+   *[other] { $files } comhad, { $size }
+}
 skip = Scipeáil
 
 ## Set as Executable and Launch Dialog

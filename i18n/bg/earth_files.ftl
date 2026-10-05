@@ -179,6 +179,12 @@ original-file = Съществуващ файл
 replace-with = Замяна с
 apply-to-all = Прилагане за всички
 keep-both = Запазване на и двата
+merge = Обединяване
+replace-folder-warning = Искате ли да ги обедините, или да замените папката, която е там? Ако я замените, тя ще бъде преместена в кошчето.
+folder-totals = { $files ->
+    [one] { $files } файл, { $size }
+   *[other] { $files } файла, { $size }
+}
 skip = Пропускане
 
 ## Set as Executable and Launch Dialog

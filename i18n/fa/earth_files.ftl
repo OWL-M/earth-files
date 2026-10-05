@@ -176,6 +176,12 @@ original-file = فایل اصلی
 replace-with = جایگزینی با
 apply-to-all = اعمال برای همه
 keep-both = نگه‌داشتن هر دو
+merge = ادغام
+replace-folder-warning = آیا می‌خواهید آن‌ها را ادغام کنید یا پوشه‌ی موجود را جایگزین کنید؟ جایگزین کردن آن را به زباله‌دان می‌فرستد.
+folder-totals = { $files ->
+    [one] { $files } فایل، { $size }
+   *[other] { $files } فایل، { $size }
+}
 skip = رد کردن
 
 ## Set as Executable and Launch Dialog

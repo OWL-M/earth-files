@@ -45,3 +45,9 @@ failed-operations-title = {$count ->
     [one] പ്രവർത്തനം പരാജയപ്പെട്ടു
     *[other] {$count} പ്രവർത്തനങ്ങൾ പരാജയപ്പെട്ടു
   }
+merge = ലയിപ്പിക്കുക
+replace-folder-warning = നിങ്ങൾക്ക് അവ ലയിപ്പിക്കണോ, അതോ അവിടെയുള്ള ഫോൾഡർ മാറ്റിസ്ഥാപിക്കണോ? മാറ്റിസ്ഥാപിച്ചാൽ അത് ട്രാഷിലേക്ക് അയയ്ക്കും.
+folder-totals = { $files ->
+    [one] { $files } ഫയൽ, { $size }
+   *[other] { $files } ഫയലുകൾ, { $size }
+}

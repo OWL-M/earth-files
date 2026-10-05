@@ -45,3 +45,9 @@ failed-operations-title = {$count ->
     [one] કામગીરી નિષ્ફળ ગઈ
     *[other] {$count} કામગીરીઓ નિષ્ફળ ગઈ
   }
+merge = મર્જ કરો
+replace-folder-warning = શું તમે તેમને મર્જ કરવા માંગો છો, કે ત્યાં રહેલું ફોલ્ડર બદલવા માંગો છો? બદલવાથી તે કચરાપેટીમાં મોકલાશે.
+folder-totals = { $files ->
+    [one] { $files } ફાઇલ, { $size }
+   *[other] { $files } ફાઇલો, { $size }
+}

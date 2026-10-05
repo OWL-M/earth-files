@@ -140,6 +140,12 @@ connect-anonymously = Ανώνυμη σύνδεση
 replace-with = Αντικατάσταση με
 open-with = Άνοιγμα με
 keep-both = Διατήρηση αμφότερων
+merge = Συγχώνευση
+replace-folder-warning = Θέλετε να τα συγχωνεύσετε ή να αντικαταστήσετε τον φάκελο που υπάρχει εκεί; Η αντικατάσταση θα τον στείλει στα απορρίμματα.
+folder-totals = { $files ->
+    [one] { $files } αρχείο, { $size }
+   *[other] { $files } αρχεία, { $size }
+}
 open-with-title = Πώς θέλετε να ανοίξετε το «{ $name }»;
 extract-password-required = Απαιτείται κωδικός πρόσβασης
 rename-file = Μετονομασία αρχείου

@@ -45,3 +45,9 @@ failed-operations-title = {$count ->
     [one] La operación falló
     *[other] {$count} operaciones fallaron
   }
+merge = Combinar
+replace-folder-warning = ¿Quieres combinarlas o reemplazar la carpeta que hay allí? Al reemplazarla se enviará a la papelera.
+folder-totals = { $files ->
+    [one] { $files } archivo, { $size }
+   *[other] { $files } archivos, { $size }
+}

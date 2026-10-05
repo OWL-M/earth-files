@@ -163,6 +163,12 @@ original-file = Eredeti fájl
 replace-with = Csere erre
 apply-to-all = Alkalmazás mindegyikre
 keep-both = Mindkettő megtartása
+merge = Egyesítés
+replace-folder-warning = Szeretnéd egyesíteni őket, vagy lecserélni az ott lévő mappát? A csere a Kukába helyezi.
+folder-totals = { $files ->
+    [one] { $files } fájl, { $size }
+   *[other] { $files } fájl, { $size }
+}
 skip = Kihagyás
 
 ## Set as Executable and Launch Dialog

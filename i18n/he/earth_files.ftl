@@ -49,3 +49,10 @@ failed-operations-title = {$count ->
     [two] שתי פעולות נכשלו
     *[other] {$count} פעולות נכשלו
   }
+merge = מזג
+replace-folder-warning = האם למזג אותן, או להחליף את התיקייה שנמצאת שם? החלפה תעביר אותה לאשפה.
+folder-totals = { $files ->
+    [one] קובץ אחד, { $size }
+    [two] שני קבצים, { $size }
+   *[other] { $files } קבצים, { $size }
+}

@@ -44,3 +44,8 @@ rollback-failed = {$more ->
 failed-operations-title = {$count ->
     *[other] {$count} operasi gagal
   }
+merge = Gabung
+replace-folder-warning = Adakah anda mahu menggabungkannya, atau menggantikan folder yang ada di situ? Penggantian akan menghantarnya ke tong sampah.
+folder-totals = { $files ->
+   *[other] { $files } fail, { $size }
+}

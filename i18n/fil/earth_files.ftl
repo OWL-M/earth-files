@@ -46,3 +46,9 @@ failed-operations-title = {$count ->
     [one] Nabigo ang {$count} operasyon
     *[other] Nabigo ang {$count} operasyon
   }
+merge = Pagsamahin
+replace-folder-warning = Gusto mo bang pagsamahin ang mga ito, o palitan ang folder na naroon? Ipapadala ito sa basurahan kapag pinalitan.
+folder-totals = { $files ->
+    [one] { $files } file, { $size }
+   *[other] { $files } file, { $size }
+}

@@ -47,3 +47,9 @@ failed-operations-title = {$count ->
     [one] La operacio malsukcesis
     *[other] {$count} operacioj malsukcesis
   }
+merge = Kunfandi
+replace-folder-warning = Ĉu vi volas kunfandi ilin, aŭ anstataŭigi la tie ekzistantan dosierujon? Anstataŭigo sendas ĝin al la rubujo.
+folder-totals = { $files ->
+    [one] { $files } dosiero, { $size }
+   *[other] { $files } dosieroj, { $size }
+}

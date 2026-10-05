@@ -65,6 +65,13 @@ original-file = Ficheiro original
 replace-with = Substituir por
 apply-to-all = Aplicar a tudo
 keep-both = Manter ambos
+merge = Unir
+replace-folder-warning = Pretende uni-las ou substituir a pasta que lá está? Ao substituí-la, será enviada para o lixo.
+folder-totals = { $files ->
+    [one] { $files } ficheiro, { $size }
+    [many] { $files } de ficheiros, { $size }
+   *[other] { $files } ficheiros, { $size }
+}
 skip = Ignorar
 
 ## Metadata Dialog

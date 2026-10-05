@@ -128,3 +128,9 @@ failed-operations-title = {$count ->
     [one] The operation failed
     *[other] {$count} operations failed
   }
+merge = Merge
+replace-folder-warning = Do you want to merge them, or replace the folder that is there? Replacing sends it to the rubbish.
+folder-totals = { $files ->
+    [one] 1 file, { $size }
+   *[other] { $files } files, { $size }
+}

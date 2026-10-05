@@ -156,6 +156,11 @@ original-file = ไฟล์ต้นฉบับ
 replace-with = แทนที่ด้วย
 apply-to-all = นำไปใช้กับทั้งหมด
 keep-both = เก็บไว้ทั้งคู่
+merge = รวม
+replace-folder-warning = คุณต้องการรวมแฟ้มเหล่านั้นหรือแทนที่แฟ้มที่มีอยู่หรือไม่ การแทนที่จะย้ายแฟ้มไปยังถังขยะ
+folder-totals = { $files ->
+   *[other] { $files } ไฟล์, { $size }
+}
 skip = ข้าม
 
 ## Set as Executable and Launch Dialog

@@ -70,6 +70,14 @@ original-file = Початковий файл
 replace-with = Замінити на
 apply-to-all = Застосувати до всіх
 keep-both = Залишити обидва
+merge = Об’єднати
+replace-folder-warning = Бажаєте об’єднати їх чи замінити наявну там теку? Заміна перемістить її до смітника.
+folder-totals = { $files ->
+    [one] { $files } файл, { $size }
+    [few] { $files } файли, { $size }
+    [many] { $files } файлів, { $size }
+   *[other] { $files } файлу, { $size }
+}
 skip = Пропустити
 
 # Context Pages

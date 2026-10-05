@@ -178,6 +178,13 @@ original-file = File originale
 replace-with = Sostituisci con
 apply-to-all = Applica a tutti
 keep-both = Mantieni entrambi
+merge = Unisci
+replace-folder-warning = Vuoi unirle o sostituire la cartella presente? La sostituzione la sposterà nel cestino.
+folder-totals = { $files ->
+    [one] { $files } file, { $size }
+    [many] { $files } di file, { $size }
+   *[other] { $files } file, { $size }
+}
 skip = Salta
 
 ## Set as Executable and Launch Dialog

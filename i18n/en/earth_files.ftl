@@ -191,6 +191,12 @@ original-file = Original file
 replace-with = Replace with
 apply-to-all = Apply to all
 keep-both = Keep both
+merge = Merge
+replace-folder-warning = Do you want to merge them, or replace the folder that is there? Replacing sends it to the trash.
+folder-totals = { $files ->
+    [one] 1 file, { $size }
+   *[other] { $files } files, { $size }
+}
 skip = Skip
 
 ## Set as Executable and Launch Dialog

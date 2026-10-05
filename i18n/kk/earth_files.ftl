@@ -126,6 +126,12 @@ original-file = Түпнұсқа файл
 replace-with = Келесімен алмастыру
 apply-to-all = Барлығына іске асыру
 keep-both = Екеуін де қалдыру
+merge = Біріктіру
+replace-folder-warning = Оларды біріктіргіңіз келе ме, әлде сол жердегі буманы алмастыру керек пе? Алмастыру кезінде ол қоқыс шелегіне жіберіледі.
+folder-totals = { $files ->
+    [one] { $files } файл, { $size }
+   *[other] { $files } файл, { $size }
+}
 skip = Өткізіп жіберу
 set-executable-and-launch = Орындалатын файл ретінде орнату және жөнелту
 set-executable-and-launch-description = "{ $name }" нысанын орындалатын файл ретінде орнатып, оны жөнелтуді қалайсыз ба?

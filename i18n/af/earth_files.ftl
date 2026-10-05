@@ -89,3 +89,9 @@ failed-operations-title = {$count ->
     [one] Die bewerking het misluk
     *[other] {$count} bewerkings het misluk
   }
+merge = Voeg saam
+replace-folder-warning = Wil jy hulle saamvoeg, of die gids wat daar is vervang? Vervanging stuur dit na die asblik.
+folder-totals = { $files ->
+    [one] { $files } lêer, { $size }
+   *[other] { $files } lêers, { $size }
+}

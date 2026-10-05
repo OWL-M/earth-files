@@ -162,6 +162,13 @@ original-file = Fichier d'origine
 replace-with = Remplacer par
 apply-to-all = Appliquer à tous
 keep-both = Conserver les deux
+merge = Fusionner
+replace-folder-warning = Voulez-vous les fusionner ou remplacer le dossier qui s'y trouve ? Le remplacer l'enverra à la corbeille.
+folder-totals = { $files ->
+    [one] { $files } fichier, { $size }
+    [many] { $files } de fichiers, { $size }
+   *[other] { $files } fichiers, { $size }
+}
 skip = Ignorer
 
 ## Set as Executable and Launch Dialog

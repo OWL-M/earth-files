@@ -169,6 +169,13 @@ original-file = Arquivo original
 replace-with = Substituir por
 apply-to-all = Aplicar a todos
 keep-both = Manter ambos
+merge = Mesclar
+replace-folder-warning = Deseja mesclá-las ou substituir a pasta que já está lá? Ao substituí-la, ela será enviada para a lixeira.
+folder-totals = { $files ->
+    [one] { $files } arquivo, { $size }
+    [many] { $files } de arquivos, { $size }
+   *[other] { $files } arquivos, { $size }
+}
 skip = Ignorar
 
 ## Set as Executable and Launch Dialog

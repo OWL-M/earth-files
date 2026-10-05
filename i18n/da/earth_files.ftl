@@ -148,6 +148,12 @@ original-file = Original fil
 replace-with = Erstat med
 apply-to-all = Anvend på alle
 keep-both = Behold begge
+merge = Flet
+replace-folder-warning = Ønsker du at flette dem eller erstatte mappen, der allerede findes? Erstatning sender den til papirkurven.
+folder-totals = { $files ->
+    [one] { $files } fil, { $size }
+   *[other] { $files } filer, { $size }
+}
 skip = Spring over
 
 ## Set as Executable and Launch Dialog

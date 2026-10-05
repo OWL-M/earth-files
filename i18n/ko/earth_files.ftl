@@ -247,6 +247,11 @@ item-accessed = 마지막 접근 일자: { $accessed }
 extract-to-title = 폴더로 압축 해제
 open-with = 다음으로 열기
 keep-both = 둘 다 유지
+merge = 병합
+replace-folder-warning = 병합할까요, 아니면 이미 있는 폴더를 대체할까요? 대체하면 해당 폴더는 휴지통으로 이동됩니다.
+folder-totals = { $files ->
+   *[other] 파일 { $files }개, { $size }
+}
 open-with-title = "{ $name }"을(를) 어떻게 열까요?
 write-execute = 쓰기 및 실행
 extract-password-required = 암호 필요

@@ -162,6 +162,90 @@ pub enum Method {
 
 mod check;
 
+/// What a copy or move does with the trash, for what it replaces: the real
+/// one, or in tests a stand-in that leaves the user's own alone.
+#[derive(Clone, Copy)]
+struct Trash {
+    /// Sends a path there.
+    delete: fn(&Path) -> Result<(), Box<dyn Error + Send + Sync>>,
+    /// The newest entries for the paths, made since the time given.
+    entries: fn(&[PathBuf], i64) -> Vec<trash::TrashItem>,
+    /// Brings an entry back to where it was.
+    restore: fn(trash::TrashItem) -> Result<(), Box<dyn Error + Send + Sync>>,
+}
+
+#[cfg(not(test))]
+const TRASH: Trash = Trash {
+    delete: |path| trash::delete(path).map_err(Into::into),
+    entries: super::trashed_entries,
+    restore: |item| trash::os_limited::restore_all([item]).map_err(Into::into),
+};
+
+#[cfg(test)]
+const TRASH: Trash = test_trash::TRASH;
+
+/// A trash for tests: a folder of this process's own in the temporary
+/// folder. Its entries come back the way the app restores one it did not
+/// find by its `.trashinfo`: renamed into place.
+#[cfg(test)]
+mod test_trash {
+    use super::Trash;
+    use std::error::Error;
+    use std::path::{Path, PathBuf};
+    use std::sync::Mutex;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    static ENTRIES: Mutex<Vec<trash::TrashItem>> = Mutex::new(Vec::new());
+    static NEXT: AtomicUsize = AtomicUsize::new(0);
+
+    pub(super) const TRASH: Trash = Trash {
+        delete,
+        entries,
+        restore,
+    };
+
+    fn delete(path: &Path) -> Result<(), Box<dyn Error + Send + Sync>> {
+        let dir = std::env::temp_dir().join(format!("earth-files-trash-{}", std::process::id()));
+        std::fs::create_dir_all(&dir)?;
+        let kept = dir.join(NEXT.fetch_add(1, Ordering::Relaxed).to_string());
+        std::fs::rename(path, &kept)?;
+        let time_deleted = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |since| since.as_secs() as i64);
+        ENTRIES
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .push(trash::TrashItem {
+                id: kept.into(),
+                name: path.file_name().unwrap_or_default().to_owned(),
+                original_parent: path.parent().unwrap_or(path).to_path_buf(),
+                time_deleted,
+            });
+        Ok(())
+    }
+
+    fn entries(paths: &[PathBuf], since: i64) -> Vec<trash::TrashItem> {
+        let entries = ENTRIES
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        paths
+            .iter()
+            .filter_map(|path| {
+                entries
+                    .iter()
+                    .filter(|entry| entry.time_deleted >= since && entry.original_path() == *path)
+                    .max_by_key(|entry| entry.time_deleted)
+                    .cloned()
+            })
+            .collect()
+    }
+
+    fn restore(item: trash::TrashItem) -> Result<(), Box<dyn Error + Send + Sync>> {
+        crate::operation::rename_no_replace(Path::new(&item.id), &item.original_path())?;
+        Ok(())
+    }
+}
+
 /// One step of a planned copy or move, with nothing thread-local in it.
 ///
 /// [`Op`] cannot cross threads: its `Rc<Skip>` is shared with the cleanup op
@@ -210,6 +294,20 @@ pub struct Context {
     /// Where each moved or copied path landed, which Keep Both may have
     /// renamed: the cleanup step that removes its original does not know.
     landed: std::collections::HashMap<PathBuf, PathBuf>,
+    /// The trash that what is replaced goes to.
+    trash: Trash,
+    /// What was there and got replaced, sent to the trash: found among its
+    /// entries once the operation stops, for undo and for putting back.
+    replaced: Vec<PathBuf>,
+    /// The step running replaced what was at its destination: what it puts
+    /// there is its own, to take away when putting things back.
+    replaced_now: bool,
+    /// A folder whose name is taken by a folder goes into it without asking,
+    /// as an extraction does; a copy or move asks.
+    pub(crate) merge_folders: bool,
+    /// When the operation started, in Unix seconds: the trash entries it
+    /// made are no older.
+    started: i64,
 }
 
 /// One selected item, checked: its steps, and whether the user left it out
@@ -223,6 +321,8 @@ struct Item {
     root: bool,
     /// Copying it takes room at the destination.
     takes_room: bool,
+    /// The folder already at its destination goes to the trash first.
+    replace: bool,
 }
 
 /// What the check of one selected item came to.
@@ -236,6 +336,9 @@ struct ItemCheck {
     /// Copying it takes room at the destination: anything but a move on the
     /// same filesystem, which needs none.
     takes_room: bool,
+    /// It is a folder, and a folder of its name is already at its
+    /// destination.
+    folder_clash: bool,
 }
 
 /// A problem found before the operation runs, to ask about.
@@ -247,21 +350,35 @@ enum Problem {
         from: PathBuf,
         to: PathBuf,
     },
+    /// A selected folder whose name is taken by a folder at its destination:
+    /// asked before anything inside it.
+    FolderClash {
+        from: PathBuf,
+        to: PathBuf,
+    },
+}
+
+/// Which kind of question a problem makes, for "Same for the rest".
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ProblemKind {
+    Blocked(std::mem::Discriminant<Blocked>),
+    Clash,
+    FolderClash,
 }
 
 impl Problem {
     fn path(&self) -> &Path {
         match self {
             Self::Blocked(blocked) => blocked.path(),
-            Self::Clash { from, .. } => from,
+            Self::Clash { from, .. } | Self::FolderClash { from, .. } => from,
         }
     }
 
-    /// Which kind of question it makes, for "Same for the rest".
-    fn kind(&self) -> Option<std::mem::Discriminant<Blocked>> {
+    fn kind(&self) -> ProblemKind {
         match self {
-            Self::Blocked(blocked) => Some(std::mem::discriminant(blocked)),
-            Self::Clash { .. } => None,
+            Self::Blocked(blocked) => ProblemKind::Blocked(std::mem::discriminant(blocked)),
+            Self::Clash { .. } => ProblemKind::Clash,
+            Self::FolderClash { .. } => ProblemKind::FolderClash,
         }
     }
 }
@@ -321,6 +438,13 @@ impl Context {
             start_helper: Helper::start,
             scope: root::Scope::default(),
             landed: std::collections::HashMap::new(),
+            trash: TRASH,
+            replaced: Vec::new(),
+            replaced_now: false,
+            merge_folders: false,
+            started: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |since| since.as_secs() as i64),
         }
     }
 
@@ -370,11 +494,20 @@ impl Context {
                 _ => None,
             };
             let clashes = clashes(&checked.planned);
+            let from_meta = fs::symlink_metadata(&from_parent);
+            let folder_clash = from_meta.as_ref().is_ok_and(fs::Metadata::is_dir)
+                && fs::metadata(&to_parent).is_ok_and(|to| {
+                    to.is_dir()
+                        && !from_meta
+                            .as_ref()
+                            .is_ok_and(|from| from.dev() == to.dev() && from.ino() == to.ino())
+                });
             Ok(ItemCheck {
                 checked,
                 removal,
                 clashes,
                 takes_room: matches!(method, Method::Copy) || !same_device,
+                folder_clash,
             })
         })
         .await
@@ -501,6 +634,69 @@ impl Context {
         })
     }
 
+    /// Sends what is at `path` to the trash, to be replaced. Where there is
+    /// no trash to send it to, a file is removed instead when `or_remove`,
+    /// and undo cannot bring it back.
+    async fn trash_replaced(&mut self, path: &Path, or_remove: bool) -> Result<(), Box<dyn Error>> {
+        let (target, delete) = (path.to_path_buf(), self.trash.delete);
+        let trashed = compio::runtime::spawn_blocking(move || {
+            // The trash names an entry by its folder's real path
+            let target = target
+                .parent()
+                .and_then(|parent| parent.canonicalize().ok())
+                .zip(target.file_name())
+                .map_or(target.clone(), |(parent, name)| parent.join(name));
+            delete(&target).map(|()| target)
+        })
+        .await
+        .map_err(|_| std::io::Error::other("the trash's worker stopped"))?;
+        match trashed {
+            Ok(original) => {
+                self.replaced.push(original);
+                self.replaced_now = true;
+                Ok(())
+            }
+            Err(err) if or_remove => {
+                log::warn!(
+                    "failed to trash {}, removing it instead: {err}",
+                    path.display()
+                );
+                compio::fs::remove_file(path).await?;
+                Ok(())
+            }
+            Err(err) => Err(err as Box<dyn Error>),
+        }
+    }
+
+    /// Finds the trash entries of what was replaced, for undo.
+    async fn resolve_trashed(&mut self) {
+        if self.replaced.is_empty() {
+            return;
+        }
+        let (paths, since) = (std::mem::take(&mut self.replaced), self.started);
+        let entries = self.trash.entries;
+        match compio::runtime::spawn_blocking(move || entries(&paths, since)).await {
+            Ok(items) => self.op_sel.trash_items.extend(items),
+            Err(_) => log::warn!("failed to find what was replaced in the trash"),
+        }
+    }
+
+    /// Brings back from the trash what was replaced. Returns the paths that
+    /// could not come back.
+    async fn untrash(&mut self) -> Vec<PathBuf> {
+        self.resolve_trashed().await;
+        let mut not_back = Vec::new();
+        for item in std::mem::take(&mut self.op_sel.trash_items) {
+            let (path, restore) = (item.original_path(), self.trash.restore);
+            let restored = compio::runtime::spawn_blocking(move || restore(item)).await;
+            if !matches!(restored, Ok(Ok(()))) {
+                log::warn!("failed to bring back {} from the trash", path.display());
+                not_back.push(path);
+            }
+        }
+        not_back
+    }
+
     /// Whether everything going into each folder of `room` fits there.
     async fn check_room(
         &self,
@@ -551,6 +747,7 @@ impl Context {
             Method::Copy => Vec::new(),
         };
         let result = self.run_pairs(from_to_pairs, method).await;
+        self.resolve_trashed().await;
         // Aborted: stopped where it was, everything done kept, and undoable
         if result.is_err() && self.controller.is_aborted() {
             return Err(self.cancelled());
@@ -582,8 +779,9 @@ impl Context {
     /// items in `renamed`: originals a move had removed come back to where
     /// they were (renamed, or copied across filesystems), and what was made
     /// at the destination is removed. What was already at the destination
-    /// and got replaced cannot come back and is left. Returns the paths that
-    /// could not be put back; everything else still is.
+    /// and got replaced comes back from the trash; what had no trash to go
+    /// to cannot. Returns the paths that could not be put back; everything
+    /// else still is.
     async fn roll_back(&mut self, renamed: &[(PathBuf, PathBuf)]) -> Vec<PathBuf> {
         let mut not_back = Vec::new();
         for step in std::mem::take(&mut self.done).into_iter().rev() {
@@ -615,6 +813,8 @@ impl Context {
                 not_back.push(from.clone());
             }
         }
+        // What was replaced comes back last, into the places just freed
+        not_back.extend(self.untrash().await);
         not_back
     }
 
@@ -758,6 +958,17 @@ impl Context {
             {
                 *needed += check.checked.size;
             }
+            // The folder itself before anything inside it: the answer can
+            // settle all of that
+            if check.folder_clash && !self.merge_folders {
+                problems.push((
+                    Some(index),
+                    Problem::FolderClash {
+                        from: from_parent.clone(),
+                        to: to_parent.clone(),
+                    },
+                ));
+            }
             problems.extend(
                 check
                     .checked
@@ -786,6 +997,7 @@ impl Context {
                 skipped: false,
                 root: false,
                 takes_room: check.takes_room,
+                replace: false,
             });
         }
 
@@ -804,26 +1016,36 @@ impl Context {
         let mut skipped: Vec<PathBuf> = Vec::new();
         let mut rest: Vec<std::mem::Discriminant<Blocked>> = Vec::new();
         let mut rest_clash: Option<ReplaceResult> = None;
+        let mut rest_folder: Option<ReplaceResult> = None;
+        // Destinations whose clashes an answer about their folder settled:
+        // it goes to the trash, or the copy goes elsewhere
+        let mut settled_to: Vec<PathBuf> = Vec::new();
         let mut rest_root: Vec<std::mem::Discriminant<Blocked>> = Vec::new();
         // Folders listed as root can bring more to copy, and more problems
         let mut grew = false;
         let mut index = 0;
         while index < problems.len() {
-            let settled = |item: Option<usize>, problem: &Problem, skipped: &[PathBuf]| {
+            let settled = |item: Option<usize>,
+                           problem: &Problem,
+                           skipped: &[PathBuf],
+                           settled_to: &[PathBuf]| {
                 item.is_some_and(|item| items[item].skipped)
                     || skipped.iter().any(|path| problem.path().starts_with(path))
+                    || matches!(problem, Problem::Clash { to, .. }
+                        if settled_to.iter().any(|folder| to.starts_with(folder)))
             };
             let (item, problem) = (problems[index].0, problems[index].1.clone());
             let problem = &problem;
             index += 1;
-            if settled(item, problem, &skipped) {
+            if settled(item, problem, &skipped, &settled_to) {
                 continue;
             }
             // How many of its kind are left, this one included
             let count = problems[index - 1..]
                 .iter()
                 .filter(|(other_item, other)| {
-                    other.kind() == problem.kind() && !settled(*other_item, other, &skipped)
+                    other.kind() == problem.kind()
+                        && !settled(*other_item, other, &skipped, &settled_to)
                 })
                 .count();
             match problem {
@@ -860,6 +1082,64 @@ impl Context {
                         }
                         ReplaceResult::Skip(_) => {
                             skipped.push(from.clone());
+                            self.op_sel.skipped.push(from.clone());
+                        }
+                        // Not offered for a file
+                        ReplaceResult::Merge(_) => {}
+                        ReplaceResult::Cancel => return Err(self.cancelled()),
+                    }
+                }
+                Problem::FolderClash { from, to } => {
+                    let answer = match rest_folder {
+                        Some(answer) => answer,
+                        None => {
+                            let step = Op {
+                                kind: OpKind::Mkdir,
+                                from: from.clone(),
+                                to: to.clone(),
+                                skipped: Rc::new(Skip {
+                                    normal: Cell::new(false),
+                                    cleanup: Cell::new(false),
+                                }),
+                                is_cleanup: false,
+                                created_to: Cell::new(false),
+                                root: false,
+                            };
+                            (self.on_replace)(&step, count).await
+                        }
+                    };
+                    if let ReplaceResult::Replace(true)
+                    | ReplaceResult::Skip(true)
+                    | ReplaceResult::Merge(true) = answer
+                    {
+                        rest_folder = Some(answer);
+                    }
+                    let Some(item) = item else {
+                        continue;
+                    };
+                    match answer {
+                        // Into the folder that is there: what clashes inside
+                        // it is asked about next
+                        ReplaceResult::Merge(_) => {}
+                        // The folder there goes to the trash before the copy
+                        ReplaceResult::Replace(_) => {
+                            items[item].replace = true;
+                            settled_to.push(to.clone());
+                        }
+                        // Under a new name, where nothing clashes
+                        ReplaceResult::KeepBoth => {
+                            let into = to.parent().unwrap_or(to);
+                            let unique = super::copy_unique_path(from, into);
+                            for op in &mut items[item].planned {
+                                if let Ok(inside) = op.to.strip_prefix(to) {
+                                    op.to = unique.join(inside);
+                                }
+                            }
+                            items[item].to_parent = unique;
+                            settled_to.push(to.clone());
+                        }
+                        ReplaceResult::Skip(_) => {
+                            items[item].skipped = true;
                             self.op_sel.skipped.push(from.clone());
                         }
                         ReplaceResult::Cancel => return Err(self.cancelled()),
@@ -998,6 +1278,17 @@ impl Context {
             self.check_room(&room).await?;
         }
 
+        // The folders to replace go to the trash, before anything is copied.
+        // A folder that cannot go there is not removed for good: the
+        // operation stops, and what went already comes back.
+        for item in items.iter().filter(|item| item.replace && !item.skipped) {
+            if let Err(err) = self.trash_replaced(&item.to_parent, false).await {
+                let reason = super::failure_text(&item.to_parent, &*err);
+                self.untrash().await;
+                return Err(OperationError::from_err(reason, &self.controller));
+            }
+        }
+
         for item in items {
             if item.skipped {
                 continue;
@@ -1061,6 +1352,7 @@ impl Context {
             // created, and only created paths may be undone.
             let to_before = op.to.clone();
             let to_existed = compio::fs::symlink_metadata(&to_before).await.is_ok();
+            self.replaced_now = false;
             // A step stopped for lack of permission asks the user, and runs
             // again for as long as they answer Retry.
             let mut left_alone = false;
@@ -1179,8 +1471,9 @@ impl Context {
                     op.kind,
                     OpKind::Copy | OpKind::Move { .. } | OpKind::Mkdir | OpKind::Symlink { .. }
                 );
-                let created =
-                    creates && !op.skipped.normal.get() && (op.to != to_before || !to_existed);
+                let created = creates
+                    && !op.skipped.normal.get()
+                    && (op.to != to_before || !to_existed || self.replaced_now);
                 if created {
                     self.op_sel.created.push(op.to.clone());
                 }
@@ -1286,7 +1579,7 @@ impl Context {
                 if apply_to_all {
                     self.replace_result_opt = Some(replace_result);
                 }
-                compio::fs::remove_file(&op.to).await?;
+                self.trash_replaced(&op.to, true).await?;
                 Ok(ControlFlow::Continue(op.to.clone()))
             }
             ReplaceResult::KeepBoth => match op.to.parent() {
@@ -1297,6 +1590,11 @@ impl Context {
                 if apply_to_all {
                     self.replace_result_opt = Some(replace_result);
                 }
+                op.skipped.normal.set(true);
+                Ok(ControlFlow::Break(true))
+            }
+            // Not offered for a file: left as it is
+            ReplaceResult::Merge(_) => {
                 op.skipped.normal.set(true);
                 Ok(ControlFlow::Break(true))
             }
@@ -1476,6 +1774,11 @@ impl Op {
                 if all {
                     ctx.replace_result_opt = Some(answer);
                 }
+                self.skipped.normal.set(true);
+                Ok(ControlFlow::Break(true))
+            }
+            // Not offered for a file: left as it is
+            ReplaceResult::Merge(_) => {
                 self.skipped.normal.set(true);
                 Ok(ControlFlow::Break(true))
             }
@@ -2342,6 +2645,121 @@ mod tests {
             !dir.path().join("to/a").exists(),
             "the copy of a is removed"
         );
+        assert_eq!(
+            fs::read(dir.path().join("to/b")).expect("b"),
+            b"old",
+            "what b replaced comes back from the trash"
+        );
+    }
+
+    /// A copy of folder `d`, holding `a` and `b`, into a folder that already
+    /// has a `d` holding `b` and `c`. A question about a folder is answered
+    /// with `folder`, one about a file with Replace. Returns what was asked
+    /// about, folders first, the copy's result, and the folders.
+    async fn copy_onto_folder(
+        folder: crate::operation::ReplaceResult,
+    ) -> (
+        Vec<(bool, std::path::PathBuf)>,
+        Result<bool, crate::operation::OperationError>,
+        crate::operation::OperationSelection,
+        tempfile::TempDir,
+    ) {
+        use crate::operation::ReplaceResult;
+        use std::cell::RefCell;
+        use std::rc::Rc;
+        let dir = tempfile::tempdir().expect("tempdir");
+        let from = dir.path().join("from/d");
+        fs::create_dir_all(&from).expect("mkdir");
+        fs::write(from.join("a"), b"new a").expect("write");
+        fs::write(from.join("b"), b"new b").expect("write");
+        let to = dir.path().join("to/d");
+        fs::create_dir_all(&to).expect("mkdir");
+        fs::write(to.join("b"), b"old b").expect("write");
+        fs::write(to.join("c"), b"old c").expect("write");
+
+        let asked: Rc<RefCell<Vec<(bool, std::path::PathBuf)>>> = Rc::default();
+        let seen = asked.clone();
+        let mut ctx = Context::new(Controller::default()).on_replace(move |op, _count| {
+            let is_folder = matches!(op.kind, OpKind::Mkdir);
+            seen.borrow_mut().push((is_folder, op.to.clone()));
+            let answer = if is_folder {
+                folder
+            } else {
+                ReplaceResult::Replace(false)
+            };
+            Box::pin(async move { answer })
+        });
+        let result = ctx.recursive_copy_or_move([(from, to)], Method::Copy).await;
+        let asked = asked.borrow().clone();
+        (asked, result, ctx.op_sel, dir)
+    }
+
+    /// Merge: the folder is asked about first, then the file inside that
+    /// clashes; the replaced file goes to the trash, and what was only there
+    /// stays.
+    #[test(compio::test)]
+    async fn a_merged_folder_asks_about_its_clashes_next() {
+        use crate::operation::ReplaceResult;
+        let (asked, result, op_sel, dir) = copy_onto_folder(ReplaceResult::Merge(false)).await;
+        result.expect("copied");
+        let to = dir.path().join("to/d");
+        assert_eq!(asked, vec![(true, to.clone()), (false, to.join("b"))]);
+        assert_eq!(fs::read(to.join("a")).expect("a"), b"new a");
+        assert_eq!(fs::read(to.join("b")).expect("b"), b"new b");
+        assert_eq!(fs::read(to.join("c")).expect("c"), b"old c");
+        let trashed: Vec<_> = op_sel
+            .trash_items
+            .iter()
+            .map(trash::TrashItem::original_path)
+            .collect();
+        assert_eq!(trashed, vec![to.join("b")]);
+    }
+
+    /// Replace: the folder that was there goes to the trash whole, and
+    /// nothing inside is asked about.
+    #[test(compio::test)]
+    async fn a_replaced_folder_goes_to_the_trash() {
+        use crate::operation::ReplaceResult;
+        let (asked, result, op_sel, dir) = copy_onto_folder(ReplaceResult::Replace(false)).await;
+        result.expect("copied");
+        let to = dir.path().join("to/d");
+        assert_eq!(asked, vec![(true, to.clone())]);
+        assert_eq!(fs::read(to.join("b")).expect("b"), b"new b");
+        assert!(!to.join("c").exists(), "the old folder is gone");
+        assert_eq!(op_sel.trash_items.len(), 1);
+        assert_eq!(op_sel.trash_items[0].original_path(), to);
+    }
+
+    /// Keep both: the copy goes under a new name, and the folder there is
+    /// left as it was.
+    #[test(compio::test)]
+    async fn keep_both_copies_a_folder_under_a_new_name() {
+        use crate::operation::ReplaceResult;
+        let (asked, result, op_sel, dir) = copy_onto_folder(ReplaceResult::KeepBoth).await;
+        result.expect("copied");
+        let to = dir.path().join("to/d");
+        assert_eq!(asked.len(), 1, "nothing inside is asked about");
+        assert_eq!(fs::read(to.join("b")).expect("b"), b"old b");
+        // The new name is the one the copy selects
+        let copy = op_sel.selected[0].clone();
+        assert_eq!(copy.parent(), Some(dir.path().join("to").as_path()));
+        assert_ne!(copy, to);
+        assert_eq!(fs::read(copy.join("a")).expect("a"), b"new a");
+        assert_eq!(fs::read(copy.join("b")).expect("b"), b"new b");
+        assert!(op_sel.created.contains(&copy));
+        assert!(op_sel.trash_items.is_empty());
+    }
+
+    /// Skip: the folder is left out whole.
+    #[test(compio::test)]
+    async fn a_skipped_folder_is_left_out() {
+        use crate::operation::ReplaceResult;
+        let (asked, result, _, dir) = copy_onto_folder(ReplaceResult::Skip(false)).await;
+        result.expect("done");
+        let to = dir.path().join("to/d");
+        assert_eq!(asked.len(), 1);
+        assert!(!to.join("a").exists());
+        assert_eq!(fs::read(to.join("b")).expect("b"), b"old b");
     }
 
     #[test(compio::test)]

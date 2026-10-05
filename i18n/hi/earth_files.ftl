@@ -91,6 +91,12 @@ original-file = मूल फ़ाइल
 replace-with = इसके साथ प्रतिस्थापित करें
 apply-to-all = सभी पर लागू करें
 keep-both = दोनों रखें
+merge = मर्ज करें
+replace-folder-warning = क्या आप इन्हें मर्ज करना चाहते हैं, या वहाँ मौजूद फ़ोल्डर को बदलना चाहते हैं? बदलने पर वह कचरे में भेज दिया जाएगा।
+folder-totals = { $files ->
+    [one] { $files } फ़ाइल, { $size }
+   *[other] { $files } फ़ाइलें, { $size }
+}
 skip = छोड़ें
 
 ## Set as Executable and Launch Dialog

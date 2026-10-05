@@ -48,3 +48,10 @@ failed-operations-title = {$count ->
     [few] {$count} operacije nisu uspjele
     *[other] {$count} operacija nije uspjelo
   }
+merge = Spoji
+replace-folder-warning = Želite li ih spojiti ili zamijeniti mapu koja se tamo nalazi? Zamjena će je poslati u smeće.
+folder-totals = { $files ->
+    [one] { $files } datoteka, { $size }
+    [few] { $files } datoteke, { $size }
+   *[other] { $files } datoteka, { $size }
+}

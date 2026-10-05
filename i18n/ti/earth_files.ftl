@@ -45,3 +45,9 @@ failed-operations-title = {$count ->
     [one] እቲ ስርሒት ኣይተዓወተን
     *[other] {$count} ስርሒታት ኣይተዓወቱን
   }
+merge = ኣሕዋስ
+replace-folder-warning = ክትሕውሶም ወይስ ኣብኡ ዘሎ ፎልደር ክትትክእ ትደሊ ዶ? ምትካእ ናብ ጉሓፍ ይሰድዶ።
+folder-totals = { $files ->
+    [one] { $files } ፋይል, { $size }
+   *[other] { $files } ፋይላት, { $size }
+}

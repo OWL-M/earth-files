@@ -45,3 +45,9 @@ failed-operations-title = {$count ->
     [one] De hanjeling is mislök
     *[other] {$count} hanjelinge zien mislök
   }
+merge = Samevoege
+replace-folder-warning = Wils se ze samevoege of de map die d'r steit vervange? Vervange stuurt 'm nao de pröllebak.
+folder-totals = { $files ->
+    [one] { $files } besjtandj, { $size }
+   *[other] { $files } besjtenj, { $size }
+}

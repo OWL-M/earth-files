@@ -45,3 +45,9 @@ failed-operations-title = {$count ->
     [one] Eragiketak huts egin du
     *[other] {$count} eragiketak huts egin dute
   }
+merge = Batu
+replace-folder-warning = Batu nahi dituzu, edo hor dagoen karpeta ordeztu nahi duzu? Ordezten baduzu, zakarrontzira bidaliko da.
+folder-totals = { $files ->
+    [one] { $files } fitxategi, { $size }
+   *[other] { $files } fitxategi, { $size }
+}

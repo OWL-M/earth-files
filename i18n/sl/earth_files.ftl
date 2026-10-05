@@ -50,3 +50,11 @@ failed-operations-title = {$count ->
     [few] {$count} operacije niso uspele
     *[other] {$count} operacij ni uspelo
   }
+merge = Združi
+replace-folder-warning = Ali jih želite združiti ali zamenjati mapo, ki je tam? Z zamenjavo bo premaknjena v koš.
+folder-totals = { $files ->
+    [one] { $files } datoteka, { $size }
+    [two] { $files } datoteki, { $size }
+    [few] { $files } datoteke, { $size }
+   *[other] { $files } datotek, { $size }
+}

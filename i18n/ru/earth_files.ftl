@@ -72,6 +72,14 @@ original-file = Оригинальный файл
 replace-with = Заменить на
 apply-to-all = Применить ко всем
 keep-both = Сохранить оба
+merge = Объединить
+replace-folder-warning = Хотите объединить их или заменить находящуюся там папку? Замена переместит её в корзину.
+folder-totals = { $files ->
+    [one] { $files } файл, { $size }
+    [few] { $files } файла, { $size }
+    [many] { $files } файлов, { $size }
+   *[other] { $files } файла, { $size }
+}
 skip = Пропустить
 
 ## Metadata Dialog
