@@ -83,6 +83,7 @@ blocked-move = “{$name}” kan ikke flyttes
 blocked-move-reason = Originalerne kan ikke fjernes fra “{$folder}”: {$reason}
 same-for-rest-count = Samme for resten ({$count})
 not-enough-space = Dette kræver {$needed}, men kun {$free} er ledig
+in-use = “{$name}” bruges af en anden handling: {$operation}
 checking = Kontrollerer… filer: {$files}, {$size}
 rollback-failed = {$more ->
     [0] Annulleret, men “{$name}” kunne ikke lægges tilbage

@@ -76,6 +76,7 @@ blocked-move = Impossible de desplaçar « {$name} »
 blocked-move-reason = Impossible de suprimir los originals de « {$folder} »: {$reason}
 same-for-rest-count = Parièr per la rèsta ({$count})
 not-enough-space = Cal {$needed}, mas i a pas que {$free} de liure
+in-use = « {$name} » es utilizat per una autra operacion : {$operation}
 checking = Verificacion… fichièrs: {$files}, {$size}
 rollback-failed = {$more ->
     [0] Anullat, mas « {$name} » a pas pogut èsser restablit

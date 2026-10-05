@@ -44,6 +44,7 @@ blocked-move = "{$name}" ክግዓዝ ኣይከኣልን
 blocked-move-reason = ካብ "{$folder}" እቶም መበቆላውያን ክእለዩ ኣይከኣሉን: {$reason}
 same-for-rest-count = ንዝተረፉ እውን ከምኡ ({$count})
 not-enough-space = እዚ {$needed} የድልዮ፣ ግን {$free} ጥራይ ነጻ እዩ
+in-use = "{$name}" ብካልእ ተግባር ይጥቀመሉ ኣሎ: {$operation}
 checking = ይምርመር ኣሎ… ፋይላት: {$files}፣ {$size}
 rollback-failed = {$more ->
     [0] ተሰሪዙ፣ ግን "{$name}" ናብ ቦታኡ ክምለስ ኣይከኣለን

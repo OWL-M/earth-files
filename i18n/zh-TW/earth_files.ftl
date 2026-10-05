@@ -364,6 +364,7 @@ blocked-move = 無法移動「{$name}」
 blocked-move-reason = 無法從「{$folder}」移除原始檔案：{$reason}
 same-for-rest-count = 其餘項目也套用相同操作 ({$count})
 not-enough-space = 需要 {$needed}，但只有 {$free} 可用
+in-use = 「{$name}」正被另一項操作使用：{$operation}
 checking = 正在檢查… {$files} 個檔案，{$size}
 rollback-failed = {$more ->
     [0] 已取消，但無法將「{$name}」放回原處

@@ -325,6 +325,7 @@ blocked-move = 「{$name}」を移動できません
 blocked-move-reason = 「{$folder}」から元のファイルを削除できません: {$reason}
 same-for-rest-count = 残りにも適用 ({$count})
 not-enough-space = {$needed} が必要ですが、空き容量は {$free} しかありません
+in-use = 「{$name}」は別の操作で使用中です: {$operation}
 checking = 確認中… {$files} 個のファイル、{$size}
 rollback-failed = {$more ->
     [0] キャンセルされましたが、「{$name}」を元に戻せませんでした

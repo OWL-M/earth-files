@@ -99,6 +99,7 @@ blocked-move = Ekki er hægt að færa „{$name}“
 blocked-move-reason = Ekki er hægt að fjarlægja upprunalegu skrárnar úr „{$folder}“: {$reason}
 same-for-rest-count = Sama fyrir afganginn ({$count})
 not-enough-space = Þetta þarf {$needed}, en aðeins {$free} er laust
+in-use = „{$name}“ er í notkun hjá annarri aðgerð: {$operation}
 checking = Athuga… skrár: {$files}, {$size}
 rollback-failed = {$more ->
     [0] Hætt við, en ekki tókst að setja „{$name}“ aftur á sinn stað

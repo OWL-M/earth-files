@@ -801,7 +801,7 @@ async fn delete(
             ))
         });
         context.delete(paths, permanently).await?;
-        Ok(context.op_sel)
+        Ok(std::mem::take(&mut context.op_sel))
     })
     .await
     .map_err(wrap_compio_spawn_error)?
@@ -863,7 +863,7 @@ async fn recursive_pairs(
 
     context.recursive_copy_or_move(pairs, method).await?;
 
-    Ok(context.op_sel)
+    Ok(std::mem::take(&mut context.op_sel))
 }
 
 pub async fn sync_to_disk(

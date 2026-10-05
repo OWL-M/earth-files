@@ -44,6 +44,7 @@ blocked-move = "{$name}" നീക്കാൻ കഴിയില്ല
 blocked-move-reason = "{$folder}" എന്നതിൽ നിന്ന് മൂലഫയലുകൾ നീക്കം ചെയ്യാൻ കഴിയില്ല: {$reason}
 same-for-rest-count = ബാക്കിയുള്ളവയ്ക്കും ഇതുതന്നെ ({$count})
 not-enough-space = ഇതിന് {$needed} വേണം, പക്ഷേ {$free} മാത്രമേ ഒഴിവുള്ളൂ
+in-use = "{$name}" മറ്റൊരു പ്രവർത്തനം ഉപയോഗിക്കുന്നു: {$operation}
 checking = പരിശോധിക്കുന്നു… ഫയലുകൾ: {$files}, {$size}
 rollback-failed = {$more ->
     [0] റദ്ദാക്കി, പക്ഷേ "{$name}" തിരികെ വയ്ക്കാൻ കഴിഞ്ഞില്ല

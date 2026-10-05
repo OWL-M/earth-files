@@ -266,6 +266,18 @@ struct PlannedOp {
     to: PathBuf,
 }
 
+/// Room running copies and moves will still take: `(context, device,
+/// bytes)`. A new operation's room check counts the others' against the
+/// free space.
+type Reserved = Mutex<Vec<(u64, u64, u64)>>;
+
+/// The app's: every operation shares it.
+#[cfg(not(test))]
+static RESERVED: Reserved = Mutex::new(Vec::new());
+
+/// Tells the contexts apart in a [`Reserved`] table.
+static NEXT_CONTEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
 /// How long a plan that finds its controller paused waits before looking
 /// again, mirroring what `Controller::check` does where it can be awaited.
 const PLAN_PAUSE_POLL: std::time::Duration = std::time::Duration::from_millis(50);
@@ -319,6 +331,27 @@ pub struct Context {
     /// When the operation started, in Unix seconds: the trash entries it
     /// made are no older.
     started: i64,
+    /// This context's key in `reservations`.
+    id: u64,
+    /// The room kept by running operations: the app's shared table, or in
+    /// tests one of the context's own, as tests run side by side.
+    reservations: &'static Reserved,
+}
+
+impl Context {
+    fn reserved(&self) -> std::sync::MutexGuard<'static, Vec<(u64, u64, u64)>> {
+        self.reservations
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+}
+
+impl Drop for Context {
+    /// The operation is over: the room it kept is free for others.
+    fn drop(&mut self) {
+        let id = self.id;
+        self.reserved().retain(|(owner, _, _)| *owner != id);
+    }
 }
 
 /// One selected item, checked: its steps, and whether the user left it out
@@ -454,6 +487,11 @@ impl Context {
             deleted: Vec::new(),
             replaced_now: false,
             merge_folders: false,
+            id: NEXT_CONTEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
+            #[cfg(not(test))]
+            reservations: &RESERVED,
+            #[cfg(test)]
+            reservations: Box::leak(Box::default()),
             started: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .map_or(0, |since| since.as_secs() as i64),
@@ -709,18 +747,35 @@ impl Context {
         not_back
     }
 
-    /// Whether everything going into each folder of `room` fits there.
+    /// Whether everything going into each folder of `room` fits there,
+    /// besides what the other running operations will still write to the
+    /// same drive. Fitting, it is kept for this operation until it ends.
     async fn check_room(
         &self,
         room: &std::collections::HashMap<PathBuf, u64>,
     ) -> Result<(), OperationError> {
+        use std::os::unix::fs::MetadataExt;
+
+        let mut kept: std::collections::HashMap<u64, u64> = std::collections::HashMap::new();
         for (into, needed) in room {
             let folder = into.clone();
             let free_space = self.free_space;
-            let free = compio::runtime::spawn_blocking(move || free_space(&folder))
-                .await
-                .map_err(super::wrap_compio_spawn_error)?;
-            if let Some(free) = free
+            let (free, dev) = compio::runtime::spawn_blocking(move || {
+                (
+                    free_space(&folder),
+                    fs::metadata(&folder).map(|meta| meta.dev()).ok(),
+                )
+            })
+            .await
+            .map_err(super::wrap_compio_spawn_error)?;
+            let others: u64 = dev.map_or(0, |dev| {
+                self.reserved()
+                    .iter()
+                    .filter(|(id, on, _)| *id != self.id && *on == dev)
+                    .map(|(_, _, bytes)| bytes)
+                    .sum()
+            });
+            if let Some(free) = free.map(|free| free.saturating_sub(others))
                 && *needed > free
             {
                 return Err(OperationError::from_err(
@@ -732,8 +787,29 @@ impl Context {
                     &self.controller,
                 ));
             }
+            if let Some(dev) = dev {
+                *kept.entry(dev).or_default() += needed;
+            }
         }
+        let mut table = self.reserved();
+        table.retain(|(id, _, _)| *id != self.id);
+        table.extend(
+            kept.into_iter()
+                .filter(|(_, bytes)| *bytes > 0)
+                .map(|(dev, bytes)| (self.id, dev, bytes)),
+        );
         Ok(())
+    }
+
+    /// A file of `bytes` landed on `dev`: that much of the room kept is used.
+    fn landed_bytes(&self, dev: u64, bytes: u64) {
+        for (_, _, kept) in self
+            .reserved()
+            .iter_mut()
+            .filter(|(id, on, _)| *id == self.id && *on == dev)
+        {
+            *kept = kept.saturating_sub(bytes);
+        }
     }
 
     /// The operation stops at the user's word, keeping what it has done so
@@ -1482,6 +1558,15 @@ impl Context {
                         }
                 ) {
                     written_files.push(op.to.clone());
+                }
+                // What was written no longer needs keeping room for
+                if !op.is_cleanup
+                    && !op.skipped.normal.get()
+                    && matches!(op.kind, OpKind::Copy | OpKind::Move { .. })
+                    && let Ok(meta) = compio::fs::symlink_metadata(&op.to).await
+                {
+                    use std::os::unix::fs::MetadataExt;
+                    self.landed_bytes(meta.dev(), meta.len());
                 }
                 let creates = matches!(
                     op.kind,
@@ -2333,6 +2418,55 @@ mod tests {
         }
     }
 
+    /// Room another running operation still needs is not free for a new
+    /// one; once that one ends, it is
+    #[test(compio::test)]
+    async fn room_kept_by_a_running_copy_is_not_free() {
+        use std::os::unix::fs::MetadataExt;
+        let dir = tempfile::tempdir().expect("tempdir");
+        let from = dir.path().join("f.bin");
+        fs::write(&from, vec![0u8; 4096]).expect("write");
+        let to = dir.path().join("dest");
+        fs::create_dir(&to).expect("mkdir");
+        let dev = fs::metadata(&to).expect("dest").dev();
+        let some_room = |_: &Path| Some(10_000);
+
+        // Another operation keeps 8000 bytes on that drive
+        let running = Context::new(Controller::default());
+        let table = running.reservations;
+        running.reserved().push((running.id, dev, 8000));
+
+        let mut ctx = Context::new(Controller::default());
+        ctx.reservations = table;
+        ctx.free_space = some_room;
+        let err = ctx
+            .recursive_copy_or_move([(from.clone(), to.join("f.bin"))], Method::Copy)
+            .await
+            .expect_err("it does not fit beside the other");
+        assert_eq!(
+            err.to_string(),
+            crate::fl!(
+                "not-enough-space",
+                needed = crate::tab::format_size(4096),
+                free = crate::tab::format_size(2000)
+            )
+        );
+
+        drop(running);
+        let mut ctx = Context::new(Controller::default());
+        ctx.reservations = table;
+        ctx.free_space = some_room;
+        ctx.recursive_copy_or_move([(from, to.join("f.bin"))], Method::Copy)
+            .await
+            .expect("it fits once the other ended");
+        assert!(
+            ctx.reserved()
+                .iter()
+                .all(|(id, _, bytes)| *id != ctx.id || *bytes == 0),
+            "what it wrote no longer counts"
+        );
+    }
+
     /// A copy that does not fit is refused before anything is touched or
     /// asked; a move on the same filesystem needs no room and is not.
     #[test(compio::test)]
@@ -2749,7 +2883,7 @@ mod tests {
         });
         let result = ctx.recursive_copy_or_move([(from, to)], Method::Copy).await;
         let asked = asked.borrow().clone();
-        (asked, result, ctx.op_sel, dir)
+        (asked, result, std::mem::take(&mut ctx.op_sel), dir)
     }
 
     /// Merge: the folder is asked about first, then the file inside that

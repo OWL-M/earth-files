@@ -80,6 +80,7 @@ blocked-move = ไม่สามารถย้าย "{$name}" ได้
 blocked-move-reason = ไม่สามารถลบต้นฉบับออกจาก "{$folder}": {$reason}
 same-for-rest-count = ใช้กับรายการที่เหลือทั้งหมด ({$count})
 not-enough-space = ต้องใช้ {$needed} แต่มีพื้นที่ว่างเพียง {$free}
+in-use = "{$name}" กำลังถูกใช้งานโดยการดำเนินการอื่น: {$operation}
 checking = กำลังตรวจสอบ… ไฟล์: {$files}, {$size}
 rollback-failed = {$more ->
     [0] ยกเลิกแล้ว แต่ไม่สามารถนำ "{$name}" กลับที่เดิมได้

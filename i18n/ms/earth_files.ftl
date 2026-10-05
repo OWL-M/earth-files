@@ -44,6 +44,7 @@ blocked-move = "{$name}" tidak dapat dialihkan
 blocked-move-reason = Fail asal tidak dapat dibuang dari "{$folder}": {$reason}
 same-for-rest-count = Sama untuk yang selebihnya ({$count})
 not-enough-space = Ini memerlukan {$needed}, tetapi hanya {$free} yang kosong
+in-use = "{$name}" sedang digunakan oleh operasi lain: {$operation}
 checking = Menyemak… fail: {$files}, {$size}
 rollback-failed = {$more ->
     [0] Dibatalkan, tetapi "{$name}" tidak dapat dikembalikan

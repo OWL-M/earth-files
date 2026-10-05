@@ -216,6 +216,7 @@ blocked-move = Položku „{$name}“ nelze přesunout
 blocked-move-reason = Originály nelze odstranit ze složky „{$folder}“: {$reason}
 same-for-rest-count = Totéž pro zbývající ({$count})
 not-enough-space = Je potřeba {$needed}, ale volné je jen {$free}
+in-use = Položku „{$name}“ používá jiná operace: {$operation}
 checking = Kontrola… souborů: {$files}, {$size}
 rollback-failed = {$more ->
     [0] Zrušeno, ale položku „{$name}“ nelze vrátit zpět

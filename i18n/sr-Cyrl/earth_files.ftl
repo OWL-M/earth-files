@@ -117,6 +117,7 @@ blocked-move = Ставка „{$name}“ не може да се премест
 blocked-move-reason = Оригинали не могу да се уклоне из „{$folder}“: {$reason}
 same-for-rest-count = Исто за остале ({$count})
 not-enough-space = Потребно је {$needed}, али је слободно само {$free}
+in-use = „{$name}“ користи друга операција: {$operation}
 checking = Провера… датотеке: {$files}, {$size}
 rollback-failed = {$more ->
     [0] Отказано, али ставку „{$name}“ није могуће вратити

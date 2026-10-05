@@ -44,6 +44,7 @@ blocked-move = “{$name}” kin neet verplaots waere
 blocked-move-reason = De originele kinne neet oet “{$folder}” eweggehaold waere: {$reason}
 same-for-rest-count = Hetzelfde veur de res ({$count})
 not-enough-space = Dit haet {$needed} nuudig, mer d'r is mer {$free} vrij
+in-use = “{$name}” weurt gebruuk door ee angere bewerking: {$operation}
 checking = Controlere… bestenj: {$files}, {$size}
 rollback-failed = {$more ->
     [0] Geannuleerd, mer “{$name}” kós neet trökgezat waere

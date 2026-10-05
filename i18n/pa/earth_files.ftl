@@ -76,6 +76,7 @@ blocked-move = "{$name}" ਨੂੰ ਭੇਜਿਆ ਨਹੀਂ ਜਾ ਸਕਦ
 blocked-move-reason = "{$folder}" ਵਿੱਚੋਂ ਮੂਲ ਫ਼ਾਈਲਾਂ ਹਟਾਈਆਂ ਨਹੀਂ ਜਾ ਸਕਦੀਆਂ: {$reason}
 same-for-rest-count = ਬਾਕੀਆਂ ਲਈ ਵੀ ਇਹੀ ({$count})
 not-enough-space = ਇਸ ਲਈ {$needed} ਚਾਹੀਦਾ ਹੈ, ਪਰ ਸਿਰਫ਼ {$free} ਖਾਲੀ ਹੈ
+in-use = "{$name}" ਕਿਸੇ ਹੋਰ ਕਾਰਵਾਈ ਵੱਲੋਂ ਵਰਤੋਂ ਵਿੱਚ ਹੈ: {$operation}
 checking = ਜਾਂਚ ਹੋ ਰਹੀ ਹੈ… ਫ਼ਾਈਲਾਂ: {$files}, {$size}
 rollback-failed = {$more ->
     [0] ਰੱਦ ਕੀਤਾ, ਪਰ "{$name}" ਨੂੰ ਵਾਪਸ ਨਹੀਂ ਰੱਖਿਆ ਜਾ ਸਕਿਆ

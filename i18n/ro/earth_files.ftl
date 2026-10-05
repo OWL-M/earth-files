@@ -85,6 +85,7 @@ blocked-move = „{$name}” nu poate fi mutat
 blocked-move-reason = Originalele nu pot fi eliminate din „{$folder}”: {$reason}
 same-for-rest-count = La fel pentru restul ({$count})
 not-enough-space = Sunt necesari {$needed}, dar doar {$free} sunt liberi
+in-use = „{$name}” este folosit de o altă operațiune: {$operation}
 checking = Se verifică… fișiere: {$files}, {$size}
 rollback-failed = {$more ->
     [0] Anulat, dar „{$name}” nu a putut fi pus la loc

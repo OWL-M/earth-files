@@ -44,6 +44,7 @@ blocked-move = Không thể di chuyển "{$name}"
 blocked-move-reason = Không thể xóa bản gốc khỏi "{$folder}": {$reason}
 same-for-rest-count = Áp dụng cho các mục còn lại ({$count})
 not-enough-space = Cần {$needed}, nhưng chỉ còn trống {$free}
+in-use = "{$name}" đang được một thao tác khác sử dụng: {$operation}
 checking = Đang kiểm tra… tệp: {$files}, {$size}
 rollback-failed = {$more ->
     [0] Đã hủy, nhưng không thể đưa "{$name}" trở lại chỗ cũ

@@ -80,6 +80,7 @@ blocked-move = Ní féidir "{$name}" a bhogadh
 blocked-move-reason = Ní féidir na bunleaganacha a bhaint as "{$folder}": {$reason}
 same-for-rest-count = An rud céanna don chuid eile ({$count})
 not-enough-space = Teastaíonn {$needed}, ach níl ach {$free} saor
+in-use = Tá "{$name}" in úsáid ag oibríocht eile: {$operation}
 checking = Á sheiceáil… comhaid: {$files}, {$size}
 rollback-failed = {$more ->
     [0] Cealaithe, ach níorbh fhéidir "{$name}" a chur ar ais

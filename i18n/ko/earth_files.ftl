@@ -194,6 +194,7 @@ blocked-move = "{$name}"을(를) 이동할 수 없습니다
 blocked-move-reason = "{$folder}"에서 원본을 제거할 수 없음: {$reason}
 same-for-rest-count = 나머지에도 적용 ({$count})
 not-enough-space = {$needed}이(가) 필요하지만 여유 공간은 {$free}뿐입니다
+in-use = "{$name}"은(는) 다른 작업에서 사용 중입니다: {$operation}
 checking = 확인 중… 파일 {$files}개, {$size}
 rollback-failed = {$more ->
     [0] 취소되었지만 "{$name}"을(를) 되돌려 놓을 수 없습니다

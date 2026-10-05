@@ -44,6 +44,7 @@ blocked-move = "{$name}" ora bisa dipindhah
 blocked-move-reason = Asline ora bisa dibusak saka "{$folder}": {$reason}
 same-for-rest-count = Padha kanggo liyane ({$count})
 not-enough-space = Iki butuh {$needed}, nanging mung {$free} sing kosong
+in-use = "{$name}" lagi dienggo operasi liyane: {$operation}
 checking = Mriksa… berkas: {$files}, {$size}
 rollback-failed = {$more ->
     [0] Dibatalake, nanging "{$name}" ora bisa dibalekake

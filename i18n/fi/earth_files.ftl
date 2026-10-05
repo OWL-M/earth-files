@@ -365,6 +365,7 @@ blocked-move = Kohdetta ”{$name}” ei voi siirtää
 blocked-move-reason = Alkuperäisiä ei voi poistaa kansiosta ”{$folder}”: {$reason}
 same-for-rest-count = Sama muille ({$count})
 not-enough-space = Tarvitaan {$needed}, mutta vapaana on vain {$free}
+in-use = Kohde ”{$name}” on toisen toiminnon käytössä: {$operation}
 checking = Tarkistetaan… tiedostoja: {$files}, {$size}
 rollback-failed = {$more ->
     [0] Peruttu, mutta kohdetta ”{$name}” ei voitu palauttaa

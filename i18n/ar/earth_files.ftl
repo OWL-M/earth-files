@@ -212,6 +212,7 @@ blocked-move = تعذّر نقل «{$name}»
 blocked-move-reason = تعذّرت إزالة الملفات الأصلية من «{$folder}»: {$reason}
 same-for-rest-count = نفس الخيار للبقية ({$count})
 not-enough-space = يتطلب هذا {$needed}، لكن المساحة الحرة {$free} فقط
+in-use = «{$name}» قيد الاستخدام من عملية أخرى: {$operation}
 checking = جارٍ التحقق… الملفات: {$files}، {$size}
 rollback-failed = {$more ->
     [0] أُلغِيَ، لكن تعذّرت إعادة «{$name}» إلى مكانه

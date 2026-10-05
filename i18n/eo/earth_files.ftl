@@ -46,6 +46,7 @@ blocked-move = Ne eblas movi "{$name}"
 blocked-move-reason = Ne eblas forigi la originalojn el "{$folder}": {$reason}
 same-for-rest-count = Same por la ceteraj ({$count})
 not-enough-space = Necesas {$needed}, sed nur {$free} estas libera
+in-use = "{$name}" estas uzata de alia operacio: {$operation}
 checking = Kontrolado… dosieroj: {$files}, {$size}
 rollback-failed = {$more ->
     [0] Nuligita, sed ne eblis remeti "{$name}"

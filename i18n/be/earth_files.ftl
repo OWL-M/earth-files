@@ -88,6 +88,7 @@ blocked-move = Немагчыма перанесці «{$name}»
 blocked-move-reason = Немагчыма выдаліць арыгіналы з «{$folder}»: {$reason}
 same-for-rest-count = Тое ж для астатніх ({$count})
 not-enough-space = Патрабуецца {$needed}, але вольна толькі {$free}
+in-use = «{$name}» выкарыстоўваецца іншай аперацыяй: {$operation}
 checking = Праверка… файлаў: {$files}, {$size}
 rollback-failed = {$more ->
     [0] Скасавана, але «{$name}» немагчыма вярнуць на месца

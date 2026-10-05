@@ -47,6 +47,7 @@ blocked-move = "{$name}" ᱩᱪᱟᱹᱲ ᱵᱟᱝ ᱜᱟᱱᱚᱜ ᱠᱟᱱᱟ
 blocked-move-reason = "{$folder}" ᱠᱷᱚᱱ ᱢᱩᱞ ᱨᱮᱫ ᱠᱚ ᱚᱪᱚᱜ ᱵᱟᱝ ᱜᱟᱱᱚᱜ ᱠᱟᱱᱟ: {$reason}
 same-for-rest-count = ᱮᱴᱟᱜ ᱠᱚ ᱞᱟᱹᱜᱤᱫ ᱦᱚᱸ ᱚᱱᱟ ᱜᱮ ({$count})
 not-enough-space = ᱱᱚᱶᱟ ᱞᱟᱹᱜᱤᱫ {$needed} ᱞᱟᱹᱠᱛᱤ, ᱢᱮᱱᱠᱷᱟᱱ ᱥᱩᱢᱩᱝ {$free} ᱠᱷᱟᱹᱞᱤ ᱢᱮᱱᱟᱜᱼᱟ
+in-use = "{$name}" ᱮᱴᱟᱜ ᱠᱟᱹᱢᱤ ᱨᱮ ᱵᱮᱵᱷᱟᱨ ᱦᱩᱭ ᱠᱟᱱᱟ: {$operation}
 checking = ᱧᱮᱞ ᱧᱟᱢ ᱠᱟᱱᱟ… ᱨᱮᱫ ᱠᱚ: {$files}, {$size}
 rollback-failed = {$more ->
     [0] ᱵᱟᱹᱛᱤᱞ ᱮᱱᱟ ᱢᱮᱱᱠᱷᱟᱱ "{$name}" ᱨᱩᱣᱟᱹᱲ ᱫᱚᱦᱚ ᱵᱟᱝ ᱜᱟᱱᱚᱜ ᱠᱟᱱᱟ

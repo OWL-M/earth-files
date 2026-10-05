@@ -343,6 +343,7 @@ blocked-move = Не удаётся переместить «{$name}»
 blocked-move-reason = Не удаётся удалить оригиналы из «{$folder}»: {$reason}
 same-for-rest-count = Для всех остальных ({$count})
 not-enough-space = Требуется {$needed}, но свободно только {$free}
+in-use = «{$name}» используется другой операцией: {$operation}
 checking = Проверка… файлов: {$files}, {$size}
 rollback-failed = {$more ->
     [0] Отменена, но «{$name}» не удалось вернуть на место

@@ -90,6 +90,7 @@ blocked-move = Nie można przenieść „{$name}”
 blocked-move-reason = Nie można usunąć oryginałów z „{$folder}”: {$reason}
 same-for-rest-count = To samo dla pozostałych ({$count})
 not-enough-space = Potrzeba {$needed}, ale wolne jest tylko {$free}
+in-use = „{$name}” jest używany przez inną operację: {$operation}
 checking = Sprawdzanie… pliki: {$files}, {$size}
 rollback-failed = {$more ->
     [0] Anulowano, ale nie udało się przywrócić „{$name}”

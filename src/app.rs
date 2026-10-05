@@ -1892,6 +1892,8 @@ impl App {
         let id = self.pending_operation_id;
         let controller = Controller::default();
         let compio_tx = self.compio_tx.clone();
+        // Refused when it meets one still running on the same items
+        let in_use = self.in_use(&operation);
 
         self.pending_operation_id += 1;
         if operation.show_progress_notification() {
@@ -1904,6 +1906,12 @@ impl App {
         }
         self.pending_operations
             .insert(id, (operation.clone(), controller.clone()));
+        if let Some(reason) = in_use {
+            return Task::done(crate::ui::Action::App(Message::PendingError(
+                id,
+                OperationError::from_msg(reason),
+            )));
+        }
 
         // Use a task to send operations to the compio runtime thread.
         crate::ui::Task::stream(crate::ui::iced::stream::channel(
@@ -1949,6 +1957,24 @@ impl App {
             },
         ))
         .map(crate::ui::Action::App)
+    }
+
+    /// Why `operation` may not start beside those running, if it may not: a
+    /// path of it is in use by one that it would get in the way of (§5.1 of
+    /// the scenarios). Copies may share; nothing else may share with a move,
+    /// and a delete may not share with a copy or move either way.
+    fn in_use(&self, operation: &Operation) -> Option<String> {
+        for (running, controller) in self.pending_operations.values() {
+            if let Some(path) = collision(running, operation) {
+                let name = path.file_name().map_or_else(
+                    || path.display().to_string(),
+                    |name| name.to_string_lossy().into_owned(),
+                );
+                let other = running.pending_text(controller.progress(), controller.state());
+                return Some(fl!("in-use", name = name, operation = other));
+            }
+        }
+        None
     }
 
     /// Will join operations together into a single task that will return a single
@@ -8938,6 +8964,61 @@ fn question_text(blocked: &Blocked) -> (String, String) {
     }
 }
 
+/// The first path of `later` that `running` holds in a way that keeps
+/// `later` from starting.
+fn collision(running: &Operation, later: &Operation) -> Option<PathBuf> {
+    let (running_kind, running_items) = busy_items(running)?;
+    let (kind, items) = busy_items(later)?;
+    let collides = match (running_kind, kind) {
+        (Busy::Move, _) | (Busy::Copy, Busy::Delete) | (Busy::Delete, Busy::Copy | Busy::Move) => {
+            true
+        }
+        (Busy::Copy, Busy::Copy | Busy::Move) | (Busy::Delete, Busy::Delete) => false,
+    };
+    if !collides {
+        return None;
+    }
+    items.into_iter().find(|item| {
+        running_items
+            .iter()
+            .any(|other| item.starts_with(other) || other.starts_with(item))
+    })
+}
+
+/// What an operation does to the paths it holds, for telling which may run
+/// beside each other.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum Busy {
+    Copy,
+    Move,
+    Delete,
+}
+
+/// The paths `operation` holds while it runs: what it takes and, for a
+/// copy or move, what it makes. `None` for operations that hold nothing
+/// another could get in the way of.
+fn busy_items(operation: &Operation) -> Option<(Busy, Vec<PathBuf>)> {
+    let made = |paths: &[PathBuf], to: &Path| -> Vec<PathBuf> {
+        paths
+            .iter()
+            .cloned()
+            .chain(
+                paths
+                    .iter()
+                    .filter_map(|path| path.file_name())
+                    .map(|name| to.join(name)),
+            )
+            .collect()
+    };
+    match operation {
+        Operation::Copy { paths, to } => Some((Busy::Copy, made(paths, to))),
+        Operation::Move { paths, to, .. } => Some((Busy::Move, made(paths, to))),
+        Operation::Delete { paths } => Some((Busy::Delete, paths.clone())),
+        Operation::PermanentlyDelete { paths } => Some((Busy::Delete, paths.to_vec())),
+        _ => None,
+    }
+}
+
 /// Why a question is asked, when its title does not say: for a move, the
 /// folder its originals could not be removed from, and the reason.
 fn question_detail(blocked: &Blocked) -> Option<String> {
@@ -9113,6 +9194,54 @@ fn search_text_input<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// §5.1: copies share; a move shares with nothing; a delete shares with
+    /// neither a copy nor a move
+    #[test]
+    fn operations_on_the_same_items_collide_as_the_scenarios_say() {
+        let copy = |from: &str, to: &str| Operation::Copy {
+            paths: vec![from.into()],
+            to: to.into(),
+        };
+        let move_ = |from: &str, to: &str| Operation::Move {
+            paths: vec![from.into()],
+            to: to.into(),
+            cross_device_copy: false,
+        };
+        let delete = |path: &str| Operation::Delete {
+            paths: vec![path.into()],
+        };
+        let a = PathBuf::from("/a/x");
+        assert_eq!(collision(&copy("/a/x", "/b"), &copy("/a/x", "/c")), None);
+        assert_eq!(collision(&copy("/a/x", "/b"), &move_("/a/x", "/c")), None);
+        assert_eq!(
+            collision(&move_("/a/x", "/b"), &copy("/a/x", "/c")),
+            Some(a.clone())
+        );
+        assert_eq!(
+            collision(&move_("/a/x", "/b"), &delete("/a/x")),
+            Some(a.clone())
+        );
+        assert_eq!(
+            collision(&copy("/a/x", "/b"), &delete("/a/x")),
+            Some(a.clone())
+        );
+        assert_eq!(
+            collision(&delete("/a/x"), &move_("/a/x", "/c")),
+            Some(a.clone())
+        );
+        // What a copy makes counts, and a folder holds what is in it
+        assert_eq!(
+            collision(&copy("/a/x", "/b"), &delete("/b")),
+            Some(PathBuf::from("/b"))
+        );
+        assert_eq!(
+            collision(&move_("/a", "/b"), &copy("/a/x/y", "/c")),
+            Some(PathBuf::from("/a/x/y"))
+        );
+        // Other items: no collision
+        assert_eq!(collision(&move_("/a/x", "/b"), &copy("/a/y", "/c")), None);
+    }
 
     /// A question about `/root/secrets.env`, and where its answer arrives.
     fn question(same_for_rest: bool) -> (Question, mpsc::Receiver<BlockedAnswer>) {

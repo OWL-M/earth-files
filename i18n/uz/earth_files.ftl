@@ -44,6 +44,7 @@ blocked-move = “{$name}”ni ko‘chirib bo‘lmadi
 blocked-move-reason = Asl nusxalarni “{$folder}” jildidan olib tashlab bo‘lmaydi: {$reason}
 same-for-rest-count = Qolganlari uchun ham shunday ({$count})
 not-enough-space = Buning uchun {$needed} kerak, lekin faqat {$free} bo‘sh
+in-use = “{$name}” boshqa amal tomonidan ishlatilmoqda: {$operation}
 checking = Tekshirilmoqda… fayllar: {$files}, {$size}
 rollback-failed = {$more ->
     [0] Bekor qilindi, lekin “{$name}”ni joyiga qaytarib bo‘lmadi

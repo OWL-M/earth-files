@@ -80,6 +80,7 @@ blocked-move = "{$name}" taşınamıyor
 blocked-move-reason = Orijinaller "{$folder}" konumundan kaldırılamıyor: {$reason}
 same-for-rest-count = Geri kalanlar için de aynısı ({$count})
 not-enough-space = Bunun için {$needed} gerekiyor, ancak yalnızca {$free} boş
+in-use = "{$name}" başka bir işlem tarafından kullanılıyor: {$operation}
 checking = Denetleniyor… dosyalar: {$files}, {$size}
 rollback-failed = {$more ->
     [0] İptal edildi, ancak "{$name}" geri konulamadı

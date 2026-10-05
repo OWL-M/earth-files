@@ -88,6 +88,7 @@ blocked-move = "{$name}" kan nie geskuif word nie
 blocked-move-reason = Die oorspronklikes kan nie uit "{$folder}" verwyder word nie: {$reason}
 same-for-rest-count = Dieselfde vir die res ({$count})
 not-enough-space = Dit benodig {$needed}, maar slegs {$free} is vry
+in-use = "{$name}" word deur 'n ander bewerking gebruik: {$operation}
 checking = Kontroleer… lêers: {$files}, {$size}
 rollback-failed = {$more ->
     [0] Gekanselleer, maar "{$name}" kon nie teruggesit word nie

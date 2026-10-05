@@ -44,6 +44,7 @@ blocked-move = Ezin da "{$name}" lekuz aldatu
 blocked-move-reason = Ezin dira jatorrizkoak "{$folder}" karpetatik kendu: {$reason}
 same-for-rest-count = Berdin gainerakoentzat ({$count})
 not-enough-space = {$needed} behar dira, baina {$free} bakarrik dago libre
+in-use = "{$name}" beste eragiketa batek erabiltzen ari da: {$operation}
 checking = Egiaztatzen… fitxategiak: {$files}, {$size}
 rollback-failed = {$more ->
     [0] Bertan behera utzi da, baina ezin izan da "{$name}" leheneratu

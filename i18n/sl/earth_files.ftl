@@ -47,6 +47,7 @@ blocked-move = Predmeta „{$name}“ ni mogoče premakniti
 blocked-move-reason = Izvirnikov ni mogoče odstraniti iz „{$folder}“: {$reason}
 same-for-rest-count = Enako za ostale ({$count})
 not-enough-space = Potrebno je {$needed}, prostega pa je le {$free}
+in-use = „{$name}“ uporablja druga operacija: {$operation}
 checking = Preverjanje… datoteke: {$files}, {$size}
 rollback-failed = {$more ->
     [0] Preklicano, vendar predmeta „{$name}“ ni bilo mogoče vrniti

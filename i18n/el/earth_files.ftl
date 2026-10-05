@@ -84,6 +84,7 @@ blocked-move = Δεν είναι δυνατή η μετακίνηση του «{
 blocked-move-reason = Δεν είναι δυνατή η αφαίρεση των πρωτοτύπων από το «{$folder}»: {$reason}
 same-for-rest-count = Το ίδιο για τα υπόλοιπα ({$count})
 not-enough-space = Απαιτούνται {$needed}, αλλά είναι ελεύθερα μόνο {$free}
+in-use = Το «{$name}» χρησιμοποιείται από άλλη λειτουργία: {$operation}
 checking = Έλεγχος… αρχεία: {$files}, {$size}
 rollback-failed = {$more ->
     [0] Ακυρώθηκε, αλλά δεν ήταν δυνατή η επαναφορά του «{$name}»

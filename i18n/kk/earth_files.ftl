@@ -77,6 +77,7 @@ blocked-move = "{$name}" жылжыту мүмкін емес
 blocked-move-reason = Түпнұсқаларды "{$folder}" ішінен өшіру мүмкін емес: {$reason}
 same-for-rest-count = Қалғандары үшін де осылай ({$count})
 not-enough-space = {$needed} қажет, бірақ тек {$free} бос
+in-use = "{$name}" басқа әрекетте қолданылуда: {$operation}
 checking = Тексерілуде… файлдар: {$files}, {$size}
 rollback-failed = {$more ->
     [0] Бас тартылды, бірақ "{$name}" орнына қайтару мүмкін болмады

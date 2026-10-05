@@ -222,6 +222,7 @@ blocked-move = "{$name}" ಅನ್ನು ಸರಿಸಲು ಸಾಧ್ಯವ�
 blocked-move-reason = "{$folder}" ನಿಂದ ಮೂಲಗಳನ್ನು ತೆಗೆದುಹಾಕಲು ಸಾಧ್ಯವಿಲ್ಲ: {$reason}
 same-for-rest-count = ಉಳಿದವುಗಳಿಗೂ ಇದೇ ({$count})
 not-enough-space = ಇದಕ್ಕೆ {$needed} ಬೇಕು, ಆದರೆ ಕೇವಲ {$free} ಖಾಲಿ ಇದೆ
+in-use = "{$name}" ಅನ್ನು ಬೇರೊಂದು ಕಾರ್ಯಾಚರಣೆ ಬಳಸುತ್ತಿದೆ: {$operation}
 checking = ಪರಿಶೀಲಿಸಲಾಗುತ್ತಿದೆ… ಫೈಲ್‌ಗಳು: {$files}, {$size}
 rollback-failed = {$more ->
     [0] ರದ್ದುಗೊಳಿಸಲಾಗಿದೆ, ಆದರೆ "{$name}" ಅನ್ನು ಮರಳಿ ಇರಿಸಲು ಸಾಧ್ಯವಾಗಲಿಲ್ಲ

@@ -54,6 +54,7 @@ blocked-move = “{$name}” kin net ferpleatst wurde
 blocked-move-reason = De orizjinelen kinne net út “{$folder}” fuortsmiten wurde: {$reason}
 same-for-rest-count = Itselde foar de rest ({$count})
 not-enough-space = Dit hat {$needed} nedich, mar der is mar {$free} frij
+in-use = “{$name}” wurdt brûkt troch in oare bewurking: {$operation}
 checking = Kontrolearje… bestannen: {$files}, {$size}
 rollback-failed = {$more ->
     [0] Annulearre, mar “{$name}” koe net weromset wurde

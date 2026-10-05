@@ -276,6 +276,7 @@ blocked-move = Não é possível mover "{$name}"
 blocked-move-reason = Não é possível remover os originais de "{$folder}": {$reason}
 same-for-rest-count = Igual para os restantes ({$count})
 not-enough-space = São necessários {$needed}, mas só há {$free} livres
+in-use = "{$name}" está em uso por outra operação: {$operation}
 checking = A verificar… ficheiros: {$files}, {$size}
 rollback-failed = {$more ->
     [0] Cancelado, mas não foi possível restaurar "{$name}"

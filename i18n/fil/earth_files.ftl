@@ -44,6 +44,7 @@ blocked-move = Hindi mailipat ang "{$name}"
 blocked-move-reason = Hindi maalis ang mga orihinal mula sa "{$folder}": {$reason}
 same-for-rest-count = Ganito rin sa natitira ({$count})
 not-enough-space = Kailangan nito ng {$needed}, pero {$free} lang ang bakante
+in-use = Ginagamit ang "{$name}" ng ibang operasyon: {$operation}
 checking = Sinusuri… mga file: {$files}, {$size}
 rollback-failed = {$more ->
     [0] Kinansela, pero hindi naibalik ang "{$name}"

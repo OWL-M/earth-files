@@ -44,6 +44,7 @@ blocked-move = "{$name}" ne posse esser movet
 blocked-move-reason = Li originales ne posse esser removet de "{$folder}": {$reason}
 same-for-rest-count = Li sam por li altris ({$count})
 not-enough-space = To besona {$needed}, ma solmen {$free} es líber
+in-use = "{$name}" es in usage de un altri operation: {$operation}
 checking = Controlante… files: {$files}, {$size}
 rollback-failed = {$more ->
     [0] Anullat, ma "{$name}" ne posset esser restituet

@@ -86,6 +86,7 @@ blocked-move = Nepavyksta perkelti „{$name}“
 blocked-move-reason = Nepavyksta pašalinti originalų iš „{$folder}“: {$reason}
 same-for-rest-count = Taip pat ir likusiems ({$count})
 not-enough-space = Reikia {$needed}, bet laisva tik {$free}
+in-use = „{$name}“ naudojamas kitos operacijos: {$operation}
 checking = Tikrinama… failų: {$files}, {$size}
 rollback-failed = {$more ->
     [0] Atšaukta, bet „{$name}“ nepavyko grąžinti atgal

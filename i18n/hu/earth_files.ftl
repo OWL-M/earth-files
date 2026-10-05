@@ -82,6 +82,7 @@ blocked-move = „{$name}” nem helyezhető át
 blocked-move-reason = Az eredetik nem távolíthatók el innen: „{$folder}” ({$reason})
 same-for-rest-count = A többire is ugyanez ({$count})
 not-enough-space = Ehhez {$needed} szükséges, de csak {$free} szabad
+in-use = A(z) „{$name}” használatban van egy másik művelet által: {$operation}
 checking = Ellenőrzés… fájlok: {$files}, {$size}
 rollback-failed = {$more ->
     [0] Megszakítva, de „{$name}” visszaállítása nem sikerült

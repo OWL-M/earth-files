@@ -175,6 +175,7 @@ blocked-move = "{$name}" kan inte flyttas
 blocked-move-reason = Originalen kan inte tas bort från "{$folder}": {$reason}
 same-for-rest-count = Samma för resten ({$count})
 not-enough-space = Detta kräver {$needed}, men bara {$free} är ledigt
+in-use = "{$name}" används av en annan åtgärd: {$operation}
 checking = Kontrollerar… filer: {$files}, {$size}
 rollback-failed = {$more ->
     [0] Avbruten, men "{$name}" kunde inte läggas tillbaka

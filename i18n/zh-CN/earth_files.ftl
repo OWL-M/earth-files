@@ -80,6 +80,7 @@ blocked-move = 无法移动“{$name}”
 blocked-move-reason = 无法从“{$folder}”中删除原始文件：{$reason}
 same-for-rest-count = 对其余项目执行相同操作 ({$count})
 not-enough-space = 需要 {$needed}，但只有 {$free} 可用
+in-use = “{$name}”正被另一项操作使用：{$operation}
 checking = 正在检查… {$files} 个文件，{$size}
 rollback-failed = {$more ->
     [0] 已取消，但无法将“{$name}”放回原处

@@ -127,6 +127,7 @@ blocked-move = "{$name}" can't be moved
 blocked-move-reason = Its originals can't be removed from "{$folder}": {$reason}
 same-for-rest-count = Same for the rest ({$count})
 not-enough-space = This needs {$needed}, but only {$free} is free
+in-use = "{$name}" is in use by another operation: {$operation}
 checking = Checking… {$files} files, {$size}
 rollback-failed = Cancelled, but "{$name}" {$more ->
     [0] could not be put back

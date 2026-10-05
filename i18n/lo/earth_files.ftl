@@ -44,6 +44,7 @@ blocked-move = ບໍ່ສາມາດຍ້າຍ "{$name}" ໄດ້
 blocked-move-reason = ບໍ່ສາມາດລຶບຕົ້ນສະບັບອອກຈາກ "{$folder}" ໄດ້: {$reason}
 same-for-rest-count = ເຮັດແບບດຽວກັນກັບສ່ວນທີ່ເຫຼືອ ({$count})
 not-enough-space = ຕ້ອງການ {$needed}, ແຕ່ວ່າງພຽງ {$free}
+in-use = "{$name}" ກຳລັງຖືກໃຊ້ໂດຍການດຳເນີນການອື່ນ: {$operation}
 checking = ກຳລັງກວດສອບ… ໄຟລ໌: {$files}, {$size}
 rollback-failed = {$more ->
     [0] ຍົກເລີກແລ້ວ ແຕ່ບໍ່ສາມາດນຳ "{$name}" ກັບຄືນບ່ອນເດີມໄດ້

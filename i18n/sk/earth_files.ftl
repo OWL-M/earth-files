@@ -91,6 +91,7 @@ blocked-move = Položka „{$name}“ sa nedá presunúť
 blocked-move-reason = Originály sa nedajú odstrániť z „{$folder}“: {$reason}
 same-for-rest-count = Rovnako pre ostatné ({$count})
 not-enough-space = Je potrebných {$needed}, ale voľných je len {$free}
+in-use = „{$name}“ používa iná operácia: {$operation}
 checking = Kontrola… súbory: {$files}, {$size}
 rollback-failed = {$more ->
     [0] Zrušené, ale položku „{$name}“ nebolo možné vrátiť späť

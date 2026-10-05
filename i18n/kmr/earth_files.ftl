@@ -270,6 +270,7 @@ blocked-move = "{$name}" nayê livandin
 blocked-move-reason = Orîjînal ji "{$folder}" nayên rakirin: {$reason}
 same-for-rest-count = Ji bo yên mayî jî wisa ({$count})
 not-enough-space = Ji bo vê {$needed} hewce ye, lê tenê {$free} vala ye
+in-use = "{$name}" ji aliyê karekî din ve tê bikaranîn: {$operation}
 checking = Tê kontrolkirin… pel: {$files}, {$size}
 rollback-failed = {$more ->
     [0] Têkbirî, lê "{$name}" nehat vegerandin

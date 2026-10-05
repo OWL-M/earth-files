@@ -44,6 +44,7 @@ blocked-move = 搬唔到「{$name}」
 blocked-move-reason = 喺「{$folder}」刪除唔到原本嘅檔案：{$reason}
 same-for-rest-count = 其餘項目都照樣處理 ({$count})
 not-enough-space = 需要 {$needed}，但係只係得 {$free} 可用
+in-use = 「{$name}」正被另一個操作使用：{$operation}
 checking = 檢查緊… {$files} 個檔案，{$size}
 rollback-failed = {$more ->
     [0] 已經取消，但係「{$name}」放唔返原位

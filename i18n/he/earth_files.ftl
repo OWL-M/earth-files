@@ -46,6 +46,7 @@ blocked-move = לא ניתן להעביר את "{$name}"
 blocked-move-reason = לא ניתן להסיר את המקוריים מ־"{$folder}": {$reason}
 same-for-rest-count = אותו הדבר לשאר ({$count})
 not-enough-space = נדרשים {$needed}, אך רק {$free} פנויים
+in-use = "{$name}" נמצא בשימוש על ידי פעולה אחרת: {$operation}
 checking = בבדיקה… קבצים: {$files}, {$size}
 rollback-failed = {$more ->
     [0] בוטל, אך לא ניתן היה להחזיר את "{$name}" למקומו

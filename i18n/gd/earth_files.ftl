@@ -47,6 +47,7 @@ blocked-move = Cha ghabh “{$name}” gluasad
 blocked-move-reason = Cha ghabh na tionndaidhean tùsail a thoirt air falbh à “{$folder}”: {$reason}
 same-for-rest-count = An aon rud dhan chòrr ({$count})
 not-enough-space = Tha feum air {$needed} ach chan eil ach {$free} saor
+in-use = Tha “{$name}” ga chleachdadh le gnìomh eile: {$operation}
 checking = Ga sgrùdadh… faidhlichean: {$files}, {$size}
 rollback-failed = {$more ->
     [0] Air a sgur dheth, ach cha b’ urrainn “{$name}” a chur air ais

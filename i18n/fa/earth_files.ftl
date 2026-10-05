@@ -80,6 +80,7 @@ blocked-move = «{$name}» قابل انتقال نیست
 blocked-move-reason = فایل‌های اصلی را نمی‌توان از «{$folder}» حذف کرد: {$reason}
 same-for-rest-count = برای بقیه هم همین ({$count})
 not-enough-space = این کار به {$needed} نیاز دارد، اما فقط {$free} آزاد است
+in-use = «{$name}» توسط عملیات دیگری در حال استفاده است: {$operation}
 checking = در حال بررسی… فایل: {$files}، {$size}
 rollback-failed = {$more ->
     [0] لغو شد، اما «{$name}» به جای قبلی بازگردانده نشد

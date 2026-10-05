@@ -46,6 +46,7 @@ blocked-move = „{$name}” nije moguće premjestiti
 blocked-move-reason = Izvornike nije moguće ukloniti iz „{$folder}”: {$reason}
 same-for-rest-count = Isto za ostale ({$count})
 not-enough-space = Potrebno je {$needed}, ali slobodno je samo {$free}
+in-use = „{$name}” koristi druga operacija: {$operation}
 checking = Provjera… datoteke: {$files}, {$size}
 rollback-failed = {$more ->
     [0] Otkazano, ali „{$name}” nije moguće vratiti

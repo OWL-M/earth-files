@@ -44,6 +44,7 @@ blocked-move = „{$name}“-ის გადატანა ვერ ხერ
 blocked-move-reason = „{$folder}“-დან ორიგინალების წაშლა ვერ ხერხდება: {$reason}
 same-for-rest-count = იგივე დანარჩენებისთვის ({$count})
 not-enough-space = საჭიროა {$needed}, მაგრამ თავისუფალია მხოლოდ {$free}
+in-use = „{$name}“ გამოიყენება სხვა ოპერაციის მიერ: {$operation}
 checking = მოწმდება… ფაილები: {$files}, {$size}
 rollback-failed = {$more ->
     [0] გაუქმდა, მაგრამ „{$name}“-ის დაბრუნება ვერ მოხერხდა

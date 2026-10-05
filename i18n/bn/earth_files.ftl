@@ -44,6 +44,7 @@ blocked-move = "{$name}" স্থানান্তর করা যাচ্�
 blocked-move-reason = "{$folder}" থেকে মূল ফাইলগুলো সরানো যাচ্ছে না: {$reason}
 same-for-rest-count = বাকিগুলোর জন্যও একই ({$count})
 not-enough-space = এর জন্য {$needed} প্রয়োজন, কিন্তু মাত্র {$free} খালি আছে
+in-use = "{$name}" অন্য একটি অপারেশন ব্যবহার করছে: {$operation}
 checking = যাচাই করা হচ্ছে… ফাইল: {$files}, {$size}
 rollback-failed = {$more ->
     [0] বাতিল করা হয়েছে, কিন্তু "{$name}" আগের জায়গায় ফেরানো যাচ্ছে না

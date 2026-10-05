@@ -380,6 +380,7 @@ blocked-move = "{$name}" मूव नहीं किया जा सकता
 blocked-move-reason = "{$folder}" से मूल फ़ाइलें हटाई नहीं जा सकतीं: {$reason}
 same-for-rest-count = बाकी के लिए भी यही ({$count})
 not-enough-space = इसके लिए {$needed} चाहिए, लेकिन केवल {$free} खाली है
+in-use = "{$name}" किसी दूसरे ऑपरेशन द्वारा उपयोग में है: {$operation}
 checking = जाँच हो रही है… फ़ाइलें: {$files}, {$size}
 rollback-failed = {$more ->
     [0] रद्द किया गया, लेकिन "{$name}" को वापस नहीं रखा जा सका

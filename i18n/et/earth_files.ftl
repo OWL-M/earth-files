@@ -112,6 +112,7 @@ blocked-move = „{$name}“ ei saa teisaldada
 blocked-move-reason = Originaale ei saa kaustast „{$folder}“ eemaldada: {$reason}
 same-for-rest-count = Sama ülejäänutele ({$count})
 not-enough-space = Vaja on {$needed}, kuid vaba on ainult {$free}
+in-use = „{$name}“ on teise toimingu kasutuses: {$operation}
 checking = Kontrollimine… faile: {$files}, {$size}
 rollback-failed = {$more ->
     [0] Katkestatud, kuid „{$name}“ ei õnnestunud taastada

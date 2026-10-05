@@ -44,6 +44,7 @@ blocked-move = "{$name}" ખસેડી શકાતું નથી
 blocked-move-reason = "{$folder}" માંથી મૂળ ફાઇલો દૂર કરી શકાતી નથી: {$reason}
 same-for-rest-count = બાકીના માટે પણ આ જ ({$count})
 not-enough-space = આ માટે {$needed} જોઈએ, પણ ફક્ત {$free} ખાલી છે
+in-use = "{$name}" અન્ય ઑપરેશન દ્વારા ઉપયોગમાં છે: {$operation}
 checking = તપાસી રહ્યા છીએ… ફાઇલો: {$files}, {$size}
 rollback-failed = {$more ->
     [0] રદ કરવામાં આવ્યું, પણ "{$name}" પાછું મૂકી શકાયું નથી
