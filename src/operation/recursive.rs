@@ -551,6 +551,10 @@ impl Context {
             Method::Copy => Vec::new(),
         };
         let result = self.run_pairs(from_to_pairs, method).await;
+        // Aborted: stopped where it was, everything done kept, and undoable
+        if result.is_err() && self.controller.is_aborted() {
+            return Err(self.cancelled());
+        }
         if result.is_err() && self.controller.is_cancelled() {
             let not_back = self.roll_back(&renamed).await;
             if not_back.is_empty() {
@@ -877,10 +881,15 @@ impl Context {
                                 retry: false,
                                 root: blocked.root_can_help().then_some(self.helper.is_some()),
                                 not_granted,
+                                skip: true,
+                                abort: false,
                             };
                             (self.on_blocked)(blocked.clone(), ask).await
                         };
                         match answer {
+                            // Not offered before the operation runs; nothing
+                            // is done yet, so stopping is cancelling
+                            BlockedAnswer::Abort => return Err(self.cancelled()),
                             BlockedAnswer::Skip(all) => {
                                 if all {
                                     rest.push(kind);
@@ -1061,7 +1070,32 @@ impl Context {
                     ran => break ran,
                 };
                 let Some(Denied(blocked)) = err.downcast_ref::<Denied>() else {
-                    break Err(err);
+                    // A step that failed while running asks what to do,
+                    // unless the user is already stopping it
+                    if self.controller.is_cancelled() || self.controller.is_failed() {
+                        break Err(err);
+                    }
+                    let failed = Blocked::Failed {
+                        path: op.from.clone(),
+                        reason: super::failure_text(&op.from, &*err),
+                    };
+                    let ask = Ask {
+                        count: 1,
+                        retry: true,
+                        skip: false,
+                        abort: true,
+                        ..Ask::default()
+                    };
+                    match (self.on_blocked)(failed, ask).await {
+                        // The same step again: what is done is not redone
+                        BlockedAnswer::Retry => continue,
+                        BlockedAnswer::Abort => {
+                            self.controller.abort();
+                            return Err(self.cancelled());
+                        }
+                        BlockedAnswer::Cancel => return Err(self.cancelled()),
+                        _ => break Err(err),
+                    }
                 };
                 let blocked = blocked.clone();
                 // Not foreseen by the checks: asked on its own
@@ -1072,6 +1106,8 @@ impl Context {
                         retry: blocked.can_retry(),
                         root: blocked.root_can_help().then_some(self.helper.is_some()),
                         not_granted,
+                        skip: true,
+                        abort: false,
                     };
                     let answer = self.blocked(blocked.clone(), ask).await;
                     if answer != BlockedAnswer::RetryAsRoot(false)
@@ -1094,6 +1130,10 @@ impl Context {
                     BlockedAnswer::Retry => {}
                     // This step, and what is left of it, as root
                     BlockedAnswer::RetryAsRoot(_) => op.root = true,
+                    BlockedAnswer::Abort => {
+                        self.controller.abort();
+                        return Err(self.cancelled());
+                    }
                     BlockedAnswer::Skip(_) => {
                         // A file left unread is not written, and with it
                         // skipped its original stays; a cleanup that could
@@ -2221,6 +2261,104 @@ mod tests {
         assert!(not_back.is_empty(), "{not_back:?}");
         assert_eq!(fs::read(from.join("f.txt")).expect("back"), b"F");
         assert!(!to.exists(), "nothing is left at the destination");
+    }
+
+    /// A copy of `a`, `b` and `c` into a folder already holding `b`. The
+    /// question about `b` comes during the checks; answering it, `c` is
+    /// taken away, so the copy fails on `c` while it runs. Each question
+    /// after that is answered with `answer`; returns the copy's result, what
+    /// was asked, and the folders.
+    async fn copy_failing_midway(
+        answer: fn(usize, &Path) -> crate::operation::BlockedAnswer,
+    ) -> (
+        Result<bool, crate::operation::OperationError>,
+        Vec<crate::operation::Ask>,
+        tempfile::TempDir,
+        Controller,
+    ) {
+        use crate::operation::ReplaceResult;
+        use std::cell::RefCell;
+        use std::rc::Rc;
+        let dir = tempfile::tempdir().expect("tempdir");
+        let from = dir.path().join("from");
+        fs::create_dir(&from).expect("mkdir");
+        for name in ["a", "b", "c"] {
+            fs::write(from.join(name), name).expect("write");
+        }
+        let to = dir.path().join("to");
+        fs::create_dir(&to).expect("mkdir");
+        fs::write(to.join("b"), b"old").expect("write");
+
+        let gone = from.join("c");
+        let asked: Rc<RefCell<Vec<crate::operation::Ask>>> = Rc::default();
+        let seen = asked.clone();
+        let restore = gone.clone();
+        let controller = Controller::default();
+        let mut ctx = Context::new(controller.clone())
+            .on_replace(move |_op, _count| {
+                let _ = fs::remove_file(&gone);
+                Box::pin(async { ReplaceResult::Replace(false) })
+            })
+            .on_blocked(move |_blocked, ask| {
+                let mut asked = seen.borrow_mut();
+                asked.push(ask);
+                let reply = answer(asked.len(), &restore);
+                Box::pin(async move { reply })
+            });
+        let pairs: Vec<_> = ["a", "b", "c"]
+            .into_iter()
+            .map(|name| (from.join(name), to.join(name)))
+            .collect();
+        let result = ctx.recursive_copy_or_move(pairs, Method::Copy).await;
+        let asked = asked.borrow().clone();
+        (result, asked, dir, controller)
+    }
+
+    #[test(compio::test)]
+    async fn a_failure_midway_asks_and_abort_keeps_what_is_done() {
+        use crate::operation::BlockedAnswer;
+        let (result, asked, dir, controller) =
+            copy_failing_midway(|_, _| BlockedAnswer::Abort).await;
+
+        let err = result.expect_err("stopped");
+        assert!(controller.is_aborted());
+        assert_eq!(asked.len(), 1);
+        assert!(!asked[0].skip && asked[0].abort && asked[0].retry);
+        // What was done stays, and is there to undo
+        let to = dir.path().join("to");
+        assert_eq!(fs::read(to.join("a")).expect("a"), b"a");
+        assert_eq!(fs::read(to.join("b")).expect("b"), b"b");
+        assert!(err.partial.created.contains(&to.join("a")));
+    }
+
+    #[test(compio::test)]
+    async fn a_failure_midway_cancel_puts_everything_back() {
+        use crate::operation::BlockedAnswer;
+        let (result, _, dir, controller) = copy_failing_midway(|_, _| BlockedAnswer::Cancel).await;
+
+        result.expect_err("cancelled");
+        assert!(!controller.is_aborted());
+        assert!(
+            !dir.path().join("to/a").exists(),
+            "the copy of a is removed"
+        );
+    }
+
+    #[test(compio::test)]
+    async fn try_again_after_a_failure_midway_carries_on() {
+        use crate::operation::BlockedAnswer;
+        // The first time it is still gone; then it is back
+        let (result, asked, dir, _) = copy_failing_midway(|times, gone| {
+            if times > 1 {
+                fs::write(gone, "c").expect("put back");
+            }
+            BlockedAnswer::Retry
+        })
+        .await;
+
+        result.expect("finished");
+        assert_eq!(asked.len(), 2, "asked again while it was still gone");
+        assert_eq!(fs::read(dir.path().join("to/c")).expect("c"), b"c");
     }
 
     #[test]

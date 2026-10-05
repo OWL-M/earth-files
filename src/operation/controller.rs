@@ -38,6 +38,8 @@ struct ControllerInner {
     progress: AtomicU32,
     /// Checking the selection before anything is touched.
     checking: AtomicBool,
+    /// Cancelled by Abort: stopped where it was, nothing put back.
+    aborted: AtomicBool,
     /// What the checks have walked so far: files, and their size in bytes.
     checked_files: AtomicU64,
     checked_bytes: AtomicU64,
@@ -58,6 +60,7 @@ impl Default for Controller {
                 state: AtomicU16::new(ControllerState::Running.into()),
                 progress: AtomicU32::new(0.0f32.to_bits()),
                 checking: AtomicBool::new(false),
+                aborted: AtomicBool::new(false),
                 checked_files: AtomicU64::new(0),
                 checked_bytes: AtomicU64::new(0),
                 notify: Notify::new(),
@@ -145,6 +148,18 @@ impl Controller {
         self.set_state(ControllerState::Cancelled);
     }
 
+    /// Stops the operation where it is and keeps what it did: a cancel that
+    /// puts nothing back.
+    pub fn abort(&self) {
+        self.inner.aborted.store(true, atomic::Ordering::Relaxed);
+        self.cancel();
+    }
+
+    /// Whether it was stopped by [`Self::abort`] rather than cancelled.
+    pub fn is_aborted(&self) -> bool {
+        self.inner.aborted.load(atomic::Ordering::Relaxed)
+    }
+
     pub fn is_failed(&self) -> bool {
         matches!(self.state(), ControllerState::Failed)
     }
@@ -229,6 +244,17 @@ mod tests {
         controller.pause();
         controller.unpause();
         assert_eq!(controller.state(), ControllerState::Running);
+    }
+
+    #[test]
+    fn abort_is_a_cancel_that_says_so() {
+        let controller = Controller::default();
+        controller.cancel();
+        assert!(!controller.is_aborted());
+        let controller = Controller::default();
+        controller.abort();
+        assert!(controller.is_cancelled() && controller.is_aborted());
+        assert!(controller.clone().is_aborted());
     }
 
     #[test]

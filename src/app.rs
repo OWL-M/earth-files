@@ -420,6 +420,12 @@ pub enum Message {
     RetryCheckClipboard(ClipboardCache),
     ClipboardCached(ClipboardCache),
     PendingCancel(u64),
+    /// Stop operation `id` where it is and keep what it did.
+    PendingAbort(u64),
+    /// Watches running operations for ones whose drive stopped responding.
+    PendingTick,
+    /// Keep waiting for operation `id`'s drive: a fresh time limit.
+    StalledWait(u64),
     PendingComplete(u64, OperationSelection),
     PendingError(u64, OperationError),
     PendingResults(Vec<(u64, OperationSelection)>, Vec<(u64, OperationError)>),
@@ -606,6 +612,8 @@ pub enum DialogPage {
     /// Operation `id` asks about a path it may not touch; its question is in
     /// [`App::blocked`].
     Blocked(u64),
+    /// Operation `id` has had no progress for [`STALL_LIMIT`].
+    Stalled(u64),
     ExtractPassword {
         id: u64,
         password: String,
@@ -772,6 +780,23 @@ impl DialogPages {
 
     /// Takes away operation `id`'s question about a path, wherever it waits
     /// in the queue: it was answered elsewhere, or its operation ended.
+    /// Takes away the question about operation `id`'s unresponsive drive:
+    /// it answered after all, or it ended.
+    pub fn remove_stalled(&mut self, id: u64) -> Task<Message> {
+        let Some(index) = self
+            .pages
+            .iter()
+            .position(|page| matches!(page, DialogPage::Stalled(stalled) if *stalled == id))
+        else {
+            return Task::none();
+        };
+        if index == 0 {
+            return self.pop_front().map_or_else(Task::none, |(_, task)| task);
+        }
+        self.pages.remove(index);
+        Task::none()
+    }
+
     pub fn remove_blocked(&mut self, id: u64) -> Task<Message> {
         let Some(index) = self
             .pages
@@ -878,6 +903,23 @@ impl Window {
 /// How many completed operations can be undone, newest first
 const UNDO_DEPTH: usize = 20;
 
+/// How long an operation goes without progress before its row says the
+/// drive is not responding.
+const STALL_SHOW: Duration = Duration::from_secs(10);
+
+/// How long it goes without progress before the user is asked what to do.
+const STALL_LIMIT: Duration = Duration::from_secs(60);
+
+/// What the app last saw of a running operation's progress, and since when
+/// it has not changed.
+struct Stall {
+    /// Progress (as bits), and what its checks walked: files and bytes.
+    seen: (u32, u64, u64),
+    since: Instant,
+    /// Whether it was asked about, so it is asked once per wait.
+    asked: bool,
+}
+
 /// What an operation asked about a path it may not touch.
 struct Question {
     blocked: Blocked,
@@ -941,6 +983,8 @@ pub struct App {
     /// The last question each running operation asked about a path it may
     /// not touch. Dropping one still unanswered answers Cancel.
     blocked: BTreeMap<u64, Question>,
+    /// Running operations whose progress has not moved, by operation.
+    stalls: BTreeMap<u64, Stall>,
     /// The question asked in a desktop notification, by operation: `None`
     /// while the notification is still being shown.
     question_notices: BTreeMap<u64, Option<QuestionNotice>>,
@@ -2717,6 +2761,53 @@ impl App {
         ])
     }
 
+    /// Notes which running operations have had no progress, and asks about
+    /// one once it has gone [`STALL_LIMIT`] without. Paused ones and ones
+    /// waiting on a question are not stalled; one that moves again is no
+    /// longer, and its question goes.
+    fn watch_stalls(&mut self, now: Instant) -> Task<Message> {
+        let mut tasks = Vec::new();
+        self.stalls
+            .retain(|id, _| self.pending_operations.contains_key(id));
+        for (&id, (_, controller)) in &self.pending_operations {
+            let waiting = controller.is_paused()
+                || self
+                    .blocked
+                    .get(&id)
+                    .is_some_and(|question| question.tx.is_some());
+            let (files, bytes) = controller.checked();
+            let seen = (controller.progress().to_bits(), files, bytes);
+            let stall = self.stalls.entry(id).or_insert(Stall {
+                seen,
+                since: now,
+                asked: false,
+            });
+            if waiting || stall.seen != seen {
+                let was_asked = stall.asked;
+                *stall = Stall {
+                    seen,
+                    since: now,
+                    asked: false,
+                };
+                if was_asked {
+                    tasks.push(self.dialog_pages.remove_stalled(id));
+                }
+            } else if !stall.asked && now.duration_since(stall.since) >= STALL_LIMIT {
+                stall.asked = true;
+                tasks.push(self.dialog_pages.push_back(DialogPage::Stalled(id)));
+            }
+        }
+        Task::batch(tasks)
+    }
+
+    /// How long operation `id` has gone without progress, once its row
+    /// should say so.
+    fn stalled_for(&self, id: u64) -> Option<Duration> {
+        let stall = self.stalls.get(&id)?;
+        let waited = stall.since.elapsed();
+        (waited >= STALL_SHOW).then_some(waited)
+    }
+
     /// Whether anyone is looking at the window: it is open and one of ours
     /// has the keyboard. Unfocused or minimised, it is not.
     fn window_is_seen(&self) -> bool {
@@ -2770,15 +2861,26 @@ impl App {
         if let Some(detail) = question_detail(&question.blocked) {
             text = format!("{text}\n{detail}");
         }
-        let notification = notify_rust::Notification::new()
+        let mut notification = notify_rust::Notification::new()
             .summary(&op.pending_text(controller.progress(), ControllerState::Paused))
             .body(&text)
-            .action(NOTICE_SKIP, &skip)
             .timeout(notify_rust::Timeout::Never)
             .finalize();
-        let mut notification = notification;
+        // As the dialog offers them: Skip, or Try again where nothing is
+        // skipped
+        if question.ask.skip {
+            notification.action(NOTICE_SKIP, &skip);
+        }
         if question.ask.retry {
-            notification.action(NOTICE_RETRY, &fl!("retry"));
+            let label = if question.ask.skip {
+                fl!("retry")
+            } else {
+                fl!("try-again")
+            };
+            notification.action(NOTICE_RETRY, &label);
+        }
+        if question.ask.abort {
+            notification.action(NOTICE_ABORT, &fl!("abort"));
         }
         if let Some(again) = question.ask.root {
             notification.action(NOTICE_ROOT, &root_label(again));
@@ -3105,7 +3207,13 @@ impl App {
         {
             // Its question, if it waits on one, is a dialog of its own
             let stopped = row.state != progress::State::Running;
-            return Self::pending_operation_view(*id, op, controller, stopped);
+            return Self::pending_operation_view(
+                *id,
+                op,
+                controller,
+                stopped,
+                self.stalled_for(*id),
+            );
         }
 
         if let (progress::Key::Operation(id), progress::State::Failed) = (row.key, row.state)
@@ -3184,36 +3292,46 @@ impl App {
                     .on_toggle(move |on| Message::BlockedSameForRest(id, on)),
             );
         }
+        // The default answer: Skip, or Try again where nothing is skipped
+        let primary = if question.ask.skip {
+            widget::button::suggested(skip)
+                .on_press_maybe(answer(BlockedAnswer::Skip(same_for_rest)))
+        } else {
+            widget::button::suggested(fl!("try-again")).on_press_maybe(answer(BlockedAnswer::Retry))
+        };
         dialog = dialog
-            .primary_action(
-                widget::button::suggested(skip)
-                    .on_press_maybe(answer(BlockedAnswer::Skip(same_for_rest)))
-                    .id(BLOCKED_BUTTON_ID.clone()),
-            )
+            .primary_action(primary.id(BLOCKED_BUTTON_ID.clone()))
             .tertiary_action(
                 widget::button::standard(fl!("cancel"))
                     .on_press_maybe(answer(BlockedAnswer::Cancel)),
             );
-        let root = question.ask.root.map(|again| {
-            widget::button::standard(root_label(again))
-                .on_press_maybe(answer(BlockedAnswer::RetryAsRoot(same_for_rest)))
-        });
-        let retry = question.ask.retry.then(|| {
-            widget::button::standard(fl!("retry")).on_press_maybe(answer(BlockedAnswer::Retry))
-        });
-        // Both share the middle of the row
-        match (root, retry) {
-            (Some(root), Some(retry)) => {
-                dialog = dialog.secondary_action(
-                    widget::Row::with_capacity(2)
-                        .push(root)
-                        .push(retry)
-                        .spacing(spacing().space_xxs.to_pixels()),
-                );
-            }
-            (Some(root), None) => dialog = dialog.secondary_action(root),
-            (None, Some(retry)) => dialog = dialog.secondary_action(retry),
-            (None, None) => {}
+        // Beside it: root, Retry when Skip is the default, Abort
+        let mut others: Vec<Element<'_, Message>> = Vec::new();
+        if let Some(again) = question.ask.root {
+            others.push(
+                widget::button::standard(root_label(again))
+                    .on_press_maybe(answer(BlockedAnswer::RetryAsRoot(same_for_rest)))
+                    .into(),
+            );
+        }
+        if question.ask.retry && question.ask.skip {
+            others.push(
+                widget::button::standard(fl!("retry"))
+                    .on_press_maybe(answer(BlockedAnswer::Retry))
+                    .into(),
+            );
+        }
+        if question.ask.abort {
+            others.push(
+                widget::button::standard(fl!("abort"))
+                    .on_press_maybe(answer(BlockedAnswer::Abort))
+                    .into(),
+            );
+        }
+        if !others.is_empty() {
+            dialog = dialog.secondary_action(
+                widget::Row::with_children(others).spacing(spacing().space_xxs.to_pixels()),
+            );
         }
         dialog
     }
@@ -3256,6 +3374,7 @@ impl App {
         op: &Operation,
         controller: &Controller,
         stopped: bool,
+        stalled: Option<Duration>,
     ) -> Element<'a, Message> {
         let progress = controller.progress();
         // Waiting on the user, it says so without a percentage, and its
@@ -3289,25 +3408,41 @@ impl App {
                 widget::tooltip::Position::Top,
             )
         };
+        // A drive that stopped responding: the bar counts towards the time
+        // when the user is asked, in the warning colour
+        let bar = match stalled {
+            Some(waited) => widget::determinate_linear(
+                (waited.as_secs_f32() / STALL_LIMIT.as_secs_f32()).min(1.0),
+            )
+            .style(widget::progress_bar::style::Bar::Warning),
+            None => widget::determinate_linear(progress),
+        };
         widget::Column::with_children([
             widget::Row::with_children([
-                widget::determinate_linear(progress)
-                    .width(Length::Fill)
-                    .girth(Length::Fixed(4.0))
-                    .into(),
+                bar.width(Length::Fill).girth(Length::Fixed(4.0)).into(),
                 pause.into(),
+                widget::tooltip(
+                    widget::button::icon(icon::from_name("media-playback-stop-symbolic"))
+                        .on_press(Message::PendingAbort(id))
+                        .padding(8),
+                    widget::text::body(fl!("abort-tooltip")),
+                    widget::tooltip::Position::Top,
+                )
+                .into(),
                 widget::tooltip(
                     widget::button::icon(icon::from_name("window-close-symbolic"))
                         .on_press(Message::PendingCancel(id))
                         .padding(8),
-                    widget::text::body(fl!("cancel")),
+                    widget::text::body(fl!("cancel-tooltip")),
                     widget::tooltip::Position::Top,
                 )
                 .into(),
             ])
             .align_y(Alignment::Center)
             .into(),
-            widget::text::body(if controller.is_checking() {
+            widget::text::body(if let Some(waited) = stalled {
+                fl!("stalled-for", seconds = waited.as_secs())
+            } else if controller.is_checking() {
                 let (files, bytes) = controller.checked();
                 fl!(
                     "checking",
@@ -3339,6 +3474,7 @@ impl App {
                     op,
                     controller,
                     question.is_some(),
+                    self.stalled_for(*id),
                 ));
             }
             children.push(section.into());
@@ -3683,6 +3819,7 @@ impl Application for App {
             failed_operations: BTreeMap::new(),
             blocked: BTreeMap::new(),
             question_notices: BTreeMap::new(),
+            stalls: BTreeMap::new(),
             undo_stack: Vec::new(),
             undo_ids: BTreeSet::new(),
             scrollable_name: std::borrow::Cow::Borrowed("File Scrollable"),
@@ -4383,6 +4520,10 @@ impl Application for App {
             Message::DialogCancel => {
                 if let Some((page, task)) = self.dialog_pages.pop_front() {
                     // Escape on a question about a path cancels its operation
+                    // Escape on a drive not responding cancels its operation
+                    if let DialogPage::Stalled(id) = page {
+                        return Task::batch([task, self.update(Message::PendingCancel(id))]);
+                    }
                     if let DialogPage::Blocked(id) = page {
                         return Task::batch([
                             task,
@@ -4420,12 +4561,20 @@ impl Application for App {
                             tasks.push(self.operation(Operation::EmptyTrash));
                         }
                         // Enter gives the default answer, Skip
+                        // Enter keeps waiting
+                        DialogPage::Stalled(id) => {
+                            tasks.push(self.update(Message::StalledWait(id)));
+                        }
                         DialogPage::Blocked(id) => {
                             if let Some(question) = self.blocked.get(&id) {
-                                let skip = BlockedAnswer::Skip(
-                                    question.same_for_rest && question.ask.count > 1,
-                                );
-                                tasks.push(self.update(Message::BlockedAnswer(id, skip)));
+                                let answer = if question.ask.skip {
+                                    BlockedAnswer::Skip(
+                                        question.same_for_rest && question.ask.count > 1,
+                                    )
+                                } else {
+                                    BlockedAnswer::Retry
+                                };
+                                tasks.push(self.update(Message::BlockedAnswer(id, answer)));
                             }
                         }
                         DialogPage::FailedOperation(id) => {
@@ -5639,13 +5788,30 @@ impl Application for App {
             Message::ClipboardCached(cache) => {
                 self.clipboard_cache = cache;
             }
+            Message::PendingAbort(id) => {
+                if let Some((_, controller)) = self.pending_operations.get(&id) {
+                    controller.abort();
+                    self.progress.remove(&progress::Key::Operation(id));
+                }
+                self.stalls.remove(&id);
+                return Task::batch([self.dialog_pages.remove_stalled(id), self.drop_question(id)]);
+            }
+            Message::PendingTick => return self.watch_stalls(Instant::now()),
+            Message::StalledWait(id) => {
+                if let Some(stall) = self.stalls.get_mut(&id) {
+                    stall.since = Instant::now();
+                    stall.asked = false;
+                }
+                return self.dialog_pages.remove_stalled(id);
+            }
             Message::PendingCancel(id) => {
                 if let Some((_, controller)) = self.pending_operations.get(&id) {
                     controller.cancel();
                     self.progress.remove(&progress::Key::Operation(id));
                 }
                 // One waiting on a question hears the cancel through it
-                return self.drop_question(id);
+                self.stalls.remove(&id);
+                return Task::batch([self.dialog_pages.remove_stalled(id), self.drop_question(id)]);
             }
             Message::OperationBlocked(controller, question, tx) => {
                 // Unknown, the question is dropped, which answers Cancel
@@ -7271,6 +7437,24 @@ impl Application for App {
                     widget::button::standard(fl!("cancel")).on_press(Message::DialogCancel),
                 ),
             DialogPage::Blocked(id) => Self::blocked_dialog(*id, self.blocked.get(id)?),
+            DialogPage::Stalled(id) => {
+                let (op, controller) = self.pending_operations.get(id)?;
+                widget::dialog()
+                    .title(fl!("stalled-title"))
+                    .body(op.pending_text(controller.progress(), controller.state()))
+                    .primary_action(
+                        widget::button::suggested(fl!("try-again"))
+                            .on_press(Message::StalledWait(*id))
+                            .id(BLOCKED_BUTTON_ID.clone()),
+                    )
+                    .secondary_action(
+                        widget::button::standard(fl!("abort")).on_press(Message::PendingAbort(*id)),
+                    )
+                    .tertiary_action(
+                        widget::button::standard(fl!("cancel"))
+                            .on_press(Message::PendingCancel(*id)),
+                    )
+            }
             DialogPage::FailedOperation(id) => {
                 let (operation, controller, err) = self.failed_operations.get(id)?;
 
@@ -8591,7 +8775,7 @@ impl Application for App {
                 {
                     subscriptions.push(
                         crate::ui::iced::time::every(Duration::from_millis(100))
-                            .map(|_| Message::None),
+                            .map(|_| Message::PendingTick),
                     );
                 }
             }
@@ -8655,6 +8839,7 @@ fn question_text(blocked: &Blocked) -> (String, String) {
         Blocked::Link { fs: None, .. } => (fl!("blocked-link", name = name), fl!("skip")),
         Blocked::Move { .. } => (fl!("blocked-move", name = name), fl!("skip")),
         Blocked::Destination(_) => (fl!("destination-no-permission", folder = name), fl!("skip")),
+        Blocked::Failed { .. } => (fl!("blocked-failed", name = name), fl!("try-again")),
         Blocked::TooBig { fs, .. } => (
             fl!("blocked-too-big", name = name, fs = fs.to_string()),
             fl!("skip"),
@@ -8669,6 +8854,9 @@ fn question_text(blocked: &Blocked) -> (String, String) {
 /// Why a question is asked, when its title does not say: for a move, the
 /// folder its originals could not be removed from, and the reason.
 fn question_detail(blocked: &Blocked) -> Option<String> {
+    if let Blocked::Failed { reason, .. } = blocked {
+        return Some(reason.clone());
+    }
     let Blocked::Move {
         folder, read_only, ..
     } = blocked
@@ -8703,6 +8891,8 @@ const NOTICE_SKIP: &str = "skip";
 #[cfg(feature = "notify")]
 const NOTICE_RETRY: &str = "retry";
 #[cfg(feature = "notify")]
+const NOTICE_ABORT: &str = "abort";
+#[cfg(feature = "notify")]
 const NOTICE_ROOT: &str = "root";
 #[cfg(feature = "notify")]
 const NOTICE_CANCEL: &str = "cancel";
@@ -8714,6 +8904,7 @@ fn notice_answer(action: &str) -> Option<BlockedAnswer> {
     match action {
         NOTICE_SKIP => Some(BlockedAnswer::Skip(false)),
         NOTICE_RETRY => Some(BlockedAnswer::Retry),
+        NOTICE_ABORT => Some(BlockedAnswer::Abort),
         NOTICE_ROOT => Some(BlockedAnswer::RetryAsRoot(false)),
         NOTICE_CANCEL => Some(BlockedAnswer::Cancel),
         _ => None,
@@ -8842,6 +9033,8 @@ mod tests {
                 retry: true,
                 root: None,
                 not_granted: false,
+                skip: true,
+                abort: false,
             },
             item: None,
         };

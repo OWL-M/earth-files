@@ -170,6 +170,9 @@ pub enum Blocked {
     },
     /// The folder everything goes into cannot be written to by this user.
     Destination(PathBuf),
+    /// A step failed while the operation ran, for a reason in `reason`:
+    /// the drive filled up, went away, or could not be read or written.
+    Failed { path: PathBuf, reason: String },
     /// A file is larger than the filesystem it goes to can hold: FAT keeps
     /// files under 4 GB.
     TooBig { path: PathBuf, fs: &'static str },
@@ -195,6 +198,7 @@ impl Blocked {
                 path
             }
             Self::Link { path, .. }
+            | Self::Failed { path, .. }
             | Self::TooBig { path, .. }
             | Self::BadName { path, .. }
             | Self::Move { path, .. } => path,
@@ -207,7 +211,10 @@ impl Blocked {
         match self {
             Self::Read(_) | Self::List(_) | Self::Remove(_) | Self::Destination(_) => true,
             Self::Move { read_only, .. } => !read_only,
-            Self::Link { .. } | Self::TooBig { .. } | Self::BadName { .. } => false,
+            Self::Link { .. }
+            | Self::TooBig { .. }
+            | Self::BadName { .. }
+            | Self::Failed { .. } => false,
         }
     }
 
@@ -315,6 +322,11 @@ pub struct Ask {
     /// The last "Retry as root" was not granted: the prompt was dismissed or
     /// the password refused.
     pub not_granted: bool,
+    /// Whether Skip is offered. A step that failed mid-way offers Cancel,
+    /// Abort and Try again instead.
+    pub skip: bool,
+    /// Whether Abort is offered: stop here and keep what is done.
+    pub abort: bool,
 }
 
 /// The answer to a [`Blocked`] question.
@@ -330,6 +342,8 @@ pub enum BlockedAnswer {
     /// Do it as root; `true` also does every later path of this kind as root,
     /// without asking.
     RetryAsRoot(bool),
+    /// Stop the operation here and keep what it has done.
+    Abort,
 }
 
 /// Whether the folder `dir` can take new entries at all. A read-only
