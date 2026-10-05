@@ -219,6 +219,43 @@ task-mounting = Монтування { $name }
 task-unmounting = Відмонтування { $name }
 task-done = Готово
 task-failed = Помилка
+task-paused = Призупинено
+task-paused-waiting = Призупинено, очікування
+task-skipped = Пропущено: {$count}
+blocked-read = Не вдається прочитати «{$name}»
+blocked-list = Не вдається відкрити теку «{$name}»
+blocked-remove = Об’єкт «{$name}» скопійовано, але його не вдається видалити
+same-for-rest = Для всіх інших
+retry = Повторити
+keep-original = Залишити оригінал
+skipped-more = і ще {$count}
+destination-no-permission = Не вдається записати до «{$folder}»: немає прав доступу
+destination-read-only = Не вдається записати до «{$folder}»: тільки для читання
+blocked-link = «{$name}» — це посилання, а цей диск не підтримує посилань
+blocked-link-fs = «{$name}» — це посилання, а цей диск ({$fs}) не підтримує посилань
+progress-asking = призупинено
+failed-path = «{$name}»: {$reason}
+reason-no-permission = немає прав доступу
+reason-drive-full = диск заповнений
+reason-read-only = диск доступний тільки для читання
+reason-gone = більше не існує
+reason-too-big = розмір завеликий для цього диска
+blocked-move = Не вдається перемістити «{$name}»
+blocked-move-detail = Не вдається видалити оригінали з «{$folder}»: {$reason}. Натомість об’єкт можна скопіювати.
+copy-instead = Копіювати натомість
+rollback-failed = {$more ->
+    [0] Скасовано, але «{$name}» не вдалося повернути на місце
+    [one] Скасовано, але «{$name}» і ще {$more} об’єкт не вдалося повернути на місце
+    [few] Скасовано, але «{$name}» і ще {$more} об’єкти не вдалося повернути на місце
+    [many] Скасовано, але «{$name}» і ще {$more} об’єктів не вдалося повернути на місце
+    *[other] Скасовано, але «{$name}» і ще {$more} об’єкта не вдалося повернути на місце
+  }
+failed-operations-title = {$count ->
+    [one] Не вдалося виконати {$count} операцію
+    [few] Не вдалося виконати {$count} операції
+    [many] Не вдалося виконати {$count} операцій
+    *[other] Не вдалося виконати {$count} операції
+  }
 create-archive = Створити архів
 extract-password-required = Потрібен пароль
 extract-as-folder = Видобути до теки

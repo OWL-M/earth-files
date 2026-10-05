@@ -152,6 +152,37 @@ task-mounting = { $name } 마운트하는 중
 task-unmounting = { $name } 마운트 해제하는 중
 task-done = 완료
 task-failed = 실패
+task-paused = 정지됨
+task-paused-waiting = 정지됨, 대기 중
+task-skipped = 건너뜀: {$count}개
+blocked-read = "{$name}"을(를) 읽을 수 없습니다
+blocked-list = "{$name}" 폴더를 열 수 없습니다
+blocked-remove = "{$name}"을(를) 복사했지만 제거할 수 없습니다
+same-for-rest = 나머지에도 적용
+retry = 다시 시도
+keep-original = 원본 유지
+skipped-more = 외 {$count}개
+destination-no-permission = "{$folder}"에 쓸 수 없음: 권한 없음
+destination-read-only = "{$folder}"에 쓸 수 없음: 읽기 전용
+blocked-link = "{$name}"은(는) 링크이며, 이 드라이브는 링크를 저장할 수 없습니다
+blocked-link-fs = "{$name}"은(는) 링크이며, 이 드라이브({$fs})는 링크를 저장할 수 없습니다
+progress-asking = 정지됨
+failed-path = "{$name}": {$reason}
+reason-no-permission = 권한 없음
+reason-drive-full = 드라이브가 가득 참
+reason-read-only = 드라이브가 읽기 전용임
+reason-gone = 더 이상 존재하지 않음
+reason-too-big = 이 드라이브에 비해 너무 큼
+blocked-move = "{$name}"을(를) 이동할 수 없습니다
+blocked-move-detail = "{$folder}"에서 원본을 제거할 수 없습니다: {$reason}. 대신 복사할 수 있습니다.
+copy-instead = 대신 복사
+rollback-failed = {$more ->
+    [0] 취소되었지만 "{$name}"을(를) 되돌려 놓을 수 없습니다
+    *[other] 취소되었지만 "{$name}" 외 {$more}개를 되돌려 놓을 수 없습니다
+  }
+failed-operations-title = {$count ->
+    *[other] 작업 {$count}개 실패
+  }
 remember-password = 암호 저장
 username = 사용자 이름
 show-details = 세부 사항 표시

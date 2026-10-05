@@ -29,6 +29,16 @@ impl std::default::Default for Appearance {
     }
 }
 
+/// Which colour an indicator's bar is drawn in.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Bar {
+    /// The accent colour.
+    #[default]
+    Accent,
+    /// The warning colour: the work behind it is stopped, waiting on the user.
+    Warning,
+}
+
 /// A set of rules that dictate the style of an indicator.
 pub trait StyleSheet {
     /// The supported style of the [`StyleSheet`].
@@ -64,11 +74,11 @@ impl StyleSheet for iced::Theme {
 }
 
 impl StyleSheet for crate::ui::Theme {
-    type Style = ();
+    type Style = Bar;
 
     fn appearance(
         &self,
-        _style: &Self::Style,
+        style: &Self::Style,
         is_determinate: bool,
         is_circular: bool,
     ) -> Appearance {
@@ -102,6 +112,10 @@ impl StyleSheet for crate::ui::Theme {
         if !is_determinate && is_circular {
             track_color = Color::TRANSPARENT;
         }
+        let bar_color = match style {
+            Bar::Accent => bar_color,
+            Bar::Warning => theme.warning_color().to_color(),
+        };
 
         Appearance {
             track_color,

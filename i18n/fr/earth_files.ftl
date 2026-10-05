@@ -41,6 +41,38 @@ task-mounting = Montage de { $name }
 task-unmounting = Démontage de { $name }
 task-done = Terminé
 task-failed = Échec
+task-paused = En pause
+task-paused-waiting = En pause, en attente
+task-skipped = Ignorés : {$count}
+blocked-read = Impossible de lire « {$name} »
+blocked-list = Impossible d'ouvrir le dossier « {$name} »
+blocked-remove = « {$name} » a été copié, mais sa suppression est impossible
+same-for-rest = Faire de même pour les suivants
+retry = Essayer à nouveau
+keep-original = Conserver l'original
+skipped-more = et {$count} de plus
+destination-no-permission = Impossible d'écrire dans « {$folder} » : permission refusée
+destination-read-only = Impossible d'écrire dans « {$folder} » : dossier en lecture seule
+blocked-link = « {$name} » est un lien, et ce lecteur ne peut pas contenir de liens
+blocked-link-fs = « {$name} » est un lien, et ce lecteur ({$fs}) ne peut pas contenir de liens
+progress-asking = en pause
+failed-path = « {$name} » : {$reason}
+reason-no-permission = permission refusée
+reason-drive-full = le lecteur est plein
+reason-read-only = le lecteur est en lecture seule
+reason-gone = il n'existe plus
+reason-too-big = il est trop volumineux pour ce lecteur
+blocked-move = Impossible de déplacer « {$name} »
+blocked-move-detail = Impossible de supprimer les originaux de « {$folder} » : {$reason}. Il peut être copié à la place.
+copy-instead = Copier à la place
+rollback-failed = {$more ->
+    [0] Annulé, mais « {$name} » n'a pas pu être remis en place
+    *[other] Annulé, mais « {$name} » et {$more} de plus n'ont pas pu être remis en place
+  }
+failed-operations-title = {$count ->
+    [one] L'opération a échoué
+    *[other] {$count} opérations ont échoué
+  }
 
 # Dialogs
 

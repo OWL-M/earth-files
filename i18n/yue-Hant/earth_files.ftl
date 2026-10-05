@@ -2,3 +2,34 @@ earth-files = Earth Files
 
 opening-files = Opening…
 into-itself = A folder cannot be moved or copied into itself
+task-paused = 已暫停
+task-paused-waiting = 已暫停，等緊
+task-skipped = 跳過咗 {$count} 個
+blocked-read = 讀唔到「{$name}」
+blocked-list = 開唔到資料夾「{$name}」
+blocked-remove = 「{$name}」已經複製咗，但係刪唔到
+same-for-rest = 其餘項目都照樣處理
+retry = 重試
+keep-original = 保留原檔
+skipped-more = 仲有 {$count} 個
+destination-no-permission = 寫唔入「{$folder}」：冇權限
+destination-read-only = 寫唔入「{$folder}」：唯讀
+blocked-link = 「{$name}」係連結，呢個磁碟機存唔到連結
+blocked-link-fs = 「{$name}」係連結，呢個磁碟機（{$fs}）存唔到連結
+progress-asking = 已暫停
+failed-path = 「{$name}」：{$reason}
+reason-no-permission = 冇權限
+reason-drive-full = 磁碟機滿咗
+reason-read-only = 磁碟機係唯讀
+reason-gone = 已經唔存在
+reason-too-big = 對呢個磁碟機嚟講太大
+blocked-move = 搬唔到「{$name}」
+blocked-move-detail = 原本嘅項目喺「{$folder}」刪唔到：{$reason}。可以改為複製。
+copy-instead = 改為複製
+rollback-failed = {$more ->
+    [0] 已經取消，但係「{$name}」放唔返原位
+    *[other] 已經取消，但係「{$name}」同另外 {$more} 個項目放唔返原位
+  }
+failed-operations-title = {$count ->
+    *[other] {$count} 項操作失敗咗
+  }

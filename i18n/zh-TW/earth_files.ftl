@@ -317,6 +317,37 @@ task-mounting = 正在掛載 { $name }
 task-unmounting = 正在卸載 { $name }
 task-done = 完成
 task-failed = 失敗
+task-paused = 已暫停
+task-paused-waiting = 已暫停，等待中
+task-skipped = 已跳過 {$count} 個
+blocked-read = 無法讀取「{$name}」
+blocked-list = 無法開啟資料夾「{$name}」
+blocked-remove = 「{$name}」已複製，但無法刪除
+same-for-rest = 其餘項目也套用相同操作
+retry = 重試
+keep-original = 保留原始檔案
+skipped-more = 還有 {$count} 個
+destination-no-permission = 無法寫入「{$folder}」：沒有權限
+destination-read-only = 無法寫入「{$folder}」：唯讀
+blocked-link = 「{$name}」是連結，而此磁碟機無法存放連結
+blocked-link-fs = 「{$name}」是連結，而此磁碟機（{$fs}）無法存放連結
+progress-asking = 已經暫停
+failed-path = 「{$name}」：{$reason}
+reason-no-permission = 沒有權限
+reason-drive-full = 磁碟機已滿
+reason-read-only = 磁碟機為唯讀
+reason-gone = 已不存在
+reason-too-big = 對此磁碟機來說太大
+blocked-move = 無法移動「{$name}」
+blocked-move-detail = 無法從「{$folder}」刪除原始項目：{$reason}。可以改為複製。
+copy-instead = 改為複製
+rollback-failed = {$more ->
+    [0] 已取消，但無法將「{$name}」放回原處
+    *[other] 已取消，但無法將「{$name}」及另外 {$more} 項放回原處
+  }
+failed-operations-title = {$count ->
+    *[other] {$count} 項操作失敗
+  }
 extract-password-required = 需要密碼
 extract-as-folder = 解壓縮至資料夾
 extract-to = 解壓縮至...

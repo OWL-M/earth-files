@@ -40,6 +40,38 @@ task-mounting = Montaggio di { $name }
 task-unmounting = Smontaggio di { $name }
 task-done = Fatto
 task-failed = Non riuscito
+task-paused = In pausa
+task-paused-waiting = In pausa, in attesa
+task-skipped = Saltati: {$count}
+blocked-read = Impossibile leggere «{$name}»
+blocked-list = Impossibile aprire la cartella «{$name}»
+blocked-remove = «{$name}» copiato, ma impossibile rimuoverlo
+same-for-rest = Stessa scelta per i restanti
+retry = Riprova
+keep-original = Mantieni l'originale
+skipped-more = e altri {$count}
+destination-no-permission = Impossibile scrivere in «{$folder}»: permesso negato
+destination-read-only = Impossibile scrivere in «{$folder}»: è di sola lettura
+blocked-link = «{$name}» è un collegamento e questo dispositivo non può contenere collegamenti
+blocked-link-fs = «{$name}» è un collegamento e questo dispositivo ({$fs}) non può contenere collegamenti
+progress-asking = in pausa
+failed-path = «{$name}»: {$reason}
+reason-no-permission = permesso negato
+reason-drive-full = il dispositivo è pieno
+reason-read-only = il dispositivo è di sola lettura
+reason-gone = non esiste più
+reason-too-big = è troppo grande per questo dispositivo
+blocked-move = Impossibile spostare «{$name}»
+blocked-move-detail = Impossibile rimuovere gli originali da «{$folder}»: {$reason}. È possibile copiarlo invece.
+copy-instead = Copia invece
+rollback-failed = {$more ->
+    [0] Annullato, ma impossibile ripristinare «{$name}»
+    *[other] Annullato, ma impossibile ripristinare «{$name}» e altri {$more}
+  }
+failed-operations-title = {$count ->
+    [one] L'operazione non è riuscita
+    *[other] {$count} operazioni non sono riuscite
+  }
 
 # Dialogs
 

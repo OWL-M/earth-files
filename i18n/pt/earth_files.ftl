@@ -227,6 +227,38 @@ task-mounting = A montar { $name }
 task-unmounting = A desmontar { $name }
 task-done = Concluído
 task-failed = Falhou
+task-paused = Em pausa
+task-paused-waiting = Em pausa, a aguardar
+task-skipped = Ignorados: {$count}
+blocked-read = Não é possível ler "{$name}"
+blocked-list = Não é possível abrir a pasta "{$name}"
+blocked-remove = "{$name}" foi copiado, mas não pode ser removido
+same-for-rest = Igual para os restantes
+retry = Tentar novamente
+keep-original = Manter original
+skipped-more = e mais {$count}
+destination-no-permission = Não é possível escrever em "{$folder}": sem permissão
+destination-read-only = Não é possível escrever em "{$folder}": é apenas de leitura
+blocked-link = "{$name}" é uma ligação e esta unidade não suporta ligações
+blocked-link-fs = "{$name}" é uma ligação e esta unidade ({$fs}) não suporta ligações
+progress-asking = em pausa
+failed-path = "{$name}": {$reason}
+reason-no-permission = sem permissão
+reason-drive-full = a unidade está cheia
+reason-read-only = a unidade é apenas de leitura
+reason-gone = já não existe
+reason-too-big = é demasiado grande para esta unidade
+blocked-move = Não é possível mover "{$name}"
+blocked-move-detail = Não é possível remover os originais de "{$folder}": {$reason}. Em vez disso, pode ser copiado.
+copy-instead = Copiar em vez disso
+rollback-failed = {$more ->
+    [0] Cancelado, mas não foi possível restaurar "{$name}"
+    *[other] Cancelado, mas não foi possível restaurar "{$name}" e mais {$more}
+  }
+failed-operations-title = {$count ->
+    [one] A operação falhou
+    *[other] {$count} operações falharam
+  }
 create-archive = Criar arquivo
 extract-password-required = Palavra-passe necessária
 extract-as-folder = Extrair para pasta

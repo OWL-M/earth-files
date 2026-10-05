@@ -38,6 +38,38 @@ task-mounting = { $name } á fheistiú
 task-unmounting = { $name } á dhífheistiú
 task-done = Déanta
 task-failed = Theip air
+task-paused = Ar sos
+task-paused-waiting = Ar sos, ag fanacht
+task-skipped = Scipeáilte: {$count}
+blocked-read = Ní féidir "{$name}" a léamh
+blocked-list = Ní féidir an fillteán "{$name}" a oscailt
+blocked-remove = Cóipeáladh "{$name}" ach ní féidir é a bhaint
+same-for-rest = An rud céanna don chuid eile
+retry = Bain triail eile as
+keep-original = Coinnigh an bunleagan
+skipped-more = agus {$count} eile
+destination-no-permission = Ní féidir scríobh chuig "{$folder}": gan chead
+destination-read-only = Ní féidir scríobh chuig "{$folder}": léamh amháin atá ann
+blocked-link = Is nasc é "{$name}", agus ní féidir naisc a stóráil ar an tiomántán seo
+blocked-link-fs = Is nasc é "{$name}", agus ní féidir naisc a stóráil ar an tiomántán seo ({$fs})
+progress-asking = curtha ar shos
+failed-path = "{$name}": {$reason}
+reason-no-permission = gan chead
+reason-drive-full = tá an tiomántán lán
+reason-read-only = léamh amháin atá sa tiomántán
+reason-gone = níl sé ann a thuilleadh
+reason-too-big = tá sé rómhór don tiomántán seo
+blocked-move = Ní féidir "{$name}" a bhogadh
+blocked-move-detail = Ní féidir na bunleaganacha a bhaint as "{$folder}": {$reason}. Is féidir é a chóipeáil ina ionad sin.
+copy-instead = Cóipeáil ina ionad sin
+rollback-failed = {$more ->
+    [0] Cealaithe, ach níorbh fhéidir "{$name}" a chur ar ais
+    *[other] Cealaithe, ach níorbh fhéidir "{$name}" agus {$more} eile a chur ar ais
+  }
+failed-operations-title = {$count ->
+    [one] Theip ar an oibríocht
+    *[other] Theip ar {$count} oibríocht
+  }
 
 # Dialogs
 

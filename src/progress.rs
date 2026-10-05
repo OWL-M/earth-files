@@ -8,6 +8,11 @@
 //! "failed" for the longer [`FAILED_LINGER`], then takes [`LEAVE`] to slide
 //! out before it is forgotten.
 //!
+//! An operation waiting on the user about a path it may not touch is marked
+//! on its row, one question at a time: the oldest is asking, the rest wait.
+//! One that ended having skipped paths, or failed, stays until it is
+//! dismissed.
+//!
 //! Pure: the caller passes the time, so it can be tested without a clock.
 
 use std::time::{Duration, Instant};
@@ -54,6 +59,10 @@ pub enum Key {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum State {
     Running,
+    /// Waiting on the user, whose question this row shows.
+    Asking,
+    /// Waiting on the user behind another row's question.
+    Waiting,
     Done,
     Failed,
 }
@@ -67,6 +76,15 @@ struct Entry {
     shows_at: Instant,
     /// When it ended, and whether it succeeded.
     ended: Option<(Instant, bool)>,
+    /// While it waits on the user: in which turn it asked, lowest first.
+    blocked: Option<u64>,
+    /// How many paths it skipped.
+    skipped: usize,
+    /// Its ended row stays until it is dismissed: it skipped paths, or it
+    /// failed and can be tried again from there.
+    kept: bool,
+    /// When its kept row was dismissed.
+    dismissed: Option<Instant>,
 }
 
 impl Entry {
@@ -74,9 +92,21 @@ impl Entry {
         now >= self.shows_at && !self.is_gone(now)
     }
 
+    /// When it starts to slide out, if it does on its own or was dismissed.
+    fn leaves_at(&self) -> Option<Instant> {
+        if self.kept {
+            self.dismissed
+        } else {
+            self.ended.map(|(at, ok)| at + linger(ok))
+        }
+    }
+
+    fn is_leaving(&self, now: Instant) -> bool {
+        self.leaves_at().is_some_and(|at| now >= at)
+    }
+
     fn is_gone(&self, now: Instant) -> bool {
-        self.ended
-            .is_some_and(|(at, ok)| now >= at + linger(ok) + LEAVE)
+        self.leaves_at().is_some_and(|at| now >= at + LEAVE)
     }
 }
 
@@ -92,6 +122,8 @@ pub(crate) struct Row<'a> {
     pub(crate) state: State,
     /// Past its linger: sliding out.
     pub(crate) leaving: bool,
+    /// How many paths it skipped; above zero, it stays until dismissed.
+    pub(crate) skipped: usize,
 }
 
 /// What the card shows now.
@@ -122,6 +154,8 @@ impl Visible<'_> {
 pub(crate) struct Tasks {
     entries: Vec<Entry>,
     next_id: u64,
+    /// The turn the next task to ask gets.
+    next_turn: u64,
 }
 
 impl Tasks {
@@ -139,6 +173,10 @@ impl Tasks {
             entry.label = label;
             entry.shows_at = now;
             entry.ended = None;
+            entry.blocked = None;
+            entry.skipped = 0;
+            entry.kept = false;
+            entry.dismissed = None;
             return;
         }
         self.entries.retain(|entry| entry.key != key);
@@ -150,7 +188,84 @@ impl Tasks {
             label,
             shows_at: now + delay,
             ended: None,
+            blocked: None,
+            skipped: 0,
+            kept: false,
+            dismissed: None,
         });
+    }
+
+    /// Task `key` waits on the user. It asks once every task that asked
+    /// before it has had its answer.
+    pub(crate) fn block(&mut self, key: &Key) {
+        if let Some(entry) = self
+            .entries
+            .iter_mut()
+            .find(|entry| entry.key == *key && entry.ended.is_none())
+        {
+            entry.blocked = Some(self.next_turn);
+            self.next_turn += 1;
+        }
+    }
+
+    /// Task `key` has its answer and runs on.
+    pub(crate) fn unblock(&mut self, key: &Key) {
+        for entry in self.entries.iter_mut().filter(|entry| entry.key == *key) {
+            entry.blocked = None;
+        }
+    }
+
+    /// Task `key` ended having skipped `skipped` paths: its row stays until
+    /// [`Self::dismiss`]. With nothing skipped, the same as a success.
+    pub(crate) fn finish_skipped(
+        &mut self,
+        key: &Key,
+        skipped: usize,
+        label: Option<String>,
+        now: Instant,
+    ) {
+        self.finish_kept(key, true, skipped > 0, label, now);
+        if let Some(entry) = self.ended_now(key, now) {
+            entry.skipped = skipped;
+        }
+    }
+
+    /// Task `key` failed, and its row stays until [`Self::dismiss`], so its
+    /// reason can be read and it can be tried again.
+    pub(crate) fn finish_failed_kept(&mut self, key: &Key, label: Option<String>, now: Instant) {
+        self.finish_kept(key, false, true, label, now);
+    }
+
+    fn finish_kept(
+        &mut self,
+        key: &Key,
+        ok: bool,
+        kept: bool,
+        label: Option<String>,
+        now: Instant,
+    ) {
+        self.finish(key, ok, label, now);
+        if let Some(entry) = self.ended_now(key, now) {
+            entry.kept = kept;
+        }
+    }
+
+    /// The entry for task `key` that [`Self::finish`] just ended at `now`.
+    fn ended_now(&mut self, key: &Key, now: Instant) -> Option<&mut Entry> {
+        self.entries
+            .iter_mut()
+            .find(|entry| entry.key == *key && entry.ended.is_some_and(|(at, _)| at == now))
+    }
+
+    /// The user closed row `id`, which stayed until then: it slides out now.
+    pub(crate) fn dismiss(&mut self, id: u64, now: Instant) {
+        if let Some(entry) = self
+            .entries
+            .iter_mut()
+            .find(|entry| entry.id == id && entry.kept)
+        {
+            entry.dismissed.get_or_insert(now);
+        }
     }
 
     /// Task `key` ended. One not shown yet is forgotten at once; a shown
@@ -163,6 +278,7 @@ impl Tasks {
         else {
             return;
         };
+        self.entries[index].blocked = None;
         if now < self.entries[index].shows_at {
             self.entries.remove(index);
             return;
@@ -172,6 +288,22 @@ impl Tasks {
         if let Some(label) = label {
             entry.label = label;
         }
+    }
+
+    /// The task asking the user now: of those waiting on the user, the
+    /// first to ask.
+    pub(crate) fn asking(&self) -> Option<&Key> {
+        self.entries
+            .iter()
+            .filter(|entry| entry.ended.is_none())
+            .filter_map(|entry| entry.blocked.map(|turn| (turn, &entry.key)))
+            .min_by_key(|(turn, _)| *turn)
+            .map(|(_, key)| key)
+    }
+
+    /// Whether task `key` is tracked, shown or not.
+    pub(crate) fn contains(&self, key: &Key) -> bool {
+        self.entries.iter().any(|entry| entry.key == *key)
     }
 
     /// Forgets task `key` at once, shown or not, without the slide: for
@@ -194,12 +326,12 @@ impl Tasks {
             .iter()
             .flat_map(|entry| {
                 let waiting = (entry.ended.is_none()).then_some(entry.shows_at);
-                let ended = entry
-                    .ended
-                    .map(|(at, ok)| [at + linger(ok), at + linger(ok) + LEAVE])
+                let leaving = entry
+                    .leaves_at()
+                    .map(|at| [at, at + LEAVE])
                     .into_iter()
                     .flatten();
-                waiting.into_iter().chain(ended)
+                waiting.into_iter().chain(leaving)
             })
             .filter(|&at| at > now)
             .min()
@@ -212,28 +344,53 @@ impl Tasks {
         self.entries.is_empty()
     }
 
-    /// The rows to show at `now`.
+    /// The rows to show at `now`. The row asking the user is never left
+    /// out: counted under `more`, it goes first instead.
     pub(crate) fn visible(&self, now: Instant) -> Visible<'_> {
-        let mut shown = self.entries.iter().filter(|entry| entry.is_shown(now));
-        let rows: Vec<Row<'_>> = shown
-            .by_ref()
+        let mut shown: Vec<&Entry> = self
+            .entries
+            .iter()
+            .filter(|entry| entry.is_shown(now))
+            .collect();
+        let asking = shown
+            .iter()
+            .enumerate()
+            .filter_map(|(index, entry)| entry.blocked.map(|turn| (turn, index)))
+            .min()
+            .map(|(_, index)| index);
+        if let Some(index) = asking
+            && index >= MAX_ROWS
+        {
+            let entry = shown.remove(index);
+            shown.insert(0, entry);
+        }
+        let asking_id = asking.map(|index| {
+            if index >= MAX_ROWS {
+                shown[0].id
+            } else {
+                shown[index].id
+            }
+        });
+        let more = shown.len().saturating_sub(MAX_ROWS);
+        let rows = shown
+            .into_iter()
             .take(MAX_ROWS)
             .map(|entry| Row {
                 key: &entry.key,
                 id: entry.id,
                 label: &entry.label,
-                state: match entry.ended {
-                    None => State::Running,
-                    Some((_, true)) => State::Done,
-                    Some((_, false)) => State::Failed,
+                state: match (entry.ended, entry.blocked) {
+                    (None, Some(_)) if Some(entry.id) == asking_id => State::Asking,
+                    (None, Some(_)) => State::Waiting,
+                    (None, None) => State::Running,
+                    (Some((_, true)), _) => State::Done,
+                    (Some((_, false)), _) => State::Failed,
                 },
-                leaving: entry.ended.is_some_and(|(at, ok)| now >= at + linger(ok)),
+                leaving: entry.is_leaving(now),
+                skipped: entry.skipped,
             })
             .collect();
-        Visible {
-            rows,
-            more: shown.count(),
-        }
+        Visible { rows, more }
     }
 }
 
@@ -252,6 +409,135 @@ mod tests {
             .iter()
             .map(|row| row.label)
             .collect()
+    }
+
+    fn states(tasks: &Tasks, now: Instant) -> Vec<(&str, State)> {
+        tasks
+            .visible(now)
+            .rows
+            .iter()
+            .map(|row| (row.label, row.state))
+            .collect()
+    }
+
+    #[test]
+    fn the_first_to_ask_asks_and_the_others_wait() {
+        let now = Instant::now();
+        let mut tasks = Tasks::default();
+        for (n, label) in [(1, "a"), (2, "b"), (3, "c")] {
+            tasks.start(op(n), label.into(), Duration::ZERO, now);
+        }
+        tasks.block(&op(3));
+        tasks.block(&op(1));
+        assert_eq!(
+            states(&tasks, now),
+            [
+                ("a", State::Waiting),
+                ("b", State::Running),
+                ("c", State::Asking)
+            ]
+        );
+
+        tasks.unblock(&op(3));
+        assert_eq!(
+            states(&tasks, now),
+            [
+                ("a", State::Asking),
+                ("b", State::Running),
+                ("c", State::Running)
+            ]
+        );
+    }
+
+    #[test]
+    fn a_row_asking_from_under_more_goes_first() {
+        let now = Instant::now();
+        let mut tasks = Tasks::default();
+        for n in 0..=MAX_ROWS as u64 {
+            tasks.start(op(n), n.to_string(), Duration::ZERO, now);
+        }
+        let last = MAX_ROWS as u64;
+        tasks.block(&op(last));
+
+        let visible = tasks.visible(now);
+        assert_eq!(visible.more, 1);
+        assert_eq!(visible.rows.len(), MAX_ROWS);
+        assert_eq!(visible.rows[0].label, last.to_string());
+        assert_eq!(visible.rows[0].state, State::Asking);
+        assert_eq!(visible.rows[1].label, "0", "the others keep their order");
+    }
+
+    #[test]
+    fn a_row_that_skipped_stays_until_dismissed_then_slides_out() {
+        let now = Instant::now();
+        let mut tasks = Tasks::default();
+        tasks.start(op(1), "copying".into(), Duration::ZERO, now);
+        tasks.finish_skipped(&op(1), 3, Some("copied".into()), now);
+
+        let later = now + FAILED_LINGER * 10;
+        let visible = tasks.visible(later);
+        let row = &visible.rows[0];
+        assert_eq!(
+            (row.state, row.skipped, row.leaving),
+            (State::Done, 3, false)
+        );
+        assert_eq!(tasks.next_deadline(now), None, "nothing happens on its own");
+
+        let id = row.id;
+        tasks.dismiss(id, later);
+        assert!(tasks.visible(later).rows[0].leaving);
+        assert_eq!(tasks.next_deadline(later), Some(later + LEAVE));
+        tasks.prune(later + LEAVE);
+        assert!(tasks.is_empty());
+    }
+
+    #[test]
+    fn the_task_asking_is_the_first_to_ask() {
+        let now = Instant::now();
+        let mut tasks = Tasks::default();
+        tasks.start(op(1), "a".into(), Duration::ZERO, now);
+        tasks.start(op(2), "b".into(), Duration::ZERO, now);
+        assert_eq!(tasks.asking(), None);
+        tasks.block(&op(2));
+        tasks.block(&op(1));
+        assert_eq!(tasks.asking(), Some(&op(2)));
+        tasks.finish(&op(2), true, None, now);
+        assert_eq!(tasks.asking(), Some(&op(1)));
+    }
+
+    #[test]
+    fn a_kept_failed_row_stays_until_dismissed() {
+        let now = Instant::now();
+        let mut tasks = Tasks::default();
+        tasks.start(op(1), "copying".into(), Duration::ZERO, now);
+        tasks.finish_failed_kept(&op(1), Some("copy".into()), now);
+
+        let later = now + FAILED_LINGER * 10;
+        let row = |tasks: &Tasks, at| {
+            let visible = tasks.visible(at);
+            visible
+                .rows
+                .first()
+                .map(|row| (row.id, row.state, row.leaving))
+        };
+        let (id, state, leaving) = row(&tasks, later).expect("still shown");
+        assert_eq!((state, leaving), (State::Failed, false));
+        assert_eq!(tasks.next_deadline(now), None);
+        tasks.dismiss(id, later);
+        assert_eq!(
+            row(&tasks, later).map(|(_, _, leaving)| leaving),
+            Some(true)
+        );
+    }
+
+    #[test]
+    fn a_finish_ends_the_asking() {
+        let now = Instant::now();
+        let mut tasks = Tasks::default();
+        tasks.start(op(1), "a".into(), Duration::ZERO, now);
+        tasks.block(&op(1));
+        tasks.finish(&op(1), false, None, now);
+        assert_eq!(states(&tasks, now), [("a", State::Failed)]);
     }
 
     #[test]

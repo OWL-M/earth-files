@@ -228,6 +228,38 @@ task-mounting = { $name } tê siwarkirin
 task-unmounting = { $name } tê daxistin
 task-done = Qediya
 task-failed = Têk çû
+task-paused = Hate rawestandin
+task-paused-waiting = Hate rawestandin, li bendê ye
+task-skipped = Hatin derbaskirin: {$count}
+blocked-read = "{$name}" nayê xwendin
+blocked-list = Peldanka "{$name}" nayê vekirin
+blocked-remove = "{$name}" hat kopîkirin lê nayê rakirin
+same-for-rest = Ji bo yên mayî jî wisa
+retry = Dîsa hewl bide
+keep-original = Orîjînalê bihêle
+skipped-more = û {$count} zêdetir
+destination-no-permission = Nikare li "{$folder}" binivîse: maf tune
+destination-read-only = Nikare li "{$folder}" binivîse: tenê xwendin e
+blocked-link = "{$name}" girêdanek e, û ev ajoker nikare girêdanan bihewîne
+blocked-link-fs = "{$name}" girêdanek e, û ev ajoker ({$fs}) nikare girêdanan bihewîne
+progress-asking = hate rawestandin
+failed-path = "{$name}": {$reason}
+reason-no-permission = maf tune
+reason-drive-full = ajoker tije ye
+reason-read-only = ajoker tenê xwendin e
+reason-gone = êdî tune ye
+reason-too-big = ji bo vî ajokerî pir mezin e
+blocked-move = "{$name}" nayê livandin
+blocked-move-detail = Orjînal ji "{$folder}" nayên rakirin: {$reason}. Li şûna wê dikare were kopîkirin.
+copy-instead = Li şûna wê jê bigire
+rollback-failed = {$more ->
+    [0] Têkbirî, lê "{$name}" nehat vegerandin
+    *[other] Têkbirî, lê "{$name}" û {$more} zêdetir nehatin vegerandin
+  }
+failed-operations-title = {$count ->
+    [one] Kiryar têk çû
+    *[other] {$count} kiryar têk çûn
+  }
 copy-to-title = Rêgeha jêgirtinê hilbijêre
 copy-to-button-label = Jê bigire
 move-to-title = Rêgeha livandinê hilbijêre

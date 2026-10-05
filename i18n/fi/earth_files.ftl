@@ -317,6 +317,38 @@ task-mounting = Liitetään { $name }
 task-unmounting = Irrotetaan { $name }
 task-done = Valmis
 task-failed = Epäonnistui
+task-paused = Keskeytetty
+task-paused-waiting = Keskeytetty, odottaa
+task-skipped = Ohitettu: {$count}
+blocked-read = Kohdetta ”{$name}” ei voi lukea
+blocked-list = Kansiota ”{$name}” ei voi avata
+blocked-remove = ”{$name}” kopioitiin, mutta sitä ei voi poistaa
+same-for-rest = Sama muille
+retry = Yritä uudelleen
+keep-original = Pidä alkuperäinen
+skipped-more = ja {$count} lisää
+destination-no-permission = Kansioon ”{$folder}” ei voi kirjoittaa: ei oikeuksia
+destination-read-only = Kansioon ”{$folder}” ei voi kirjoittaa: vain luku
+blocked-link = ”{$name}” on linkki, eikä tälle levylle voi tallentaa linkkejä
+blocked-link-fs = ”{$name}” on linkki, eikä tälle levylle ({$fs}) voi tallentaa linkkejä
+progress-asking = keskeytetty
+failed-path = ”{$name}”: {$reason}
+reason-no-permission = ei oikeuksia
+reason-drive-full = levy on täynnä
+reason-read-only = levy on vain luku -tilassa
+reason-gone = sitä ei ole enää olemassa
+reason-too-big = se on liian suuri tälle levylle
+blocked-move = Kohdetta ”{$name}” ei voi siirtää
+blocked-move-detail = Alkuperäisiä ei voi poistaa kansiosta ”{$folder}”: {$reason}. Sen voi kopioida sen sijaan.
+copy-instead = Kopioi sen sijaan
+rollback-failed = {$more ->
+    [0] Peruttu, mutta kohdetta ”{$name}” ei voitu palauttaa
+    *[other] Peruttu, mutta kohdetta ”{$name}” ja {$more} muuta ei voitu palauttaa
+  }
+failed-operations-title = {$count ->
+    [one] Toiminto epäonnistui
+    *[other] {$count} toimintoa epäonnistui
+  }
 extract-password-required = Salasana vaaditaan
 extract-to-title = Pura kansioon
 empty-trash-title = Tyhjennetäänkö roskakori?

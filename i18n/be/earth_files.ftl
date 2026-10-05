@@ -43,6 +43,43 @@ task-mounting = Мантаванне { $name }
 task-unmounting = Адмантаванне { $name }
 task-done = Гатова
 task-failed = Памылка
+task-paused = Прыпынена
+task-paused-waiting = Прыпынена, чакае
+task-skipped = Прапушчана: {$count}
+blocked-read = Немагчыма прачытаць «{$name}»
+blocked-list = Немагчыма адкрыць папку «{$name}»
+blocked-remove = «{$name}» скапіявана, але немагчыма выдаліць
+same-for-rest = Тое ж для астатніх
+retry = Паўтарыць спробу
+keep-original = Захаваць арыгінал
+skipped-more = і яшчэ {$count}
+destination-no-permission = Немагчыма запісаць у «{$folder}»: няма дазволу
+destination-read-only = Немагчыма запісаць у «{$folder}»: толькі для чытання
+blocked-link = «{$name}» — гэта спасылка, а на гэтым дыску нельга захоўваць спасылкі
+blocked-link-fs = «{$name}» — гэта спасылка, а на гэтым дыску ({$fs}) нельга захоўваць спасылкі
+progress-asking = прыпынена
+failed-path = «{$name}»: {$reason}
+reason-no-permission = няма дазволу
+reason-drive-full = дыск запоўнены
+reason-read-only = дыск толькі для чытання
+reason-gone = яго больш не існуе
+reason-too-big = ён занадта вялікі для гэтага дыска
+blocked-move = Немагчыма перанесці «{$name}»
+blocked-move-detail = Арыгіналы немагчыма выдаліць з «{$folder}»: {$reason}. Замест гэтага яго можна скапіяваць.
+copy-instead = Скапіяваць замест гэтага
+rollback-failed = {$more ->
+    [0] Скасавана, але «{$name}» немагчыма вярнуць на месца
+    [one] Скасавана, але «{$name}» і яшчэ {$more} аб’ект немагчыма вярнуць на месца
+    [few] Скасавана, але «{$name}» і яшчэ {$more} аб’екты немагчыма вярнуць на месца
+    [many] Скасавана, але «{$name}» і яшчэ {$more} аб’ектаў немагчыма вярнуць на месца
+    *[other] Скасавана, але «{$name}» і яшчэ {$more} аб’екта немагчыма вярнуць на месца
+  }
+failed-operations-title = {$count ->
+    [one] {$count} аперацыя не ўдалася
+    [few] {$count} аперацыі не ўдаліся
+    [many] {$count} аперацый не ўдалося
+    *[other] {$count} аперацыі не ўдалося
+  }
 
 # Dialogs
 

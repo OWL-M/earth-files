@@ -68,6 +68,38 @@ task-mounting = Montando { $name }
 task-unmounting = Desmontando { $name }
 task-done = Feito
 task-failed = Fallou
+task-paused = Pausado
+task-paused-waiting = Pausado, en espera
+task-skipped = Saltados: {$count}
+blocked-read = Non se pode ler «{$name}»
+blocked-list = Non se pode abrir o cartafol «{$name}»
+blocked-remove = «{$name}» copiouse, pero non se pode eliminar
+same-for-rest = O mesmo para o resto
+retry = Voltar a intentar
+keep-original = Manter o orixinal
+skipped-more = e {$count} máis
+destination-no-permission = Non se pode escribir en «{$folder}»: sen permiso
+destination-read-only = Non se pode escribir en «{$folder}»: é só lectura
+blocked-link = «{$name}» é unha ligazón e esta unidade non pode conter ligazóns
+blocked-link-fs = «{$name}» é unha ligazón e esta unidade ({$fs}) non pode conter ligazóns
+progress-asking = pausado
+failed-path = «{$name}»: {$reason}
+reason-no-permission = sen permiso
+reason-drive-full = a unidade está chea
+reason-read-only = a unidade é só lectura
+reason-gone = xa non existe
+reason-too-big = é demasiado grande para esta unidade
+blocked-move = Non se pode mover «{$name}»
+blocked-move-detail = Non se poden eliminar os orixinais de «{$folder}»: {$reason}. Pódese copiar no seu lugar.
+copy-instead = Copiar no seu lugar
+rollback-failed = {$more ->
+    [0] Cancelado, pero non se puido restaurar «{$name}»
+    *[other] Cancelado, pero non se puideron restaurar «{$name}» e {$more} máis
+  }
+failed-operations-title = {$count ->
+    [one] Fallou a operación
+    *[other] Fallaron {$count} operacións
+  }
 create-archive = Crear arquivo comprimido
 copy-to-title = Seleccionar o destino da copia
 copy-to-button-label = Copiar

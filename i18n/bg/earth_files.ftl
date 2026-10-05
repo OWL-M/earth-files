@@ -41,6 +41,38 @@ task-mounting = Монтиране на { $name }
 task-unmounting = Демонтиране на { $name }
 task-done = Готово
 task-failed = Неуспешно
+task-paused = На пауза
+task-paused-waiting = На пауза, изчаква
+task-skipped = Пропуснати: {$count}
+blocked-read = „{$name}“ не може да бъде прочетен
+blocked-list = Папката „{$name}“ не може да бъде отворена
+blocked-remove = „{$name}“ е копиран, но не може да бъде премахнат
+same-for-rest = Същото за останалите
+retry = Опитайте отново
+keep-original = Запазване на оригинала
+skipped-more = и още {$count}
+destination-no-permission = Не може да се пише в „{$folder}“: няма права
+destination-read-only = Не може да се пише в „{$folder}“: само за четене
+blocked-link = „{$name}“ е връзка, а това устройство не може да съдържа връзки
+blocked-link-fs = „{$name}“ е връзка, а това устройство ({$fs}) не може да съдържа връзки
+progress-asking = на пауза
+failed-path = „{$name}“: {$reason}
+reason-no-permission = няма права
+reason-drive-full = устройството е пълно
+reason-read-only = устройството е само за четене
+reason-gone = вече не съществува
+reason-too-big = твърде голям е за това устройство
+blocked-move = „{$name}“ не може да бъде преместен
+blocked-move-detail = Оригиналите не могат да бъдат премахнати от „{$folder}“: {$reason}. Вместо това може да бъде копиран.
+copy-instead = Копиране вместо това
+rollback-failed = {$more ->
+    [0] Отменена, но „{$name}“ не може да бъде върнат на мястото си
+    *[other] Отменена, но „{$name}“ и още {$more} не могат да бъдат върнати на местата си
+  }
+failed-operations-title = {$count ->
+    [one] Операцията е неуспешна
+    *[other] {$count} операции са неуспешни
+  }
 
 # Dialogs
 

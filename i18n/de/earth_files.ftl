@@ -41,6 +41,38 @@ task-mounting = { $name } wird eingehängt
 task-unmounting = { $name } wird ausgehängt
 task-done = Fertig
 task-failed = Fehlgeschlagen
+task-paused = Pausiert
+task-paused-waiting = Pausiert, wartet
+task-skipped = {$count} übersprungen
+blocked-read = „{$name}“ kann nicht gelesen werden
+blocked-list = Ordner „{$name}“ kann nicht geöffnet werden
+blocked-remove = „{$name}“ wurde kopiert, kann aber nicht entfernt werden
+same-for-rest = Für alle weiteren übernehmen
+retry = Erneut versuchen
+keep-original = Original behalten
+skipped-more = und {$count} weitere
+destination-no-permission = In „{$folder}“ kann nicht geschrieben werden: keine Berechtigung
+destination-read-only = In „{$folder}“ kann nicht geschrieben werden: schreibgeschützt
+blocked-link = „{$name}“ ist eine Verknüpfung, und dieses Laufwerk kann keine Verknüpfungen speichern
+blocked-link-fs = „{$name}“ ist eine Verknüpfung, und dieses Laufwerk ({$fs}) kann keine Verknüpfungen speichern
+progress-asking = pausiert
+failed-path = „{$name}“: {$reason}
+reason-no-permission = keine Berechtigung
+reason-drive-full = das Laufwerk ist voll
+reason-read-only = das Laufwerk ist schreibgeschützt
+reason-gone = es existiert nicht mehr
+reason-too-big = es ist zu groß für dieses Laufwerk
+blocked-move = „{$name}“ kann nicht verschoben werden
+blocked-move-detail = Die Originale können nicht aus „{$folder}“ entfernt werden: {$reason}. Stattdessen kann es kopiert werden.
+copy-instead = Stattdessen kopieren
+rollback-failed = {$more ->
+    [0] Abgebrochen, aber „{$name}“ konnte nicht wiederhergestellt werden
+    *[other] Abgebrochen, aber „{$name}“ und {$more} weitere konnten nicht wiederhergestellt werden
+  }
+failed-operations-title = {$count ->
+    [one] Der Vorgang ist fehlgeschlagen
+    *[other] {$count} Vorgänge sind fehlgeschlagen
+  }
 
 # Dialoge
 

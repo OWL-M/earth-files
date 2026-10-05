@@ -38,6 +38,38 @@ task-mounting = در حال سوار کردن { $name }
 task-unmounting = در حال پیاده کردن { $name }
 task-done = انجام شد
 task-failed = ناموفق
+task-paused = متوقف شده
+task-paused-waiting = متوقف شده، در انتظار
+task-skipped = رد شده: {$count}
+blocked-read = «{$name}» قابل خواندن نیست
+blocked-list = پوشه «{$name}» باز نمی‌شود
+blocked-remove = «{$name}» کپی شد اما حذف نمی‌شود
+same-for-rest = برای بقیه هم همین
+retry = تلاش دوباره
+keep-original = نگه داشتن اصلی
+skipped-more = و {$count} مورد دیگر
+destination-no-permission = نوشتن در «{$folder}» ممکن نیست: مجوز ندارید
+destination-read-only = نوشتن در «{$folder}» ممکن نیست: فقط خواندنی است
+blocked-link = «{$name}» یک پیوند است و این درایو نمی‌تواند پیوند نگه دارد
+blocked-link-fs = «{$name}» یک پیوند است و این درایو ({$fs}) نمی‌تواند پیوند نگه دارد
+progress-asking = متوقف شد
+failed-path = «{$name}»: {$reason}
+reason-no-permission = مجوز ندارید
+reason-drive-full = درایو پر است
+reason-read-only = درایو فقط خواندنی است
+reason-gone = دیگر وجود ندارد
+reason-too-big = برای این درایو بیش از حد بزرگ است
+blocked-move = «{$name}» قابل انتقال نیست
+blocked-move-detail = نسخه‌های اصلی از «{$folder}» حذف نمی‌شوند: {$reason}. در عوض می‌توان آن را کپی کرد.
+copy-instead = در عوض کپی کن
+rollback-failed = {$more ->
+    [0] لغو شد، اما «{$name}» به جای قبلی بازگردانده نشد
+    *[other] لغو شد، اما «{$name}» و {$more} مورد دیگر به جای قبلی بازگردانده نشدند
+  }
+failed-operations-title = {$count ->
+    [one] عملیات ناموفق بود
+    *[other] {$count} عملیات ناموفق بود
+  }
 
 # Dialogs
 

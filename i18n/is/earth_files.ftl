@@ -57,6 +57,39 @@ task-mounting = Tengi { $name }
 task-unmounting = Aftengi { $name }
 task-done = Lokið
 task-failed = Mistókst
+task-paused = Á pásu
+task-paused-waiting = Á pásu, bíður
+task-skipped = Sleppt: {$count}
+blocked-read = Ekki er hægt að lesa „{$name}“
+blocked-list = Ekki er hægt að opna möppuna „{$name}“
+blocked-remove = „{$name}“ var afritað en ekki er hægt að fjarlægja það
+same-for-rest = Sama fyrir afganginn
+retry = Reyna aftur
+keep-original = Halda upprunalegu
+skipped-more = og {$count} í viðbót
+destination-no-permission = Ekki er hægt að skrifa í „{$folder}“: engin heimild
+destination-read-only = Ekki er hægt að skrifa í „{$folder}“: mappan er skrifvarin
+blocked-link = „{$name}“ er tengill og þetta drif getur ekki geymt tengla
+blocked-link-fs = „{$name}“ er tengill og þetta drif ({$fs}) getur ekki geymt tengla
+progress-asking = á pásu
+failed-path = „{$name}“: {$reason}
+reason-no-permission = engin heimild
+reason-drive-full = drifið er fullt
+reason-read-only = drifið er skrifvarið
+reason-gone = það er ekki lengur til
+reason-too-big = það er of stórt fyrir þetta drif
+blocked-move = Ekki er hægt að færa „{$name}“
+blocked-move-detail = Ekki er hægt að fjarlægja upprunalegu atriðin úr „{$folder}“: {$reason}. Í staðinn er hægt að afrita það.
+copy-instead = Afrita í staðinn
+rollback-failed = {$more ->
+    [0] Hætt við, en ekki tókst að setja „{$name}“ aftur á sinn stað
+    [one] Hætt við, en ekki tókst að setja „{$name}“ og {$more} í viðbót aftur á sinn stað
+    *[other] Hætt við, en ekki tókst að setja „{$name}“ og {$more} í viðbót aftur á sinn stað
+  }
+failed-operations-title = {$count ->
+    [one] {$count} aðgerð mistókst
+    *[other] {$count} aðgerðir mistókust
+  }
 create-archive = Búa til safnskrá
 extract-password-required = Lykilorðs krafist
 extract-as-folder = Afþjappa í möppu

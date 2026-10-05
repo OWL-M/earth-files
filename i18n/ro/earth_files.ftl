@@ -42,6 +42,40 @@ task-mounting = Se montează { $name }
 task-unmounting = Se demontează { $name }
 task-done = Gata
 task-failed = Eșuat
+task-paused = Întrerupt
+task-paused-waiting = Întrerupt, în așteptare
+task-skipped = Omise: {$count}
+blocked-read = „{$name}” nu poate fi citit
+blocked-list = Dosarul „{$name}” nu poate fi deschis
+blocked-remove = „{$name}” a fost copiat, dar nu poate fi eliminat
+same-for-rest = La fel pentru restul
+retry = Reîncearcă
+keep-original = Păstrează originalul
+skipped-more = și încă {$count}
+destination-no-permission = Nu se poate scrie în „{$folder}”: lipsă permisiune
+destination-read-only = Nu se poate scrie în „{$folder}”: este doar pentru citire
+blocked-link = „{$name}” este o legătură, iar această unitate nu poate stoca legături
+blocked-link-fs = „{$name}” este o legătură, iar această unitate ({$fs}) nu poate stoca legături
+progress-asking = întrerupt
+failed-path = „{$name}”: {$reason}
+reason-no-permission = lipsă permisiune
+reason-drive-full = unitatea este plină
+reason-read-only = unitatea este doar pentru citire
+reason-gone = nu mai există
+reason-too-big = este prea mare pentru această unitate
+blocked-move = „{$name}” nu poate fi mutat
+blocked-move-detail = Originalele nu pot fi eliminate din „{$folder}”: {$reason}. În schimb, poate fi copiat.
+copy-instead = Copiază în schimb
+rollback-failed = {$more ->
+    [0] Anulat, dar „{$name}” nu a putut fi pus la loc
+    [few] Anulat, dar „{$name}” și încă {$more} elemente nu au putut fi puse la loc
+    *[other] Anulat, dar „{$name}” și încă {$more} de elemente nu au putut fi puse la loc
+  }
+failed-operations-title = {$count ->
+    [one] Operațiunea a eșuat
+    [few] {$count} operațiuni au eșuat
+    *[other] {$count} de operațiuni au eșuat
+  }
 
 # Dialogs
 

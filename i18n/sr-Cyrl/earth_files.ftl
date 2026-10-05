@@ -73,3 +73,38 @@ close = Затвори
 
 opening-files = Opening…
 into-itself = A folder cannot be moved or copied into itself
+task-paused = Паузирано
+task-paused-waiting = Паузирано, чека
+task-skipped = Прескочено: {$count}
+blocked-read = „{$name}“ не може да се прочита
+blocked-list = Фасцикла „{$name}“ не може да се отвори
+blocked-remove = Ставка „{$name}“ је копирана, али не може да се уклони
+same-for-rest = Исто за остале
+retry = Покушај поново
+keep-original = Задржи оригинал
+skipped-more = и још {$count}
+destination-no-permission = Није могуће писати у „{$folder}“: нема овлашћења
+destination-read-only = Није могуће писати у „{$folder}“: само за читање
+blocked-link = „{$name}“ је веза, а овај уређај не може да садржи везе
+blocked-link-fs = „{$name}“ је веза, а овај уређај ({$fs}) не може да садржи везе
+progress-asking = паузирано
+failed-path = „{$name}“: {$reason}
+reason-no-permission = нема овлашћења
+reason-drive-full = уређај је пун
+reason-read-only = уређај је само за читање
+reason-gone = више не постоји
+reason-too-big = превелико је за овај уређај
+blocked-move = Ставка „{$name}“ не може да се премести
+blocked-move-detail = Оригинали не могу да се уклоне из „{$folder}“: {$reason}. Уместо тога може да се копира.
+copy-instead = Копирај уместо тога
+rollback-failed = {$more ->
+    [0] Отказано, али ставку „{$name}“ није могуће вратити
+    [one] Отказано, али ставку „{$name}“ и још {$more} ставку није могуће вратити
+    [few] Отказано, али ставку „{$name}“ и још {$more} ставке није могуће вратити
+    *[other] Отказано, али ставку „{$name}“ и још {$more} ставки није могуће вратити
+  }
+failed-operations-title = {$count ->
+    [one] {$count} операција није успела
+    [few] {$count} операције нису успеле
+    *[other] {$count} операција није успело
+  }

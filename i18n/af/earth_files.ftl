@@ -46,3 +46,35 @@ menu-settings = Instellings…
 
 opening-files = Opening…
 into-itself = A folder cannot be moved or copied into itself
+task-paused = Onderbreek
+task-paused-waiting = Onderbreek, wag
+task-skipped = {$count} oorgeslaan
+blocked-read = "{$name}" kan nie gelees word nie
+blocked-list = Vouer "{$name}" kan nie oopgemaak word nie
+blocked-remove = "{$name}" is gekopieer, maar kan nie verwyder word nie
+same-for-rest = Dieselfde vir die res
+retry = Probeer weer
+keep-original = Hou oorspronklike
+skipped-more = en nog {$count}
+destination-no-permission = Kan nie na "{$folder}" skryf nie: geen toestemming
+destination-read-only = Kan nie na "{$folder}" skryf nie: dit is leesalleen
+blocked-link = "{$name}" is 'n skakel, en hierdie skyf kan nie skakels hou nie
+blocked-link-fs = "{$name}" is 'n skakel, en hierdie skyf ({$fs}) kan nie skakels hou nie
+progress-asking = onderbreek
+failed-path = "{$name}": {$reason}
+reason-no-permission = geen toestemming
+reason-drive-full = die skyf is vol
+reason-read-only = die skyf is leesalleen
+reason-gone = dit bestaan nie meer nie
+reason-too-big = dit is te groot vir hierdie skyf
+blocked-move = "{$name}" kan nie geskuif word nie
+blocked-move-detail = Die oorspronklikes kan nie uit "{$folder}" verwyder word nie: {$reason}. Dit kan eerder gekopieer word.
+copy-instead = Kopieer eerder
+rollback-failed = {$more ->
+    [0] Gekanselleer, maar "{$name}" kon nie teruggesit word nie
+    *[other] Gekanselleer, maar "{$name}" en nog {$more} kon nie teruggesit word nie
+  }
+failed-operations-title = {$count ->
+    [one] Die bewerking het misluk
+    *[other] {$count} bewerkings het misluk
+  }

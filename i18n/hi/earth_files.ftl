@@ -332,6 +332,38 @@ task-mounting = { $name } माउंट हो रहा है
 task-unmounting = { $name } अनमाउंट हो रहा है
 task-done = पूर्ण
 task-failed = विफल
+task-paused = रुका हुआ
+task-paused-waiting = रुका हुआ, प्रतीक्षा में
+task-skipped = छोड़े गए: {$count}
+blocked-read = "{$name}" पढ़ा नहीं जा सकता
+blocked-list = फ़ोल्डर "{$name}" खोला नहीं जा सकता
+blocked-remove = "{$name}" कॉपी हो गया, पर हटाया नहीं जा सकता
+same-for-rest = बाकी के लिए भी यही
+retry = फिर से कोशिश करें
+keep-original = मूल रखें
+skipped-more = और {$count} अन्य
+destination-no-permission = "{$folder}" में लिखा नहीं जा सकता: अनुमति नहीं है
+destination-read-only = "{$folder}" में लिखा नहीं जा सकता: यह केवल पढ़ने के लिए है
+blocked-link = "{$name}" एक लिंक है, और यह ड्राइव लिंक नहीं रख सकती
+blocked-link-fs = "{$name}" एक लिंक है, और यह ड्राइव ({$fs}) लिंक नहीं रख सकती
+progress-asking = रुका हुआ
+failed-path = "{$name}": {$reason}
+reason-no-permission = अनुमति नहीं है
+reason-drive-full = ड्राइव भरी हुई है
+reason-read-only = ड्राइव केवल पढ़ने के लिए है
+reason-gone = यह अब मौजूद नहीं है
+reason-too-big = यह इस ड्राइव के लिए बहुत बड़ा है
+blocked-move = "{$name}" मूव नहीं किया जा सकता
+blocked-move-detail = "{$folder}" से मूल हटाए नहीं जा सकते: {$reason}। इसके बजाय इसे कॉपी किया जा सकता है।
+copy-instead = इसके बजाय कॉपी करें
+rollback-failed = {$more ->
+    [0] रद्द किया गया, लेकिन "{$name}" को वापस नहीं रखा जा सका
+    *[other] रद्द किया गया, लेकिन "{$name}" और {$more} अन्य को वापस नहीं रखा जा सका
+  }
+failed-operations-title = {$count ->
+    [one] कार्रवाई विफल रही
+    *[other] {$count} कार्रवाइयाँ विफल रहीं
+  }
 extract-as-folder = फ़ोल्डर में निकालें
 extract-to = इस रूप में निकालें..।
 delete = हटाएं

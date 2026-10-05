@@ -173,6 +173,44 @@ task-mounting = Připojování { $name }
 task-unmounting = Odpojování { $name }
 task-done = Hotovo
 task-failed = Selhalo
+task-paused = Pozastaveno
+task-paused-waiting = Pozastaveno, čeká
+task-skipped = Přeskočeno: {$count}
+blocked-read = Položku „{$name}“ nelze přečíst
+blocked-list = Složku „{$name}“ nelze otevřít
+blocked-remove = Položka „{$name}“ byla zkopírována, ale nelze ji odstranit
+same-for-rest = Totéž pro zbývající
+retry = Zkusit znovu
+keep-original = Ponechat originál
+skipped-more = { $count ->
+    [one] a {$count} další
+    [few] a {$count} další
+   *[other] a {$count} dalších
+  }
+destination-no-permission = Do složky „{$folder}“ nelze zapisovat: chybí oprávnění
+destination-read-only = Do složky „{$folder}“ nelze zapisovat: je pouze pro čtení
+blocked-link = Položka „{$name}“ je odkaz a tento disk odkazy uložit neumí
+blocked-link-fs = Položka „{$name}“ je odkaz a tento disk ({$fs}) odkazy uložit neumí
+progress-asking = pozastaveno
+failed-path = „{$name}“: {$reason}
+reason-no-permission = chybí oprávnění
+reason-drive-full = disk je plný
+reason-read-only = disk je pouze pro čtení
+reason-gone = už neexistuje
+reason-too-big = je pro tento disk příliš velká
+blocked-move = Položku „{$name}“ nelze přesunout
+blocked-move-detail = Originály nelze odstranit ze složky „{$folder}“: {$reason}. Místo toho ji lze zkopírovat.
+copy-instead = Místo toho kopírovat
+rollback-failed = {$more ->
+    [0] Zrušeno, ale položku „{$name}“ nelze vrátit zpět
+    [few] Zrušeno, ale položku „{$name}“ a {$more} další nelze vrátit zpět
+    *[other] Zrušeno, ale položku „{$name}“ a {$more} dalších nelze vrátit zpět
+  }
+failed-operations-title = {$count ->
+    [one] Operace selhala
+    [few] {$count} operace selhaly
+    *[other] {$count} operací selhalo
+  }
 create-archive = Vytvořit archiv
 extract-password-required = Vyžadováno heslo
 extract-as-folder = Rozbalit do složky

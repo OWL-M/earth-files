@@ -85,3 +85,35 @@ context-action = Context action
 
 opening-files = Opening…
 into-itself = A folder cannot be moved or copied into itself
+task-paused = Paused
+task-paused-waiting = Paused, waiting
+task-skipped = {$count} skipped
+blocked-read = "{$name}" can't be read
+blocked-list = Folder "{$name}" can't be opened
+blocked-remove = "{$name}" was copied but can't be removed
+same-for-rest = Same for the rest
+retry = Retry
+keep-original = Keep original
+skipped-more = and {$count} more
+destination-no-permission = Can't write to "{$folder}": no permission
+destination-read-only = Can't write to "{$folder}": it is read-only
+blocked-link = "{$name}" is a link, and this drive can't hold links
+blocked-link-fs = "{$name}" is a link, and this drive ({$fs}) can't hold links
+progress-asking = paused
+failed-path = "{$name}": {$reason}
+reason-no-permission = no permission
+reason-drive-full = the drive is full
+reason-read-only = the drive is read-only
+reason-gone = it no longer exists
+reason-too-big = it is too big for this drive
+blocked-move = "{$name}" can't be moved
+blocked-move-detail = Its originals can't be removed from "{$folder}": {$reason}. It can be copied instead.
+copy-instead = Copy instead
+rollback-failed = Cancelled, but "{$name}" {$more ->
+    [0] could not be put back
+    *[other] and {$more} more could not be put back
+  }
+failed-operations-title = {$count ->
+    [one] The operation failed
+    *[other] {$count} operations failed
+  }

@@ -42,6 +42,38 @@ task-mounting = Προσάρτηση { $name }
 task-unmounting = Αποπροσάρτηση { $name }
 task-done = Ολοκληρώθηκε
 task-failed = Απέτυχε
+task-paused = Σε παύση
+task-paused-waiting = Σε παύση, σε αναμονή
+task-skipped = Παραλείφθηκαν: {$count}
+blocked-read = Δεν είναι δυνατή η ανάγνωση του «{$name}»
+blocked-list = Δεν είναι δυνατό το άνοιγμα του φακέλου «{$name}»
+blocked-remove = Το «{$name}» αντιγράφηκε, αλλά δεν είναι δυνατή η αφαίρεσή του
+same-for-rest = Το ίδιο για τα υπόλοιπα
+retry = Δοκιμή ξανά
+keep-original = Διατήρηση πρωτοτύπου
+skipped-more = και {$count} ακόμη
+destination-no-permission = Δεν είναι δυνατή η εγγραφή στο «{$folder}»: δεν υπάρχουν δικαιώματα
+destination-read-only = Δεν είναι δυνατή η εγγραφή στο «{$folder}»: είναι μόνο για ανάγνωση
+blocked-link = Το «{$name}» είναι σύνδεσμος και αυτή η μονάδα δεν μπορεί να περιέχει συνδέσμους
+blocked-link-fs = Το «{$name}» είναι σύνδεσμος και αυτή η μονάδα ({$fs}) δεν μπορεί να περιέχει συνδέσμους
+progress-asking = σε παύση
+failed-path = «{$name}»: {$reason}
+reason-no-permission = δεν υπάρχουν δικαιώματα
+reason-drive-full = η μονάδα είναι πλήρης
+reason-read-only = η μονάδα είναι μόνο για ανάγνωση
+reason-gone = δεν υπάρχει πλέον
+reason-too-big = είναι πολύ μεγάλο για αυτή τη μονάδα
+blocked-move = Δεν είναι δυνατή η μετακίνηση του «{$name}»
+blocked-move-detail = Δεν είναι δυνατή η αφαίρεση των πρωτοτύπων από το «{$folder}»: {$reason}. Μπορεί να αντιγραφεί αντί αυτού.
+copy-instead = Αντιγραφή αντί αυτού
+rollback-failed = {$more ->
+    [0] Ακυρώθηκε, αλλά δεν ήταν δυνατή η επαναφορά του «{$name}»
+    *[other] Ακυρώθηκε, αλλά δεν ήταν δυνατή η επαναφορά του «{$name}» και {$more} ακόμη
+  }
+failed-operations-title = {$count ->
+    [one] Η διεργασία απέτυχε
+    *[other] Απέτυχαν {$count} διεργασίες
+  }
 username = Όνομα χρήστη
 delete = Διαγραφή
 repository = Αποθετήριο

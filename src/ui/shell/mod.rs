@@ -67,6 +67,12 @@ where
         None
     }
 
+    /// Where in the window a dialog is centred, when not on the whole
+    /// window: e.g. the app's main view, with the sidebar left out.
+    fn dialog_area(&self) -> Option<crate::ui::iced::Rectangle> {
+        None
+    }
+
     /// Displays a footer at the bottom of the window when `Some`.
     fn footer(&self) -> Option<Element<'_, Self::Message>> {
         None
@@ -605,6 +611,9 @@ where
         // Show any current dialog on top and centered over the view content
         // We have to use a popover even without a dialog to keep the tree from changing
         let mut popover = widget::popover(view_column).modal(true);
+        if let Some(area) = self.dialog_area() {
+            popover = popover.position(widget::popover::Position::CenterOn(area));
+        }
         if let Some(dialog) = self
             .dialog()
             .map(|w| Element::from(id_container(w, widget::Id::new("COSMIC_dialog"))))

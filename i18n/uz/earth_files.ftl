@@ -2,3 +2,35 @@ earth-files = Earth Files
 
 opening-files = Opening…
 into-itself = A folder cannot be moved or copied into itself
+task-paused = To‘xtatib qo‘yilgan
+task-paused-waiting = To‘xtatib qo‘yilgan, kutilmoqda
+task-skipped = O‘tkazib yuborildi: {$count}
+blocked-read = “{$name}”ni o‘qib bo‘lmadi
+blocked-list = “{$name}” jildini ochib bo‘lmadi
+blocked-remove = “{$name}” nusxalandi, lekin uni o‘chirib bo‘lmadi
+same-for-rest = Qolganlari uchun ham shunday
+retry = Qayta urinish
+keep-original = Aslini saqlash
+skipped-more = va yana {$count} ta
+destination-no-permission = “{$folder}” jildiga yozib bo‘lmaydi: ruxsat yo‘q
+destination-read-only = “{$folder}” jildiga yozib bo‘lmaydi: faqat o‘qish uchun
+blocked-link = “{$name}” havola, bu disk esa havolalarni saqlay olmaydi
+blocked-link-fs = “{$name}” havola, bu disk ({$fs}) esa havolalarni saqlay olmaydi
+progress-asking = to‘xtatib qo‘yilgan
+failed-path = “{$name}”: {$reason}
+reason-no-permission = ruxsat yo‘q
+reason-drive-full = disk to‘la
+reason-read-only = disk faqat o‘qish uchun
+reason-gone = u endi mavjud emas
+reason-too-big = u bu disk uchun juda katta
+blocked-move = “{$name}”ni ko‘chirib bo‘lmadi
+blocked-move-detail = Asl nusxalarni “{$folder}” jildidan o‘chirib bo‘lmadi: {$reason}. Uning o‘rniga nusxa olish mumkin.
+copy-instead = Uning o‘rniga nusxalash
+rollback-failed = {$more ->
+    [0] Bekor qilindi, lekin “{$name}”ni joyiga qaytarib bo‘lmadi
+    *[other] Bekor qilindi, lekin “{$name}” va yana {$more} ta elementni joyiga qaytarib bo‘lmadi
+  }
+failed-operations-title = {$count ->
+    [one] Amal bajarilmadi
+    *[other] {$count} ta amal bajarilmadi
+  }

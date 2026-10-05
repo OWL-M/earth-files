@@ -40,6 +40,38 @@ task-mounting = { $name } csatolása
 task-unmounting = { $name } leválasztása
 task-done = Kész
 task-failed = Sikertelen
+task-paused = Szüneteltetve
+task-paused-waiting = Szüneteltetve, várakozik
+task-skipped = Kihagyva: {$count}
+blocked-read = „{$name}” nem olvasható
+blocked-list = A(z) „{$name}” mappa nem nyitható meg
+blocked-remove = „{$name}” átmásolva, de nem távolítható el
+same-for-rest = A többire is ugyanez
+retry = Próbáld újra
+keep-original = Eredeti megtartása
+skipped-more = és még {$count}
+destination-no-permission = Nem írható: „{$folder}” (nincs jogosultság)
+destination-read-only = Nem írható: „{$folder}” (csak olvasható)
+blocked-link = „{$name}” egy hivatkozás, és ez a meghajtó nem tud hivatkozásokat tárolni
+blocked-link-fs = „{$name}” egy hivatkozás, és ez a meghajtó ({$fs}) nem tud hivatkozásokat tárolni
+progress-asking = szüneteltetve
+failed-path = „{$name}”: {$reason}
+reason-no-permission = nincs jogosultság
+reason-drive-full = a meghajtó megtelt
+reason-read-only = a meghajtó csak olvasható
+reason-gone = már nem létezik
+reason-too-big = túl nagy ehhez a meghajtóhoz
+blocked-move = „{$name}” nem helyezhető át
+blocked-move-detail = Az eredetik nem távolíthatók el a(z) „{$folder}” mappából: {$reason}. Helyette átmásolható.
+copy-instead = Másolás helyette
+rollback-failed = {$more ->
+    [0] Megszakítva, de „{$name}” visszaállítása nem sikerült
+    *[other] Megszakítva, de „{$name}” és még {$more} elem visszaállítása nem sikerült
+  }
+failed-operations-title = {$count ->
+    [one] A művelet sikertelen
+    *[other] {$count} művelet sikertelen
+  }
 
 # Dialogs
 

@@ -290,6 +290,43 @@ task-mounting = Монтирование { $name }
 task-unmounting = Отмонтирование { $name }
 task-done = Готово
 task-failed = Ошибка
+task-paused = Приостановлена
+task-paused-waiting = Приостановлена, ожидание
+task-skipped = Пропущено: {$count}
+blocked-read = Не удаётся прочитать «{$name}»
+blocked-list = Не удаётся открыть папку «{$name}»
+blocked-remove = Объект «{$name}» скопирован, но его не удаётся удалить
+same-for-rest = Для всех остальных
+retry = Повторить
+keep-original = Оставить оригинал
+skipped-more = и ещё {$count}
+destination-no-permission = Не удаётся записать в «{$folder}»: нет прав доступа
+destination-read-only = Не удаётся записать в «{$folder}»: только для чтения
+blocked-link = «{$name}» — это ссылка, а этот диск не поддерживает ссылки
+blocked-link-fs = «{$name}» — это ссылка, а этот диск ({$fs}) не поддерживает ссылки
+progress-asking = приостановлена
+failed-path = «{$name}»: {$reason}
+reason-no-permission = нет прав доступа
+reason-drive-full = диск заполнен
+reason-read-only = диск доступен только для чтения
+reason-gone = больше не существует
+reason-too-big = размер слишком велик для этого диска
+blocked-move = Не удаётся переместить «{$name}»
+blocked-move-detail = Не удаётся удалить оригиналы из «{$folder}»: {$reason}. Вместо этого объект можно скопировать.
+copy-instead = Копировать вместо этого
+rollback-failed = {$more ->
+    [0] Отменена, но «{$name}» не удалось вернуть на место
+    [one] Отменена, но «{$name}» и ещё {$more} объект не удалось вернуть на место
+    [few] Отменена, но «{$name}» и ещё {$more} объекта не удалось вернуть на место
+    [many] Отменена, но «{$name}» и ещё {$more} объектов не удалось вернуть на место
+    *[other] Отменена, но «{$name}» и ещё {$more} объекта не удалось вернуть на место
+  }
+failed-operations-title = {$count ->
+    [one] {$count} операция не удалась
+    [few] {$count} операции не удались
+    [many] {$count} операций не удалось
+    *[other] {$count} операции не удалось
+  }
 extract-password-required = Требуется пароль
 extract-as-folder = Распаковать в папку
 extract-to = Распаковать в…

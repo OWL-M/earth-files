@@ -35,6 +35,38 @@ task-mounting = Mengaitkan { $name }
 task-unmounting = Melepas kait { $name }
 task-done = Selesai
 task-failed = Gagal
+task-paused = Dijeda
+task-paused-waiting = Dijeda, menunggu
+task-skipped = Dilewati: {$count}
+blocked-read = "{$name}" tidak dapat dibaca
+blocked-list = Folder "{$name}" tidak dapat dibuka
+blocked-remove = "{$name}" sudah disalin tetapi tidak dapat dihapus
+same-for-rest = Sama untuk sisanya
+retry = Coba lagi
+keep-original = Pertahankan yang asli
+skipped-more = dan {$count} lainnya
+destination-no-permission = Tidak dapat menulis ke "{$folder}": tidak ada izin
+destination-read-only = Tidak dapat menulis ke "{$folder}": hanya baca
+blocked-link = "{$name}" adalah tautan, dan drive ini tidak dapat menyimpan tautan
+blocked-link-fs = "{$name}" adalah tautan, dan drive ini ({$fs}) tidak dapat menyimpan tautan
+progress-asking = dijeda
+failed-path = "{$name}": {$reason}
+reason-no-permission = tidak ada izin
+reason-drive-full = drive penuh
+reason-read-only = drive hanya baca
+reason-gone = sudah tidak ada
+reason-too-big = terlalu besar untuk drive ini
+blocked-move = "{$name}" tidak dapat dipindahkan
+blocked-move-detail = Aslinya tidak dapat dihapus dari "{$folder}": {$reason}. Sebagai gantinya, ini dapat disalin.
+copy-instead = Salin saja
+rollback-failed = {$more ->
+    [0] Dibatalkan, tetapi "{$name}" tidak dapat dikembalikan
+    *[other] Dibatalkan, tetapi "{$name}" dan {$more} lainnya tidak dapat dikembalikan
+  }
+failed-operations-title = {$count ->
+    [one] Operasi gagal
+    *[other] {$count} operasi gagal
+  }
 create-archive = Buat arsip
 extract-password-required = Kata sandi diperlukan
 extract-as-folder = Ekstrak ke folder

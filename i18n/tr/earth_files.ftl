@@ -38,6 +38,38 @@ task-mounting = { $name } bağlanıyor
 task-unmounting = { $name } ayrılıyor
 task-done = Bitti
 task-failed = Başarısız
+task-paused = Duraklatıldı
+task-paused-waiting = Duraklatıldı, bekliyor
+task-skipped = {$count} atlandı
+blocked-read = "{$name}" okunamıyor
+blocked-list = "{$name}" klasörü açılamıyor
+blocked-remove = "{$name}" kopyalandı ancak kaldırılamıyor
+same-for-rest = Geri kalanlar için de aynısı
+retry = Tekrar dene
+keep-original = Orijinali koru
+skipped-more = ve {$count} tane daha
+destination-no-permission = "{$folder}" konumuna yazılamıyor: izin yok
+destination-read-only = "{$folder}" konumuna yazılamıyor: salt okunur
+blocked-link = "{$name}" bir bağlantı ve bu sürücü bağlantıları tutamıyor
+blocked-link-fs = "{$name}" bir bağlantı ve bu sürücü ({$fs}) bağlantıları tutamıyor
+progress-asking = duraklatıldı
+failed-path = "{$name}": {$reason}
+reason-no-permission = izin yok
+reason-drive-full = sürücü dolu
+reason-read-only = sürücü salt okunur
+reason-gone = artık mevcut değil
+reason-too-big = bu sürücü için çok büyük
+blocked-move = "{$name}" taşınamıyor
+blocked-move-detail = Orijinaller "{$folder}" konumundan kaldırılamıyor: {$reason}. Bunun yerine kopyalanabilir.
+copy-instead = Bunun yerine kopyala
+rollback-failed = {$more ->
+    [0] İptal edildi, ancak "{$name}" geri konulamadı
+    *[other] İptal edildi, ancak "{$name}" ve {$more} tane daha geri konulamadı
+  }
+failed-operations-title = {$count ->
+    [one] İşlem başarısız oldu
+    *[other] {$count} işlem başarısız oldu
+  }
 
 # Dialogs
 

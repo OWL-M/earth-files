@@ -70,6 +70,38 @@ task-mounting = { $name } haakimine
 task-unmounting = { $name } lahtihaakimine
 task-done = Valmis
 task-failed = Nurjus
+task-paused = Peatatud
+task-paused-waiting = Peatatud, ootab
+task-skipped = Vahele jäetud: {$count}
+blocked-read = „{$name}“ ei saa lugeda
+blocked-list = Kausta „{$name}“ ei saa avada
+blocked-remove = „{$name}“ kopeeriti, kuid seda ei saa eemaldada
+same-for-rest = Sama ülejäänutele
+retry = Proovi uuesti
+keep-original = Säilita originaal
+skipped-more = ja veel {$count}
+destination-no-permission = Kausta „{$folder}“ ei saa kirjutada: puudub õigus
+destination-read-only = Kausta „{$folder}“ ei saa kirjutada: see on ainult loetav
+blocked-link = „{$name}“ on link ja see ketas ei saa linke sisaldada
+blocked-link-fs = „{$name}“ on link ja see ketas ({$fs}) ei saa linke sisaldada
+progress-asking = peatatud
+failed-path = „{$name}“: {$reason}
+reason-no-permission = puudub õigus
+reason-drive-full = ketas on täis
+reason-read-only = ketas on ainult loetav
+reason-gone = seda pole enam olemas
+reason-too-big = see on selle ketta jaoks liiga suur
+blocked-move = „{$name}“ ei saa teisaldada
+blocked-move-detail = Originaale ei saa kaustast „{$folder}“ eemaldada: {$reason}. Selle asemel saab selle kopeerida.
+copy-instead = Kopeeri selle asemel
+rollback-failed = {$more ->
+    [0] Katkestatud, kuid „{$name}“ ei õnnestunud taastada
+    *[other] Katkestatud, kuid „{$name}“ ja veel {$more} ei õnnestunud taastada
+  }
+failed-operations-title = {$count ->
+    [one] Toiming ebaõnnestus
+    *[other] {$count} toimingut ebaõnnestus
+  }
 skip = Jäta vahele
 zoom-in = Suumi sisse
 default-size = Tavasuurus

@@ -127,6 +127,38 @@ task-mounting = Monterar { $name }
 task-unmounting = Avmonterar { $name }
 task-done = Klart
 task-failed = Misslyckades
+task-paused = Pausad
+task-paused-waiting = Pausad, väntar
+task-skipped = Överhoppade: {$count}
+blocked-read = "{$name}" kan inte läsas
+blocked-list = Mappen "{$name}" kan inte öppnas
+blocked-remove = "{$name}" kopierades men kan inte tas bort
+same-for-rest = Samma för resten
+retry = Försök igen
+keep-original = Behåll originalet
+skipped-more = och {$count} till
+destination-no-permission = Kan inte skriva till "{$folder}": behörighet saknas
+destination-read-only = Kan inte skriva till "{$folder}": den är skrivskyddad
+blocked-link = "{$name}" är en länk, och den här enheten kan inte lagra länkar
+blocked-link-fs = "{$name}" är en länk, och den här enheten ({$fs}) kan inte lagra länkar
+progress-asking = pausad
+failed-path = "{$name}": {$reason}
+reason-no-permission = behörighet saknas
+reason-drive-full = enheten är full
+reason-read-only = enheten är skrivskyddad
+reason-gone = den finns inte längre
+reason-too-big = den är för stor för den här enheten
+blocked-move = "{$name}" kan inte flyttas
+blocked-move-detail = Originalen kan inte tas bort från "{$folder}": {$reason}. Det kan kopieras i stället.
+copy-instead = Kopiera i stället
+rollback-failed = {$more ->
+    [0] Avbruten, men "{$name}" kunde inte läggas tillbaka
+    *[other] Avbruten, men "{$name}" och {$more} till kunde inte läggas tillbaka
+  }
+failed-operations-title = {$count ->
+    [one] Åtgärden misslyckades
+    *[other] {$count} åtgärder misslyckades
+  }
 
 # Kontextsidor
 

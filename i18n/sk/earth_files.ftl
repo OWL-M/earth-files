@@ -48,6 +48,40 @@ task-mounting = Pripája sa { $name }
 task-unmounting = Odpája sa { $name }
 task-done = Hotovo
 task-failed = Zlyhalo
+task-paused = Pozastavené
+task-paused-waiting = Pozastavené, čaká sa
+task-skipped = Preskočené: {$count}
+blocked-read = „{$name}“ sa nedá prečítať
+blocked-list = Priečinok „{$name}“ sa nedá otvoriť
+blocked-remove = Položka „{$name}“ bola skopírovaná, ale nedá sa odstrániť
+same-for-rest = Rovnako pre ostatné
+retry = Skúsiť znova
+keep-original = Ponechať originál
+skipped-more = a ešte {$count}
+destination-no-permission = Do „{$folder}“ sa nedá zapisovať: chýba oprávnenie
+destination-read-only = Do „{$folder}“ sa nedá zapisovať: je len na čítanie
+blocked-link = „{$name}“ je odkaz a tento disk nedokáže uchovávať odkazy
+blocked-link-fs = „{$name}“ je odkaz a tento disk ({$fs}) nedokáže uchovávať odkazy
+progress-asking = pozastavené
+failed-path = „{$name}“: {$reason}
+reason-no-permission = chýba oprávnenie
+reason-drive-full = disk je plný
+reason-read-only = disk je len na čítanie
+reason-gone = už neexistuje
+reason-too-big = je príliš veľký pre tento disk
+blocked-move = Položka „{$name}“ sa nedá presunúť
+blocked-move-detail = Originály sa nedajú odstrániť z „{$folder}“: {$reason}. Namiesto toho ju možno skopírovať.
+copy-instead = Namiesto toho kopírovať
+rollback-failed = {$more ->
+    [0] Zrušené, ale položku „{$name}“ nebolo možné vrátiť späť
+    [few] Zrušené, ale položku „{$name}“ a ešte {$more} ďalšie nebolo možné vrátiť späť
+    *[other] Zrušené, ale položku „{$name}“ a ešte {$more} ďalších nebolo možné vrátiť späť
+  }
+failed-operations-title = {$count ->
+    [one] Operácia zlyhala
+    [few] {$count} operácie zlyhali
+    *[other] {$count} operácií zlyhalo
+  }
 
 # Dialogs
 

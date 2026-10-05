@@ -174,6 +174,38 @@ task-mounting = { $name } ಮೌಂಟ್ ಆಗುತ್ತಿದೆ
 task-unmounting = { $name } ಅನ್‌ಮೌಂಟ್ ಆಗುತ್ತಿದೆ
 task-done = ಮುಗಿದಿದೆ
 task-failed = ವಿಫಲವಾಗಿದೆ
+task-paused = ವಿರಾಮಗೊಳಿಸಲಾಗಿದೆ
+task-paused-waiting = ವಿರಾಮಗೊಳಿಸಲಾಗಿದೆ, ಕಾಯುತ್ತಿದೆ
+task-skipped = ಬಿಟ್ಟುಬಿಡಲಾಗಿದೆ: {$count}
+blocked-read = "{$name}" ಅನ್ನು ಓದಲು ಸಾಧ್ಯವಿಲ್ಲ
+blocked-list = "{$name}" ಫೋಲ್ಡರ್ ಅನ್ನು ತೆರೆಯಲು ಸಾಧ್ಯವಿಲ್ಲ
+blocked-remove = "{$name}" ಅನ್ನು ನಕಲಿಸಲಾಗಿದೆ ಆದರೆ ತೆಗೆದುಹಾಕಲು ಸಾಧ್ಯವಿಲ್ಲ
+same-for-rest = ಉಳಿದವುಗಳಿಗೂ ಇದೇ
+retry = ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ
+keep-original = ಮೂಲವನ್ನು ಇಟ್ಟುಕೊಳ್ಳಿ
+skipped-more = ಮತ್ತು ಇನ್ನೂ {$count}
+destination-no-permission = "{$folder}" ಗೆ ಬರೆಯಲು ಸಾಧ್ಯವಿಲ್ಲ: ಅನುಮತಿ ಇಲ್ಲ
+destination-read-only = "{$folder}" ಗೆ ಬರೆಯಲು ಸಾಧ್ಯವಿಲ್ಲ: ಇದು ಓದಲು ಮಾತ್ರ
+blocked-link = "{$name}" ಒಂದು ಲಿಂಕ್ ಆಗಿದೆ, ಮತ್ತು ಈ ಡ್ರೈವ್ ಲಿಂಕ್‌ಗಳನ್ನು ಹೊಂದಲು ಸಾಧ್ಯವಿಲ್ಲ
+blocked-link-fs = "{$name}" ಒಂದು ಲಿಂಕ್ ಆಗಿದೆ, ಮತ್ತು ಈ ಡ್ರೈವ್ ({$fs}) ಲಿಂಕ್‌ಗಳನ್ನು ಹೊಂದಲು ಸಾಧ್ಯವಿಲ್ಲ
+progress-asking = ವಿರಾಮಗೊಳಿಸಲಾಗಿದೆ
+failed-path = "{$name}": {$reason}
+reason-no-permission = ಅನುಮತಿ ಇಲ್ಲ
+reason-drive-full = ಡ್ರೈವ್ ತುಂಬಿದೆ
+reason-read-only = ಡ್ರೈವ್ ಓದಲು ಮಾತ್ರ
+reason-gone = ಇದು ಇನ್ನು ಮುಂದೆ ಅಸ್ತಿತ್ವದಲ್ಲಿಲ್ಲ
+reason-too-big = ಈ ಡ್ರೈವ್‌ಗೆ ಇದು ತುಂಬಾ ದೊಡ್ಡದಾಗಿದೆ
+blocked-move = "{$name}" ಅನ್ನು ಸರಿಸಲು ಸಾಧ್ಯವಿಲ್ಲ
+blocked-move-detail = "{$folder}" ನಿಂದ ಮೂಲಗಳನ್ನು ತೆಗೆದುಹಾಕಲು ಸಾಧ್ಯವಿಲ್ಲ: {$reason}. ಬದಲಿಗೆ ಇದನ್ನು ನಕಲಿಸಬಹುದು.
+copy-instead = ಬದಲಿಗೆ ನಕಲಿಸಿ
+rollback-failed = {$more ->
+    [0] ರದ್ದುಗೊಳಿಸಲಾಗಿದೆ, ಆದರೆ "{$name}" ಅನ್ನು ಮರಳಿ ಇರಿಸಲು ಸಾಧ್ಯವಾಗಲಿಲ್ಲ
+    *[other] ರದ್ದುಗೊಳಿಸಲಾಗಿದೆ, ಆದರೆ "{$name}" ಮತ್ತು ಇನ್ನೂ {$more} ಅನ್ನು ಮರಳಿ ಇರಿಸಲು ಸಾಧ್ಯವಾಗಲಿಲ್ಲ
+  }
+failed-operations-title = {$count ->
+    [one] ಕಾರ್ಯಾಚರಣೆ ವಿಫಲವಾಗಿದೆ
+    *[other] {$count} ಕಾರ್ಯಾಚರಣೆಗಳು ವಿಫಲವಾಗಿವೆ
+  }
 failed = ವಿಫಲವಾಗಿದೆ
 operation-failed-to-start = The file operation could not be started
 complete = ಪೂರ್ಣವಾಗಿದೆ

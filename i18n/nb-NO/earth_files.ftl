@@ -58,6 +58,38 @@ task-mounting = Monterer { $name }
 task-unmounting = Avmonterer { $name }
 task-done = Ferdig
 task-failed = Mislyktes
+task-paused = Satt på pause
+task-paused-waiting = Satt på pause, venter
+task-skipped = Hoppet over: {$count}
+blocked-read = «{$name}» kan ikke leses
+blocked-list = Mappen «{$name}» kan ikke åpnes
+blocked-remove = «{$name}» ble kopiert, men kan ikke fjernes
+same-for-rest = Samme for resten
+retry = Prøv igjen
+keep-original = Behold originalen
+skipped-more = og {$count} til
+destination-no-permission = Kan ikke skrive til «{$folder}»: mangler tillatelse
+destination-read-only = Kan ikke skrive til «{$folder}»: den er kun lesbar
+blocked-link = «{$name}» er en lenke, og denne disken kan ikke lagre lenker
+blocked-link-fs = «{$name}» er en lenke, og denne disken ({$fs}) kan ikke lagre lenker
+progress-asking = satt på pause
+failed-path = «{$name}»: {$reason}
+reason-no-permission = mangler tillatelse
+reason-drive-full = disken er full
+reason-read-only = disken er kun lesbar
+reason-gone = den finnes ikke lenger
+reason-too-big = den er for stor for denne disken
+blocked-move = «{$name}» kan ikke flyttes
+blocked-move-detail = Originalene kan ikke fjernes fra «{$folder}»: {$reason}. Det kan kopieres i stedet.
+copy-instead = Kopier i stedet
+rollback-failed = {$more ->
+    [0] Avbrutt, men «{$name}» kunne ikke legges tilbake
+    *[other] Avbrutt, men «{$name}» og {$more} til kunne ikke legges tilbake
+  }
+failed-operations-title = {$count ->
+    [one] Operasjonen mislyktes
+    *[other] {$count} operasjoner mislyktes
+  }
 create-archive = Opprett arkiv
 extract-password-required = Passord kreves
 extract-as-folder = Pakk ut til mappe

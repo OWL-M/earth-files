@@ -94,6 +94,11 @@ impl Controller {
         self.inner.notify.notify_waiters();
     }
 
+    /// Whether `other` controls the same operation as this one.
+    pub fn is_same(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.inner, &other.inner)
+    }
+
     pub fn is_cancelled(&self) -> bool {
         matches!(self.state(), ControllerState::Cancelled)
     }

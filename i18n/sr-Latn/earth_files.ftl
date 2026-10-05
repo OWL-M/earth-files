@@ -65,3 +65,38 @@ close = Zatvori
 
 opening-files = Opening…
 into-itself = A folder cannot be moved or copied into itself
+task-paused = Pauzirano
+task-paused-waiting = Pauzirano, čeka
+task-skipped = Preskočeno: {$count}
+blocked-read = „{$name}“ ne može da se pročita
+blocked-list = Fascikla „{$name}“ ne može da se otvori
+blocked-remove = Stavka „{$name}“ je kopirana, ali ne može da se ukloni
+same-for-rest = Isto za ostale
+retry = Pokušaj ponovo
+keep-original = Zadrži original
+skipped-more = i još {$count}
+destination-no-permission = Nije moguće pisati u „{$folder}“: nema ovlašćenja
+destination-read-only = Nije moguće pisati u „{$folder}“: samo za čitanje
+blocked-link = „{$name}“ je veza, a ovaj uređaj ne može da sadrži veze
+blocked-link-fs = „{$name}“ je veza, a ovaj uređaj ({$fs}) ne može da sadrži veze
+progress-asking = pauzirano
+failed-path = „{$name}“: {$reason}
+reason-no-permission = nema ovlašćenja
+reason-drive-full = uređaj je pun
+reason-read-only = uređaj je samo za čitanje
+reason-gone = više ne postoji
+reason-too-big = preveliko je za ovaj uređaj
+blocked-move = Stavka „{$name}“ ne može da se premesti
+blocked-move-detail = Originali ne mogu da se uklone iz „{$folder}“: {$reason}. Umesto toga može da se kopira.
+copy-instead = Kopiraj umesto toga
+rollback-failed = {$more ->
+    [0] Otkazano, ali stavku „{$name}“ nije moguće vratiti
+    [one] Otkazano, ali stavku „{$name}“ i još {$more} stavku nije moguće vratiti
+    [few] Otkazano, ali stavku „{$name}“ i još {$more} stavke nije moguće vratiti
+    *[other] Otkazano, ali stavku „{$name}“ i još {$more} stavki nije moguće vratiti
+  }
+failed-operations-title = {$count ->
+    [one] {$count} operacija nije uspela
+    [few] {$count} operacije nisu uspele
+    *[other] {$count} operacija nije uspelo
+  }

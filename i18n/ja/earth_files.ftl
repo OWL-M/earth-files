@@ -278,6 +278,37 @@ task-mounting = { $name } をマウント中
 task-unmounting = { $name } をアンマウント中
 task-done = 完了
 task-failed = 失敗
+task-paused = 一時停止中
+task-paused-waiting = 一時停止中（待機中）
+task-skipped = スキップ: {$count} 件
+blocked-read = 「{$name}」を読み取れません
+blocked-list = フォルダ「{$name}」を開けません
+blocked-remove = 「{$name}」はコピーされましたが、削除できません
+same-for-rest = 残りにも適用
+retry = 再試行
+keep-original = 元のファイルを保持
+skipped-more = 他 {$count} 件
+destination-no-permission = 「{$folder}」に書き込めません: 権限がありません
+destination-read-only = 「{$folder}」に書き込めません: 読み取り専用です
+blocked-link = 「{$name}」はリンクですが、このドライブはリンクを保持できません
+blocked-link-fs = 「{$name}」はリンクですが、このドライブ（{$fs}）はリンクを保持できません
+progress-asking = 一時停止中
+failed-path = 「{$name}」: {$reason}
+reason-no-permission = 権限がありません
+reason-drive-full = ドライブがいっぱいです
+reason-read-only = ドライブは読み取り専用です
+reason-gone = もう存在しません
+reason-too-big = このドライブには大きすぎます
+blocked-move = 「{$name}」を移動できません
+blocked-move-detail = 元の項目を「{$folder}」から削除できません：{$reason}。代わりにコピーできます。
+copy-instead = 代わりにコピー
+rollback-failed = {$more ->
+    [0] キャンセルされましたが、「{$name}」を元に戻せませんでした
+    *[other] キャンセルされましたが、「{$name}」と他 {$more} 件を元に戻せませんでした
+  }
+failed-operations-title = {$count ->
+    *[other] {$count} 件の操作に失敗しました
+  }
 extract-password-required = パスワードが必要です
 extract-as-folder = フォルダーとして展開
 extract-to = 展開先…

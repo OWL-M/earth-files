@@ -35,6 +35,38 @@ task-mounting = { $name } тіркелуде
 task-unmounting = { $name } ажыратылуда
 task-done = Дайын
 task-failed = Сәтсіз
+task-paused = Аялдатылды
+task-paused-waiting = Аялдатылды, күтуде
+task-skipped = Өткізілді: {$count}
+blocked-read = "{$name}" оқу мүмкін емес
+blocked-list = "{$name}" бумасын ашу мүмкін емес
+blocked-remove = "{$name}" көшірілді, бірақ оны өшіру мүмкін емес
+same-for-rest = Қалғандары үшін де осылай
+retry = Қайтадан көру
+keep-original = Түпнұсқаны қалдыру
+skipped-more = және тағы {$count}
+destination-no-permission = "{$folder}" ішіне жазу мүмкін емес: рұқсат жоқ
+destination-read-only = "{$folder}" ішіне жазу мүмкін емес: тек оқуға арналған
+blocked-link = "{$name}" — сілтеме, ал бұл диск сілтемелерді сақтай алмайды
+blocked-link-fs = "{$name}" — сілтеме, ал бұл диск ({$fs}) сілтемелерді сақтай алмайды
+progress-asking = аялдатылды
+failed-path = "{$name}": {$reason}
+reason-no-permission = рұқсат жоқ
+reason-drive-full = диск толы
+reason-read-only = диск тек оқуға арналған
+reason-gone = ол енді жоқ
+reason-too-big = ол бұл диск үшін тым үлкен
+blocked-move = "{$name}" жылжыту мүмкін емес
+blocked-move-detail = Түпнұсқаларды "{$folder}" ішінен өшіру мүмкін емес: {$reason}. Оның орнына көшіруге болады.
+copy-instead = Оның орнына көшіру
+rollback-failed = {$more ->
+    [0] Бас тартылды, бірақ "{$name}" орнына қайтару мүмкін болмады
+    *[other] Бас тартылды, бірақ "{$name}" және тағы {$more} элементті орнына қайтару мүмкін болмады
+  }
+failed-operations-title = {$count ->
+    [one] Операция сәтсіз аяқталды
+    *[other] {$count} операция сәтсіз аяқталды
+  }
 create-archive = Архив жасау
 extract-password-required = Пароль керек
 extract-as-folder = Бумаға тарқату

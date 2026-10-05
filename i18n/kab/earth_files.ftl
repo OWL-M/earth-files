@@ -37,6 +37,38 @@ task-mounting = Aserkeb n { $name }
 task-unmounting = Tukksa n userkeb n { $name }
 task-done = Yemmed
 task-failed = Ur yeddi ara
+task-paused = Ibedd
+task-paused-waiting = Ibedd, yettraǧu
+task-skipped = Yettwazgel: {$count}
+blocked-read = "{$name}" ur yettwaɣer ara
+blocked-list = Akaram "{$name}" ur yettwaldi ara
+blocked-remove = "{$name}" yettwanɣel maca ur yettwakkes ara
+same-for-rest = Akken i wiyaḍ
+retry = ɛreḍ tikelt nniḍen
+keep-original = Eǧǧ aneẓli
+skipped-more = d {$count} nniḍen
+destination-no-permission = Ur tezmireḍ ara ad taruḍ deg "{$folder}": ulac tisirag
+destination-read-only = Ur tezmireḍ ara ad taruḍ deg "{$folder}": i tɣuri kan
+blocked-link = "{$name}" d aseɣwen, yerna ameɣri-a ur yezmir ara ad yeṭṭef iseɣwan
+blocked-link-fs = "{$name}" d aseɣwen, yerna ameɣri-a ({$fs}) ur yezmir ara ad yeṭṭef iseɣwan
+progress-asking = ibedd
+failed-path = "{$name}": {$reason}
+reason-no-permission = ulac tisirag
+reason-drive-full = ameɣri yeččur
+reason-read-only = ameɣri i tɣuri kan
+reason-gone = ur yelli ara ultah
+reason-too-big = meqqer aṭas i umeɣri-a
+blocked-move = "{$name}" ur yettwasmutti ara
+blocked-move-detail = Iɣbula ur ttwakksen ara seg "{$folder}": {$reason}. Yezmer ad yettwanɣel deg umkan-is.
+copy-instead = Nɣel deg umkan-is
+rollback-failed = {$more ->
+    [0] Yettwasefsex, maca "{$name}" ur d-yettwarra ara
+    *[other] Yettwasefsex, maca "{$name}" d {$more} nniḍen ur d-ttwarran ara
+  }
+failed-operations-title = {$count ->
+    [one] Tamahalt ur teddi ara
+    *[other] {$count} n temhal ur ddint ara
+  }
 create-archive = Snulfu-d aɣbaṛ
 extract-as-folder = Ssef deg ukaram
 extract-to = Ssef ɣer...

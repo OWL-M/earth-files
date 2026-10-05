@@ -41,6 +41,38 @@ task-mounting = S'està muntant { $name }
 task-unmounting = S'està desmuntant { $name }
 task-done = Fet
 task-failed = Ha fallat
+task-paused = En pausa
+task-paused-waiting = En pausa, en espera
+task-skipped = Omesos: {$count}
+blocked-read = No es pot llegir «{$name}»
+blocked-list = No es pot obrir la carpeta «{$name}»
+blocked-remove = «{$name}» s'ha copiat però no es pot suprimir
+same-for-rest = El mateix per a la resta
+retry = Torna-ho a provar
+keep-original = Conserva l'original
+skipped-more = i {$count} més
+destination-no-permission = No es pot escriure a «{$folder}»: sense permís
+destination-read-only = No es pot escriure a «{$folder}»: és només de lectura
+blocked-link = «{$name}» és un enllaç, i aquesta unitat no pot contenir enllaços
+blocked-link-fs = «{$name}» és un enllaç, i aquesta unitat ({$fs}) no pot contenir enllaços
+progress-asking = en pausa
+failed-path = «{$name}»: {$reason}
+reason-no-permission = sense permís
+reason-drive-full = la unitat és plena
+reason-read-only = la unitat és només de lectura
+reason-gone = ja no existeix
+reason-too-big = és massa gran per a aquesta unitat
+blocked-move = No es pot moure «{$name}»
+blocked-move-detail = Els originals no es poden suprimir de «{$folder}»: {$reason}. Es pot copiar en lloc seu.
+copy-instead = Copia en lloc seu
+rollback-failed = {$more ->
+    [0] Cancel·lat, però no s'ha pogut restaurar «{$name}»
+    *[other] Cancel·lat, però no s'han pogut restaurar «{$name}» i {$more} més
+  }
+failed-operations-title = {$count ->
+    [one] L'operació ha fallat
+    *[other] Han fallat {$count} operacions
+  }
 
 # Dialogs
 

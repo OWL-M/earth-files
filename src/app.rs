@@ -7,7 +7,9 @@ use crate::ui::iced::futures::{self, SinkExt};
 use crate::ui::iced::keyboard::key::Physical;
 use crate::ui::iced::keyboard::{Event as KeyEvent, Key, Modifiers};
 use crate::ui::iced::window::{self, Event as WindowEvent, Id as WindowId};
-use crate::ui::iced::{self, Alignment, Event, Length, Size, Subscription, event, stream};
+use crate::ui::iced::{
+    self, Alignment, Event, Length, Rectangle, Size, Subscription, event, stream,
+};
 use crate::ui::iced_core::SmolStr;
 use crate::ui::iced_core::widget::operation::focusable::unfocus;
 use crate::ui::iced_runtime::task;
@@ -57,8 +59,8 @@ use crate::mounter::{
     MOUNTERS, MounterAuth, MounterItem, MounterItems, MounterKey, MounterMessage, Outcome,
 };
 use crate::operation::{
-    Controller, ControllerState, Operation, OperationError, OperationErrorType, OperationSelection,
-    ReplaceResult,
+    Blocked, BlockedAnswer, BlockedQuestion, Controller, ControllerState, Operation,
+    OperationError, OperationErrorType, OperationSelection, ReplaceResult,
 };
 use crate::progress;
 use crate::spawn_detached::spawn_detached;
@@ -100,6 +102,10 @@ static MOUNT_ERROR_TRY_AGAIN_BUTTON_ID: LazyLock<widget::Id> =
 
 pub(crate) static REPLACE_BUTTON_ID: LazyLock<widget::Id> =
     LazyLock::new(|| widget::Id::new("replace-button"));
+/// The default answer of the dialog asking about a path an operation may
+/// not touch, focused so Enter gives it.
+pub(crate) static BLOCKED_BUTTON_ID: LazyLock<widget::Id> =
+    LazyLock::new(|| widget::Id::new("blocked-button"));
 
 /// The progress notification shown while a closed window's operations run.
 /// A `Mutex` because messages are `Clone` and the handle is not.
@@ -107,6 +113,13 @@ pub(crate) static REPLACE_BUTTON_ID: LazyLock<widget::Id> =
 type ProgressNotice = Arc<Mutex<notify_rust::NotificationHandle>>;
 #[cfg(not(feature = "notify"))]
 type ProgressNotice = ();
+
+/// A question shown as a desktop notification: its id, and the notification
+/// itself, which closing it by that id shows again first.
+#[cfg(feature = "notify")]
+type QuestionNotice = (u32, notify_rust::Notification);
+#[cfg(not(feature = "notify"))]
+type QuestionNotice = ();
 
 #[derive(Clone, Debug)]
 pub struct Flags {
@@ -411,11 +424,30 @@ pub enum Message {
     PendingError(u64, OperationError),
     PendingResults(Vec<(u64, OperationSelection)>, Vec<(u64, OperationError)>),
     PendingPause(u64, bool),
+    /// A running operation, known by its controller, cannot touch a path
+    /// and waits for what to do on this sender.
+    OperationBlocked(Controller, BlockedQuestion, mpsc::Sender<BlockedAnswer>),
+    /// The user answered operation `id`'s question.
+    BlockedAnswer(u64, BlockedAnswer),
+    /// The "Same for the rest" box of operation `id`'s question.
+    BlockedSameForRest(u64, bool),
+    /// Operation `id`'s question went out as a desktop notification.
+    QuestionNotified(u64, QuestionNotice),
+    /// Operation `id`'s question was answered on its desktop notification,
+    /// which is gone with the answer.
+    QuestionNoticeAnswered(u64, BlockedAnswer),
+    /// Unrolls or rolls up the paths operation `id` skipped, on its row.
+    ProgressToggleSkipped(u64),
+    /// Runs what is left of failed operation `id` again, from its row.
+    RetryFailed(u64),
     /// A folder load, mount or unmount tracked in the progress card ended,
     /// and how.
     ProgressEnd(progress::Key, Outcome),
     /// Keeps the progress card's rows appearing and leaving on time.
     ProgressTick,
+    /// The user closed the progress card's row with this id, which stayed
+    /// for the paths its operation skipped.
+    ProgressDismiss(u64),
     PermanentlyDelete(Option<Entity>),
     Preview,
     /// Items re-read off the event loop after the filesystem changed beneath
@@ -570,7 +602,9 @@ pub enum DialogPage {
     },
     EmptyTrash,
     FailedOperation(u64),
-    FailedOperations(Vec<u64>),
+    /// Operation `id` asks about a path it may not touch; its question is in
+    /// [`App::blocked`].
+    Blocked(u64),
     ExtractPassword {
         id: u64,
         password: String,
@@ -734,6 +768,23 @@ impl DialogPages {
             self.pages[0] = page;
         }
     }
+
+    /// Takes away operation `id`'s question about a path, wherever it waits
+    /// in the queue: it was answered elsewhere, or its operation ended.
+    pub fn remove_blocked(&mut self, id: u64) -> Task<Message> {
+        let Some(index) = self
+            .pages
+            .iter()
+            .position(|page| matches!(page, DialogPage::Blocked(blocked) if *blocked == id))
+        else {
+            return Task::none();
+        };
+        if index == 0 {
+            return self.pop_front().map_or_else(Task::none, |(_, task)| task);
+        }
+        self.pages.remove(index);
+        Task::none()
+    }
 }
 
 pub struct FavoriteIndex(usize);
@@ -826,6 +877,33 @@ impl Window {
 /// How many completed operations can be undone, newest first
 const UNDO_DEPTH: usize = 20;
 
+/// How many skipped paths a progress card row lists before counting the rest.
+const SKIPPED_SHOWN: usize = 8;
+
+/// What an operation asked about a path it may not touch.
+struct Question {
+    blocked: Blocked,
+    /// Where the answer goes; `None` once answered. The question stays
+    /// until its operation ends, so its row can roll it up.
+    tx: Option<mpsc::Sender<BlockedAnswer>>,
+    /// The "Same for the rest" box.
+    same_for_rest: bool,
+    /// Whether anything after this path could be asked about too; the box
+    /// is offered only then.
+    more: bool,
+    /// The path as the dialog shows it, when it could be looked at.
+    item: Option<Box<tab::Item>>,
+}
+
+impl Question {
+    /// Sends `answer` to the waiting operation, once: whether this was the
+    /// answer it took.
+    fn answer(&mut self, answer: BlockedAnswer) -> bool {
+        // The operation waits on this one answer, so there is room
+        self.tx.take().is_some_and(|tx| tx.try_send(answer).is_ok())
+    }
+}
+
 pub struct App {
     core: Core,
     about: About,
@@ -862,6 +940,17 @@ pub struct App {
     exit_gate: ExitGate<ProgressNotice>,
     pending_operation_id: u64,
     pending_operations: BTreeMap<u64, (Operation, Controller)>,
+    /// The last question each running operation asked about a path it may
+    /// not touch. Dropping one still unanswered answers Cancel.
+    blocked: BTreeMap<u64, Question>,
+    /// The paths each ended operation skipped, as its progress card row
+    /// lists them, for as long as the row is there.
+    skipped_paths: BTreeMap<u64, Vec<String>>,
+    /// The operations whose row has its list of skipped paths unrolled.
+    skipped_open: BTreeSet<u64>,
+    /// The question asked in a desktop notification, by operation: `None`
+    /// while the notification is still being shown.
+    question_notices: BTreeMap<u64, Option<QuestionNotice>>,
     /// The long-running work the card in the bottom-right corner shows.
     progress: progress::Tasks,
     /// The active tab's button, on a card above the progress card.
@@ -869,6 +958,9 @@ pub struct App {
     /// The action card's height and margin from the window's edge, as last
     /// laid out: the room the active tab keeps under its files.
     action_card_height: Cell<f32>,
+    /// Where the file view (tabs, files and cards, without the sidebar) was
+    /// last drawn: what dialogs are centred on.
+    file_view_bounds: Cell<Rectangle>,
     complete_operations: BTreeMap<u64, Operation>,
     failed_operations: BTreeMap<u64, (Operation, Controller, String)>,
     /// What undoes each of the last completed operations, newest last
@@ -1917,9 +2009,15 @@ impl App {
                     commands.push(self.rescan_recents());
                 }
 
-                self.progress.finish(
+                // Paths left out keep the row until the user has seen it
+                commands.push(self.drop_question(id));
+                if !op_sel_pending.skipped.is_empty() {
+                    self.skipped_paths
+                        .insert(id, skipped_lines(&op, &op_sel_pending.skipped));
+                }
+                self.progress.finish_skipped(
                     &progress::Key::Operation(id),
-                    true,
+                    op_sel_pending.skipped.len(),
                     Some(op.completed_text()),
                     Instant::now(),
                 );
@@ -1929,6 +2027,7 @@ impl App {
                 self.complete_operations.insert(id, op);
             }
         }
+        commands.push(self.sync_question_notices());
         // Potentially show a notification
         commands.push(self.maybe_exit());
         // Rescan and select based on operation
@@ -1953,8 +2052,8 @@ impl App {
 
     fn handle_operation_errors(&mut self, errors: Vec<(u64, OperationError)>) -> Task<Message> {
         let mut tasks = Vec::new();
-        let mut failed = Vec::new();
         for (id, err) in errors.into_iter() {
+            tasks.push(self.drop_question(id));
             if let Some((op, controller)) = self.pending_operations.remove(&id) {
                 // What was done before the failure can be undone on its own,
                 // and a retry has only the rest to do
@@ -1964,28 +2063,24 @@ impl App {
                 // what is left of it; its caption already says "Failed".
                 let failed_text = op.pending_text(controller.progress(), ControllerState::Running);
                 let op = op.remaining(&err.partial);
-                // Only show dialog if not cancelled
-                if !controller.is_cancelled() {
-                    match err.kind {
-                        OperationErrorType::Generic(_) => failed.push(id),
-                        OperationErrorType::PasswordRequired => {
-                            tasks.push(self.dialog_pages.push_back(DialogPage::ExtractPassword {
-                                id,
-                                password: String::new(),
-                            }));
-                        }
-                    }
-                }
-
                 // A cancelled one goes at once: the user asked for that. One
                 // waiting on a password ends as Failed too, while its dialog
-                // asks; the retry starts a row of its own.
+                // asks; the retry starts a row of its own. Any other failure
+                // stays on its row, with its reason and Try again, until the
+                // user closes it: no dialog, nothing centred.
                 let key = progress::Key::Operation(id);
                 if controller.is_cancelled() {
                     self.progress.remove(&key);
-                } else {
+                } else if let OperationErrorType::PasswordRequired = err.kind {
+                    tasks.push(self.dialog_pages.push_back(DialogPage::ExtractPassword {
+                        id,
+                        password: String::new(),
+                    }));
                     self.progress
                         .finish(&key, false, Some(failed_text), Instant::now());
+                } else {
+                    self.progress
+                        .finish_failed_kept(&key, Some(failed_text), Instant::now());
                 }
                 // The payload stays: a failed operation can be retried from
                 // the dialog, and retrying a paste whose bytes were dropped
@@ -1995,14 +2090,7 @@ impl App {
                     .insert(id, (op, controller, err.to_string()));
             }
         }
-        if !failed.is_empty() {
-            tasks.push(
-                self.dialog_pages
-                    .push_back(DialogPage::FailedOperations(failed)),
-            );
-            tasks.push(widget::text_input::focus(self.dialog_text_input.clone()));
-        }
-
+        tasks.push(self.sync_question_notices());
         // A failure can be the last operation a closed window was waiting on
         tasks.push(self.maybe_exit());
         // Manually rescan any trash tabs after any operation is completed
@@ -2563,8 +2651,11 @@ impl App {
         if self.core.main_window_id().is_some() {
             return Task::none();
         }
+        // With the window gone, a question left on its card goes out as a
+        // notification
+        let notices = self.sync_question_notices();
         let pending = !self.pending_operations.is_empty();
-        match self.exit_gate.step(pending, cfg!(feature = "notify")) {
+        let step = match self.exit_gate.step(pending, cfg!(feature = "notify")) {
             Step::Wait => Task::none(),
             #[cfg(feature = "notify")]
             Step::Show => Task::future(async move {
@@ -2616,7 +2707,128 @@ impl App {
                 crate::shut_down();
                 process::exit(0);
             }
+        };
+        Task::batch([notices, step])
+    }
+
+    /// Forgets operation `id`'s question, which answers Cancel if it was
+    /// still waiting, and takes its dialog down.
+    fn drop_question(&mut self, id: u64) -> Task<Message> {
+        if self.blocked.remove(&id).is_some() {
+            self.progress.unblock(&progress::Key::Operation(id));
         }
+        Task::batch([
+            self.dialog_pages.remove_blocked(id),
+            self.sync_question_notices(),
+        ])
+    }
+
+    /// Keeps the desktop notification for questions in step with the card:
+    /// the question being asked goes out as one while nobody can see its row
+    /// (the window is closed, or none of ours has the keyboard), and any
+    /// other is taken down.
+    fn sync_question_notices(&mut self) -> Task<Message> {
+        let asking = match self.progress.asking() {
+            Some(progress::Key::Operation(id)) => Some(*id),
+            _ => None,
+        };
+        let mut tasks = Vec::new();
+        let stale: Vec<u64> = self
+            .question_notices
+            .keys()
+            .filter(|id| Some(**id) != asking)
+            .copied()
+            .collect();
+        for id in stale {
+            // One still being shown is closed when it reports in
+            if let Some(Some(notice)) = self.question_notices.remove(&id) {
+                tasks.push(close_question_notice(notice));
+            }
+        }
+        let seen = self.core.main_window_id().is_some() && self.core.focused_window().is_some();
+        if let Some(id) = asking
+            && !seen
+            && !self.question_notices.contains_key(&id)
+            && let Some(task) = self.show_question_notice(id)
+        {
+            self.question_notices.insert(id, None);
+            tasks.push(task);
+        }
+        Task::batch(tasks)
+    }
+
+    /// Shows operation `id`'s question as a desktop notification, whose
+    /// buttons answer it. `None` when there is nothing to ask.
+    #[cfg(feature = "notify")]
+    fn show_question_notice(&self, id: u64) -> Option<Task<Message>> {
+        let question = self
+            .blocked
+            .get(&id)
+            .filter(|question| question.tx.is_some())?;
+        let (op, controller) = self.pending_operations.get(&id)?;
+        let (mut text, skip) = question_text(&question.blocked);
+        if let Some(detail) = question_detail(&question.blocked) {
+            text = format!("{text}\n{detail}");
+        }
+        let notification = notify_rust::Notification::new()
+            .summary(&op.pending_text(controller.progress(), ControllerState::Paused))
+            .body(&text)
+            .action(NOTICE_SKIP, &skip)
+            .timeout(notify_rust::Timeout::Never)
+            .finalize();
+        let mut notification = notification;
+        if question.blocked.can_retry() {
+            notification.action(NOTICE_RETRY, &fl!("retry"));
+        }
+        if matches!(question.blocked, Blocked::Move { .. }) {
+            notification.action(NOTICE_COPY, &fl!("copy-instead"));
+        }
+        let notification = notification
+            .action(NOTICE_CANCEL, &fl!("cancel"))
+            .finalize();
+        Some(
+            crate::ui::Task::stream(crate::ui::iced::stream::channel(
+                2,
+                move |mut out: futures::channel::mpsc::Sender<Message>| async move {
+                    let shown = {
+                        let notification = notification.clone();
+                        tokio::task::spawn_blocking(move || notification.show()).await
+                    };
+                    let handle = match shown {
+                        Ok(Ok(handle)) => handle,
+                        Ok(Err(err)) => {
+                            log::warn!("failed to show the question as a notification: {err}");
+                            return;
+                        }
+                        Err(err) => {
+                            log::warn!("failed to show the question as a notification: {err}");
+                            return;
+                        }
+                    };
+                    let notice = (handle.id(), notification);
+                    let _ = out.send(Message::QuestionNotified(id, notice)).await;
+                    // Until a button is pressed or the notification closes,
+                    // from either side
+                    let picked = tokio::task::spawn_blocking(move || {
+                        let mut picked = None;
+                        handle.wait_for_action(|action| picked = notice_answer(action));
+                        picked
+                    })
+                    .await
+                    .ok()
+                    .flatten();
+                    if let Some(answer) = picked {
+                        let _ = out.send(Message::QuestionNoticeAnswered(id, answer)).await;
+                    }
+                },
+            ))
+            .map(crate::ui::Action::App),
+        )
+    }
+
+    #[cfg(not(feature = "notify"))]
+    fn show_question_notice(&self, _id: u64) -> Option<Task<Message>> {
+        None
     }
 
     fn update_title(&mut self) -> Task<Message> {
@@ -2746,6 +2958,10 @@ impl App {
         if visible.rows.is_empty() {
             return None;
         }
+        // The details show the same operations, questions included; the card
+        // rolls up while they are open and comes back when they close
+        let details_open =
+            self.core.window.show_context && self.context_page == ContextPage::EditHistory;
 
         let header = widget::Row::with_children([
             widget::text::heading(fl!("tasks-count", count = visible.total())).into(),
@@ -2790,7 +3006,7 @@ impl App {
         // The card slides out with its last rows.
         Some(
             widget::spring_height(card)
-                .collapsed(visible.leaving())
+                .collapsed(visible.leaving() || details_open)
                 .into(),
         )
     }
@@ -2873,10 +3089,28 @@ impl App {
 
         // A file operation still running reads its progress live, and can
         // be paused and cancelled.
-        if let (progress::Key::Operation(id), progress::State::Running) = (row.key, row.state)
+        if let progress::Key::Operation(id) = row.key
+            && matches!(
+                row.state,
+                progress::State::Running | progress::State::Asking | progress::State::Waiting
+            )
             && let Some((op, controller)) = self.pending_operations.get(id)
         {
-            return Self::pending_operation_view(*id, op, controller);
+            // Its question, if it waits on one, is a dialog of its own
+            let stopped = row.state != progress::State::Running;
+            return Self::pending_operation_view(*id, op, controller, stopped);
+        }
+
+        if let (progress::Key::Operation(id), progress::State::Done) = (row.key, row.state)
+            && row.skipped > 0
+        {
+            return self.skipped_row(*id, row);
+        }
+
+        if let (progress::Key::Operation(id), progress::State::Failed) = (row.key, row.state)
+            && let Some((_, _, reason)) = self.failed_operations.get(id)
+        {
+            return Self::failed_row(*id, row, reason);
         }
 
         let bar: Option<Element<'a, Message>> = match row.state {
@@ -2892,10 +3126,12 @@ impl App {
                     .girth(bar_height)
                     .into(),
             ),
-            progress::State::Failed => None,
+            progress::State::Asking | progress::State::Waiting | progress::State::Failed => None,
         };
         let status = match row.state {
             progress::State::Running => None,
+            progress::State::Asking => Some(fl!("task-paused")),
+            progress::State::Waiting => Some(fl!("task-paused-waiting")),
             progress::State::Done => Some(fl!("task-done")),
             progress::State::Failed => Some(fl!("task-failed")),
         };
@@ -2912,14 +3148,162 @@ impl App {
             .into()
     }
 
+    /// The dialog asking what operation `id` should do about a path it may
+    /// not touch, built like the one for a file that already exists: the
+    /// question, the path's own block, "Same for the rest" while more could
+    /// be asked, and Cancel, Retry (when it could work) and Skip.
+    fn blocked_dialog(id: u64, question: &Question) -> widget::Dialog<'_, Message> {
+        let (text, skip) = question_text(&question.blocked);
+        // Answered, it only waits to be taken down
+        let answer = |answer| {
+            question
+                .tx
+                .is_some()
+                .then_some(Message::BlockedAnswer(id, answer))
+        };
+        let same_for_rest = question.same_for_rest && question.more;
+        let mut dialog = widget::dialog().title(text);
+        if let Some(detail) = question_detail(&question.blocked) {
+            dialog = dialog.body(detail);
+        }
+        if let Some(item) = &question.item {
+            dialog = dialog.control(
+                item.replace_view(item.name.clone())
+                    .map(|message| Message::TabMessage(None, message)),
+            );
+        }
+        if question.more {
+            dialog = dialog.control(
+                widget::checkbox(question.same_for_rest)
+                    .label(fl!("same-for-rest"))
+                    .on_toggle(move |on| Message::BlockedSameForRest(id, on)),
+            );
+        }
+        dialog = dialog
+            .primary_action(
+                widget::button::suggested(skip)
+                    .on_press_maybe(answer(BlockedAnswer::Skip(same_for_rest)))
+                    .id(BLOCKED_BUTTON_ID.clone()),
+            )
+            .tertiary_action(
+                widget::button::standard(fl!("cancel"))
+                    .on_press_maybe(answer(BlockedAnswer::Cancel)),
+            );
+        if question.blocked.can_retry() {
+            dialog = dialog.secondary_action(
+                widget::button::standard(fl!("retry")).on_press_maybe(answer(BlockedAnswer::Retry)),
+            );
+        }
+        // A move that cannot remove its originals is not made by default:
+        // copying is the deliberate choice beside Skip
+        if matches!(question.blocked, Blocked::Move { .. }) {
+            dialog = dialog.secondary_action(
+                widget::button::standard(fl!("copy-instead"))
+                    .on_press_maybe(answer(BlockedAnswer::CopyInstead(same_for_rest))),
+            );
+        }
+        dialog
+    }
+
+    /// A row whose operation failed: what it was doing, why it stopped, and
+    /// Try again. It stays until closed.
+    fn failed_row<'a>(id: u64, row: &progress::Row<'a>, reason: &'a str) -> Element<'a, Message> {
+        let space_xxs = spacing().space_xxs.to_pixels();
+        widget::Column::with_capacity(2)
+            .push(
+                widget::Row::with_capacity(4)
+                    .push(widget::text::body(row.label))
+                    .push(widget::space::horizontal())
+                    .push(
+                        widget::button::link(fl!("try-again"))
+                            .on_press(Message::RetryFailed(id))
+                            .padding(0),
+                    )
+                    .push(widget::tooltip(
+                        widget::button::icon(icon::from_name("window-close-symbolic"))
+                            .on_press(Message::ProgressDismiss(row.id))
+                            .padding(8),
+                        widget::text::body(fl!("close")),
+                        widget::tooltip::Position::Top,
+                    ))
+                    .spacing(space_xxs)
+                    .align_y(Alignment::Center),
+            )
+            .push(widget::text::caption(reason))
+            .spacing(space_xxs)
+            .into()
+    }
+
+    /// A row whose operation ended having skipped paths: it stays until
+    /// closed, and its count unrolls the paths.
+    fn skipped_row<'a>(&'a self, id: u64, row: &progress::Row<'a>) -> Element<'a, Message> {
+        let space_xxs = spacing().space_xxs.to_pixels();
+        let lines = self.skipped_paths.get(&id).map_or(&[][..], Vec::as_slice);
+        let mut list =
+            widget::Column::with_capacity(SKIPPED_SHOWN + 1).padding(iced::padding::top(space_xxs));
+        for line in lines.iter().take(SKIPPED_SHOWN) {
+            list = list.push(widget::text::caption(line.as_str()));
+        }
+        if lines.len() > SKIPPED_SHOWN {
+            let more = lines.len() - SKIPPED_SHOWN;
+            list = list.push(widget::text::caption(fl!("skipped-more", count = more)));
+        }
+        widget::Column::with_capacity(3)
+            .push(
+                widget::determinate_linear(1.0)
+                    .style(widget::progress_bar::style::Bar::Warning)
+                    .width(Length::Fill)
+                    .girth(Length::Fixed(4.0)),
+            )
+            .push(
+                widget::Row::with_capacity(4)
+                    .push(widget::text::body(row.label))
+                    .push(widget::space::horizontal())
+                    .push(
+                        widget::button::link(fl!("task-skipped", count = row.skipped))
+                            .on_press(Message::ProgressToggleSkipped(id))
+                            .padding(0),
+                    )
+                    .push(widget::tooltip(
+                        widget::button::icon(icon::from_name("window-close-symbolic"))
+                            .on_press(Message::ProgressDismiss(row.id))
+                            .padding(8),
+                        widget::text::body(fl!("close")),
+                        widget::tooltip::Position::Top,
+                    ))
+                    .spacing(space_xxs)
+                    .align_y(Alignment::Center),
+            )
+            .push(widget::spring_height(list).collapsed(!self.skipped_open.contains(&id)))
+            .spacing(space_xxs)
+            .into()
+    }
+
     /// A running file operation: its live bar, pause or resume, cancel, and
     /// what it is doing. Shared by the progress card and the edit history.
+    /// `stopped`: it waits on the user about a path it may not touch, so the
+    /// bar turns the warning colour and the text says it is paused.
     fn pending_operation_view<'a>(
         id: u64,
         op: &Operation,
         controller: &Controller,
+        stopped: bool,
     ) -> Element<'a, Message> {
         let progress = controller.progress();
+        // Waiting on the user, it says so without a percentage, and its
+        // question has the Cancel: the pause and cancel buttons step aside
+        if stopped {
+            return widget::Column::with_children([
+                widget::determinate_linear(1.0)
+                    .style(widget::progress_bar::style::Bar::Warning)
+                    .width(Length::Fill)
+                    .girth(Length::Fixed(4.0))
+                    .into(),
+                widget::text::body(op.pending_text_asking()).into(),
+            ])
+            .spacing(spacing().space_xxs.to_pixels())
+            .into();
+        }
         let pause = if controller.is_paused() {
             widget::tooltip(
                 widget::button::icon(icon::from_name("media-playback-start-symbolic"))
@@ -2968,7 +3352,16 @@ impl App {
         if !self.pending_operations.is_empty() {
             let mut section = widget::settings::section().title(fl!("pending"));
             for (id, (op, controller)) in self.pending_operations.iter().rev() {
-                section = section.add(Self::pending_operation_view(*id, op, controller));
+                let question = self
+                    .blocked
+                    .get(id)
+                    .filter(|question| question.tx.is_some());
+                section = section.add(Self::pending_operation_view(
+                    *id,
+                    op,
+                    controller,
+                    question.is_some(),
+                ));
             }
             children.push(section.into());
         }
@@ -3307,8 +3700,13 @@ impl Application for App {
             progress: progress::Tasks::default(),
             action_card: ActionCard::default(),
             action_card_height: Cell::new(0.0),
+            file_view_bounds: Cell::new(Rectangle::default()),
             complete_operations: BTreeMap::new(),
             failed_operations: BTreeMap::new(),
+            blocked: BTreeMap::new(),
+            skipped_paths: BTreeMap::new(),
+            skipped_open: BTreeSet::new(),
+            question_notices: BTreeMap::new(),
             undo_stack: Vec::new(),
             undo_ids: BTreeSet::new(),
             scrollable_name: std::borrow::Cow::Borrowed("File Scrollable"),
@@ -4007,7 +4405,14 @@ impl Application for App {
             // is gone, but DialogPages still emits this message.
             Message::DesktopDialogs(_show) => {}
             Message::DialogCancel => {
-                if let Some((_page, task)) = self.dialog_pages.pop_front() {
+                if let Some((page, task)) = self.dialog_pages.pop_front() {
+                    // Escape on a question about a path cancels its operation
+                    if let DialogPage::Blocked(id) = page {
+                        return Task::batch([
+                            task,
+                            self.update(Message::BlockedAnswer(id, BlockedAnswer::Cancel)),
+                        ]);
+                    }
                     return task;
                 }
             }
@@ -4038,17 +4443,17 @@ impl Application for App {
                         DialogPage::EmptyTrash => {
                             tasks.push(self.operation(Operation::EmptyTrash));
                         }
+                        // Enter gives the default answer, Skip
+                        DialogPage::Blocked(id) => {
+                            if let Some(question) = self.blocked.get(&id) {
+                                let skip =
+                                    BlockedAnswer::Skip(question.same_for_rest && question.more);
+                                tasks.push(self.update(Message::BlockedAnswer(id, skip)));
+                            }
+                        }
                         DialogPage::FailedOperation(id) => {
                             if let Some((operation, _, _)) = self.failed_operations.remove(&id) {
                                 tasks.push(self.operation(operation));
-                            }
-                        }
-                        DialogPage::FailedOperations(ids) => {
-                            for id in ids {
-                                if let Some((operation, _, _)) = self.failed_operations.remove(&id)
-                                {
-                                    tasks.push(self.operation(operation));
-                                }
                             }
                         }
                         DialogPage::ExtractPassword { id, password } => {
@@ -5262,6 +5667,71 @@ impl Application for App {
                     controller.cancel();
                     self.progress.remove(&progress::Key::Operation(id));
                 }
+                // One waiting on a question hears the cancel through it
+                return self.drop_question(id);
+            }
+            Message::OperationBlocked(controller, question, tx) => {
+                // Unknown, the question is dropped, which answers Cancel
+                let Some((&id, _)) = self
+                    .pending_operations
+                    .iter()
+                    .find(|(_, (_, pending))| pending.is_same(&controller))
+                else {
+                    return Task::none();
+                };
+                self.blocked.insert(
+                    id,
+                    Question {
+                        blocked: question.blocked,
+                        tx: Some(tx),
+                        same_for_rest: false,
+                        more: question.more,
+                        item: question.item,
+                    },
+                );
+                self.progress.block(&progress::Key::Operation(id));
+                return Task::batch([
+                    self.push_dialog(DialogPage::Blocked(id), Some(BLOCKED_BUTTON_ID.clone())),
+                    self.sync_question_notices(),
+                ]);
+            }
+            Message::BlockedAnswer(id, answer) => {
+                if let Some(question) = self.blocked.get_mut(&id) {
+                    question.answer(answer);
+                    self.progress.unblock(&progress::Key::Operation(id));
+                }
+                return Task::batch([
+                    self.dialog_pages.remove_blocked(id),
+                    self.sync_question_notices(),
+                ]);
+            }
+            Message::QuestionNotified(id, notice) => {
+                match self.question_notices.get_mut(&id) {
+                    Some(slot @ None) => *slot = Some(notice),
+                    // Answered or over while it was being shown
+                    _ => return close_question_notice(notice),
+                }
+            }
+            Message::QuestionNoticeAnswered(id, answer) => {
+                self.question_notices.remove(&id);
+                return self.update(Message::BlockedAnswer(id, answer));
+            }
+            Message::BlockedSameForRest(id, same_for_rest) => {
+                if let Some(question) = self.blocked.get_mut(&id) {
+                    question.same_for_rest = same_for_rest;
+                }
+            }
+            Message::RetryFailed(id) => {
+                if let Some((operation, _, _)) = self.failed_operations.remove(&id) {
+                    // The retry starts a row of its own
+                    self.progress.remove(&progress::Key::Operation(id));
+                    return self.operation(operation);
+                }
+            }
+            Message::ProgressToggleSkipped(id) => {
+                if !self.skipped_open.remove(&id) {
+                    self.skipped_open.insert(id);
+                }
             }
             Message::PendingComplete(id, op_sel) => {
                 return self.handle_completed_operations(vec![(id, op_sel)]);
@@ -5290,7 +5760,16 @@ impl Application for App {
                 // The user called it off, so no "Failed".
                 Outcome::Cancelled => self.progress.remove(&key),
             },
+            Message::ProgressDismiss(row) => {
+                self.progress.dismiss(row, Instant::now());
+            }
             Message::ProgressTick => {
+                // A row that slid out takes its list of skipped paths along
+                let progress = &self.progress;
+                self.skipped_paths
+                    .retain(|id, _| progress.contains(&progress::Key::Operation(*id)));
+                self.skipped_open
+                    .retain(|id| progress.contains(&progress::Key::Operation(*id)));
                 // A slid-shut action card is forgotten by `after_update`,
                 // which runs after this
                 self.progress.prune(Instant::now());
@@ -6669,6 +7148,11 @@ impl Application for App {
         })
     }
 
+    fn dialog_area(&self) -> Option<Rectangle> {
+        let area = self.file_view_bounds.get();
+        (area.width > 0.0 && area.height > 0.0).then_some(area)
+    }
+
     fn dialog(&self) -> Option<Element<'_, Message>> {
         let entity = self.tab_model.active();
         if let Some(tab) = self.tab_model.data::<Tab>(entity)
@@ -6817,33 +7301,13 @@ impl Application for App {
                 .secondary_action(
                     widget::button::standard(fl!("cancel")).on_press(Message::DialogCancel),
                 ),
+            DialogPage::Blocked(id) => Self::blocked_dialog(*id, self.blocked.get(id)?),
             DialogPage::FailedOperation(id) => {
-                let (operation, _, err) = self.failed_operations.get(id)?;
+                let (operation, controller, err) = self.failed_operations.get(id)?;
 
                 widget::dialog()
-                    .title("Failed operation")
-                    .body(format!("{operation:#?}\n{err}"))
-                    .icon(icon::from_name("dialog-error").size(64))
-                    .primary_action(
-                        widget::button::suggested(fl!("try-again"))
-                            .on_press(Message::DialogComplete),
-                    )
-                    .secondary_action(
-                        widget::button::standard(fl!("cancel")).on_press(Message::DialogCancel),
-                    )
-            }
-            DialogPage::FailedOperations(ids) => {
-                let errors: Vec<String> = ids
-                    .iter()
-                    .filter_map(|id| match self.failed_operations.get(id) {
-                        Some((operation, _, err)) => Some(format!("{operation:#?}\n{err}")),
-                        _ => None,
-                    })
-                    .collect();
-
-                widget::dialog()
-                    .title("Failed operations")
-                    .body(errors.join("\n\n"))
+                    .title(fl!("failed-operations-title", count = 1))
+                    .body(failed_text(operation, controller, err))
                     .icon(icon::from_name("dialog-error").size(64))
                     .primary_action(
                         widget::button::suggested(fl!("try-again"))
@@ -7761,7 +8225,7 @@ impl Application for App {
             widget::space::horizontal(),
         ));
 
-        let content: Element<_> = tab_column.into();
+        let content: Element<_> = widget::measure_bounds(tab_column, &self.file_view_bounds).into();
 
         // Uncomment to debug layout:
         //content.explain(crate::ui::iced::Color::WHITE)
@@ -8196,6 +8660,119 @@ impl Application for App {
 /// another name, and guessing `to/name` would point the favorite at the file
 /// that was already there. The guesses are kept after them for a folder merged
 /// into one that already existed, which records only its children.
+/// A failed operation as its dialog lists it: what it was doing, then why
+/// it stopped.
+fn failed_text(operation: &Operation, controller: &Controller, err: &str) -> String {
+    let doing = operation.pending_text(controller.progress(), ControllerState::Failed);
+    format!("{doing}\n{err}")
+}
+
+/// What a question says, and the label of its Skip answer, which for an
+/// original a move could not remove keeps it.
+fn question_text(blocked: &Blocked) -> (String, String) {
+    let path = blocked.path();
+    let name = path.file_name().map_or_else(
+        || path.display().to_string(),
+        |name| name.to_string_lossy().into_owned(),
+    );
+    match blocked {
+        Blocked::Read(_) => (fl!("blocked-read", name = name), fl!("skip")),
+        Blocked::List(_) => (fl!("blocked-list", name = name), fl!("skip")),
+        Blocked::Remove(_) => (fl!("blocked-remove", name = name), fl!("keep-original")),
+        Blocked::Link { fs: Some(fs), .. } => (
+            fl!("blocked-link-fs", name = name, fs = fs.to_string()),
+            fl!("skip"),
+        ),
+        Blocked::Link { fs: None, .. } => (fl!("blocked-link", name = name), fl!("skip")),
+        Blocked::Move { .. } => (fl!("blocked-move", name = name), fl!("skip")),
+    }
+}
+
+/// Why a question is asked, when its title does not say: for a move, the
+/// folder its originals could not be removed from, and the reason.
+fn question_detail(blocked: &Blocked) -> Option<String> {
+    let Blocked::Move {
+        folder, read_only, ..
+    } = blocked
+    else {
+        return None;
+    };
+    let name = folder.file_name().map_or_else(
+        || folder.display().to_string(),
+        |name| name.to_string_lossy().into_owned(),
+    );
+    let reason = if *read_only {
+        fl!("reason-read-only")
+    } else {
+        fl!("reason-no-permission")
+    };
+    Some(fl!("blocked-move-detail", folder = name, reason = reason))
+}
+
+/// The actions of a question's desktop notification.
+#[cfg(feature = "notify")]
+const NOTICE_SKIP: &str = "skip";
+#[cfg(feature = "notify")]
+const NOTICE_COPY: &str = "copy";
+#[cfg(feature = "notify")]
+const NOTICE_RETRY: &str = "retry";
+#[cfg(feature = "notify")]
+const NOTICE_CANCEL: &str = "cancel";
+
+/// The answer a question's notification action stands for; none for a
+/// click on the notification itself or its closing.
+#[cfg(feature = "notify")]
+fn notice_answer(action: &str) -> Option<BlockedAnswer> {
+    match action {
+        NOTICE_SKIP => Some(BlockedAnswer::Skip(false)),
+        NOTICE_COPY => Some(BlockedAnswer::CopyInstead(false)),
+        NOTICE_RETRY => Some(BlockedAnswer::Retry),
+        NOTICE_CANCEL => Some(BlockedAnswer::Cancel),
+        _ => None,
+    }
+}
+
+/// Takes a question's notification down. Closing goes by its id, which
+/// needs a handle, and the one there was is waiting for its answer: showing
+/// the same notification again under that id gives another to close with.
+#[cfg(feature = "notify")]
+fn close_question_notice((id, mut notification): QuestionNotice) -> Task<Message> {
+    Task::future(async move {
+        let _ = tokio::task::spawn_blocking(move || {
+            if let Ok(handle) = notification.id(id).show() {
+                handle.close();
+            }
+        })
+        .await;
+        crate::ui::action::none()
+    })
+}
+
+#[cfg(not(feature = "notify"))]
+fn close_question_notice((): QuestionNotice) -> Task<Message> {
+    Task::none()
+}
+
+/// The paths `op` skipped, one line each as its progress card row lists
+/// them: relative to the folder its sources were in, where they are.
+fn skipped_lines(op: &Operation, skipped: &[PathBuf]) -> Vec<String> {
+    let base = match op {
+        Operation::Copy { paths, .. } | Operation::Move { paths, .. } => {
+            paths.first().and_then(|path| path.parent())
+        }
+        _ => None,
+    };
+    skipped
+        .iter()
+        .map(|path| {
+            base.and_then(|base| path.strip_prefix(base).ok())
+                .unwrap_or(path)
+                .display()
+                .to_string()
+        })
+        .collect()
+}
+
 fn move_path_changes(
     moved: &[(PathBuf, PathBuf)],
     paths: &[PathBuf],
@@ -8264,6 +8841,247 @@ fn search_text_input<'a>(
 mod tests {
     use super::*;
 
+    /// A question about `/root/secrets.env`, and where its answer arrives.
+    fn question(same_for_rest: bool) -> (Question, mpsc::Receiver<BlockedAnswer>) {
+        let (tx, rx) = mpsc::channel(1);
+        let question = Question {
+            blocked: Blocked::Read(PathBuf::from("/root/secrets.env")),
+            tx: Some(tx),
+            same_for_rest,
+            more: true,
+            item: None,
+        };
+        (question, rx)
+    }
+
+    /// The messages `question`'s dialog, drawn on its own, sends for
+    /// `events`. The pointer is where the last `CursorMoved` put it.
+    fn question_messages(
+        question: &Question,
+        events: &[crate::ui::iced_core::Event],
+    ) -> Vec<Message> {
+        use crate::ui::iced_core::{Event, Size, clipboard, mouse};
+        use crate::ui::iced_runtime::user_interface::{Cache, UserInterface};
+
+        let mut renderer = iced_texture_cache::testing::headless_tiny_skia();
+        let mut ui = UserInterface::build(
+            Element::from(App::blocked_dialog(7, question)),
+            Size::new(QUESTION_AREA.0, QUESTION_AREA.1),
+            Cache::default(),
+            &mut renderer,
+        );
+        let mut cursor = mouse::Cursor::Unavailable;
+        let mut messages = Vec::new();
+        for event in events {
+            if let Event::Mouse(mouse::Event::CursorMoved { position }) = event {
+                cursor = mouse::Cursor::Available(*position);
+            }
+            let _ = ui.update(
+                std::slice::from_ref(event),
+                cursor,
+                &mut renderer,
+                &mut clipboard::Null,
+                &mut messages,
+            );
+        }
+        messages
+    }
+
+    /// The size the question's dialog is drawn at in these tests.
+    const QUESTION_AREA: (f32, f32) = (640.0, 320.0);
+
+    /// A left click at every point of an 8 px grid over the question.
+    fn click_everywhere() -> Vec<crate::ui::iced_core::Event> {
+        use crate::ui::iced_core::{Event, Point, mouse};
+
+        let mut events = Vec::new();
+        for y in (4..QUESTION_AREA.1 as u32).step_by(8) {
+            for x in (4..QUESTION_AREA.0 as u32).step_by(8) {
+                events.push(Event::Mouse(mouse::Event::CursorMoved {
+                    position: Point::new(x as f32, y as f32),
+                }));
+                events.push(Event::Mouse(mouse::Event::ButtonPressed(
+                    mouse::Button::Left,
+                )));
+                events.push(Event::Mouse(mouse::Event::ButtonReleased(
+                    mouse::Button::Left,
+                )));
+            }
+        }
+        events
+    }
+
+    /// The distinct answers among `messages`, for operation 7, in a fixed
+    /// order.
+    fn answers(messages: &[Message]) -> Vec<BlockedAnswer> {
+        let mut answers: Vec<BlockedAnswer> = messages
+            .iter()
+            .filter_map(|message| match message {
+                Message::BlockedAnswer(7, answer) => Some(*answer),
+                _ => None,
+            })
+            .collect();
+        answers.sort_by_key(|answer| format!("{answer:?}"));
+        answers.dedup();
+        answers
+    }
+
+    /// The question never takes the keyboard: Enter, Escape and Space typed
+    /// while it is up answer nothing.
+    #[test]
+    fn a_question_takes_no_keys() {
+        use crate::ui::iced_core::Event;
+        use crate::ui::iced_core::keyboard::{self, Key, key};
+
+        let press = |named: key::Named| {
+            Event::Keyboard(keyboard::Event::KeyPressed {
+                key: Key::Named(named),
+                modified_key: Key::Named(named),
+                physical_key: key::Physical::Code(key::Code::Enter),
+                location: keyboard::Location::Standard,
+                modifiers: keyboard::Modifiers::empty(),
+                text: None,
+                repeat: false,
+            })
+        };
+        let (question, _rx) = question(false);
+        let messages = question_messages(
+            &question,
+            &[
+                press(key::Named::Enter),
+                press(key::Named::Escape),
+                press(key::Named::Space),
+            ],
+        );
+        assert!(messages.is_empty(), "{messages:?}");
+    }
+
+    /// Asked, its three buttons answer Cancel, Retry, and Skip carrying the
+    /// "Same for the rest" box.
+    #[test]
+    fn a_question_answers_with_its_buttons() {
+        for same_for_rest in [false, true] {
+            let (question, _rx) = question(same_for_rest);
+            let messages = question_messages(&question, &click_everywhere());
+            let found = answers(&messages);
+            let mut expected = vec![
+                BlockedAnswer::Cancel,
+                BlockedAnswer::Retry,
+                BlockedAnswer::Skip(same_for_rest),
+            ];
+            expected.sort_by_key(|answer| format!("{answer:?}"));
+            assert_eq!(found, expected);
+        }
+    }
+
+    /// With nothing after it to ask about, there is no "Same for the rest":
+    /// Skip skips this one, whatever the box last said.
+    #[test]
+    fn the_last_question_has_no_same_for_the_rest() {
+        let (mut question, _rx) = question(true);
+        question.more = false;
+        let messages = question_messages(&question, &click_everywhere());
+        assert!(
+            !messages
+                .iter()
+                .any(|message| matches!(message, Message::BlockedSameForRest(..))),
+            "{messages:?}"
+        );
+        assert!(answers(&messages).contains(&BlockedAnswer::Skip(false)));
+        assert!(!answers(&messages).contains(&BlockedAnswer::Skip(true)));
+    }
+
+    /// A link the drive cannot hold is never retried: no Retry button.
+    #[test]
+    fn a_link_question_has_no_retry() {
+        let (mut question, _rx) = question(false);
+        question.blocked = Blocked::Link {
+            path: PathBuf::from("/p/result"),
+            fs: Some("exFAT"),
+        };
+        let found = answers(&question_messages(&question, &click_everywhere()));
+        assert_eq!(found, [BlockedAnswer::Cancel, BlockedAnswer::Skip(false)]);
+        let (text, _) = question_text(&question.blocked);
+        assert_eq!(text, fl!("blocked-link-fs", name = "result", fs = "exFAT"));
+    }
+
+    /// A move that could not remove its originals offers Copy instead
+    /// beside Skip and Cancel, never Retry, and says why.
+    #[test]
+    fn a_move_question_offers_copy_instead() {
+        for same_for_rest in [false, true] {
+            let (mut question, _rx) = question(same_for_rest);
+            question.blocked = Blocked::Move {
+                path: PathBuf::from("/p/aplin"),
+                folder: PathBuf::from("/p"),
+                read_only: false,
+            };
+            let found = answers(&question_messages(&question, &click_everywhere()));
+            let mut expected = vec![
+                BlockedAnswer::Cancel,
+                BlockedAnswer::CopyInstead(same_for_rest),
+                BlockedAnswer::Skip(same_for_rest),
+            ];
+            expected.sort_by_key(|answer| format!("{answer:?}"));
+            assert_eq!(found, expected);
+        }
+        let detail = question_detail(&Blocked::Move {
+            path: PathBuf::from("/p/aplin"),
+            folder: PathBuf::from("/p"),
+            read_only: true,
+        });
+        assert_eq!(
+            detail,
+            Some(fl!(
+                "blocked-move-detail",
+                folder = "p",
+                reason = fl!("reason-read-only")
+            ))
+        );
+    }
+
+    /// Answered, the question stays on its row to roll up, but its buttons
+    /// send nothing more.
+    #[test]
+    fn an_answered_question_has_no_live_buttons() {
+        let (mut question, _rx) = question(false);
+        assert!(question.answer(BlockedAnswer::Retry));
+        let messages = question_messages(&question, &click_everywhere());
+        assert!(answers(&messages).is_empty(), "{messages:?}");
+    }
+
+    /// A notification's buttons answer like the card's; clicking the
+    /// notification itself or closing it answers nothing.
+    #[cfg(feature = "notify")]
+    #[test]
+    fn notification_actions_answer_like_the_card() {
+        assert_eq!(notice_answer(NOTICE_SKIP), Some(BlockedAnswer::Skip(false)));
+        assert_eq!(notice_answer(NOTICE_RETRY), Some(BlockedAnswer::Retry));
+        assert_eq!(notice_answer(NOTICE_CANCEL), Some(BlockedAnswer::Cancel));
+        assert_eq!(notice_answer("default"), None);
+        assert_eq!(notice_answer("__closed"), None);
+    }
+
+    /// An original a move could not remove is kept, not skipped.
+    #[test]
+    fn an_original_left_behind_is_kept() {
+        let (text, skip) = question_text(&Blocked::Remove(PathBuf::from("/srv/build")));
+        assert_eq!(text, fl!("blocked-remove", name = "build"));
+        assert_eq!(skip, fl!("keep-original"));
+        let (_, skip) = question_text(&Blocked::List(PathBuf::from("/srv/pg")));
+        assert_eq!(skip, fl!("skip"));
+    }
+
+    /// An answer goes to the operation once.
+    #[test]
+    fn a_question_is_answered_once() {
+        let (mut question, mut rx) = question(false);
+        assert!(question.answer(BlockedAnswer::Skip(false)));
+        assert!(!question.answer(BlockedAnswer::Retry));
+        assert_eq!(rx.try_recv().ok(), Some(BlockedAnswer::Skip(false)));
+        assert!(rx.try_recv().is_err());
+    }
+
     /// Clearing a focused search and typing at once, while its field springs
     /// shut: the keys do not reach the old term.
     #[test]
@@ -8321,7 +9139,6 @@ mod tests {
     /// The action card's height for `action`, laid out on its own, and the
     /// room it recorded for the tab to keep under its files.
     fn action_card_heights(action: tab::TabAction) -> (f32, f32) {
-        use crate::ui::iced_core::Rectangle;
         use crate::ui::iced_core::widget::{Id as WidgetId, Operation};
         use crate::ui::iced_runtime::user_interface::{Cache, UserInterface};
 

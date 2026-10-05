@@ -38,6 +38,37 @@ task-mounting = 正在挂载 { $name }
 task-unmounting = 正在卸载 { $name }
 task-done = 完成
 task-failed = 失败
+task-paused = 已暂停
+task-paused-waiting = 已暂停，等待中
+task-skipped = 已跳过 {$count} 个
+blocked-read = 无法读取“{$name}”
+blocked-list = 无法打开文件夹“{$name}”
+blocked-remove = “{$name}”已复制，但无法删除
+same-for-rest = 对其余项目执行相同操作
+retry = 重试
+keep-original = 保留原文件
+skipped-more = 还有 {$count} 个
+destination-no-permission = 无法写入“{$folder}”：没有权限
+destination-read-only = 无法写入“{$folder}”：只读
+blocked-link = “{$name}”是链接，而此驱动器无法存放链接
+blocked-link-fs = “{$name}”是链接，而此驱动器（{$fs}）无法存放链接
+progress-asking = 已暂停
+failed-path = “{$name}”：{$reason}
+reason-no-permission = 没有权限
+reason-drive-full = 驱动器已满
+reason-read-only = 驱动器为只读
+reason-gone = 已不存在
+reason-too-big = 对此驱动器来说太大
+blocked-move = 无法移动“{$name}”
+blocked-move-detail = 无法从“{$folder}”中删除原始项目：{$reason}。可以改为复制。
+copy-instead = 改为复制
+rollback-failed = {$more ->
+    [0] 已取消，但无法将“{$name}”放回原处
+    *[other] 已取消，但无法将“{$name}”及另外 {$more} 项放回原处
+  }
+failed-operations-title = {$count ->
+    *[other] {$count} 个操作失败
+  }
 
 # Dialogs
 

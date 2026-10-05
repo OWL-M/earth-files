@@ -45,6 +45,42 @@ task-mounting = Montowanie { $name }
 task-unmounting = Odmontowywanie { $name }
 task-done = Gotowe
 task-failed = Niepowodzenie
+task-paused = Wstrzymano
+task-paused-waiting = Wstrzymano, oczekiwanie
+task-skipped = Pominięto: {$count}
+blocked-read = Nie można odczytać „{$name}”
+blocked-list = Nie można otworzyć katalogu „{$name}”
+blocked-remove = Skopiowano „{$name}”, ale nie można go usunąć
+same-for-rest = To samo dla pozostałych
+retry = Spróbuj ponownie
+keep-original = Zachowaj oryginał
+skipped-more = i jeszcze {$count}
+destination-no-permission = Nie można zapisać w „{$folder}”: brak uprawnień
+destination-read-only = Nie można zapisać w „{$folder}”: tylko do odczytu
+blocked-link = „{$name}” jest dowiązaniem, a ten dysk nie obsługuje dowiązań
+blocked-link-fs = „{$name}” jest dowiązaniem, a ten dysk ({$fs}) nie obsługuje dowiązań
+progress-asking = wstrzymano
+failed-path = „{$name}”: {$reason}
+reason-no-permission = brak uprawnień
+reason-drive-full = dysk jest pełny
+reason-read-only = dysk jest tylko do odczytu
+reason-gone = już nie istnieje
+reason-too-big = jest za duży dla tego dysku
+blocked-move = Nie można przenieść „{$name}”
+blocked-move-detail = Nie można usunąć oryginałów z „{$folder}”: {$reason}. Zamiast tego można go skopiować.
+copy-instead = Kopiuj zamiast tego
+rollback-failed = {$more ->
+    [0] Anulowano, ale nie udało się przywrócić „{$name}”
+    [few] Anulowano, ale nie udało się przywrócić „{$name}” i jeszcze {$more} inne elementy
+    [many] Anulowano, ale nie udało się przywrócić „{$name}” i jeszcze {$more} innych elementów
+    *[other] Anulowano, ale nie udało się przywrócić „{$name}” i jeszcze {$more} innego elementu
+  }
+failed-operations-title = {$count ->
+    [one] Operacja nie powiodła się
+    [few] {$count} operacje nie powiodły się
+    [many] {$count} operacji nie powiodło się
+    *[other] {$count} operacji nie powiodło się
+  }
 
 # Dialogs
 

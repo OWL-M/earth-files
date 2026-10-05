@@ -34,6 +34,38 @@ task-mounting = { $name } ਮਾਊਂਟ ਹੋ ਰਿਹਾ ਹੈ
 task-unmounting = { $name } ਅਣ-ਮਾਊਂਟ ਹੋ ਰਿਹਾ ਹੈ
 task-done = ਪੂਰਾ
 task-failed = ਅਸਫ਼ਲ
+task-paused = ਵਿਰਾਮ ਹੈ
+task-paused-waiting = ਵਿਰਾਮ ਹੈ, ਉਡੀਕ ਜਾਰੀ
+task-skipped = ਛੱਡੇ ਗਏ: {$count}
+blocked-read = "{$name}" ਨੂੰ ਪੜ੍ਹਿਆ ਨਹੀਂ ਜਾ ਸਕਦਾ
+blocked-list = ਫੋਲਡਰ "{$name}" ਨੂੰ ਖੋਲ੍ਹਿਆ ਨਹੀਂ ਜਾ ਸਕਦਾ
+blocked-remove = "{$name}" ਕਾਪੀ ਹੋ ਗਿਆ ਪਰ ਹਟਾਇਆ ਨਹੀਂ ਜਾ ਸਕਦਾ
+same-for-rest = ਬਾਕੀਆਂ ਲਈ ਵੀ ਇਹੀ
+retry = ਫੇਰ ਕੋਸ਼ਿਸ਼ ਕਰੋ
+keep-original = ਅਸਲ ਨੂੰ ਰੱਖੋ
+skipped-more = ਅਤੇ {$count} ਹੋਰ
+destination-no-permission = "{$folder}" ਵਿੱਚ ਲਿਖਿਆ ਨਹੀਂ ਜਾ ਸਕਦਾ: ਇਜਾਜ਼ਤ ਨਹੀਂ ਹੈ
+destination-read-only = "{$folder}" ਵਿੱਚ ਲਿਖਿਆ ਨਹੀਂ ਜਾ ਸਕਦਾ: ਇਹ ਸਿਰਫ਼ ਪੜ੍ਹਨ ਲਈ ਹੈ
+blocked-link = "{$name}" ਇੱਕ ਲਿੰਕ ਹੈ, ਅਤੇ ਇਹ ਡਰਾਇਵ ਲਿੰਕ ਨਹੀਂ ਰੱਖ ਸਕਦੀ
+blocked-link-fs = "{$name}" ਇੱਕ ਲਿੰਕ ਹੈ, ਅਤੇ ਇਹ ਡਰਾਇਵ ({$fs}) ਲਿੰਕ ਨਹੀਂ ਰੱਖ ਸਕਦੀ
+progress-asking = ਵਿਰਾਮ ਹੈ
+failed-path = "{$name}": {$reason}
+reason-no-permission = ਇਜਾਜ਼ਤ ਨਹੀਂ ਹੈ
+reason-drive-full = ਡਰਾਇਵ ਭਰੀ ਹੋਈ ਹੈ
+reason-read-only = ਡਰਾਇਵ ਸਿਰਫ਼ ਪੜ੍ਹਨ ਲਈ ਹੈ
+reason-gone = ਇਹ ਹੁਣ ਮੌਜੂਦ ਨਹੀਂ ਹੈ
+reason-too-big = ਇਹ ਇਸ ਡਰਾਇਵ ਲਈ ਬਹੁਤ ਵੱਡੀ ਹੈ
+blocked-move = "{$name}" ਨੂੰ ਭੇਜਿਆ ਨਹੀਂ ਜਾ ਸਕਦਾ
+blocked-move-detail = "{$folder}" ਵਿੱਚੋਂ ਅਸਲ ਹਟਾਏ ਨਹੀਂ ਜਾ ਸਕਦੇ: {$reason}। ਇਸਦੀ ਬਜਾਏ ਇਸਨੂੰ ਕਾਪੀ ਕੀਤਾ ਜਾ ਸਕਦਾ ਹੈ।
+copy-instead = ਇਸਦੀ ਬਜਾਏ ਕਾਪੀ ਕਰੋ
+rollback-failed = {$more ->
+    [0] ਰੱਦ ਕੀਤਾ, ਪਰ "{$name}" ਨੂੰ ਵਾਪਸ ਨਹੀਂ ਰੱਖਿਆ ਜਾ ਸਕਿਆ
+    *[other] ਰੱਦ ਕੀਤਾ, ਪਰ "{$name}" ਅਤੇ {$more} ਹੋਰ ਨੂੰ ਵਾਪਸ ਨਹੀਂ ਰੱਖਿਆ ਜਾ ਸਕਿਆ
+  }
+failed-operations-title = {$count ->
+    [one] ਕਾਰਵਾਈ ਅਸਫ਼ਲ ਰਹੀ
+    *[other] {$count} ਕਾਰਵਾਈਆਂ ਅਸਫ਼ਲ ਰਹੀਆਂ
+  }
 create-archive = ਅਕਾਇਵ ਬਣਾਓ
 extract-password-required = ਪਾਸਵਰਡ ਚਾਹੀਦਾ ਹੈ
 extract-as-folder = ਫੋਲਡਰ ਵਿੱਚ ਖਿਲਾਰੋ

@@ -41,6 +41,38 @@ task-mounting = { $name } aankoppelen
 task-unmounting = { $name } ontkoppelen
 task-done = Klaar
 task-failed = Mislukt
+task-paused = Gepauzeerd
+task-paused-waiting = Gepauzeerd, wachtend
+task-skipped = Overgeslagen: {$count}
+blocked-read = “{$name}” kan niet worden gelezen
+blocked-list = Map “{$name}” kan niet worden geopend
+blocked-remove = “{$name}” is gekopieerd, maar kan niet worden verwijderd
+same-for-rest = Hetzelfde voor de rest
+retry = Opnieuw proberen
+keep-original = Origineel behouden
+skipped-more = en nog {$count}
+destination-no-permission = Kan niet schrijven naar “{$folder}”: geen rechten
+destination-read-only = Kan niet schrijven naar “{$folder}”: alleen lezen
+blocked-link = “{$name}” is een link, en deze schijf kan geen links bevatten
+blocked-link-fs = “{$name}” is een link, en deze schijf ({$fs}) kan geen links bevatten
+progress-asking = gepauzeerd
+failed-path = “{$name}”: {$reason}
+reason-no-permission = geen rechten
+reason-drive-full = de schijf is vol
+reason-read-only = de schijf is alleen-lezen
+reason-gone = het bestaat niet meer
+reason-too-big = het is te groot voor deze schijf
+blocked-move = “{$name}” kan niet worden verplaatst
+blocked-move-detail = De originelen kunnen niet uit “{$folder}” worden verwijderd: {$reason}. Het kan in plaats daarvan worden gekopieerd.
+copy-instead = In plaats daarvan kopiëren
+rollback-failed = {$more ->
+    [0] Geannuleerd, maar “{$name}” kon niet worden teruggezet
+    *[other] Geannuleerd, maar “{$name}” en nog {$more} konden niet worden teruggezet
+  }
+failed-operations-title = {$count ->
+    [one] De bewerking is mislukt
+    *[other] {$count} bewerkingen zijn mislukt
+  }
 
 # Dialogs
 

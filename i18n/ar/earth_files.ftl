@@ -167,6 +167,45 @@ task-mounting = جارٍ وصل { $name }
 task-unmounting = جارٍ فصل { $name }
 task-done = تم
 task-failed = فشل
+task-paused = أُلبِث
+task-paused-waiting = أُلبِث، في الانتظار
+task-skipped = المتخطّاة: {$count}
+blocked-read = تعذّرت قراءة «{$name}»
+blocked-list = تعذّر فتح المجلد «{$name}»
+blocked-remove = نُسخ «{$name}» لكن تعذّرت إزالته
+same-for-rest = نفس الخيار للبقية
+retry = حاول مجددًا
+keep-original = أبقِ الأصل
+skipped-more = و{$count} أخرى
+destination-no-permission = تعذّرت الكتابة في «{$folder}»: لا توجد أذونات
+destination-read-only = تعذّرت الكتابة في «{$folder}»: للقراءة فقط
+blocked-link = «{$name}» رابط، وهذا القرص لا يدعم الروابط
+blocked-link-fs = «{$name}» رابط، وهذا القرص ({$fs}) لا يدعم الروابط
+progress-asking = أُلبِث
+failed-path = «{$name}»: {$reason}
+reason-no-permission = لا توجد أذونات
+reason-drive-full = القرص ممتلئ
+reason-read-only = القرص للقراءة فقط
+reason-gone = لم يعد موجودًا
+reason-too-big = حجمه أكبر مما يتسع له هذا القرص
+blocked-move = تعذّر نقل «{$name}»
+blocked-move-detail = تعذّرت إزالة الأصل من «{$folder}»: {$reason}. يمكن نسخه بدلًا من ذلك.
+copy-instead = انسخ بدلًا من ذلك
+rollback-failed = {$more ->
+    [0] أُلغِيَ، لكن تعذّرت إعادة «{$name}» إلى مكانه
+    [two] أُلغِيَ، لكن تعذّرت إعادة «{$name}» و{$more} أخرى إلى أماكنها
+    [few] أُلغِيَ، لكن تعذّرت إعادة «{$name}» و{$more} أخرى إلى أماكنها
+    [many] أُلغِيَ، لكن تعذّرت إعادة «{$name}» و{$more} أخرى إلى أماكنها
+    *[other] أُلغِيَ، لكن تعذّرت إعادة «{$name}» و{$more} أخرى إلى أماكنها
+  }
+failed-operations-title = {$count ->
+    [zero] لم تفشل أي عملية
+    [one] فشلت العملية
+    [two] فشلت عمليتان
+    [few] فشلت {$count} عمليات
+    [many] فشلت {$count} عملية
+    *[other] فشلت {$count} عملية
+  }
 create-archive = أنشئ أرشيف
 extract-password-required = كلمة السر مطلوبة
 extract-as-folder = استخرِج إلى مجلد

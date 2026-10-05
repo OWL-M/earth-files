@@ -41,6 +41,43 @@ task-mounting = Prijungiama { $name }
 task-unmounting = Atjungiama { $name }
 task-done = Atlikta
 task-failed = Nepavyko
+task-paused = Pristabdyta
+task-paused-waiting = Pristabdyta, laukiama
+task-skipped = Praleista: {$count}
+blocked-read = Nepavyksta perskaityti „{$name}“
+blocked-list = Nepavyksta atverti aplanko „{$name}“
+blocked-remove = „{$name}“ nukopijuotas, bet jo nepavyksta pašalinti
+same-for-rest = Taip pat ir likusiems
+retry = Pabandyti dar kartą
+keep-original = Palikti originalą
+skipped-more = ir dar {$count}
+destination-no-permission = Nepavyksta rašyti į „{$folder}“: nėra leidimo
+destination-read-only = Nepavyksta rašyti į „{$folder}“: tik skaitomas
+blocked-link = „{$name}“ yra nuoroda, o ši kaupyklė negali saugoti nuorodų
+blocked-link-fs = „{$name}“ yra nuoroda, o ši kaupyklė ({$fs}) negali saugoti nuorodų
+progress-asking = pristabdyta
+failed-path = „{$name}“: {$reason}
+reason-no-permission = nėra leidimo
+reason-drive-full = kaupyklė pilna
+reason-read-only = kaupyklė tik skaitoma
+reason-gone = jo nebėra
+reason-too-big = jis per didelis šiai kaupyklei
+blocked-move = Nepavyksta perkelti „{$name}“
+blocked-move-detail = Nepavyksta pašalinti originalų iš „{$folder}“: {$reason}. Vietoj to jį galima nukopijuoti.
+copy-instead = Kopijuoti vietoj to
+rollback-failed = {$more ->
+    [0] Atšaukta, bet „{$name}“ nepavyko grąžinti atgal
+    [one] Atšaukta, bet „{$name}“ ir dar {$more} elemento nepavyko grąžinti atgal
+    [few] Atšaukta, bet „{$name}“ ir dar {$more} elementų nepavyko grąžinti atgal
+    [many] Atšaukta, bet „{$name}“ ir dar {$more} elemento nepavyko grąžinti atgal
+    *[other] Atšaukta, bet „{$name}“ ir dar {$more} elementų nepavyko grąžinti atgal
+  }
+failed-operations-title = {$count ->
+    [one] {$count} operacija nepavyko
+    [few] {$count} operacijos nepavyko
+    [many] {$count} operacijos nepavyko
+    *[other] {$count} operacijų nepavyko
+  }
 create-archive = Sukurti archyvą
 extract-password-required = Reikalingas slaptažodis
 extract-as-folder = Išskleisti į aplanką

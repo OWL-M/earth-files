@@ -41,6 +41,38 @@ task-mounting = Monterer { $name }
 task-unmounting = Afmonterer { $name }
 task-done = Færdig
 task-failed = Mislykkedes
+task-paused = Sat på pause
+task-paused-waiting = Sat på pause, venter
+task-skipped = Sprunget over: {$count}
+blocked-read = “{$name}” kan ikke læses
+blocked-list = Mappen “{$name}” kan ikke åbnes
+blocked-remove = “{$name}” blev kopieret, men kan ikke fjernes
+same-for-rest = Samme for resten
+retry = Forsøg igen
+keep-original = Behold originalen
+skipped-more = og {$count} mere
+destination-no-permission = Kan ikke skrive til “{$folder}”: ingen tilladelse
+destination-read-only = Kan ikke skrive til “{$folder}”: den er skrivebeskyttet
+blocked-link = “{$name}” er et link, og dette drev kan ikke indeholde links
+blocked-link-fs = “{$name}” er et link, og dette drev ({$fs}) kan ikke indeholde links
+progress-asking = sat på pause
+failed-path = “{$name}”: {$reason}
+reason-no-permission = ingen tilladelse
+reason-drive-full = drevet er fuldt
+reason-read-only = drevet er skrivebeskyttet
+reason-gone = det findes ikke længere
+reason-too-big = det er for stort til dette drev
+blocked-move = “{$name}” kan ikke flyttes
+blocked-move-detail = Originalerne kan ikke fjernes fra “{$folder}”: {$reason}. Det kan kopieres i stedet.
+copy-instead = Kopiér i stedet
+rollback-failed = {$more ->
+    [0] Annulleret, men “{$name}” kunne ikke lægges tilbage
+    *[other] Annulleret, men “{$name}” og {$more} mere kunne ikke lægges tilbage
+  }
+failed-operations-title = {$count ->
+    [one] Operationen mislykkedes
+    *[other] {$count} operationer mislykkedes
+  }
 
 # Dialogs
 

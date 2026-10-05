@@ -28,6 +28,10 @@ pub enum Position {
     Bottom,
     Top,
     Point(Point),
+    /// Centred on this area of the window, in window coordinates, rather
+    /// than on the popover's own bounds: e.g. a dialog over the file view,
+    /// with the sidebar left out.
+    CenterOn(Rectangle),
 }
 
 /// A container which displays overlays when a popup widget is assigned.
@@ -288,6 +292,7 @@ where
                     bounds.position() + Vector::new(relative.x, relative.y)
                 }
                 Position::Top => Point::new(bounds.x + bounds.width / 2.0, bounds.y),
+                Position::CenterOn(area) => area.center(),
             };
 
             // Round position to prevent rendering issues
@@ -347,7 +352,7 @@ where
             .as_widget_mut()
             .layout(self.tree, renderer, &limits);
         match self.position {
-            Position::Center => {
+            Position::Center | Position::CenterOn(_) => {
                 // Position is set to the center of the widget
                 let width = node.size().width;
                 let height = node.size().height;

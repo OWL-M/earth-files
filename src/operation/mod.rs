@@ -70,6 +70,40 @@ async fn handle_replace(
     rx.recv().await.unwrap_or(ReplaceResult::Cancel)
 }
 
+/// Ask on the operation's progress row what to do about a path it may not
+/// touch, and wait for the answer. A dropped question counts as Cancel.
+///
+/// `more`: whether anything after this path could be asked about too, which
+/// is what makes "Same for the rest" worth offering.
+async fn handle_blocked(
+    msg_tx: Arc<TokioMutex<Sender<Message>>>,
+    controller: Controller,
+    blocked: Blocked,
+    more: bool,
+) -> BlockedAnswer {
+    // What the dialog shows of the path; it is still there to look at, only
+    // not to read, list, link or remove
+    let item = tab::item_from_path(blocked.path(), IconSizes::default())
+        .map(Box::new)
+        .map_err(|err| log::warn!("{err}"))
+        .ok();
+    let (tx, mut rx) = mpsc::channel(1);
+    let _ = msg_tx
+        .lock()
+        .await
+        .send(Message::OperationBlocked(
+            controller,
+            BlockedQuestion {
+                blocked,
+                more,
+                item,
+            },
+            tx,
+        ))
+        .await;
+    rx.recv().await.unwrap_or(BlockedAnswer::Cancel)
+}
+
 fn get_directory_name(file_name: &str) -> &str {
     for ext in crate::archive::SUPPORTED_EXTENSIONS {
         if let Some(stripped) = file_name.strip_suffix(ext) {
@@ -121,6 +155,184 @@ fn staging_dir(
     unreachable!()
 }
 
+/// What a copy or move could not do to a path, for lack of permission.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum Blocked {
+    /// A file could not be read, so it could not be copied or moved.
+    Read(PathBuf),
+    /// A folder could not be listed, so none of it could be copied or moved.
+    List(PathBuf),
+    /// An original could not be removed after it was copied (move only).
+    Remove(PathBuf),
+    /// A link could not be made, because the destination's filesystem
+    /// cannot hold links at all: FAT32 and exFAT, as on most USB sticks.
+    /// `fs` names that filesystem when it is known.
+    Link {
+        path: PathBuf,
+        fs: Option<&'static str>,
+    },
+    /// A selected item cannot be moved, found before anything of it is
+    /// touched: it could be copied, but its originals could not be removed
+    /// from `folder`, for lack of permission or, when `read_only`, because
+    /// that filesystem is read-only.
+    Move {
+        path: PathBuf,
+        folder: PathBuf,
+        read_only: bool,
+    },
+}
+
+impl Blocked {
+    /// The path the question is about.
+    pub fn path(&self) -> &Path {
+        match self {
+            Self::Read(path) | Self::List(path) | Self::Remove(path) => path,
+            Self::Link { path, .. } | Self::Move { path, .. } => path,
+        }
+    }
+
+    /// Whether trying the same step again could succeed. A filesystem that
+    /// cannot hold links never will.
+    pub fn can_retry(&self) -> bool {
+        !matches!(self, Self::Link { .. } | Self::Move { .. })
+    }
+}
+
+/// The name of the filesystem `dir` is on, for the ones a question or an
+/// error names: those that cannot hold links or large files.
+pub(crate) fn filesystem_name(dir: &Path) -> Option<&'static str> {
+    use std::ffi::CString;
+    use std::os::unix::ffi::OsStrExt;
+
+    // From `linux/magic.h`
+    const MSDOS_SUPER_MAGIC: i64 = 0x4d44;
+    const EXFAT_SUPER_MAGIC: i64 = 0x2011_bab0;
+
+    let dir_c = CString::new(dir.as_os_str().as_bytes()).ok()?;
+    let mut stat = std::mem::MaybeUninit::<libc::statfs>::uninit();
+    // SAFETY: the pointer comes from a CString that outlives the call, and
+    // `stat` is only read after the call filled it
+    if unsafe { libc::statfs(dir_c.as_ptr(), stat.as_mut_ptr()) } != 0 {
+        return None;
+    }
+    // SAFETY: `statfs` returned 0, so it filled `stat`
+    let stat = unsafe { stat.assume_init() };
+    #[allow(clippy::useless_conversion)]
+    match i64::from(stat.f_type) {
+        MSDOS_SUPER_MAGIC => Some("FAT"),
+        EXFAT_SUPER_MAGIC => Some("exFAT"),
+        _ => None,
+    }
+}
+
+/// Why a step failed, in words, for the error the user sees: `"name": the
+/// reason`. The I/O error inside `err` decides the reason; one this does not
+/// know gives its own message.
+pub(crate) fn failure_text(path: &Path, err: &(dyn std::error::Error + 'static)) -> String {
+    let name = path.file_name().map_or_else(
+        || path.display().to_string(),
+        |name| name.to_string_lossy().into_owned(),
+    );
+    let mut source = Some(err);
+    let io = std::iter::from_fn(|| {
+        let err = source?;
+        source = err.source();
+        Some(err)
+    })
+    .find_map(|err| err.downcast_ref::<io::Error>());
+    let reason = match io {
+        Some(io) => match io.kind() {
+            io::ErrorKind::PermissionDenied => fl!("reason-no-permission"),
+            io::ErrorKind::StorageFull => fl!("reason-drive-full"),
+            io::ErrorKind::ReadOnlyFilesystem => fl!("reason-read-only"),
+            io::ErrorKind::NotFound => fl!("reason-gone"),
+            io::ErrorKind::FileTooLarge => fl!("reason-too-big"),
+            _ => io.to_string(),
+        },
+        None => err.to_string(),
+    };
+    fl!("failed-path", name = name, reason = reason)
+}
+
+/// What an operation asks about a path it may not touch, as it reaches the
+/// app.
+#[derive(Clone, Debug)]
+pub struct BlockedQuestion {
+    pub blocked: Blocked,
+    /// Whether anything after this path could be asked about too.
+    pub more: bool,
+    /// The path as its dialog shows it, when it could be looked at.
+    pub item: Option<Box<tab::Item>>,
+}
+
+/// The answer to a [`Blocked`] question.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum BlockedAnswer {
+    /// Try the same step again.
+    Retry,
+    /// Leave the path out; `true` also leaves out every later path of this
+    /// operation that is blocked, without asking.
+    Skip(bool),
+    /// Stop the operation, keeping what it has done.
+    Cancel,
+    /// For a [`Blocked::Move`]: copy the item and leave its originals where
+    /// they are; `true` does the same for every later item that cannot be
+    /// moved, without asking.
+    CopyInstead(bool),
+}
+
+/// Whether the folder `dir` can take new entries. Only a clear no stops an
+/// operation before it starts: any other answer (the folder is gone, the
+/// filesystem does not say) leaves it to the copy itself, as before.
+fn check_writable(dir: &Path) -> Result<(), String> {
+    let Some(read_only) = cannot_write(dir) else {
+        return Ok(());
+    };
+    let folder = dir.file_name().map_or_else(
+        || dir.display().to_string(),
+        |name| name.to_string_lossy().into_owned(),
+    );
+    Err(if read_only {
+        fl!("destination-read-only", folder = folder)
+    } else {
+        fl!("destination-no-permission", folder = folder)
+    })
+}
+
+/// Whether this user clearly may not read `path`: only a refusal for lack
+/// of permission counts.
+pub(crate) fn cannot_read(path: &Path) -> bool {
+    use std::ffi::CString;
+    use std::os::unix::ffi::OsStrExt;
+
+    let Ok(path_c) = CString::new(path.as_os_str().as_bytes()) else {
+        return false;
+    };
+    // SAFETY: the pointer comes from a CString that outlives the call
+    let refused = unsafe { libc::access(path_c.as_ptr(), libc::R_OK) } != 0;
+    refused && io::Error::last_os_error().kind() == io::ErrorKind::PermissionDenied
+}
+
+/// Whether this user clearly cannot add entries to the folder `dir` or
+/// remove them from it: `Some(true)` for a read-only filesystem, `Some(false)`
+/// for lack of permission, and `None` for yes or for any answer that is not
+/// a clear no.
+pub(crate) fn cannot_write(dir: &Path) -> Option<bool> {
+    use std::ffi::CString;
+    use std::os::unix::ffi::OsStrExt;
+
+    let dir_c = CString::new(dir.as_os_str().as_bytes()).ok()?;
+    // SAFETY: the pointer comes from a CString that outlives the call
+    if unsafe { libc::access(dir_c.as_ptr(), libc::W_OK | libc::X_OK) } == 0 {
+        return None;
+    }
+    match io::Error::last_os_error().kind() {
+        io::ErrorKind::PermissionDenied => Some(false),
+        io::ErrorKind::ReadOnlyFilesystem => Some(true),
+        _ => None,
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum ReplaceResult {
     Replace(bool),
@@ -157,6 +369,19 @@ async fn copy_or_move(
         if let Some(from) = paths.iter().find(|from| to.starts_with(from)) {
             log::warn!("refusing to put {} inside itself", from.display());
             return Err(OperationError::from_err(fl!("into-itself"), &controller));
+        }
+
+        // A folder that cannot take new entries fails the whole operation
+        // before anything is touched, rather than on its first file
+        let writable = {
+            let to = to.clone();
+            compio::runtime::spawn_blocking(move || check_writable(&to))
+                .await
+                .map_err(wrap_compio_spawn_error)?
+        };
+        if let Err(reason) = writable {
+            log::warn!("refusing to write into {}: {reason}", to.display());
+            return Err(OperationError::from_err(reason, &controller));
         }
 
         // Handle duplicate file names by renaming paths
@@ -288,6 +513,7 @@ async fn recursive_pairs(
         controller.set_progress(total_progress);
     });
 
+    let blocked_tx = msg_tx.clone();
     context = context.on_replace(move |op, conflict_count| {
         let msg_tx = msg_tx.clone();
         Box::pin(handle_replace(
@@ -296,6 +522,16 @@ async fn recursive_pairs(
             op.to.clone(),
             true,
             conflict_count,
+        ))
+    });
+
+    let blocked_controller = context.controller();
+    context = context.on_blocked(move |blocked, more| {
+        Box::pin(handle_blocked(
+            blocked_tx.clone(),
+            blocked_controller.clone(),
+            blocked,
+            more,
         ))
     });
 
@@ -432,6 +668,22 @@ impl Operation {
                     }
                     roots.push(to);
                 }
+                // What was copied instead of moved, because its originals
+                // could not be removed, was created but never moved: it goes
+                // to the trash, as a copy's undo does
+                let mut copies: Vec<PathBuf> = result
+                    .created
+                    .iter()
+                    .filter(|path| !result.moved.iter().any(|(_, to)| path.starts_with(to)))
+                    .cloned()
+                    .collect();
+                copies.sort();
+                let mut outermost: Vec<PathBuf> = Vec::with_capacity(copies.len());
+                for path in copies {
+                    if !outermost.last().is_some_and(|root| path.starts_with(root)) {
+                        outermost.push(path);
+                    }
+                }
                 by_parent
                     .into_iter()
                     .map(|(to, paths)| Self::Move {
@@ -440,6 +692,7 @@ impl Operation {
                         cross_device_copy: false,
                     })
                     .chain(renamed)
+                    .chain((!outermost.is_empty()).then_some(Self::Delete { paths: outermost }))
                     .collect()
             }
             // Only the paths the copy created are removed, and they go to the
@@ -749,6 +1002,10 @@ pub struct OperationSelection {
     pub moved: Vec<(PathBuf, PathBuf)>,
     /// The trash entries a [`Operation::Delete`] created, for restoring them
     pub trash_items: Vec<trash::TrashItem>,
+    /// What a copy or move left out because the user chose to skip it: files
+    /// it could not read, folders it could not list, and originals of a move
+    /// it could not remove.
+    pub skipped: Vec<PathBuf>,
 }
 
 impl OperationSelection {
@@ -938,12 +1195,23 @@ impl Operation {
 
     pub fn pending_text(&self, ratio: f32, state: ControllerState) -> String {
         let percent = (ratio * 100.0) as i32;
-        let progress = || match state {
+        self.pending_text_with(match state {
             ControllerState::Running => fl!("progress", percent = percent),
             ControllerState::Paused => fl!("progress-paused", percent = percent),
             ControllerState::Cancelled => fl!("progress-cancelled", percent = percent),
             ControllerState::Failed => fl!("progress-failed", percent = percent),
-        };
+        })
+    }
+
+    /// What the operation is doing while it waits on the user about a path it
+    /// may not touch: no percentage, since how far it got says little then
+    /// (a move whose one original cannot be removed has copied everything).
+    pub fn pending_text_asking(&self) -> String {
+        self.pending_text_with(fl!("progress-asking"))
+    }
+
+    fn pending_text_with(&self, progress: String) -> String {
+        let progress = || progress.clone();
         match self {
             Self::Compress { paths, to, .. } => fl!(
                 "compressing",
@@ -1162,6 +1430,7 @@ impl Operation {
                             created: vec![to.clone()],
                             moved: Vec::new(),
                             trash_items: Vec::new(),
+                            skipped: Vec::new(),
                         };
 
                         let mut paths = paths;
@@ -1664,6 +1933,7 @@ impl Operation {
                         created: vec![path],
                         moved: Vec::new(),
                         trash_items: Vec::new(),
+                        skipped: Vec::new(),
                     })
                 })
             }
@@ -1694,6 +1964,7 @@ impl Operation {
                         created: vec![path],
                         moved: Vec::new(),
                         trash_items: Vec::new(),
+                        skipped: Vec::new(),
                     })
                 })
             }
@@ -1800,6 +2071,7 @@ impl Operation {
                         created: vec![target],
                         moved: Vec::new(),
                         trash_items: Vec::new(),
+                        skipped: Vec::new(),
                     })
                 })
             }
@@ -1865,6 +2137,7 @@ impl Operation {
                         created: Vec::new(),
                         moved: Vec::new(),
                         trash_items: Vec::new(),
+                        skipped: Vec::new(),
                     })
                 })
             }
@@ -1946,6 +2219,7 @@ impl Operation {
                     created: Vec::new(),
                     moved: Vec::new(),
                     trash_items: Vec::new(),
+                    skipped: Vec::new(),
                 })
             }
             Self::SetExecutableAndLaunch { path } => {
@@ -2006,6 +2280,7 @@ impl Operation {
                     created: Vec::new(),
                     moved: Vec::new(),
                     trash_items: Vec::new(),
+                    skipped: Vec::new(),
                 })
             }
         };
@@ -2050,7 +2325,10 @@ mod tests {
     use test_log::test;
     use tokio::sync;
 
-    use super::{Controller, Operation, OperationError, OperationSelection, ReplaceResult};
+    use super::{
+        Blocked, BlockedAnswer, Controller, Operation, OperationError, OperationSelection,
+        ReplaceResult,
+    };
     use crate::app::test_utils::{
         NAME_LEN, NUM_DIRS, NUM_FILES, NUM_HIDDEN, NUM_NESTED, empty_fs, filter_dirs, filter_files,
         simple_fs,
@@ -2121,6 +2399,11 @@ mod tests {
                             .await
                             .expect("Sending a response to a replace request should succeed");
                     }
+                    Message::OperationBlocked(_, _, tx) => {
+                        tx.send(BlockedAnswer::Cancel)
+                            .await
+                            .expect("Sending an answer to a blocked question should succeed");
+                    }
                     _ => unreachable!(
                         "Only [ `Message::PendingProgress`, `Message::DialogPush(DialogPage::Replace)` ] are sent from operation"
                     ),
@@ -2150,11 +2433,610 @@ mod tests {
                             .await
                             .expect("Sending a response to a replace request should succeed");
                     }
+                    Message::OperationBlocked(_, _, tx) => {
+                        tx.send(BlockedAnswer::Cancel)
+                            .await
+                            .expect("Sending an answer to a blocked question should succeed");
+                    }
                     _ => unreachable!("unexpected message from operation"),
                 }
             }
         };
         future::join(handle_messages, handle_operation).await.1
+    }
+
+    /// Run any [`Operation`], answering every question about a path it may
+    /// not touch with `answer`, which also learns whether anything after that
+    /// path could be asked about, and every replace dialog with Cancel. Returns
+    /// the questions asked, in order, beside the result.
+    async fn perform_blocked(
+        operation: Operation,
+        mut answer: impl FnMut(&Blocked, bool) -> BlockedAnswer,
+    ) -> (Result<OperationSelection, OperationError>, Vec<Blocked>) {
+        let (tx, mut rx) = mpsc::channel(1);
+        let handle_operation = async move {
+            operation
+                .perform(&sync::Mutex::new(tx).into(), Controller::default())
+                .await
+        };
+        let handle_messages = async move {
+            let mut asked = Vec::new();
+            while let Some(msg) = rx.next().await {
+                match msg {
+                    Message::DialogPush(DialogPage::Replace { tx, .. }, _id_to_focus) => {
+                        tx.send(ReplaceResult::Cancel)
+                            .await
+                            .expect("Sending a response to a replace request should succeed");
+                    }
+                    Message::OperationBlocked(_, question, tx) => {
+                        let reply = answer(&question.blocked, question.more);
+                        asked.push(question.blocked);
+                        tx.send(reply)
+                            .await
+                            .expect("Sending an answer to a blocked question should succeed");
+                    }
+                    _ => unreachable!("unexpected message from operation"),
+                }
+            }
+            asked
+        };
+        let (asked, result) = future::join(handle_messages, handle_operation).await;
+        (result, asked)
+    }
+
+    /// Takes every permission from `path`, and whether that stops this user:
+    /// running with privileges that ignore the mode, nothing is denied and
+    /// there is nothing to test.
+    fn deny(path: &std::path::Path, mode: u32) -> io::Result<bool> {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(path, fs::Permissions::from_mode(mode))?;
+        let denied = if path.is_dir() {
+            if mode & 0o400 == 0 {
+                fs::read_dir(path).is_err()
+            } else {
+                // Not writable: a probe file cannot be made
+                let probe = path.join(".probe");
+                let made = File::create(&probe).is_ok();
+                let _ = fs::remove_file(&probe);
+                !made
+            }
+        } else {
+            File::open(path).is_err()
+        };
+        Ok(denied)
+    }
+
+    /// Gives `path` back its permissions, so the test's folder can be removed.
+    fn allow(path: &std::path::Path) -> io::Result<()> {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = if path.is_dir() { 0o755 } else { 0o644 };
+        fs::set_permissions(path, fs::Permissions::from_mode(mode))
+    }
+
+    fn copy(paths: Vec<PathBuf>, to: PathBuf) -> Operation {
+        Operation::Copy { paths, to }
+    }
+
+    #[test(compio::test)]
+    async fn an_unreadable_file_is_asked_about_and_skipped() -> io::Result<()> {
+        let fs = empty_fs()?;
+        let from = fs.path().join("source");
+        fs::create_dir(&from)?;
+        fs::write(from.join("a.txt"), b"A")?;
+        fs::write(from.join("z.txt"), b"Z")?;
+        let locked = from.join("locked.txt");
+        fs::write(&locked, b"L")?;
+        let to = fs.path().join("dest");
+        fs::create_dir(&to)?;
+        if !deny(&locked, 0o000)? {
+            return Ok(());
+        }
+
+        let (result, asked) = perform_blocked(copy(vec![from.clone()], to.clone()), |_, _| {
+            BlockedAnswer::Skip(false)
+        })
+        .await;
+        allow(&locked)?;
+
+        let sel = result.expect("a skipped file does not fail the copy");
+        assert_eq!(asked, [Blocked::Read(locked.clone())]);
+        assert_eq!(sel.skipped, [locked]);
+        assert_eq!(fs::read(to.join("source/a.txt"))?, b"A");
+        assert_eq!(fs::read(to.join("source/z.txt"))?, b"Z");
+        assert!(
+            !to.join("source/locked.txt").exists(),
+            "a skipped file leaves nothing behind"
+        );
+        Ok(())
+    }
+
+    #[test(compio::test)]
+    async fn retry_copies_a_file_that_became_readable() -> io::Result<()> {
+        let fs = empty_fs()?;
+        let locked = fs.path().join("locked.txt");
+        fs::write(&locked, b"L")?;
+        let to = fs.path().join("dest");
+        fs::create_dir(&to)?;
+        if !deny(&locked, 0o000)? {
+            return Ok(());
+        }
+
+        let path = locked.clone();
+        let (result, asked) =
+            perform_blocked(copy(vec![locked.clone()], to.clone()), move |_, _| {
+                // Whatever was in the way is sorted out before the answer
+                allow(&path).expect("permissions can be given back");
+                BlockedAnswer::Retry
+            })
+            .await;
+
+        let sel = result.expect("the retry succeeds");
+        assert_eq!(asked, [Blocked::Read(locked)]);
+        assert!(sel.skipped.is_empty());
+        assert_eq!(fs::read(to.join("locked.txt"))?, b"L");
+        Ok(())
+    }
+
+    #[test(compio::test)]
+    async fn same_for_the_rest_asks_once() -> io::Result<()> {
+        let fs = empty_fs()?;
+        let from = fs.path().join("source");
+        fs::create_dir(&from)?;
+        let (one, two) = (from.join("one.txt"), from.join("two.txt"));
+        fs::write(&one, b"1")?;
+        fs::write(&two, b"2")?;
+        let to = fs.path().join("dest");
+        fs::create_dir(&to)?;
+        if !deny(&one, 0o000)? || !deny(&two, 0o000)? {
+            return Ok(());
+        }
+
+        let (result, asked) =
+            perform_blocked(copy(vec![from], to), |_, _| BlockedAnswer::Skip(true)).await;
+        allow(&one)?;
+        allow(&two)?;
+
+        let mut skipped = result.expect("skipping does not fail the copy").skipped;
+        skipped.sort();
+        assert_eq!(asked.len(), 1, "asked once for both: {asked:?}");
+        assert_eq!(skipped, [one, two]);
+        Ok(())
+    }
+
+    #[test(compio::test)]
+    async fn cancel_stops_the_copy_as_cancelled() -> io::Result<()> {
+        let fs = empty_fs()?;
+        let locked = fs.path().join("locked.txt");
+        fs::write(&locked, b"L")?;
+        let to = fs.path().join("dest");
+        fs::create_dir(&to)?;
+        if !deny(&locked, 0o000)? {
+            return Ok(());
+        }
+
+        let (result, asked) = perform_blocked(copy(vec![locked.clone()], to.clone()), |_, _| {
+            BlockedAnswer::Cancel
+        })
+        .await;
+        allow(&locked)?;
+
+        let err = result.expect_err("a cancelled copy is an error");
+        assert_eq!(err.to_string(), fl!("cancelled"));
+        assert_eq!(asked.len(), 1);
+        assert!(!to.join("locked.txt").exists());
+        Ok(())
+    }
+
+    #[test(compio::test)]
+    async fn an_unlistable_folder_is_asked_about_and_left_out() -> io::Result<()> {
+        let fs = empty_fs()?;
+        let from = fs.path().join("source");
+        let locked = from.join("locked");
+        fs::create_dir_all(&locked)?;
+        fs::write(locked.join("inside.txt"), b"I")?;
+        fs::write(from.join("a.txt"), b"A")?;
+        let to = fs.path().join("dest");
+        fs::create_dir(&to)?;
+        if !deny(&locked, 0o000)? {
+            return Ok(());
+        }
+
+        let (result, asked) = perform_blocked(copy(vec![from.clone()], to.clone()), |_, _| {
+            BlockedAnswer::Skip(false)
+        })
+        .await;
+        allow(&locked)?;
+
+        let sel = result.expect("a skipped folder does not fail the copy");
+        assert_eq!(asked, [Blocked::List(locked.clone())]);
+        assert_eq!(sel.skipped, [locked]);
+        assert_eq!(fs::read(to.join("source/a.txt"))?, b"A");
+        assert!(
+            !to.join("source/locked").exists(),
+            "not even an empty folder is made for it"
+        );
+        Ok(())
+    }
+
+    #[test(compio::test)]
+    async fn retry_lists_a_folder_that_became_readable() -> io::Result<()> {
+        let fs = empty_fs()?;
+        let from = fs.path().join("source");
+        let locked = from.join("locked");
+        fs::create_dir_all(locked.join("deeper"))?;
+        fs::write(locked.join("deeper/inside.txt"), b"I")?;
+        let to = fs.path().join("dest");
+        fs::create_dir(&to)?;
+        if !deny(&locked, 0o000)? {
+            return Ok(());
+        }
+
+        let path = locked.clone();
+        let (result, asked) = perform_blocked(copy(vec![from], to.clone()), move |_, _| {
+            allow(&path).expect("permissions can be given back");
+            BlockedAnswer::Retry
+        })
+        .await;
+
+        result.expect("the retry succeeds");
+        assert_eq!(asked, [Blocked::List(locked)]);
+        assert_eq!(fs::read(to.join("source/locked/deeper/inside.txt"))?, b"I");
+        Ok(())
+    }
+
+    #[test(compio::test)]
+    async fn a_move_that_could_not_remove_its_originals_asks_first() -> io::Result<()> {
+        let fs = empty_fs()?;
+        let from = fs.path().join("source");
+        fs::create_dir(&from)?;
+        let file = from.join("f.txt");
+        fs::write(&file, b"F")?;
+        let to = fs.path().join("dest");
+        fs::create_dir(&to)?;
+        // Not writable: its entries cannot be removed, and as a folder with
+        // a new parent it cannot be renamed either, so the move copies
+        if !deny(&from, 0o555)? {
+            return Ok(());
+        }
+
+        let (result, asked) = perform_blocked(
+            Operation::Move {
+                paths: vec![from.clone()],
+                to: to.clone(),
+                cross_device_copy: false,
+            },
+            |_, _| BlockedAnswer::Skip(false),
+        )
+        .await;
+        allow(&from)?;
+
+        // Asked before anything is copied, and Skip leaves it all alone
+        let sel = result.expect("skipping an item does not fail the move");
+        assert_eq!(
+            asked,
+            [Blocked::Move {
+                path: from.clone(),
+                folder: from.clone(),
+                read_only: false,
+            }]
+        );
+        assert_eq!(sel.skipped, std::slice::from_ref(&from));
+        assert!(!to.join("source").exists(), "nothing is copied");
+        assert_eq!(fs::read(&file)?, b"F", "the original stays");
+        Ok(())
+    }
+
+    #[test(compio::test)]
+    async fn copy_instead_copies_and_its_undo_trashes_the_copy() -> io::Result<()> {
+        let fs = empty_fs()?;
+        let from = fs.path().join("source");
+        fs::create_dir(&from)?;
+        let file = from.join("f.txt");
+        fs::write(&file, b"F")?;
+        let to = fs.path().join("dest");
+        fs::create_dir(&to)?;
+        if !deny(&from, 0o555)? {
+            return Ok(());
+        }
+
+        let operation = Operation::Move {
+            paths: vec![from.clone()],
+            to: to.clone(),
+            cross_device_copy: false,
+        };
+        let (result, asked) =
+            perform_blocked(operation.clone(), |_, _| BlockedAnswer::CopyInstead(false)).await;
+        allow(&from)?;
+
+        let sel = result.expect("copying instead does not fail the move");
+        assert_eq!(asked.len(), 1, "no question about removing: {asked:?}");
+        assert_eq!(fs::read(to.join("source/f.txt"))?, b"F");
+        assert_eq!(fs::read(&file)?, b"F", "the original stays");
+        let copy = fs::metadata(to.join("source/f.txt"))?;
+        let original = fs::metadata(&file)?;
+        {
+            use std::os::unix::fs::MetadataExt;
+            assert_ne!(copy.ino(), original.ino(), "a copy, not a hard link");
+        }
+        assert!(sel.moved.is_empty(), "nothing was moved");
+        assert_eq!(
+            operation.undo(&sel),
+            [Operation::Delete {
+                paths: vec![to.join("source")]
+            }]
+        );
+        Ok(())
+    }
+
+    #[test(compio::test)]
+    async fn copy_instead_for_the_rest_asks_once() -> io::Result<()> {
+        let fs = empty_fs()?;
+        let (one, two) = (fs.path().join("one"), fs.path().join("two"));
+        for dir in [&one, &two] {
+            fs::create_dir(dir)?;
+            fs::write(dir.join("f.txt"), b"F")?;
+        }
+        let to = fs.path().join("dest");
+        fs::create_dir(&to)?;
+        if !deny(&one, 0o555)? || !deny(&two, 0o555)? {
+            return Ok(());
+        }
+
+        let mut mores = Vec::new();
+        let (result, asked) = perform_blocked(
+            Operation::Move {
+                paths: vec![one.clone(), two.clone()],
+                to: to.clone(),
+                cross_device_copy: false,
+            },
+            |_, more| {
+                mores.push(more);
+                BlockedAnswer::CopyInstead(true)
+            },
+        )
+        .await;
+        allow(&one)?;
+        allow(&two)?;
+
+        result.expect("copying instead does not fail the move");
+        assert_eq!(asked.len(), 1, "{asked:?}");
+        assert_eq!(mores, [true], "another item follows the first");
+        assert!(to.join("one/f.txt").exists() && to.join("two/f.txt").exists());
+        assert!(one.join("f.txt").exists() && two.join("f.txt").exists());
+        Ok(())
+    }
+
+    #[test(compio::test)]
+    async fn a_folder_that_cannot_take_new_entries_fails_before_anything() -> io::Result<()> {
+        let fs = empty_fs()?;
+        let file = fs.path().join("a.txt");
+        fs::write(&file, b"A")?;
+        let to = fs.path().join("dest");
+        fs::create_dir(&to)?;
+        if !deny(&to, 0o555)? {
+            return Ok(());
+        }
+
+        let (result, asked) =
+            perform_blocked(copy(vec![file], to.clone()), |_, _| BlockedAnswer::Retry).await;
+        allow(&to)?;
+
+        let err = result.expect_err("nothing can be written there");
+        assert_eq!(
+            err.to_string(),
+            fl!("destination-no-permission", folder = "dest")
+        );
+        assert!(asked.is_empty(), "nothing is asked: {asked:?}");
+        assert!(!to.join("a.txt").exists());
+        Ok(())
+    }
+
+    #[test(compio::test)]
+    async fn same_for_the_rest_is_offered_only_with_more_to_come() -> io::Result<()> {
+        let fs = empty_fs()?;
+        let from = fs.path().join("source");
+        fs::create_dir(&from)?;
+        let (one, two) = (from.join("one.txt"), from.join("two.txt"));
+        fs::write(&one, b"1")?;
+        fs::write(&two, b"2")?;
+        let to = fs.path().join("dest");
+        fs::create_dir(&to)?;
+        if !deny(&one, 0o000)? || !deny(&two, 0o000)? {
+            return Ok(());
+        }
+
+        // Two unreadable files: the first asked has one more to come, the
+        // second has none
+        let mut mores = Vec::new();
+        let (result, _) = perform_blocked(copy(vec![from], to.clone()), |_, more| {
+            mores.push(more);
+            BlockedAnswer::Skip(false)
+        })
+        .await;
+        result.expect("skipping does not fail the copy");
+        assert_eq!(mores, [true, false]);
+
+        allow(&one)?;
+        allow(&two)?;
+
+        // One file on its own, moved out of a folder that cannot lose it:
+        // asked before it is moved, with nothing after it
+        let lone = fs.path().join("lone");
+        fs::create_dir(&lone)?;
+        let file = lone.join("f.txt");
+        fs::write(&file, b"F")?;
+        if !deny(&lone, 0o555)? {
+            return Ok(());
+        }
+        let mut mores = Vec::new();
+        let (result, asked) = perform_blocked(
+            Operation::Move {
+                paths: vec![file.clone()],
+                to: to.clone(),
+                cross_device_copy: false,
+            },
+            |_, more| {
+                mores.push(more);
+                BlockedAnswer::Skip(false)
+            },
+        )
+        .await;
+        allow(&lone)?;
+        result.expect("skipping does not fail the move");
+        assert_eq!(
+            asked,
+            [Blocked::Move {
+                path: file,
+                folder: lone,
+                read_only: false,
+            }]
+        );
+        assert_eq!(mores, [false]);
+        Ok(())
+    }
+
+    #[test]
+    fn a_failure_says_why_in_words() {
+        let denied = io::Error::from(io::ErrorKind::PermissionDenied);
+        assert_eq!(
+            super::failure_text(std::path::Path::new("/a/secret.env"), &denied),
+            fl!(
+                "failed-path",
+                name = "secret.env",
+                reason = fl!("reason-no-permission")
+            )
+        );
+        // Found inside the context an open adds around it
+        let wrapped: Box<dyn std::error::Error> =
+            anyhow::Error::from(io::Error::from(io::ErrorKind::StorageFull))
+                .context("failed to write")
+                .into();
+        assert_eq!(
+            super::failure_text(std::path::Path::new("/a/big.iso"), &*wrapped),
+            fl!(
+                "failed-path",
+                name = "big.iso",
+                reason = fl!("reason-drive-full")
+            )
+        );
+        // One it does not know keeps its own message
+        let other = io::Error::other("the cable came out");
+        assert_eq!(
+            super::failure_text(std::path::Path::new("/a/f"), &other),
+            fl!("failed-path", name = "f", reason = "the cable came out")
+        );
+    }
+
+    #[test]
+    fn a_link_cannot_be_retried_and_the_rest_can() {
+        let link = Blocked::Link {
+            path: PathBuf::from("/p/result"),
+            fs: Some("exFAT"),
+        };
+        assert!(!link.can_retry());
+        assert!(Blocked::Read(PathBuf::from("/p/f")).can_retry());
+        assert_eq!(link.path(), std::path::Path::new("/p/result"));
+    }
+
+    #[test(compio::test)]
+    async fn a_cancelled_copy_takes_away_what_it_copied() -> io::Result<()> {
+        let fs = empty_fs()?;
+        let (a, locked) = (fs.path().join("a.txt"), fs.path().join("locked.txt"));
+        fs::write(&a, b"A")?;
+        fs::write(&locked, b"L")?;
+        let to = fs.path().join("dest");
+        fs::create_dir(&to)?;
+        if !deny(&locked, 0o000)? {
+            return Ok(());
+        }
+
+        let (result, asked) =
+            perform_blocked(copy(vec![a.clone(), locked.clone()], to.clone()), |_, _| {
+                BlockedAnswer::Cancel
+            })
+            .await;
+        allow(&locked)?;
+
+        let err = result.expect_err("cancelled");
+        assert_eq!(err.to_string(), fl!("cancelled"));
+        assert_eq!(asked, [Blocked::Read(locked)]);
+        assert!(!to.join("a.txt").exists(), "the copy made before is gone");
+        assert!(err.partial.is_empty(), "nothing is left to undo");
+        assert_eq!(fs::read(&a)?, b"A");
+        Ok(())
+    }
+
+    #[test(compio::test)]
+    async fn a_cancelled_move_puts_back_what_it_moved() -> io::Result<()> {
+        let fs = empty_fs()?;
+        let src = fs.path().join("src");
+        fs::create_dir(&src)?;
+        // Moved whole by a rename before anything is asked
+        let a = src.join("a.txt");
+        fs::write(&a, b"A")?;
+        // Then asked about: its original could not be removed
+        let locked = fs.path().join("locked");
+        fs::create_dir(&locked)?;
+        fs::write(locked.join("f.txt"), b"F")?;
+        let to = fs.path().join("dest");
+        fs::create_dir(&to)?;
+        if !deny(&locked, 0o555)? {
+            return Ok(());
+        }
+
+        let (result, asked) = perform_blocked(
+            Operation::Move {
+                paths: vec![a.clone(), locked.clone()],
+                to: to.clone(),
+                cross_device_copy: false,
+            },
+            |_, _| BlockedAnswer::Cancel,
+        )
+        .await;
+        allow(&locked)?;
+
+        result.expect_err("cancelled");
+        assert_eq!(asked.len(), 1, "{asked:?}");
+        assert_eq!(fs::read(&a)?, b"A", "back where it was");
+        assert_eq!(
+            fs::read_dir(&to)?.count(),
+            0,
+            "nothing left at the destination"
+        );
+        Ok(())
+    }
+
+    #[test(compio::test)]
+    async fn a_cancelled_move_across_filesystems_leaves_nothing_behind() -> io::Result<()> {
+        let Ok(shm) = tempfile::tempdir_in("/dev/shm") else {
+            return Ok(());
+        };
+        let fs = empty_fs()?;
+        let from = fs.path().join("folder");
+        fs::create_dir(&from)?;
+        fs::write(from.join("a.txt"), b"A")?;
+        let locked = from.join("z.txt");
+        fs::write(&locked, b"Z")?;
+        if !deny(&locked, 0o000)? {
+            return Ok(());
+        }
+
+        let (result, asked) = perform_blocked(
+            Operation::Move {
+                paths: vec![from.clone()],
+                to: shm.path().to_path_buf(),
+                cross_device_copy: false,
+            },
+            |_, _| BlockedAnswer::Cancel,
+        )
+        .await;
+        allow(&locked)?;
+
+        result.expect_err("cancelled");
+        assert_eq!(asked, [Blocked::Read(locked)]);
+        assert!(!shm.path().join("folder").exists(), "nothing left behind");
+        assert_eq!(fs::read(from.join("a.txt"))?, b"A");
+        Ok(())
     }
 
     /// Run `[Operation::Move]`, answering every replace dialog with `reply`.
@@ -3592,13 +4474,16 @@ mod tests {
             first_file.display(),
             second_dir.display()
         );
-        operation_copy(vec![first_file.clone()], second_dir.clone())
+        // Cancel in the replace dialog cancels the copy, which puts back
+        // whatever it did: here nothing, and both files stay as they were
+        let err = operation_copy(vec![first_file.clone()], second_dir.clone())
             .await
-            .expect(concat!(
+            .expect_err(concat!(
                 "Copy operation should have been cancelled ",
                 "because we're copying to different directories ",
                 "without replacement"
             ));
+        assert_eq!(err.to_string(), fl!("cancelled"));
         assert!(
             first_dir.join(base_name).exists(),
             "First file should still exist"
