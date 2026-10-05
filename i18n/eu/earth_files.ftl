@@ -25,6 +25,14 @@ blocked-link = "{$name}" esteka bat da, eta unitate honek ezin ditu estekak gord
 blocked-link-fs = "{$name}" esteka bat da, eta unitate honek ({$fs}) ezin ditu estekak gorde
 blocked-too-big = "{$name}" handiegia da unitate honentzat ({$fs})
 blocked-bad-name = "{$name}" elementuak unitate honek ({$fs}) gorde ezin dituen karaktereak ditu
+blocked-delete = Ez duzu "{$name}" ezabatzeko baimenik
+blocked-no-trash = "{$name}" zakarontzirik gabeko unitate batean dago
+blocked-trash-full = Ez dago lekurik zakarontzian hau gordetzeko: "{$name}"
+delete-permanently-as-root = Ezabatu betiko administratzaile gisa
+deleted-for-good = {$more ->
+    [0] Bertan behera utzi da, baina "{$name}" jada betiko ezabatu da
+    *[other] Bertan behera utzi da, baina "{$name}" eta beste {$more} jada betiko ezabatu dira
+  }
 progress-asking = pausatuta
 failed-path = "{$name}": {$reason}
 reason-no-permission = baimenik ez

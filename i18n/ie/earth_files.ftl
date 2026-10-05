@@ -25,6 +25,14 @@ blocked-link = "{$name}" es un ligament, e ti-ci unité ne posse contener ligame
 blocked-link-fs = "{$name}" es un ligament, e ti-ci unité ({$fs}) ne posse contener ligamentes
 blocked-too-big = "{$name}" es tro grand por ti-ci unité ({$fs})
 blocked-bad-name = "{$name}" contene caracteres queles ti-ci unité ({$fs}) ne posse contener
+blocked-delete = Tu ne have permission por deleter "{$name}"
+blocked-no-trash = "{$name}" es sur un disc sin paper-corb
+blocked-trash-full = Il ne hay spacie in li paper-corb por "{$name}"
+delete-permanently-as-root = Deleter permanentmen quam administrator
+deleted-for-good = {$more ->
+    [0] Anullat, ma "{$name}" esset ja deletet permanentmen
+    *[other] Anullat, ma "{$name}" e {$more} altris esset ja deletet permanentmen
+  }
 progress-asking = pausat
 failed-path = "{$name}": {$reason}
 reason-no-permission = null permission

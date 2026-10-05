@@ -25,6 +25,14 @@ blocked-link = 「{$name}」係連結，呢個磁碟機存唔到連結
 blocked-link-fs = 「{$name}」係連結，呢個磁碟機（{$fs}）存唔到連結
 blocked-too-big = 「{$name}」太大，呢個磁碟機（{$fs}）放唔落
 blocked-bad-name = 「{$name}」有啲字元呢個磁碟機（{$fs}）存唔到
+blocked-delete = 你冇權限刪除「{$name}」
+blocked-no-trash = 「{$name}」喺冇垃圾桶嘅磁碟機上
+blocked-trash-full = 垃圾桶冇位放「{$name}」
+delete-permanently-as-root = 以管理員身分永久刪除
+deleted-for-good = {$more ->
+    [0] 已經取消，但係「{$name}」早已永久刪除咗
+    *[other] 已經取消，但係「{$name}」同另外 {$more} 個項目早已永久刪除咗
+  }
 progress-asking = 已暫停
 failed-path = 「{$name}」：{$reason}
 reason-no-permission = 冇權限

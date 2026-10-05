@@ -91,6 +91,14 @@ blocked-link = «{$name}» é unha ligazón e esta unidade non pode conter ligaz
 blocked-link-fs = «{$name}» é unha ligazón e esta unidade ({$fs}) non pode conter ligazóns
 blocked-too-big = «{$name}» é demasiado grande para esta unidade ({$fs})
 blocked-bad-name = «{$name}» ten caracteres que esta unidade ({$fs}) non pode conter
+blocked-delete = Non tes permiso para eliminar «{$name}»
+blocked-no-trash = «{$name}» está nunha unidade sen lixo
+blocked-trash-full = Non hai espazo no lixo para «{$name}»
+delete-permanently-as-root = Eliminar permanentemente como administrador
+deleted-for-good = {$more ->
+    [0] Cancelado, pero «{$name}» xa se eliminou definitivamente
+    *[other] Cancelado, pero «{$name}» e {$more} máis xa se eliminaron definitivamente
+  }
 progress-asking = pausado
 failed-path = «{$name}»: {$reason}
 reason-no-permission = sen permiso

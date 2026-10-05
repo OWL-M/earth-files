@@ -161,6 +161,7 @@ pub enum Method {
 }
 
 mod check;
+mod delete;
 
 /// What a copy or move does with the trash, for what it replaces: the real
 /// one, or in tests a stand-in that leaves the user's own alone.
@@ -172,14 +173,20 @@ struct Trash {
     entries: fn(&[PathBuf], i64) -> Vec<trash::TrashItem>,
     /// Brings an entry back to where it was.
     restore: fn(trash::TrashItem) -> Result<(), Box<dyn Error + Send + Sync>>,
+    /// Where a path sent there would end up.
+    place: fn(&Path) -> delete::Place,
 }
 
-#[cfg(not(test))]
-const TRASH: Trash = Trash {
+/// The user's own trash.
+const REAL_TRASH: Trash = Trash {
     delete: |path| trash::delete(path).map_err(Into::into),
     entries: super::trashed_entries,
     restore: |item| trash::os_limited::restore_all([item]).map_err(Into::into),
+    place: delete::trash_place,
 };
+
+#[cfg(not(test))]
+const TRASH: Trash = REAL_TRASH;
 
 #[cfg(test)]
 const TRASH: Trash = test_trash::TRASH;
@@ -202,6 +209,7 @@ mod test_trash {
         delete,
         entries,
         restore,
+        place: |_| super::delete::Place::Here,
     };
 
     fn delete(path: &Path) -> Result<(), Box<dyn Error + Send + Sync>> {
@@ -296,9 +304,12 @@ pub struct Context {
     landed: std::collections::HashMap<PathBuf, PathBuf>,
     /// The trash that what is replaced goes to.
     trash: Trash,
-    /// What was there and got replaced, sent to the trash: found among its
-    /// entries once the operation stops, for undo and for putting back.
+    /// What this operation sent to the trash, a replaced file or a deleted
+    /// one: found among its entries once the operation stops, for undo and
+    /// for putting back.
     replaced: Vec<PathBuf>,
+    /// What a delete removed for good, which nothing can bring back.
+    deleted: Vec<PathBuf>,
     /// The step running replaced what was at its destination: what it puts
     /// there is its own, to take away when putting things back.
     replaced_now: bool,
@@ -440,6 +451,7 @@ impl Context {
             landed: std::collections::HashMap::new(),
             trash: TRASH,
             replaced: Vec::new(),
+            deleted: Vec::new(),
             replaced_now: false,
             merge_folders: false,
             started: std::time::SystemTime::now()
@@ -1163,6 +1175,7 @@ impl Context {
                                 not_granted,
                                 skip: true,
                                 abort: false,
+                                permanently: false,
                             };
                             (self.on_blocked)(blocked.clone(), ask).await
                         };
@@ -1200,8 +1213,9 @@ impl Context {
                             }
                             BlockedAnswer::Cancel => return Err(self.cancelled()),
                             // Not offered before the operation runs: nothing
-                            // has changed to try again for
-                            BlockedAnswer::Retry => {}
+                            // has changed to try again for. Deleting for good
+                            // is a delete's answer, not a copy's
+                            BlockedAnswer::Retry | BlockedAnswer::Permanently(_) => {}
                             BlockedAnswer::RetryAsRoot(all) => {
                                 match self.ensure_helper().await {
                                     Ok(()) => {}
@@ -1400,6 +1414,7 @@ impl Context {
                         not_granted,
                         skip: true,
                         abort: false,
+                        permanently: false,
                     };
                     let answer = self.blocked(blocked.clone(), ask).await;
                     if answer != BlockedAnswer::RetryAsRoot(false)
@@ -1419,7 +1434,8 @@ impl Context {
                     }
                 };
                 match answer {
-                    BlockedAnswer::Retry => {}
+                    // Deleting for good is a delete's answer, not offered here
+                    BlockedAnswer::Retry | BlockedAnswer::Permanently(_) => {}
                     // This step, and what is left of it, as root
                     BlockedAnswer::RetryAsRoot(_) => op.root = true,
                     BlockedAnswer::Abort => {
@@ -2459,6 +2475,48 @@ mod tests {
             [Some(false), Some(true)]
         );
         assert_eq!(root_for_files::STARTED.load(Ordering::SeqCst), 1);
+    }
+
+    fake_root!(root_for_deletes, true);
+
+    /// What this user may not take out of its folder is deleted for good as
+    /// root, a folder with what it holds; "Same for the rest" covers the
+    /// next one
+    #[test(compio::test)]
+    async fn root_deletes_for_good_what_this_user_cannot() {
+        use crate::operation::{Blocked, BlockedAnswer};
+        use std::cell::RefCell;
+        use std::os::unix::fs::PermissionsExt;
+        use std::rc::Rc;
+        let dir = tempfile::tempdir().expect("tempdir");
+        let locked = dir.path().join("locked");
+        fs::create_dir_all(locked.join("sub")).expect("mkdir");
+        fs::write(locked.join("f"), b"F").expect("write");
+        fs::write(locked.join("sub/g"), b"G").expect("write");
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o555)).expect("chmod");
+        if crate::operation::cannot_write(&locked) != Some(false) {
+            // Running with privileges that ignore the mode
+            return;
+        }
+        *root_for_deletes::ALLOW.lock().expect("allow") = vec![locked.clone()];
+
+        let asked: Rc<RefCell<Vec<Blocked>>> = Rc::default();
+        let seen = asked.clone();
+        let mut ctx = Context::new(Controller::default()).on_blocked(move |blocked, _ask| {
+            seen.borrow_mut().push(blocked);
+            Box::pin(async { BlockedAnswer::RetryAsRoot(true) })
+        });
+        ctx.start_helper = root_for_deletes::start;
+        let result = ctx
+            .delete(vec![locked.join("f"), locked.join("sub")], false)
+            .await;
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o755)).expect("chmod");
+
+        result.expect("deleted as root");
+        assert_eq!(*asked.borrow(), vec![Blocked::Delete(locked.join("f"))]);
+        assert!(!locked.join("f").exists());
+        assert!(!locked.join("sub").exists());
+        assert!(ctx.op_sel.trash_items.is_empty(), "root deletes for good");
     }
 
     fake_root!(root_refused, true);

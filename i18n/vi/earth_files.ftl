@@ -25,6 +25,14 @@ blocked-link = "{$name}" là liên kết và ổ đĩa này không thể chứa 
 blocked-link-fs = "{$name}" là liên kết và ổ đĩa này ({$fs}) không thể chứa liên kết
 blocked-too-big = "{$name}" quá lớn đối với ổ đĩa này ({$fs})
 blocked-bad-name = "{$name}" có ký tự mà ổ đĩa này ({$fs}) không thể chứa
+blocked-delete = Bạn không có quyền xóa "{$name}"
+blocked-no-trash = "{$name}" nằm trên ổ đĩa không có thùng rác
+blocked-trash-full = Không đủ chỗ trong thùng rác cho "{$name}"
+delete-permanently-as-root = Xóa vĩnh viễn với quyền quản trị
+deleted-for-good = {$more ->
+    [0] Đã hủy, nhưng "{$name}" đã bị xóa vĩnh viễn
+    *[other] Đã hủy, nhưng "{$name}" và {$more} mục khác đã bị xóa vĩnh viễn
+  }
 progress-asking = đã tạm dừng
 failed-path = "{$name}": {$reason}
 reason-no-permission = không có quyền

@@ -306,6 +306,14 @@ blocked-link = 「{$name}」はリンクですが、このドライブはリン�
 blocked-link-fs = 「{$name}」はリンクですが、このドライブ（{$fs}）はリンクを保持できません
 blocked-too-big = 「{$name}」はこのドライブ（{$fs}）には大きすぎます
 blocked-bad-name = 「{$name}」にはこのドライブ（{$fs}）で使用できない文字が含まれています
+blocked-delete = 「{$name}」を削除する権限がありません
+blocked-no-trash = 「{$name}」はゴミ箱のないドライブにあります
+blocked-trash-full = ゴミ箱に「{$name}」を入れる空きがありません
+delete-permanently-as-root = 管理者として完全に削除する
+deleted-for-good = {$more ->
+    [0] キャンセルされましたが、「{$name}」はすでに完全に削除されています
+    *[other] キャンセルされましたが、「{$name}」と他 {$more} 件はすでに完全に削除されています
+  }
 progress-asking = 一時停止中
 failed-path = 「{$name}」: {$reason}
 reason-no-permission = 権限がありません

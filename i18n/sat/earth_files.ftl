@@ -28,6 +28,14 @@ blocked-link = "{$name}" ᱫᱚ ᱢᱤᱫᱴᱟᱹᱝ ᱞᱤᱝᱠ ᱠᱟᱱᱟ,
 blocked-link-fs = "{$name}" ᱫᱚ ᱢᱤᱫᱴᱟᱹᱝ ᱞᱤᱝᱠ ᱠᱟᱱᱟ, ᱟᱨ ᱱᱚᱶᱟ ᱰᱨᱟᱭᱤᱵ ({$fs}) ᱞᱤᱝᱠ ᱫᱚᱦᱚ ᱵᱟᱝ ᱜᱟᱱᱚᱜ ᱠᱟᱱᱟ
 blocked-too-big = "{$name}" ᱫᱚ ᱱᱚᱶᱟ ᱰᱨᱟᱭᱤᱵ ({$fs}) ᱞᱟᱹᱜᱤᱫ ᱟᱹᱰᱤ ᱢᱟᱨᱟᱝ ᱜᱮᱭᱟ
 blocked-bad-name = "{$name}" ᱨᱮ ᱢᱮᱱᱟᱜ ᱚᱠᱷᱚᱨ ᱠᱚ ᱱᱚᱶᱟ ᱰᱨᱟᱭᱤᱵ ({$fs}) ᱫᱚᱦᱚ ᱵᱟᱝ ᱜᱟᱱᱚᱜ ᱠᱟᱱᱟ
+blocked-delete = ᱟᱢ ᱥᱟᱶᱛᱮ "{$name}" ᱚᱪᱚᱜ ᱞᱟᱹᱜᱤᱫ ᱪᱷᱚᱴ ᱵᱟᱝ ᱢᱮᱱᱟᱜ-ᱟ
+blocked-no-trash = "{$name}" ᱴᱨᱟᱥ ᱵᱟᱹᱱᱩᱜ ᱰᱨᱟᱭᱣ ᱨᱮ ᱢᱮᱱᱟᱜ-ᱟ
+blocked-trash-full = ᱴᱨᱟᱥ ᱨᱮ "{$name}" ᱞᱟᱹᱜᱤᱫ ᱡᱟᱭᱜᱟ ᱵᱟᱹᱱᱩᱜ-ᱟ
+delete-permanently-as-root = ᱮᱰᱢᱤᱱᱤᱥᱴᱨᱮᱴᱚᱨ ᱞᱮᱠᱟᱛᱮ ᱥᱚᱫᱚᱢ ᱞᱟᱹᱜᱤᱫ ᱚᱪᱚᱜ ᱢᱮ
+deleted-for-good = {$more ->
+    [0] ᱵᱟᱹᱛᱤᱞ ᱮᱱᱟ ᱢᱮᱱᱠᱷᱟᱱ "{$name}" ᱫᱚ ᱵᱟᱝ ᱥᱟᱹᱜᱷᱟᱱ ᱥᱚᱫᱚᱢ ᱞᱟᱹᱜᱤᱫ ᱚᱪᱚᱜ ᱦᱚᱪᱚᱭ ᱮᱱᱟ
+    *[other] ᱵᱟᱹᱛᱤᱞ ᱮᱱᱟ ᱢᱮᱱᱠᱷᱟᱱ "{$name}" ᱟᱨ ᱦᱚᱸ {$more} ᱫᱚ ᱥᱚᱫᱚᱢ ᱞᱟᱹᱜᱤᱫ ᱚᱪᱚᱜ ᱦᱚᱪᱚᱭ ᱮᱱᱟ
+  }
 progress-asking = ᱛᱷᱤᱨ ᱮᱱᱟ
 failed-path = "{$name}": {$reason}
 reason-no-permission = ᱟᱹᱜᱭᱟᱹ ᱵᱟᱹᱱᱩᱜᱼᱟ

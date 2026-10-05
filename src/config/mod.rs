@@ -211,6 +211,9 @@ pub struct Config {
     /// Keys are shortcuts such as `"Ctrl+Shift+N"` or `"F5"`, values are
     /// action names, e.g. `key_binds: { "Ctrl+Shift+H": ToggleShowHidden }`.
     pub key_binds: FxOrderMap<String, Action>,
+    /// Deleting for good goes ahead without asking first. Emptying the
+    /// trash still asks.
+    pub delete_i_am_stupid: bool,
 }
 
 impl Config {
@@ -262,6 +265,7 @@ impl Default for Config {
             tab: TabConfig::default(),
             type_to_search: TypeToSearch::Recursive,
             key_binds: FxOrderMap::default(),
+            delete_i_am_stupid: false,
         }
     }
 }

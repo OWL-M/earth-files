@@ -64,6 +64,14 @@ blocked-link = “{$name}” er et link, og dette drev kan ikke indeholde links
 blocked-link-fs = “{$name}” er et link, og dette drev ({$fs}) kan ikke indeholde links
 blocked-too-big = “{$name}” er for stor til dette drev ({$fs})
 blocked-bad-name = “{$name}” har tegn, som dette drev ({$fs}) ikke kan indeholde
+blocked-delete = Du har ikke tilladelse til at slette “{$name}”
+blocked-no-trash = “{$name}” ligger på et drev uden papirkurv
+blocked-trash-full = Der er ikke plads i papirkurven til “{$name}”
+delete-permanently-as-root = Slet permanent som administrator
+deleted-for-good = {$more ->
+    [0] Annulleret, men “{$name}” var allerede slettet permanent
+    *[other] Annulleret, men “{$name}” og {$more} mere var allerede slettet permanent
+  }
 progress-asking = sat på pause
 failed-path = “{$name}”: {$reason}
 reason-no-permission = ingen tilladelse

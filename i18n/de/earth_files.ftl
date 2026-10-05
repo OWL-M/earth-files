@@ -64,6 +64,14 @@ blocked-link = „{$name}“ ist eine Verknüpfung, und dieses Laufwerk kann kei
 blocked-link-fs = „{$name}“ ist eine Verknüpfung, und dieses Laufwerk ({$fs}) kann keine Verknüpfungen speichern
 blocked-too-big = „{$name}“ ist zu groß für dieses Laufwerk ({$fs})
 blocked-bad-name = „{$name}“ enthält Zeichen, die dieses Laufwerk ({$fs}) nicht speichern kann
+blocked-delete = Keine Berechtigung zum Löschen von „{$name}“
+blocked-no-trash = „{$name}“ befindet sich auf einem Laufwerk ohne Papierkorb
+blocked-trash-full = Im Papierkorb ist kein Platz für „{$name}“
+delete-permanently-as-root = Als Administrator endgültig löschen
+deleted-for-good = {$more ->
+    [0] Abgebrochen, aber „{$name}“ wurde bereits endgültig gelöscht
+    *[other] Abgebrochen, aber „{$name}“ und {$more} weitere wurden bereits endgültig gelöscht
+  }
 progress-asking = pausiert
 failed-path = „{$name}“: {$reason}
 reason-no-permission = keine Berechtigung

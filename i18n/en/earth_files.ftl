@@ -67,6 +67,14 @@ blocked-link = "{$name}" is a link, and this drive can't hold links
 blocked-link-fs = "{$name}" is a link, and this drive ({$fs}) can't hold links
 blocked-too-big = "{$name}" is too big for this drive ({$fs})
 blocked-bad-name = "{$name}" has characters this drive ({$fs}) can't hold
+blocked-delete = You don't have permission to delete "{$name}"
+blocked-no-trash = "{$name}" is on a drive without a trash
+blocked-trash-full = There is no room in the trash for "{$name}"
+delete-permanently-as-root = Delete permanently as root
+deleted-for-good = Cancelled, but "{$name}" {$more ->
+    [0] was already deleted for good
+    *[other] and {$more} more were already deleted for good
+  }
 progress-asking = paused
 failed-path = "{$name}": {$reason}
 reason-no-permission = no permission

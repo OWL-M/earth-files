@@ -80,6 +80,14 @@ blocked-link = „{$name}“ er tengill og þetta drif getur ekki geymt tengla
 blocked-link-fs = „{$name}“ er tengill og þetta drif ({$fs}) getur ekki geymt tengla
 blocked-too-big = „{$name}“ er of stórt fyrir þetta drif ({$fs})
 blocked-bad-name = „{$name}“ inniheldur stafi sem þetta drif ({$fs}) getur ekki geymt
+blocked-delete = Þú hefur ekki heimild til að eyða „{$name}“
+blocked-no-trash = „{$name}“ er á drifi án ruslafötu
+blocked-trash-full = Ekki er pláss í ruslinu fyrir „{$name}“
+delete-permanently-as-root = Eyða varanlega sem kerfisstjóri
+deleted-for-good = {$more ->
+    [0] Hætt við, en „{$name}“ var þegar eytt varanlega
+    *[other] Hætt við, en „{$name}“ og {$more} í viðbót var þegar eytt varanlega
+  }
 progress-asking = á pásu
 failed-path = „{$name}“: {$reason}
 reason-no-permission = engin heimild

@@ -25,6 +25,14 @@ blocked-link = "{$name}" એક લિંક છે, અને આ ડ્રા�
 blocked-link-fs = "{$name}" એક લિંક છે, અને આ ડ્રાઇવ ({$fs}) લિંક રાખી શકતી નથી
 blocked-too-big = "{$name}" આ ડ્રાઇવ ({$fs}) માટે ખૂબ મોટું છે
 blocked-bad-name = "{$name}" માં એવા અક્ષરો છે જે આ ડ્રાઇવ ({$fs}) રાખી શકતી નથી
+blocked-delete = "{$name}" કાઢી નાખવાની તમારી પાસે પરવાનગી નથી
+blocked-no-trash = "{$name}" કચરાપેટી વગરની ડ્રાઇવ પર છે
+blocked-trash-full = "{$name}" માટે કચરાપેટીમાં જગ્યા નથી
+delete-permanently-as-root = વ્યવસ્થાપક તરીકે કાયમ માટે કાઢી નાખો
+deleted-for-good = {$more ->
+    [0] રદ કરવામાં આવ્યું, પણ "{$name}" પહેલેથી કાયમ માટે કાઢી નખાયું છે
+    *[other] રદ કરવામાં આવ્યું, પણ "{$name}" અને વધુ {$more} પહેલેથી કાયમ માટે કાઢી નખાયા છે
+  }
 progress-asking = થોભાવેલું
 failed-path = "{$name}": {$reason}
 reason-no-permission = પરવાનગી નથી

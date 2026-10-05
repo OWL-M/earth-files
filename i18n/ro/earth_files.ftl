@@ -65,6 +65,15 @@ blocked-link = „{$name}” este o legătură, iar această unitate nu poate st
 blocked-link-fs = „{$name}” este o legătură, iar această unitate ({$fs}) nu poate stoca legături
 blocked-too-big = „{$name}” este prea mare pentru această unitate ({$fs})
 blocked-bad-name = „{$name}” conține caractere pe care această unitate ({$fs}) nu le poate stoca
+blocked-delete = Nu ai permisiunea de a șterge „{$name}”
+blocked-no-trash = „{$name}” se află pe o unitate fără coș de gunoi
+blocked-trash-full = Nu este loc în coșul de gunoi pentru „{$name}”
+delete-permanently-as-root = Șterge definitiv ca administrator
+deleted-for-good = {$more ->
+    [0] Anulat, dar „{$name}” a fost deja șters definitiv
+    [few] Anulat, dar „{$name}” și încă {$more} elemente au fost deja șterse definitiv
+    *[other] Anulat, dar „{$name}” și încă {$more} de elemente au fost deja șterse definitiv
+  }
 progress-asking = întrerupt
 failed-path = „{$name}”: {$reason}
 reason-no-permission = lipsă permisiune

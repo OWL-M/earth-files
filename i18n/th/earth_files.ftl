@@ -61,6 +61,14 @@ blocked-link = "{$name}" เป็นลิงก์ และไดร์ฟน
 blocked-link-fs = "{$name}" เป็นลิงก์ และไดร์ฟนี้ ({$fs}) ไม่รองรับลิงก์
 blocked-too-big = "{$name}" ใหญ่เกินไปสำหรับไดร์ฟนี้ ({$fs})
 blocked-bad-name = "{$name}" มีอักขระที่ไดร์ฟนี้ ({$fs}) ไม่รองรับ
+blocked-delete = คุณไม่มีสิทธิ์ลบ "{$name}"
+blocked-no-trash = "{$name}" อยู่ในไดรฟ์ที่ไม่มีถังขยะ
+blocked-trash-full = ไม่มีที่ว่างในถังขยะสำหรับ "{$name}"
+delete-permanently-as-root = ลบถาวรในฐานะผู้ดูแลระบบ
+deleted-for-good = {$more ->
+    [0] ยกเลิกแล้ว แต่ "{$name}" ถูกลบถาวรไปแล้ว
+    *[other] ยกเลิกแล้ว แต่ "{$name}" และอีก {$more} รายการถูกลบถาวรไปแล้ว
+  }
 progress-asking = หยุดชั่วคราว
 failed-path = "{$name}": {$reason}
 reason-no-permission = ไม่มีสิทธิ์

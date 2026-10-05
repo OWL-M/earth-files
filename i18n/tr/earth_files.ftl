@@ -61,6 +61,14 @@ blocked-link = "{$name}" bir bağlantı ve bu sürücü bağlantıları tutamıy
 blocked-link-fs = "{$name}" bir bağlantı ve bu sürücü ({$fs}) bağlantıları tutamıyor
 blocked-too-big = "{$name}" bu sürücü ({$fs}) için çok büyük
 blocked-bad-name = "{$name}" bu sürücünün ({$fs}) tutamadığı karakterler içeriyor
+blocked-delete = "{$name}" öğesini silme izniniz yok
+blocked-no-trash = "{$name}", çöp kutusu olmayan bir sürücüde
+blocked-trash-full = Çöpte "{$name}" için yer yok
+delete-permanently-as-root = Yönetici olarak kalıcı olarak sil
+deleted-for-good = {$more ->
+    [0] İptal edildi, ancak "{$name}" zaten kalıcı olarak silindi
+    *[other] İptal edildi, ancak "{$name}" ve {$more} tane daha zaten kalıcı olarak silindi
+  }
 progress-asking = duraklatıldı
 failed-path = "{$name}": {$reason}
 reason-no-permission = izin yok

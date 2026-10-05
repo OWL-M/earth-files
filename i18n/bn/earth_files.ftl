@@ -25,6 +25,14 @@ blocked-link = "{$name}" একটি লিংক, এবং এই ড্র�
 blocked-link-fs = "{$name}" একটি লিংক, এবং এই ড্রাইভে ({$fs}) লিংক রাখা যায় না
 blocked-too-big = "{$name}" এই ড্রাইভের ({$fs}) জন্য খুব বড়
 blocked-bad-name = "{$name}"-এ এমন অক্ষর আছে যা এই ড্রাইভে ({$fs}) রাখা যায় না
+blocked-delete = "{$name}" মুছে ফেলার অনুমতি আপনার নেই
+blocked-no-trash = "{$name}" এমন ড্রাইভে আছে যাতে ট্র্যাশ নেই
+blocked-trash-full = "{$name}"-এর জন্য ট্র্যাশে জায়গা নেই
+delete-permanently-as-root = প্রশাসক হিসেবে স্থায়ীভাবে মুছুন
+deleted-for-good = {$more ->
+    [0] বাতিল করা হয়েছে, কিন্তু "{$name}" আগেই স্থায়ীভাবে মুছে ফেলা হয়েছে
+    *[other] বাতিল করা হয়েছে, কিন্তু "{$name}" এবং আরও {$more}টি আগেই স্থায়ীভাবে মুছে ফেলা হয়েছে
+  }
 progress-asking = বিরতিতে
 failed-path = "{$name}": {$reason}
 reason-no-permission = অনুমতি নেই

@@ -346,6 +346,14 @@ blocked-link = ”{$name}” on linkki, eikä tälle levylle voi tallentaa linkk
 blocked-link-fs = ”{$name}” on linkki, eikä tälle levylle ({$fs}) voi tallentaa linkkejä
 blocked-too-big = ”{$name}” on liian suuri tälle levylle ({$fs})
 blocked-bad-name = ”{$name}” sisältää merkkejä, joita tälle levylle ({$fs}) ei voi tallentaa
+blocked-delete = Ei oikeutta poistaa kohdetta ”{$name}”
+blocked-no-trash = Kohde ”{$name}” on asemalla, jolla ei ole roskakoria
+blocked-trash-full = Roskakorissa ei ole tilaa kohteelle ”{$name}”
+delete-permanently-as-root = Poista pysyvästi pääkäyttäjänä
+deleted-for-good = {$more ->
+    [0] Peruttu, mutta kohde ”{$name}” oli jo poistettu pysyvästi
+    *[other] Peruttu, mutta kohde ”{$name}” ja {$more} muuta olivat jo poistettu pysyvästi
+  }
 progress-asking = keskeytetty
 failed-path = ”{$name}”: {$reason}
 reason-no-permission = ei oikeuksia

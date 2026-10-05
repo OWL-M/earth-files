@@ -60,6 +60,14 @@ blocked-link = "{$name}" d aseɣwen, yerna ameɣri-a ur yezmir ara ad yeṭṭef
 blocked-link-fs = "{$name}" d aseɣwen, yerna ameɣri-a ({$fs}) ur yezmir ara ad yeṭṭef iseɣwan
 blocked-too-big = "{$name}" meqqer aṭas i umeɣri-a ({$fs})
 blocked-bad-name = "{$name}" yesεa isekkilen ur yezmir ara ad yeṭṭef umeɣri-a ({$fs})
+blocked-delete = Ulac turagt-ik ad tekkseḍ "{$name}"
+blocked-no-trash = "{$name}" yella ɣef uḍebsi war iḍumman
+blocked-trash-full = Ulac amkan deg iḍumman i "{$name}"
+delete-permanently-as-root = Kkes i lebda am unedbal
+deleted-for-good = {$more ->
+    [0] Yettwasefsex, maca "{$name}" yettwakkes yakan i lebda
+    *[other] Yettwasefsex, maca "{$name}" d {$more} nniḍen ttwakksen yakan i lebda
+  }
 progress-asking = ibedd
 failed-path = "{$name}": {$reason}
 reason-no-permission = ulac tisirag

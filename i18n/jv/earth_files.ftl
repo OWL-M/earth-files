@@ -25,6 +25,14 @@ blocked-link = "{$name}" iku pranala, lan drive iki ora bisa nyimpen pranala
 blocked-link-fs = "{$name}" iku pranala, lan drive iki ({$fs}) ora bisa nyimpen pranala
 blocked-too-big = "{$name}" kegedhen kanggo drive iki ({$fs})
 blocked-bad-name = "{$name}" ngemot karakter sing ora bisa disimpen drive iki ({$fs})
+blocked-delete = Sampeyan ora duwe ijin kanggo mbusak "{$name}"
+blocked-no-trash = "{$name}" ana ing drive tanpa tempat sampah
+blocked-trash-full = Ora ana papan ing tempat sampah kanggo "{$name}"
+delete-permanently-as-root = Busak permanen minangka administrator
+deleted-for-good = {$more ->
+    [0] Dibatalake, nanging "{$name}" wis dibusak permanen
+    *[other] Dibatalake, nanging "{$name}" lan {$more} liyane wis dibusak permanen
+  }
 progress-asking = dijeda
 failed-path = "{$name}": {$reason}
 reason-no-permission = ora ana idin

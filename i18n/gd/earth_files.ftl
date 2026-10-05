@@ -25,6 +25,17 @@ blocked-link = ’S e ceangal a th’ ann an “{$name}” agus chan urrainn dha
 blocked-link-fs = ’S e ceangal a th’ ann an “{$name}” agus chan urrainn dhan draibh seo ({$fs}) ceanglaichean a chumail
 blocked-too-big = Tha “{$name}” ro mhòr dhan draibh seo ({$fs})
 blocked-bad-name = Tha caractaran ann an “{$name}” nach urrainn dhan draibh seo ({$fs}) a chumail
+blocked-delete = Chan eil cead agad “{$name}” a sguabadh às
+blocked-no-trash = Tha “{$name}” air draibh às aonais sgudail
+blocked-trash-full = Chan eil rùm san sgudal airson “{$name}”
+delete-permanently-as-root = Sguab às gu buan mar rianaire
+deleted-for-good = {$more ->
+    [0] Air a sgur dheth, ach chaidh “{$name}” a sguabadh às gu buan mar-thà
+    [one] Air a sgur dheth, ach chaidh “{$name}” agus {$more} eile a sguabadh às gu buan mar-thà
+    [two] Air a sgur dheth, ach chaidh “{$name}” agus {$more} eile a sguabadh às gu buan mar-thà
+    [few] Air a sgur dheth, ach chaidh “{$name}” agus {$more} eile a sguabadh às gu buan mar-thà
+    *[other] Air a sgur dheth, ach chaidh “{$name}” agus {$more} eile a sguabadh às gu buan mar-thà
+  }
 progress-asking = ’na stad
 failed-path = “{$name}”: {$reason}
 reason-no-permission = gun chead

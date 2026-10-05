@@ -27,6 +27,14 @@ blocked-link = "{$name}" הוא קישור, והכונן הזה אינו יכו�
 blocked-link-fs = "{$name}" הוא קישור, והכונן הזה ({$fs}) אינו יכול להכיל קישורים
 blocked-too-big = "{$name}" גדול מדי עבור הכונן הזה ({$fs})
 blocked-bad-name = "{$name}" מכיל תווים שהכונן הזה ({$fs}) אינו יכול להכיל
+blocked-delete = אין לך הרשאה למחוק את "{$name}"
+blocked-no-trash = "{$name}" נמצא בכונן ללא פח אשפה
+blocked-trash-full = אין מקום בפח האשפה עבור "{$name}"
+delete-permanently-as-root = מחיקה לצמיתות כמנהל
+deleted-for-good = {$more ->
+    [0] בוטל, אך "{$name}" כבר נמחק לצמיתות
+    *[other] בוטל, אך "{$name}" ועוד {$more} כבר נמחקו לצמיתות
+  }
 progress-asking = מושהה
 failed-path = "{$name}": {$reason}
 reason-no-permission = אין הרשאה

@@ -57,6 +57,14 @@ blocked-link = "{$name}" ਇੱਕ ਲਿੰਕ ਹੈ, ਅਤੇ ਇਹ ਡਰ�
 blocked-link-fs = "{$name}" ਇੱਕ ਲਿੰਕ ਹੈ, ਅਤੇ ਇਹ ਡਰਾਇਵ ({$fs}) ਲਿੰਕ ਨਹੀਂ ਰੱਖ ਸਕਦੀ
 blocked-too-big = "{$name}" ਇਸ ਡਰਾਇਵ ({$fs}) ਲਈ ਬਹੁਤ ਵੱਡਾ ਹੈ
 blocked-bad-name = "{$name}" ਵਿੱਚ ਅਜਿਹੇ ਅੱਖਰ ਹਨ ਜੋ ਇਹ ਡਰਾਇਵ ({$fs}) ਨਹੀਂ ਰੱਖ ਸਕਦੀ
+blocked-delete = ਤੁਹਾਨੂੰ "{$name}" ਨੂੰ ਹਟਾਉਣ ਦੀ ਇਜਾਜ਼ਤ ਨਹੀਂ ਹੈ
+blocked-no-trash = "{$name}" ਅਜਿਹੀ ਡਰਾਈਵ ਉੱਤੇ ਹੈ ਜਿਸ ਵਿੱਚ ਰੱਦੀ ਨਹੀਂ ਹੈ
+blocked-trash-full = ਰੱਦੀ ਵਿੱਚ "{$name}" ਲਈ ਥਾਂ ਨਹੀਂ ਹੈ
+delete-permanently-as-root = ਪ੍ਰਬੰਧਕ ਵਜੋਂ ਪੱਕੇ ਤੌਰ ਉੱਤੇ ਹਟਾਓ
+deleted-for-good = {$more ->
+    [0] ਰੱਦ ਕੀਤਾ, ਪਰ "{$name}" ਪਹਿਲਾਂ ਹੀ ਪੱਕੇ ਤੌਰ ਉੱਤੇ ਹਟਾਇਆ ਜਾ ਚੁੱਕਾ ਹੈ
+    *[other] ਰੱਦ ਕੀਤਾ, ਪਰ "{$name}" ਅਤੇ {$more} ਹੋਰ ਪਹਿਲਾਂ ਹੀ ਪੱਕੇ ਤੌਰ ਉੱਤੇ ਹਟਾਏ ਜਾ ਚੁੱਕੇ ਹਨ
+  }
 progress-asking = ਵਿਰਾਮ ਹੈ
 failed-path = "{$name}": {$reason}
 reason-no-permission = ਇਜਾਜ਼ਤ ਨਹੀਂ ਹੈ

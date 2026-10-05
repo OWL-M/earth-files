@@ -93,6 +93,14 @@ blocked-link = „{$name}“ on link ja see ketas ei saa linke sisaldada
 blocked-link-fs = „{$name}“ on link ja see ketas ({$fs}) ei saa linke sisaldada
 blocked-too-big = „{$name}“ on selle ketta ({$fs}) jaoks liiga suur
 blocked-bad-name = „{$name}“ sisaldab märke, mida see ketas ({$fs}) ei saa hoida
+blocked-delete = Puudub luba kustutada „{$name}“
+blocked-no-trash = „{$name}“ asub kettal, millel pole prügikasti
+blocked-trash-full = Prügikastis pole „{$name}“ jaoks ruumi
+delete-permanently-as-root = Kustuta jäädavalt administraatorina
+deleted-for-good = {$more ->
+    [0] Katkestatud, kuid „{$name}“ on juba jäädavalt kustutatud
+    *[other] Katkestatud, kuid „{$name}“ ja veel {$more} on juba jäädavalt kustutatud
+  }
 progress-asking = peatatud
 failed-path = „{$name}“: {$reason}
 reason-no-permission = puudub õigus

@@ -25,6 +25,14 @@ blocked-link = “{$name}” is ein link, en deze sjijf kin gein links bewaare
 blocked-link-fs = “{$name}” is ein link, en deze sjijf ({$fs}) kin gein links bewaare
 blocked-too-big = “{$name}” is te groot veur deze sjijf ({$fs})
 blocked-bad-name = “{$name}” haet teikens die deze sjijf ({$fs}) neet kin bewaare
+blocked-delete = Doe höbs gein toestemming om “{$name}” te wisse
+blocked-no-trash = “{$name}” steit op ein drive zonder prullenbak
+blocked-trash-full = Gein ruumte in de prullenbak veur “{$name}”
+delete-permanently-as-root = Permanent wisse es beheerder
+deleted-for-good = {$more ->
+    [0] Geannuleerd, mer “{$name}” is al permanent gewis
+    *[other] Geannuleerd, mer “{$name}” en nog {$more} zeen al permanent gewis
+  }
 progress-asking = gepauzeerd
 failed-path = “{$name}”: {$reason}
 reason-no-permission = gein toestumming

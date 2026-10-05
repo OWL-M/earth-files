@@ -65,6 +65,14 @@ blocked-link = Το «{$name}» είναι σύνδεσμος και αυτή η
 blocked-link-fs = Το «{$name}» είναι σύνδεσμος και αυτή η μονάδα ({$fs}) δεν μπορεί να περιέχει συνδέσμους
 blocked-too-big = Το «{$name}» είναι πολύ μεγάλο για αυτή τη μονάδα ({$fs})
 blocked-bad-name = Το «{$name}» περιέχει χαρακτήρες που αυτή η μονάδα ({$fs}) δεν μπορεί να αποθηκεύσει
+blocked-delete = Δεν έχετε άδεια διαγραφής του «{$name}»
+blocked-no-trash = Το «{$name}» βρίσκεται σε μονάδα χωρίς απορρίμματα
+blocked-trash-full = Δεν υπάρχει χώρος στα απορρίμματα για το «{$name}»
+delete-permanently-as-root = Οριστική διαγραφή ως διαχειριστής
+deleted-for-good = {$more ->
+    [0] Ακυρώθηκε, αλλά το «{$name}» είχε ήδη διαγραφεί οριστικά
+    *[other] Ακυρώθηκε, αλλά το «{$name}» και {$more} ακόμη είχαν ήδη διαγραφεί οριστικά
+  }
 progress-asking = σε παύση
 failed-path = «{$name}»: {$reason}
 reason-no-permission = δεν υπάρχουν δικαιώματα

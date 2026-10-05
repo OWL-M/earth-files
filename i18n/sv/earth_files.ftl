@@ -156,6 +156,14 @@ blocked-link = "{$name}" är en länk, och den här enheten kan inte lagra länk
 blocked-link-fs = "{$name}" är en länk, och den här enheten ({$fs}) kan inte lagra länkar
 blocked-too-big = "{$name}" är för stor för den här enheten ({$fs})
 blocked-bad-name = "{$name}" innehåller tecken som den här enheten ({$fs}) inte kan lagra
+blocked-delete = Du har inte behörighet att ta bort "{$name}"
+blocked-no-trash = "{$name}" finns på en enhet utan papperskorg
+blocked-trash-full = Det finns inte plats i papperskorgen för "{$name}"
+delete-permanently-as-root = Ta bort permanent som administratör
+deleted-for-good = {$more ->
+    [0] Avbruten, men "{$name}" hade redan tagits bort permanent
+    *[other] Avbruten, men "{$name}" och {$more} till hade redan tagits bort permanent
+  }
 progress-asking = pausad
 failed-path = "{$name}": {$reason}
 reason-no-permission = behörighet saknas

@@ -64,6 +64,17 @@ blocked-link = „{$name}“ yra nuoroda, o ši kaupyklė negali saugoti nuorod�
 blocked-link-fs = „{$name}“ yra nuoroda, o ši kaupyklė ({$fs}) negali saugoti nuorodų
 blocked-too-big = „{$name}“ per didelis šiai kaupyklei ({$fs})
 blocked-bad-name = „{$name}“ turi simbolių, kurių ši kaupyklė ({$fs}) negali saugoti
+blocked-delete = Neturite leidimo ištrinti „{$name}“
+blocked-no-trash = „{$name}“ yra diske be šiukšlinės
+blocked-trash-full = Šiukšlinėje nėra vietos „{$name}“
+delete-permanently-as-root = Ištrinti visam laikui kaip administratorius
+deleted-for-good = {$more ->
+    [0] Atšaukta, bet „{$name}“ jau ištrintas visam laikui
+    [one] Atšaukta, bet „{$name}“ ir dar {$more} elementas jau ištrinti visam laikui
+    [few] Atšaukta, bet „{$name}“ ir dar {$more} elementai jau ištrinti visam laikui
+    [many] Atšaukta, bet „{$name}“ ir dar {$more} elemento jau ištrinti visam laikui
+    *[other] Atšaukta, bet „{$name}“ ir dar {$more} elementų jau ištrinti visam laikui
+  }
 progress-asking = pristabdyta
 failed-path = „{$name}“: {$reason}
 reason-no-permission = nėra leidimo

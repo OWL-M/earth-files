@@ -25,6 +25,14 @@ blocked-link = Ang "{$name}" ay isang link, at hindi kayang maglaman ng mga link
 blocked-link-fs = Ang "{$name}" ay isang link, at hindi kayang maglaman ng mga link ng drive na ito ({$fs})
 blocked-too-big = Masyadong malaki ang "{$name}" para sa drive na ito ({$fs})
 blocked-bad-name = May mga character ang "{$name}" na hindi kayang hawakan ng drive na ito ({$fs})
+blocked-delete = Wala kang pahintulot na burahin ang "{$name}"
+blocked-no-trash = Ang "{$name}" ay nasa drive na walang basurahan
+blocked-trash-full = Walang espasyo sa basurahan para sa "{$name}"
+delete-permanently-as-root = Burahin nang permanente bilang administrator
+deleted-for-good = {$more ->
+    [0] Kinansela, pero permanente nang nabura ang "{$name}"
+    *[other] Kinansela, pero permanente nang nabura ang "{$name}" at {$more} pa
+  }
 progress-asking = naka-pause
 failed-path = "{$name}": {$reason}
 reason-no-permission = walang pahintulot

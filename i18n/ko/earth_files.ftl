@@ -175,6 +175,14 @@ blocked-link = "{$name}"은(는) 링크이며, 이 드라이브는 링크를 저
 blocked-link-fs = "{$name}"은(는) 링크이며, 이 드라이브({$fs})는 링크를 저장할 수 없습니다
 blocked-too-big = "{$name}"은(는) 이 드라이브({$fs})에 비해 너무 큽니다
 blocked-bad-name = "{$name}"에 이 드라이브({$fs})가 저장할 수 없는 문자가 있습니다
+blocked-delete = "{$name}"을(를) 삭제할 권한이 없습니다
+blocked-no-trash = "{$name}"은(는) 휴지통이 없는 드라이브에 있습니다
+blocked-trash-full = 휴지통에 "{$name}"을(를) 넣을 공간이 없습니다
+delete-permanently-as-root = 관리자 권한으로 완전히 삭제
+deleted-for-good = {$more ->
+    [0] 취소되었지만 "{$name}"은(는) 이미 완전히 삭제되었습니다
+    *[other] 취소되었지만 "{$name}" 외 {$more}개는 이미 완전히 삭제되었습니다
+  }
 progress-asking = 정지됨
 failed-path = "{$name}": {$reason}
 reason-no-permission = 권한 없음

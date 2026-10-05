@@ -203,6 +203,14 @@ blocked-link = "{$name}" ಒಂದು ಲಿಂಕ್ ಆಗಿದೆ, ಮತ್
 blocked-link-fs = "{$name}" ಒಂದು ಲಿಂಕ್ ಆಗಿದೆ, ಮತ್ತು ಈ ಡ್ರೈವ್ ({$fs}) ಲಿಂಕ್‌ಗಳನ್ನು ಹೊಂದಲು ಸಾಧ್ಯವಿಲ್ಲ
 blocked-too-big = "{$name}" ಈ ಡ್ರೈವ್‌ಗೆ ({$fs}) ತುಂಬಾ ದೊಡ್ಡದಾಗಿದೆ
 blocked-bad-name = "{$name}" ನಲ್ಲಿ ಈ ಡ್ರೈವ್ ({$fs}) ಹೊಂದಲು ಸಾಧ್ಯವಿಲ್ಲದ ಅಕ್ಷರಗಳಿವೆ
+blocked-delete = "{$name}" ಅನ್ನು ಅಳಿಸಲು ನಿಮಗೆ ಅನುಮತಿ ಇಲ್ಲ
+blocked-no-trash = "{$name}" ಕಸದ ಬುಟ್ಟಿ ಇಲ್ಲದ ಡ್ರೈವ್‌ನಲ್ಲಿದೆ
+blocked-trash-full = "{$name}" ಗಾಗಿ ಕಸದಲ್ಲಿ ಜಾಗವಿಲ್ಲ
+delete-permanently-as-root = ನಿರ್ವಾಹಕರಾಗಿ ಶಾಶ್ವತವಾಗಿ ಅಳಿಸಿ
+deleted-for-good = {$more ->
+    [0] ರದ್ದುಗೊಳಿಸಲಾಗಿದೆ, ಆದರೆ "{$name}" ಅನ್ನು ಈಗಾಗಲೇ ಶಾಶ್ವತವಾಗಿ ಅಳಿಸಲಾಗಿದೆ
+    *[other] ರದ್ದುಗೊಳಿಸಲಾಗಿದೆ, ಆದರೆ "{$name}" ಮತ್ತು ಇನ್ನೂ {$more} ಅನ್ನು ಈಗಾಗಲೇ ಶಾಶ್ವತವಾಗಿ ಅಳಿಸಲಾಗಿದೆ
+  }
 progress-asking = ವಿರಾಮಗೊಳಿಸಲಾಗಿದೆ
 failed-path = "{$name}": {$reason}
 reason-no-permission = ಅನುಮತಿ ಇಲ್ಲ

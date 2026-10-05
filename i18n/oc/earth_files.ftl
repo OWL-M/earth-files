@@ -57,6 +57,14 @@ blocked-link = « {$name} » es un ligam, e aqueste disc pòt pas conténer de l
 blocked-link-fs = « {$name} » es un ligam, e aqueste disc ({$fs}) pòt pas conténer de ligams
 blocked-too-big = « {$name} » es tròp grand per aqueste disc ({$fs})
 blocked-bad-name = « {$name} » conten de caractèrs qu'aqueste disc ({$fs}) pòt pas conténer
+blocked-delete = Avètz pas l'autorizacion de suprimir « {$name} »
+blocked-no-trash = « {$name} » es sus un disc sens escobilha
+blocked-trash-full = I a pas pro d'espaci dins l'escobilha per « {$name} »
+delete-permanently-as-root = Suprimir definitivament coma administrator
+deleted-for-good = {$more ->
+    [0] Anullat, mas « {$name} » èra ja estat suprimit definitivament
+    *[other] Anullat, mas « {$name} » e {$more} de mai èran ja estats suprimits definitivament
+  }
 progress-asking = en pausa
 failed-path = « {$name} »: {$reason}
 reason-no-permission = pas d'autorizacion

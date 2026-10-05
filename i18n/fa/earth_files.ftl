@@ -61,6 +61,14 @@ blocked-link = «{$name}» یک پیوند است و این درایو نمی‌
 blocked-link-fs = «{$name}» یک پیوند است و این درایو ({$fs}) نمی‌تواند پیوند نگه دارد
 blocked-too-big = «{$name}» برای این درایو ({$fs}) بیش از حد بزرگ است
 blocked-bad-name = «{$name}» نویسه‌هایی دارد که این درایو ({$fs}) نمی‌تواند نگه دارد
+blocked-delete = شما اجازهٔ حذف «{$name}» را ندارید
+blocked-no-trash = «{$name}» روی درایوی بدون زباله‌دان است
+blocked-trash-full = برای «{$name}» در زباله‌دان جا نیست
+delete-permanently-as-root = حذف دائمی به‌عنوان مدیر
+deleted-for-good = {$more ->
+    [0] لغو شد، اما «{$name}» پیش‌تر برای همیشه حذف شده بود
+    *[other] لغو شد، اما «{$name}» و {$more} مورد دیگر پیش‌تر برای همیشه حذف شده بودند
+  }
 progress-asking = متوقف شد
 failed-path = «{$name}»: {$reason}
 reason-no-permission = مجوز ندارید

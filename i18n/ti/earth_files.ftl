@@ -25,6 +25,14 @@ blocked-link = "{$name}" መላግቦ እዩ፣ እዚ ድራይቭ መላግቦ
 blocked-link-fs = "{$name}" መላግቦ እዩ፣ እዚ ድራይቭ ({$fs}) መላግቦታት ክሕዝ ኣይክእልን
 blocked-too-big = "{$name}" ነዚ ድራይቭ ({$fs}) ኣዝዩ ዓቢ እዩ
 blocked-bad-name = "{$name}" እዚ ድራይቭ ({$fs}) ክሕዞም ዘይክእል ፊደላት ኣለዎ
+blocked-delete = ነቲ "{$name}" ንምድምሳስ ፍቓድ የብልካን
+blocked-no-trash = "{$name}" ቆሻሻ ዘይብሉ ድራይቭ ኣሎ
+blocked-trash-full = ንናይ "{$name}" ኣብ ቆሻሻ ቦታ የለን
+delete-permanently-as-root = ከም ኣመሓዳሪ ንዘልኣለም ደምስስ
+deleted-for-good = {$more ->
+    [0] ተሰሪዙ፣ ግን "{$name}" ኣቐዲሙ ንዘልኣለም ተደምሲሱ
+    *[other] ተሰሪዙ፣ ግን "{$name}" ከምኡውን {$more} ተወሰኽቲ ኣቐዲሞም ንዘልኣለም ተደምሲሶም
+  }
 progress-asking = ደው ኢሉ
 failed-path = "{$name}": {$reason}
 reason-no-permission = ፍቓድ የለን

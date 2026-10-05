@@ -64,6 +64,14 @@ blocked-link = « {$name} » est un lien, et ce lecteur ne peut pas contenir d
 blocked-link-fs = « {$name} » est un lien, et ce lecteur ({$fs}) ne peut pas contenir de liens
 blocked-too-big = « {$name} » est trop volumineux pour ce lecteur ({$fs})
 blocked-bad-name = « {$name} » contient des caractères que ce lecteur ({$fs}) ne peut pas accepter
+blocked-delete = Vous n'avez pas l'autorisation de supprimer « {$name} »
+blocked-no-trash = « {$name} » se trouve sur un disque sans corbeille
+blocked-trash-full = Il n'y a pas assez de place dans la corbeille pour « {$name} »
+delete-permanently-as-root = Supprimer définitivement en tant qu'administrateur
+deleted-for-good = {$more ->
+    [0] Annulé, mais « {$name} » avait déjà été supprimé définitivement
+    *[other] Annulé, mais « {$name} » et {$more} de plus avaient déjà été supprimés définitivement
+  }
 progress-asking = en pause
 failed-path = « {$name} » : {$reason}
 reason-no-permission = permission refusée

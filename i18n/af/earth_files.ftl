@@ -69,6 +69,14 @@ blocked-link = "{$name}" is 'n skakel, en hierdie skyf kan nie skakels hou nie
 blocked-link-fs = "{$name}" is 'n skakel, en hierdie skyf ({$fs}) kan nie skakels hou nie
 blocked-too-big = "{$name}" is te groot vir hierdie skyf ({$fs})
 blocked-bad-name = "{$name}" het karakters wat hierdie skyf ({$fs}) nie kan hou nie
+blocked-delete = Jy het nie toestemming om "{$name}" uit te vee nie
+blocked-no-trash = "{$name}" is op 'n stasie sonder 'n asblik
+blocked-trash-full = Daar is nie plek in die asblik vir "{$name}" nie
+delete-permanently-as-root = Vee permanent uit as administrateur
+deleted-for-good = {$more ->
+    [0] Gekanselleer, maar "{$name}" is reeds vir goed uitgevee
+    *[other] Gekanselleer, maar "{$name}" en nog {$more} is reeds vir goed uitgevee
+  }
 progress-asking = onderbreek
 failed-path = "{$name}": {$reason}
 reason-no-permission = geen toestemming

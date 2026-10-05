@@ -35,6 +35,14 @@ blocked-link = “{$name}” is in keppeling, en dit stasjon kin gjin keppelinge
 blocked-link-fs = “{$name}” is in keppeling, en dit stasjon ({$fs}) kin gjin keppelingen befetsje
 blocked-too-big = “{$name}” is te grut foar dit stasjon ({$fs})
 blocked-bad-name = “{$name}” befettet tekens dy't dit stasjon ({$fs}) net bewarje kin
+blocked-delete = Jo hawwe gjin tastimming om “{$name}” fuort te smiten
+blocked-no-trash = “{$name}” stiet op in skiif sûnder jiskefet
+blocked-trash-full = Der is gjin romte yn it jiskefet foar “{$name}”
+delete-permanently-as-root = Foar altyd fuortsmite as behearder
+deleted-for-good = {$more ->
+    [0] Annulearre, mar “{$name}” wie al foar altyd fuortsmiten
+    *[other] Annulearre, mar “{$name}” en noch {$more} wiene al foar altyd fuortsmiten
+  }
 progress-asking = pauzearre
 failed-path = “{$name}”: {$reason}
 reason-no-permission = gjin tastimming

@@ -61,6 +61,14 @@ blocked-link = Is nasc é "{$name}", agus ní féidir naisc a stóráil ar an ti
 blocked-link-fs = Is nasc é "{$name}", agus ní féidir naisc a stóráil ar an tiomántán seo ({$fs})
 blocked-too-big = Tá "{$name}" rómhór don tiomántán seo ({$fs})
 blocked-bad-name = Tá carachtair in "{$name}" nach féidir leis an tiomántán seo ({$fs}) a choinneáil
+blocked-delete = Níl cead agat "{$name}" a scriosadh
+blocked-no-trash = Tá "{$name}" ar thiomántán gan bruscar
+blocked-trash-full = Níl spás sa bhruscar do "{$name}"
+delete-permanently-as-root = Scrios go buan mar riarthóir
+deleted-for-good = {$more ->
+    [0] Cealaithe, ach scriosadh "{$name}" go buan cheana féin
+    *[other] Cealaithe, ach scriosadh "{$name}" agus {$more} eile go buan cheana féin
+  }
 progress-asking = curtha ar shos
 failed-path = "{$name}": {$reason}
 reason-no-permission = gan chead

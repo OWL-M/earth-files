@@ -64,6 +64,14 @@ blocked-link = „{$name}“ е връзка, а това устройство �
 blocked-link-fs = „{$name}“ е връзка, а това устройство ({$fs}) не може да съдържа връзки
 blocked-too-big = „{$name}“ е твърде голям за това устройство ({$fs})
 blocked-bad-name = „{$name}“ съдържа знаци, които това устройство ({$fs}) не може да съхрани
+blocked-delete = Нямате разрешение да изтриете „{$name}“
+blocked-no-trash = „{$name}“ е на устройство без кошче
+blocked-trash-full = Няма място в кошчето за „{$name}“
+delete-permanently-as-root = Изтриване завинаги като администратор
+deleted-for-good = {$more ->
+    [0] Отменена, но „{$name}“ вече е изтрит завинаги
+    *[other] Отменена, но „{$name}“ и още {$more} вече са изтрити завинаги
+  }
 progress-asking = на пауза
 failed-path = „{$name}“: {$reason}
 reason-no-permission = няма права

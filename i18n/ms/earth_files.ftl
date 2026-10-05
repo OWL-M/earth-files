@@ -25,6 +25,14 @@ blocked-link = "{$name}" ialah pautan, dan pemacu ini tidak dapat menyimpan paut
 blocked-link-fs = "{$name}" ialah pautan, dan pemacu ini ({$fs}) tidak dapat menyimpan pautan
 blocked-too-big = "{$name}" terlalu besar untuk pemacu ini ({$fs})
 blocked-bad-name = "{$name}" mempunyai aksara yang tidak dapat disimpan oleh pemacu ini ({$fs})
+blocked-delete = Anda tiada kebenaran untuk memadam "{$name}"
+blocked-no-trash = "{$name}" berada pada pemacu tanpa tong sampah
+blocked-trash-full = Tiada ruang dalam tong sampah untuk "{$name}"
+delete-permanently-as-root = Padam secara kekal sebagai pentadbir
+deleted-for-good = {$more ->
+    [0] Dibatalkan, tetapi "{$name}" sudah dipadam secara kekal
+    *[other] Dibatalkan, tetapi "{$name}" dan {$more} lagi sudah dipadam secara kekal
+  }
 progress-asking = dijeda
 failed-path = "{$name}": {$reason}
 reason-no-permission = tiada kebenaran

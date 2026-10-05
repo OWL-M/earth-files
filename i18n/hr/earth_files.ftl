@@ -25,6 +25,16 @@ blocked-link = „{$name}” je poveznica, a ovaj pogon ne može sadržavati pov
 blocked-link-fs = „{$name}” je poveznica, a ovaj pogon ({$fs}) ne može sadržavati poveznice
 blocked-too-big = „{$name}” je prevelik za ovaj pogon ({$fs})
 blocked-bad-name = „{$name}” sadrži znakove koje ovaj pogon ({$fs}) ne može pohraniti
+blocked-delete = Nemate dopuštenje za brisanje stavke „{$name}”
+blocked-no-trash = Stavka „{$name}” nalazi se na pogonu bez koša za smeće
+blocked-trash-full = U košu za smeće nema mjesta za stavku „{$name}”
+delete-permanently-as-root = Izbriši trajno kao administrator
+deleted-for-good = {$more ->
+    [0] Otkazano, ali je stavka „{$name}” već trajno izbrisana
+    [one] Otkazano, ali su stavka „{$name}” i još {$more} stavka već trajno izbrisane
+    [few] Otkazano, ali su stavka „{$name}” i još {$more} stavke već trajno izbrisane
+    *[other] Otkazano, ali su stavka „{$name}” i još {$more} stavki već trajno izbrisane
+  }
 progress-asking = pauzirano
 failed-path = „{$name}”: {$reason}
 reason-no-permission = nema dozvole

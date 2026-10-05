@@ -251,6 +251,14 @@ blocked-link = "{$name}" girêdanek e, û ev ajoker nikare girêdanan bihewîne
 blocked-link-fs = "{$name}" girêdanek e, û ev ajoker ({$fs}) nikare girêdanan bihewîne
 blocked-too-big = "{$name}" ji bo vî ajokerî ({$fs}) pir mezin e
 blocked-bad-name = Di "{$name}" de tîpên ku ev ajoker ({$fs}) nikare bihewîne hene
+blocked-delete = Mafê te yê jêbirina "{$name}" tune
+blocked-no-trash = "{$name}" li ser ajokerekî bê jêbirdank e
+blocked-trash-full = Di jêbirdankê de ji bo "{$name}" cih tune
+delete-permanently-as-root = Wekî rêveber bi mayînde jê bibe
+deleted-for-good = {$more ->
+    [0] Têkbirî, lê "{$name}" berê bi mayînde hat jêbirin
+    *[other] Têkbirî, lê "{$name}" û {$more} yên din berê bi mayînde hatin jêbirin
+  }
 progress-asking = hate rawestandin
 failed-path = "{$name}": {$reason}
 reason-no-permission = maf tune

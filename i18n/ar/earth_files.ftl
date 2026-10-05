@@ -190,6 +190,17 @@ blocked-link = «{$name}» رابط، وهذا القرص لا يدعم الرو
 blocked-link-fs = «{$name}» رابط، وهذا القرص ({$fs}) لا يدعم الروابط
 blocked-too-big = «{$name}» كبير جدًا على هذا القرص ({$fs})
 blocked-bad-name = «{$name}» يحتوي على أحرف لا يدعمها هذا القرص ({$fs})
+blocked-delete = ليس لديك إذن لحذف «{$name}»
+blocked-no-trash = «{$name}» موجود على محرك أقراص بلا سلة مهملات
+blocked-trash-full = لا توجد مساحة كافية في المهملات لـ«{$name}»
+delete-permanently-as-root = احذف نهائيًا كمدير
+deleted-for-good = {$more ->
+    [0] أُلغِيَ، لكن «{$name}» حُذف نهائيًا بالفعل
+    [two] أُلغِيَ، لكن «{$name}» و{$more} أخرى حُذفت نهائيًا بالفعل
+    [few] أُلغِيَ، لكن «{$name}» و{$more} أخرى حُذفت نهائيًا بالفعل
+    [many] أُلغِيَ، لكن «{$name}» و{$more} أخرى حُذفت نهائيًا بالفعل
+    *[other] أُلغِيَ، لكن «{$name}» و{$more} أخرى حُذفت نهائيًا بالفعل
+  }
 progress-asking = أُلبِث
 failed-path = «{$name}»: {$reason}
 reason-no-permission = لا توجد أذونات

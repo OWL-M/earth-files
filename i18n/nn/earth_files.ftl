@@ -36,6 +36,14 @@ blocked-link = «{$name}» er ei lenkje, og denne disken kan ikkje lagra lenkjer
 blocked-link-fs = «{$name}» er ei lenkje, og denne disken ({$fs}) kan ikkje lagra lenkjer
 blocked-too-big = «{$name}» er for stor for denne disken ({$fs})
 blocked-bad-name = «{$name}» har teikn som denne disken ({$fs}) ikkje kan lagra
+blocked-delete = Du har ikkje løyve til å slette «{$name}»
+blocked-no-trash = «{$name}» ligg på ein stasjon utan papirkorg
+blocked-trash-full = Det er ikkje plass i papirkorga til «{$name}»
+delete-permanently-as-root = Slett permanent som administrator
+deleted-for-good = {$more ->
+    [0] Avbrote, men «{$name}» var allereie sletta permanent
+    *[other] Avbrote, men «{$name}» og {$more} til var allereie sletta permanent
+  }
 progress-asking = sett på pause
 failed-path = «{$name}»: {$reason}
 reason-no-permission = manglar løyve

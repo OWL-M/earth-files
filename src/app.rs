@@ -2927,8 +2927,11 @@ impl App {
         if question.ask.abort {
             notification.action(NOTICE_ABORT, &fl!("abort"));
         }
+        if question.ask.permanently {
+            notification.action(NOTICE_PERMANENTLY, &fl!("delete-permanently"));
+        }
         if let Some(again) = question.ask.root {
-            notification.action(NOTICE_ROOT, &root_label(again));
+            notification.action(NOTICE_ROOT, &root_label(&question.blocked, again));
         }
         let notification = notification
             .action(NOTICE_CANCEL, &fl!("cancel"))
@@ -3352,9 +3355,16 @@ impl App {
             );
         // Beside it: root, Retry when Skip is the default, Abort
         let mut others: Vec<Element<'_, Message>> = Vec::new();
+        if question.ask.permanently {
+            others.push(
+                widget::button::standard(fl!("delete-permanently"))
+                    .on_press_maybe(answer(BlockedAnswer::Permanently(same_for_rest)))
+                    .into(),
+            );
+        }
         if let Some(again) = question.ask.root {
             others.push(
-                widget::button::standard(root_label(again))
+                widget::button::standard(root_label(&question.blocked, again))
                     .on_press_maybe(answer(BlockedAnswer::RetryAsRoot(same_for_rest)))
                     .into(),
             );
@@ -5958,6 +5968,10 @@ impl Application for App {
             Message::PermanentlyDelete(entity_opt) => {
                 let paths: Box<[_]> = self.selected_paths(entity_opt).collect();
                 if !paths.is_empty() {
+                    // Asked first, unless the user said never to
+                    if self.config.delete_i_am_stupid {
+                        return self.operation(Operation::PermanentlyDelete { paths });
+                    }
                     return self.push_dialog(
                         DialogPage::PermanentlyDelete { paths },
                         Some(PERMANENT_DELETE_BUTTON_ID.clone()),
@@ -8918,6 +8932,9 @@ fn question_text(blocked: &Blocked) -> (String, String) {
             fl!("blocked-bad-name", name = name, fs = fs.to_string()),
             fl!("skip"),
         ),
+        Blocked::Delete(_) => (fl!("blocked-delete", name = name), fl!("skip")),
+        Blocked::NoTrash(_) => (fl!("blocked-no-trash", name = name), fl!("skip")),
+        Blocked::TrashFull(_) => (fl!("blocked-trash-full", name = name), fl!("skip")),
     }
 }
 
@@ -8946,9 +8963,12 @@ fn question_detail(blocked: &Blocked) -> Option<String> {
 }
 
 /// What the root button says: asking for the password the first time,
-/// using what was granted after.
-fn root_label(again: bool) -> String {
-    if again {
+/// using what was granted after. Deleting with root is always for good, and
+/// says so.
+fn root_label(blocked: &Blocked, again: bool) -> String {
+    if matches!(blocked, Blocked::Delete(_)) {
+        fl!("delete-permanently-as-root")
+    } else if again {
         fl!("use-root-again")
     } else {
         fl!("retry-as-root")
@@ -8966,6 +8986,8 @@ const NOTICE_ABORT: &str = "abort";
 const NOTICE_ROOT: &str = "root";
 #[cfg(feature = "notify")]
 const NOTICE_CANCEL: &str = "cancel";
+#[cfg(feature = "notify")]
+const NOTICE_PERMANENTLY: &str = "permanently";
 
 /// The answer a question's notification action stands for; none for a
 /// click on the notification itself or its closing.
@@ -8977,6 +8999,7 @@ fn notice_answer(action: &str) -> Option<BlockedAnswer> {
         NOTICE_ABORT => Some(BlockedAnswer::Abort),
         NOTICE_ROOT => Some(BlockedAnswer::RetryAsRoot(false)),
         NOTICE_CANCEL => Some(BlockedAnswer::Cancel),
+        NOTICE_PERMANENTLY => Some(BlockedAnswer::Permanently(false)),
         _ => None,
     }
 }
@@ -9105,6 +9128,7 @@ mod tests {
                 not_granted: false,
                 skip: true,
                 abort: false,
+                permanently: false,
             },
             item: None,
         };

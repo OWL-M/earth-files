@@ -63,6 +63,14 @@ blocked-link = „{$name}” egy hivatkozás, és ez a meghajtó nem tud hivatko
 blocked-link-fs = „{$name}” egy hivatkozás, és ez a meghajtó ({$fs}) nem tud hivatkozásokat tárolni
 blocked-too-big = „{$name}” túl nagy ehhez a meghajtóhoz ({$fs})
 blocked-bad-name = „{$name}” olyan karaktereket tartalmaz, amelyeket ez a meghajtó ({$fs}) nem tud tárolni
+blocked-delete = Nincs jogosultsága törölni: „{$name}”
+blocked-no-trash = „{$name}” kuka nélküli meghajtón van
+blocked-trash-full = Nincs elég hely a kukában ehhez: „{$name}”
+delete-permanently-as-root = Végleges törlés rendszergazdaként
+deleted-for-good = {$more ->
+    [0] Megszakítva, de „{$name}” már véglegesen törölve lett
+    *[other] Megszakítva, de „{$name}” és még {$more} elem már véglegesen törölve lett
+  }
 progress-asking = szüneteltetve
 failed-path = „{$name}”: {$reason}
 reason-no-permission = nincs jogosultság

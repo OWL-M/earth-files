@@ -27,6 +27,14 @@ blocked-link = "{$name}" estas ligilo, kaj ĉi tiu disko ne povas enhavi ligiloj
 blocked-link-fs = "{$name}" estas ligilo, kaj ĉi tiu disko ({$fs}) ne povas enhavi ligilojn
 blocked-too-big = "{$name}" estas tro granda por ĉi tiu disko ({$fs})
 blocked-bad-name = "{$name}" havas signojn, kiujn ĉi tiu disko ({$fs}) ne povas enhavi
+blocked-delete = Vi ne havas permeson forigi "{$name}"
+blocked-no-trash = "{$name}" estas sur disko sen rubujo
+blocked-trash-full = Ne estas spaco en la rubujo por "{$name}"
+delete-permanently-as-root = Forigi porĉiame kiel administranto
+deleted-for-good = {$more ->
+    [0] Nuligita, sed "{$name}" jam estis porĉiame forigita
+    *[other] Nuligita, sed "{$name}" kaj {$more} pliaj jam estis porĉiame forigitaj
+  }
 progress-asking = paŭzigita
 failed-path = "{$name}": {$reason}
 reason-no-permission = mankas permeso

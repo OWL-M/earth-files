@@ -64,6 +64,14 @@ blocked-link = “{$name}” is een link, en deze schijf kan geen links bevatten
 blocked-link-fs = “{$name}” is een link, en deze schijf ({$fs}) kan geen links bevatten
 blocked-too-big = “{$name}” is te groot voor deze schijf ({$fs})
 blocked-bad-name = “{$name}” bevat tekens die deze schijf ({$fs}) niet kan opslaan
+blocked-delete = Je hebt geen toestemming om “{$name}” te verwijderen
+blocked-no-trash = “{$name}” staat op een schijf zonder prullenbak
+blocked-trash-full = Er is geen ruimte in de prullenbak voor “{$name}”
+delete-permanently-as-root = Permanent verwijderen als beheerder
+deleted-for-good = {$more ->
+    [0] Geannuleerd, maar “{$name}” was al permanent verwijderd
+    *[other] Geannuleerd, maar “{$name}” en nog {$more} waren al permanent verwijderd
+  }
 progress-asking = gepauzeerd
 failed-path = “{$name}”: {$reason}
 reason-no-permission = geen rechten

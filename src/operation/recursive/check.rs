@@ -423,21 +423,8 @@ pub(crate) fn check_listed(
 pub(crate) fn walks_in_parallel(path: &Path) -> bool {
     use std::os::unix::fs::MetadataExt;
 
-    // From `linux/magic.h`: filesystems whose data is somewhere else
-    const REMOTE: [i64; 9] = [
-        0x6969,      // NFS
-        0x517b,      // SMB
-        0xff53_4d42, // CIFS
-        0xfe53_4d42, // SMB2
-        0x6573_5546, // FUSE, which gvfs and sshfs are
-        0x5346_414f, // AFS
-        0x00c3_6400, // Ceph
-        0x7375_7245, // Coda
-        0x0102_1997, // 9P
-    ];
-    match crate::operation::filesystem_magic(path) {
-        Some(magic) if !REMOTE.contains(&magic) => {}
-        _ => return false,
+    if is_remote(path) {
+        return false;
     }
     let Ok(meta) = fs::metadata(path) else {
         return false;
@@ -453,6 +440,26 @@ pub(crate) fn walks_in_parallel(path: &Path) -> bool {
             rotational(&Path::new("/sys/class/block").join(name.file_name()?))
         })
         .is_some_and(|rotational| !rotational)
+}
+
+/// Whether `path` is on a filesystem whose data is somewhere else: a
+/// network or FUSE one, or one `statfs` cannot tell.
+///
+/// Blocking: it asks the filesystem.
+pub(crate) fn is_remote(path: &Path) -> bool {
+    // From `linux/magic.h`
+    const REMOTE: [i64; 9] = [
+        0x6969,      // NFS
+        0x517b,      // SMB
+        0xff53_4d42, // CIFS
+        0xfe53_4d42, // SMB2
+        0x6573_5546, // FUSE, which gvfs and sshfs are
+        0x5346_414f, // AFS
+        0x00c3_6400, // Ceph
+        0x7375_7245, // Coda
+        0x0102_1997, // 9P
+    ];
+    crate::operation::filesystem_magic(path).is_none_or(|magic| REMOTE.contains(&magic))
 }
 
 /// Whether the block device at `dev` in `/sys` spins, asking its disk when

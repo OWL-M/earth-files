@@ -61,6 +61,14 @@ blocked-link = “{$name}”是链接，而此驱动器无法存放链接
 blocked-link-fs = “{$name}”是链接，而此驱动器（{$fs}）无法存放链接
 blocked-too-big = “{$name}”太大，此驱动器（{$fs}）无法存放
 blocked-bad-name = “{$name}”包含此驱动器（{$fs}）无法存放的字符
+blocked-delete = 你没有删除“{$name}”的权限
+blocked-no-trash = “{$name}”所在的驱动器没有回收站
+blocked-trash-full = 回收站中没有足够空间存放“{$name}”
+delete-permanently-as-root = 以管理员身份永久删除
+deleted-for-good = {$more ->
+    [0] 已取消，但“{$name}”已被永久删除
+    *[other] 已取消，但“{$name}”及另外 {$more} 项已被永久删除
+  }
 progress-asking = 已暂停
 failed-path = “{$name}”：{$reason}
 reason-no-permission = 没有权限

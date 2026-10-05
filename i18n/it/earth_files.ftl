@@ -63,6 +63,14 @@ blocked-link = «{$name}» è un collegamento e questo dispositivo non può cont
 blocked-link-fs = «{$name}» è un collegamento e questo dispositivo ({$fs}) non può contenere collegamenti
 blocked-too-big = «{$name}» è troppo grande per questo dispositivo ({$fs})
 blocked-bad-name = «{$name}» contiene caratteri che questo dispositivo ({$fs}) non può contenere
+blocked-delete = Non hai il permesso di eliminare «{$name}»
+blocked-no-trash = «{$name}» si trova su un disco senza cestino
+blocked-trash-full = Non c'è spazio nel cestino per «{$name}»
+delete-permanently-as-root = Elimina definitivamente come amministratore
+deleted-for-good = {$more ->
+    [0] Annullato, ma «{$name}» era già stato eliminato definitivamente
+    *[other] Annullato, ma «{$name}» e altri {$more} erano già stati eliminati definitivamente
+  }
 progress-asking = in pausa
 failed-path = «{$name}»: {$reason}
 reason-no-permission = permesso negato

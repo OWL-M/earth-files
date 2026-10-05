@@ -68,6 +68,17 @@ blocked-link = „{$name}” jest dowiązaniem, a ten dysk nie obsługuje dowią
 blocked-link-fs = „{$name}” jest dowiązaniem, a ten dysk ({$fs}) nie obsługuje dowiązań
 blocked-too-big = „{$name}” jest za duży dla tego dysku ({$fs})
 blocked-bad-name = „{$name}” zawiera znaki, których ten dysk ({$fs}) nie obsługuje
+blocked-delete = Nie masz uprawnień do usunięcia „{$name}”
+blocked-no-trash = „{$name}” znajduje się na dysku bez kosza
+blocked-trash-full = W koszu nie ma miejsca na „{$name}”
+delete-permanently-as-root = Usuń definitywnie jako administrator
+deleted-for-good = {$more ->
+    [0] Anulowano, ale „{$name}” zostało już definitywnie usunięte
+    [one] Anulowano, ale „{$name}” oraz {$more} inny element zostały już definitywnie usunięte
+    [few] Anulowano, ale „{$name}” oraz {$more} inne elementy zostały już definitywnie usunięte
+    [many] Anulowano, ale „{$name}” oraz {$more} innych elementów zostało już definitywnie usuniętych
+    *[other] Anulowano, ale „{$name}” oraz {$more} innych elementów zostało już definitywnie usuniętych
+  }
 progress-asking = wstrzymano
 failed-path = „{$name}”: {$reason}
 reason-no-permission = brak uprawnień

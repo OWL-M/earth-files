@@ -345,6 +345,14 @@ blocked-link = 「{$name}」是連結，而此磁碟機無法存放連結
 blocked-link-fs = 「{$name}」是連結，而此磁碟機（{$fs}）無法存放連結
 blocked-too-big = 「{$name}」太大，此磁碟機（{$fs}）無法存放
 blocked-bad-name = 「{$name}」包含此磁碟機（{$fs}）無法存放的字元
+blocked-delete = 您沒有刪除「{$name}」的權限
+blocked-no-trash = 「{$name}」所在的磁碟機沒有垃圾桶
+blocked-trash-full = 垃圾桶中沒有足夠空間存放「{$name}」
+delete-permanently-as-root = 以管理員身分永久刪除
+deleted-for-good = {$more ->
+    [0] 已取消，但「{$name}」已被永久刪除
+    *[other] 已取消，但「{$name}」及另外 {$more} 項已被永久刪除
+  }
 progress-asking = 已經暫停
 failed-path = 「{$name}」：{$reason}
 reason-no-permission = 沒有權限

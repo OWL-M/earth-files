@@ -58,6 +58,14 @@ blocked-link = "{$name}" adalah tautan, dan drive ini tidak dapat menyimpan taut
 blocked-link-fs = "{$name}" adalah tautan, dan drive ini ({$fs}) tidak dapat menyimpan tautan
 blocked-too-big = "{$name}" terlalu besar untuk drive ini ({$fs})
 blocked-bad-name = "{$name}" berisi karakter yang tidak dapat disimpan drive ini ({$fs})
+blocked-delete = Anda tidak memiliki izin untuk menghapus "{$name}"
+blocked-no-trash = "{$name}" berada di drive tanpa tempat sampah
+blocked-trash-full = Tidak ada ruang di tempat sampah untuk "{$name}"
+delete-permanently-as-root = Hapus secara permanen sebagai administrator
+deleted-for-good = {$more ->
+    [0] Dibatalkan, tetapi "{$name}" sudah dihapus secara permanen
+    *[other] Dibatalkan, tetapi "{$name}" dan {$more} lainnya sudah dihapus secara permanen
+  }
 progress-asking = dijeda
 failed-path = "{$name}": {$reason}
 reason-no-permission = tidak ada izin

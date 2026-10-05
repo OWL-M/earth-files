@@ -64,6 +64,14 @@ blocked-link = «{$name}» és un enllaç, i aquesta unitat no pot contenir enll
 blocked-link-fs = «{$name}» és un enllaç, i aquesta unitat ({$fs}) no pot contenir enllaços
 blocked-too-big = «{$name}» és massa gran per a aquesta unitat ({$fs})
 blocked-bad-name = «{$name}» té caràcters que aquesta unitat ({$fs}) no pot contenir
+blocked-delete = No tens permís per suprimir «{$name}»
+blocked-no-trash = «{$name}» és en una unitat sense paperera
+blocked-trash-full = No hi ha espai a la paperera per a «{$name}»
+delete-permanently-as-root = Suprimeix permanentment com a administrador
+deleted-for-good = {$more ->
+    [0] Cancel·lat, però «{$name}» ja s'ha suprimit definitivament
+    *[other] Cancel·lat, però «{$name}» i {$more} més ja s'han suprimit definitivament
+  }
 progress-asking = en pausa
 failed-path = «{$name}»: {$reason}
 reason-no-permission = sense permís

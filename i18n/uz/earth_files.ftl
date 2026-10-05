@@ -25,6 +25,14 @@ blocked-link = “{$name}” havola, bu disk esa havolalarni saqlay olmaydi
 blocked-link-fs = “{$name}” havola, bu disk ({$fs}) esa havolalarni saqlay olmaydi
 blocked-too-big = “{$name}” bu disk ({$fs}) uchun juda katta
 blocked-bad-name = “{$name}” nomida bu disk ({$fs}) saqlay olmaydigan belgilar bor
+blocked-delete = “{$name}”ni o‘chirishga ruxsatingiz yo‘q
+blocked-no-trash = “{$name}” axlat qutisi bo‘lmagan diskda joylashgan
+blocked-trash-full = Axlat qutisida “{$name}” uchun joy yo‘q
+delete-permanently-as-root = Administrator sifatida butunlay o‘chirish
+deleted-for-good = {$more ->
+    [0] Bekor qilindi, lekin “{$name}” allaqachon butunlay o‘chirilgan
+    *[other] Bekor qilindi, lekin “{$name}” va yana {$more} ta element allaqachon butunlay o‘chirilgan
+  }
 progress-asking = to‘xtatib qo‘yilgan
 failed-path = “{$name}”: {$reason}
 reason-no-permission = ruxsat yo‘q

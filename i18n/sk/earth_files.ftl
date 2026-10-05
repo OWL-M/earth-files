@@ -71,6 +71,15 @@ blocked-link = „{$name}“ je odkaz a tento disk nedokáže uchovávať odkazy
 blocked-link-fs = „{$name}“ je odkaz a tento disk ({$fs}) nedokáže uchovávať odkazy
 blocked-too-big = Položka „{$name}“ je pre tento disk ({$fs}) príliš veľká
 blocked-bad-name = Položka „{$name}“ obsahuje znaky, ktoré tento disk ({$fs}) nedokáže uložiť
+blocked-delete = Nemáte oprávnenie odstrániť položku „{$name}“
+blocked-no-trash = Položka „{$name}“ je na jednotke bez koša
+blocked-trash-full = V koši nie je miesto pre položku „{$name}“
+delete-permanently-as-root = Trvalo odstrániť ako správca
+deleted-for-good = {$more ->
+    [0] Zrušené, ale položka „{$name}“ už bola natrvalo odstránená
+    [few] Zrušené, ale položka „{$name}“ a ešte {$more} ďalšie už boli natrvalo odstránené
+    *[other] Zrušené, ale položka „{$name}“ a ešte {$more} ďalších už bolo natrvalo odstránených
+  }
 progress-asking = pozastavené
 failed-path = „{$name}“: {$reason}
 reason-no-permission = chýba oprávnenie

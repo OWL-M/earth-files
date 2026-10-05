@@ -25,6 +25,14 @@ blocked-link = "{$name}" ເປັນລິ້ງ, ແລະ ໄດຣຟ໌ນ�
 blocked-link-fs = "{$name}" ເປັນລິ້ງ, ແລະ ໄດຣຟ໌ນີ້ ({$fs}) ບໍ່ສາມາດເກັບລິ້ງໄດ້
 blocked-too-big = "{$name}" ໃຫຍ່ເກີນໄປສຳລັບໄດຣຟ໌ນີ້ ({$fs})
 blocked-bad-name = "{$name}" ມີຕົວອັກສອນທີ່ໄດຣຟ໌ນີ້ ({$fs}) ບໍ່ສາມາດເກັບໄດ້
+blocked-delete = ທ່ານບໍ່ມີສິດລຶບ "{$name}"
+blocked-no-trash = "{$name}" ຢູ່ໃນໄດຣຟ໌ທີ່ບໍ່ມີຖັງຂີ້ເຫຍື້ອ
+blocked-trash-full = ບໍ່ມີບ່ອນຫວ່າງໃນຖັງຂີ້ເຫຍື້ອສຳລັບ "{$name}"
+delete-permanently-as-root = ລຶບຖາວອນໃນຖານະຜູ້ເບິ່ງແຍງລະບົບ
+deleted-for-good = {$more ->
+    [0] ຍົກເລີກແລ້ວ ແຕ່ "{$name}" ຖືກລຶບຖາວອນໄປແລ້ວ
+    *[other] ຍົກເລີກແລ້ວ ແຕ່ "{$name}" ແລະ ອີກ {$more} ລາຍການຖືກລຶບຖາວອນໄປແລ້ວ
+  }
 progress-asking = ຢຸດຊົ່ວຄາວ
 failed-path = "{$name}": {$reason}
 reason-no-permission = ບໍ່ມີສິດ

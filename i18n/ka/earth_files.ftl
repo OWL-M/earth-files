@@ -25,6 +25,14 @@ blocked-link = „{$name}“ ბმულია და ამ დისკს �
 blocked-link-fs = „{$name}“ ბმულია და ამ დისკს ({$fs}) ბმულების შენახვა არ შეუძლია
 blocked-too-big = „{$name}“ ძალიან დიდია ამ დისკისთვის ({$fs})
 blocked-bad-name = „{$name}“ შეიცავს სიმბოლოებს, რომელთა შენახვაც ამ დისკს ({$fs}) არ შეუძლია
+blocked-delete = „{$name}“-ის წასაშლელად ნებართვა არ გაქვთ
+blocked-no-trash = „{$name}“ იმყოფება დისკზე, რომელსაც ნაგავი არ აქვს
+blocked-trash-full = ნაგავში „{$name}“-ისთვის ადგილი არ არის
+delete-permanently-as-root = სამუდამოდ წაშლა ადმინისტრატორად
+deleted-for-good = {$more ->
+    [0] გაუქმდა, მაგრამ „{$name}“ უკვე სამუდამოდ წაიშალა
+    *[other] გაუქმდა, მაგრამ „{$name}“ და კიდევ {$more} ელემენტი უკვე სამუდამოდ წაიშალა
+  }
 progress-asking = შეჩერებულია
 failed-path = „{$name}“: {$reason}
 reason-no-permission = წვდომა არ არის

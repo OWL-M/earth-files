@@ -58,6 +58,14 @@ blocked-link = "{$name}" — сілтеме, ал бұл диск сілтеме
 blocked-link-fs = "{$name}" — сілтеме, ал бұл диск ({$fs}) сілтемелерді сақтай алмайды
 blocked-too-big = "{$name}" бұл диск ({$fs}) үшін тым үлкен
 blocked-bad-name = "{$name}" ішінде бұл диск ({$fs}) сақтай алмайтын таңбалар бар
+blocked-delete = "{$name}" элементін өшіруге рұқсатыңыз жоқ
+blocked-no-trash = "{$name}" қоқыс шелегі жоқ дискіде тұр
+blocked-trash-full = Қоқыс шелегінде "{$name}" үшін орын жоқ
+delete-permanently-as-root = Әкімші ретінде біржолата өшіру
+deleted-for-good = {$more ->
+    [0] Бас тартылды, бірақ "{$name}" бұрыннан біржолата өшірілген
+    *[other] Бас тартылды, бірақ "{$name}" және тағы {$more} элемент бұрыннан біржолата өшірілген
+  }
 progress-asking = аялдатылды
 failed-path = "{$name}": {$reason}
 reason-no-permission = рұқсат жоқ

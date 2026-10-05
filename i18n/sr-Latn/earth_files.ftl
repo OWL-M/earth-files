@@ -88,6 +88,16 @@ blocked-link = „{$name}“ je veza, a ovaj uređaj ne može da sadrži veze
 blocked-link-fs = „{$name}“ je veza, a ovaj uređaj ({$fs}) ne može da sadrži veze
 blocked-too-big = Stavka „{$name}“ je prevelika za ovaj uređaj ({$fs})
 blocked-bad-name = Stavka „{$name}“ sadrži znakove koje ovaj uređaj ({$fs}) ne može da sačuva
+blocked-delete = Nemate dozvolu da obrišete stavku „{$name}“
+blocked-no-trash = Stavka „{$name}“ se nalazi na disku bez otpada
+blocked-trash-full = U otpadu nema mesta za stavku „{$name}“
+delete-permanently-as-root = Obriši trajno kao administrator
+deleted-for-good = {$more ->
+    [0] Otkazano, ali je stavka „{$name}“ već trajno obrisana
+    [one] Otkazano, ali su stavka „{$name}“ i još {$more} stavka već trajno obrisane
+    [few] Otkazano, ali su stavka „{$name}“ i još {$more} stavke već trajno obrisane
+    *[other] Otkazano, ali su stavka „{$name}“ i još {$more} stavki već trajno obrisane
+  }
 progress-asking = pauzirano
 failed-path = „{$name}“: {$reason}
 reason-no-permission = nema ovlašćenja

@@ -361,6 +361,14 @@ blocked-link = "{$name}" एक लिंक है, और यह ड्रा�
 blocked-link-fs = "{$name}" एक लिंक है, और यह ड्राइव ({$fs}) लिंक नहीं रख सकती
 blocked-too-big = "{$name}" इस ड्राइव ({$fs}) के लिए बहुत बड़ा है
 blocked-bad-name = "{$name}" में ऐसे अक्षर हैं जिन्हें यह ड्राइव ({$fs}) नहीं रख सकती
+blocked-delete = आपके पास "{$name}" को हटाने की अनुमति नहीं है
+blocked-no-trash = "{$name}" ऐसी ड्राइव पर है जिसमें कचरा नहीं है
+blocked-trash-full = कचरे में "{$name}" के लिए जगह नहीं है
+delete-permanently-as-root = व्यवस्थापक के रूप में स्थायी रूप से हटाएँ
+deleted-for-good = {$more ->
+    [0] रद्द किया गया, लेकिन "{$name}" पहले ही स्थायी रूप से हटाया जा चुका है
+    *[other] रद्द किया गया, लेकिन "{$name}" और {$more} अन्य पहले ही स्थायी रूप से हटाए जा चुके हैं
+  }
 progress-asking = रुका हुआ
 failed-path = "{$name}": {$reason}
 reason-no-permission = अनुमति नहीं है

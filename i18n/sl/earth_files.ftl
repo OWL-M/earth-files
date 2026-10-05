@@ -25,6 +25,17 @@ blocked-link = „{$name}“ je povezava in ta pogon ne more hraniti povezav
 blocked-link-fs = „{$name}“ je povezava in ta pogon ({$fs}) ne more hraniti povezav
 blocked-too-big = Predmet „{$name}“ je prevelik za ta pogon ({$fs})
 blocked-bad-name = Predmet „{$name}“ vsebuje znake, ki jih ta pogon ({$fs}) ne more hraniti
+blocked-delete = Nimate dovoljenja za brisanje predmeta „{$name}“
+blocked-no-trash = Predmet „{$name}“ je na pogonu brez koša
+blocked-trash-full = V košu ni prostora za predmet „{$name}“
+delete-permanently-as-root = Trajno izbriši kot skrbnik
+deleted-for-good = {$more ->
+    [0] Preklicano, vendar je bil predmet „{$name}“ že trajno izbrisan
+    [one] Preklicano, vendar sta bila predmet „{$name}“ in še {$more} že trajno izbrisana
+    [two] Preklicano, vendar so bili predmet „{$name}“ in še {$more} že trajno izbrisani
+    [few] Preklicano, vendar so bili predmet „{$name}“ in še {$more} že trajno izbrisani
+    *[other] Preklicano, vendar so bili predmet „{$name}“ in še {$more} že trajno izbrisani
+  }
 progress-asking = začasno ustavljeno
 failed-path = „{$name}“: {$reason}
 reason-no-permission = ni dovoljenja

@@ -185,15 +185,28 @@ pub enum Blocked {
         folder: PathBuf,
         read_only: bool,
     },
+    /// An item to delete, or to remove from the trash, that this user may
+    /// not remove from its folder. Root deletes it for good.
+    Delete(PathBuf),
+    /// An item to trash on a drive with no trash of its own: a network or
+    /// FUSE drive.
+    NoTrash(PathBuf),
+    /// An item to trash that would be copied into the home trash, on
+    /// another drive without room for it.
+    TrashFull(PathBuf),
 }
 
 impl Blocked {
     /// The path the question is about.
     pub fn path(&self) -> &Path {
         match self {
-            Self::Read(path) | Self::List(path) | Self::Remove(path) | Self::Destination(path) => {
-                path
-            }
+            Self::Read(path)
+            | Self::List(path)
+            | Self::Remove(path)
+            | Self::Destination(path)
+            | Self::Delete(path)
+            | Self::NoTrash(path)
+            | Self::TrashFull(path) => path,
             Self::Link { path, .. }
             | Self::Failed { path, .. }
             | Self::TooBig { path, .. }
@@ -206,12 +219,18 @@ impl Blocked {
     /// permission. Root cannot make a drive writable, or FAT hold a link.
     pub fn root_can_help(&self) -> bool {
         match self {
-            Self::Read(_) | Self::List(_) | Self::Remove(_) | Self::Destination(_) => true,
+            Self::Read(_)
+            | Self::List(_)
+            | Self::Remove(_)
+            | Self::Destination(_)
+            | Self::Delete(_) => true,
             Self::Move { read_only, .. } => !read_only,
             Self::Link { .. }
             | Self::TooBig { .. }
             | Self::BadName { .. }
-            | Self::Failed { .. } => false,
+            | Self::Failed { .. }
+            | Self::NoTrash(_)
+            | Self::TrashFull(_) => false,
         }
     }
 
@@ -225,6 +244,9 @@ impl Blocked {
                 | Self::BadName { .. }
                 | Self::Move { .. }
                 | Self::Destination(_)
+                | Self::Delete(_)
+                | Self::NoTrash(_)
+                | Self::TrashFull(_)
         )
     }
 }
@@ -324,6 +346,9 @@ pub struct Ask {
     pub skip: bool,
     /// Whether Abort is offered: stop here and keep what is done.
     pub abort: bool,
+    /// Whether "Delete permanently" is offered: for an item the trash cannot
+    /// take.
+    pub permanently: bool,
 }
 
 /// The answer to a [`Blocked`] question.
@@ -341,6 +366,9 @@ pub enum BlockedAnswer {
     RetryAsRoot(bool),
     /// Stop the operation here and keep what it has done.
     Abort,
+    /// Delete it for good, as the trash cannot take it; `true` does the same
+    /// for every later item of this kind, without asking.
+    Permanently(bool),
 }
 
 /// Whether the folder `dir` can take new entries at all. A read-only
@@ -614,6 +642,171 @@ async fn copy_or_move(
     .map_err(wrap_compio_spawn_error)?
 }
 
+/// Where the trash keeps `item`: beside its `.trashinfo`, in the trash's
+/// `files` folder, or, for an entry inside a trashed folder, at its id.
+/// The `.trashinfo` comes second, when there is one.
+fn in_trash(item: &trash::TrashItem) -> (PathBuf, Option<PathBuf>) {
+    let id = PathBuf::from(&item.id);
+    if id.extension().is_some_and(|ext| ext == "trashinfo")
+        && let (Some(trash), Some(name)) = (id.parent().and_then(Path::parent), id.file_stem())
+    {
+        return (trash.join("files").join(name), Some(id));
+    }
+    (id, None)
+}
+
+/// Brings trashed items back to where they were, as a move out of the
+/// trash: missing folders are made again, a name taken there is asked about
+/// as for any move, and so is a folder this user may not write to. An item
+/// all back leaves the trash, its `.trashinfo` with it.
+async fn restore(
+    items: Vec<trash::TrashItem>,
+    msg_tx: &Arc<TokioMutex<Sender<Message>>>,
+    controller: Controller,
+) -> Result<OperationSelection, OperationError> {
+    let msg_tx = msg_tx.clone();
+    compio::runtime::spawn(async move {
+        let entries: Vec<_> = items
+            .iter()
+            .map(|item| (in_trash(item), item.original_path()))
+            .collect();
+        // The folders they were in, made again where gone
+        let folders: Vec<PathBuf> = entries
+            .iter()
+            .filter_map(|(_, to)| to.parent().map(Path::to_path_buf))
+            .collect();
+        compio::runtime::spawn_blocking(move || {
+            for folder in folders {
+                if let Err(err) = fs::create_dir_all(&folder) {
+                    log::warn!("failed to make {} again: {err}", folder.display());
+                }
+            }
+        })
+        .await
+        .map_err(wrap_compio_spawn_error)?;
+
+        // A rename where nothing is in the way; the rest through the move,
+        // which asks
+        let mut op_sel = OperationSelection::default();
+        let mut pairs = Vec::new();
+        for ((from, _), to) in &entries {
+            controller
+                .check()
+                .await
+                .map_err(|s| OperationError::from_state(s, &controller))?;
+            let renamed = compio::runtime::spawn_blocking({
+                let (from, to) = (from.clone(), to.clone());
+                move || rename_no_replace(&from, &to)
+            })
+            .await
+            .map_err(wrap_compio_spawn_error)?;
+            if renamed.is_ok() {
+                op_sel.moved.push((from.clone(), to.clone()));
+                op_sel.ignored.push(from.clone());
+                op_sel.created.push(to.clone());
+                op_sel.selected.push(to.clone());
+            } else {
+                pairs.push((from.clone(), to.clone()));
+            }
+        }
+        let result = if pairs.is_empty() {
+            Ok(op_sel)
+        } else {
+            recursive_pairs(
+                pairs,
+                Method::Move {
+                    cross_device_copy: false,
+                },
+                op_sel,
+                false,
+                msg_tx,
+                controller.clone(),
+            )
+            .await
+        };
+
+        // Whatever the move came to, an item no longer in the trash's files
+        // leaves its listing
+        let infos: Vec<(PathBuf, PathBuf)> = entries
+            .into_iter()
+            .filter_map(|((from, info), _)| Some((from, info?)))
+            .collect();
+        compio::runtime::spawn_blocking(move || {
+            for (from, info) in infos {
+                if fs::symlink_metadata(&from).is_err()
+                    && let Err(err) = fs::remove_file(&info)
+                {
+                    log::warn!("failed to remove {}: {err}", info.display());
+                }
+            }
+        })
+        .await
+        .map_err(wrap_compio_spawn_error)?;
+        result
+    })
+    .await
+    .map_err(wrap_compio_spawn_error)?
+}
+
+/// Removes items from the trash for good, asking about what this user may
+/// not remove: see [`Context::purge`].
+async fn purge(
+    items: Vec<trash::TrashItem>,
+    msg_tx: &Arc<TokioMutex<Sender<Message>>>,
+    controller: Controller,
+) -> Result<OperationSelection, OperationError> {
+    let msg_tx = msg_tx.clone();
+    compio::runtime::spawn(async move {
+        let blocked_controller = controller.clone();
+        let mut context = Context::new(controller).on_blocked(move |blocked, ask| {
+            Box::pin(handle_blocked(
+                msg_tx.clone(),
+                blocked_controller.clone(),
+                blocked,
+                ask,
+            ))
+        });
+        let items = items
+            .into_iter()
+            .map(|item| {
+                let (files, info) = in_trash(&item);
+                (item, files, info)
+            })
+            .collect();
+        context.purge(items).await?;
+        Ok(OperationSelection::default())
+    })
+    .await
+    .map_err(wrap_compio_spawn_error)?
+}
+
+/// Deletes `paths`, to the trash or for good when `permanently`, asking
+/// the app what it cannot do: see [`Context::delete`].
+async fn delete(
+    paths: Vec<PathBuf>,
+    permanently: bool,
+    msg_tx: &Arc<TokioMutex<Sender<Message>>>,
+    controller: Controller,
+) -> Result<OperationSelection, OperationError> {
+    let msg_tx = msg_tx.clone();
+    compio::runtime::spawn(async move {
+        let mut context = Context::new(controller.clone());
+        let blocked_controller = controller.clone();
+        context = context.on_blocked(move |blocked, ask| {
+            Box::pin(handle_blocked(
+                msg_tx.clone(),
+                blocked_controller.clone(),
+                blocked,
+                ask,
+            ))
+        });
+        context.delete(paths, permanently).await?;
+        Ok(context.op_sel)
+    })
+    .await
+    .map_err(wrap_compio_spawn_error)?
+}
+
 /// Copy or move exactly these `(from, to)` pairs, each `to` a whole
 /// destination path rather than a folder to go into.
 ///
@@ -855,6 +1048,27 @@ impl Operation {
             Self::Delete { .. } if !result.trash_items.is_empty() => vec![Self::Restore {
                 items: result.trash_items.clone(),
             }],
+            // What came back goes to the trash again, and what it replaced
+            // comes back
+            Self::Restore { .. } if !created_only(result).is_empty() => {
+                let mut paths = created_only(result);
+                for path in result
+                    .trash_items
+                    .iter()
+                    .map(trash::TrashItem::original_path)
+                {
+                    if !paths.contains(&path) {
+                        paths.push(path);
+                    }
+                }
+                let mut undo = vec![Self::Delete { paths }];
+                if !result.trash_items.is_empty() {
+                    undo.push(Self::Restore {
+                        items: result.trash_items.clone(),
+                    });
+                }
+                undo
+            }
             Self::Restore { items } => vec![Self::Delete {
                 paths: items.iter().map(trash::TrashItem::original_path).collect(),
             }],
@@ -1801,134 +2015,14 @@ impl Operation {
             Self::Copy { paths, to } => {
                 copy_or_move(paths, to, Method::Copy, false, msg_tx, controller).await
             }
-            Self::Delete { paths } => {
-                let total = paths.len();
-                let started = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .map_or(0, |d| d.as_secs() as i64);
-                let mut paths = paths;
-                let mut failure = None;
-                let mut trashed = 0;
-                for (i, path) in paths.iter().enumerate() {
-                    let result = async {
-                        // Awaited, not blocked on. Every operation shares one
-                        // compio runtime thread, so blocking here while the user
-                        // has this one paused would stop every other copy, move
-                        // and delete along with it.
-                        controller
-                            .check()
-                            .await
-                            .map_err(|s| OperationError::from_state(s, &controller))?;
-
-                        controller.set_progress((i as f32) / (total as f32));
-
-                        let path = path.clone();
-                        compio::runtime::spawn_blocking(move || trash::delete(path))
-                            .await
-                            .map_err(wrap_compio_spawn_error)?
-                            .map_err(|e| OperationError::from_err(e, &controller))
-                    }
-                    .await;
-                    if let Err(err) = result {
-                        failure = Some(err);
-                        break;
-                    }
-                    trashed = i + 1;
-                }
-                // Trashing returns nothing, so find the entries just created:
-                // the newest entry per path deleted since the start. A failure
-                // part-way still records them, so what did reach the trash can
-                // be undone and a retry has only the rest to do
-                paths.truncate(trashed);
-                let trash_items =
-                    compio::runtime::spawn_blocking(move || trashed_entries(&paths, started))
-                        .await
-                        .map_err(wrap_compio_spawn_error)?;
-                let op_sel = OperationSelection {
-                    trash_items,
-                    ..Default::default()
-                };
-                match failure {
-                    Some(err) => Err(OperationError {
-                        partial: Box::new(op_sel),
-                        ..err
-                    }),
-                    None => Ok(op_sel),
-                }
-            }
-            Self::DeleteTrash { items } => {
-                let controller_clone = controller.clone();
-                compio::runtime::spawn_blocking(move || -> Result<(), OperationError> {
-                    let controller = controller_clone;
-                    let count = items.len();
-                    for (i, item) in items.into_iter().enumerate() {
-                        futures::executor::block_on(async {
-                            controller
-                                .check()
-                                .await
-                                .map_err(|s| OperationError::from_state(s, &controller))
-                        })?;
-
-                        controller.set_progress(i as f32 / count as f32);
-
-                        trash::os_limited::purge_all([item])
-                            .map_err(|e| OperationError::from_err(e, &controller))?;
-                    }
-                    Ok(())
-                })
-                .await
-                .map_err(wrap_compio_spawn_error)?
-                .map_err(|e| OperationError::from_err(e, &controller))?;
-                Ok(OperationSelection::default())
-            }
+            Self::Delete { paths } => delete(paths, false, msg_tx, controller.clone()).await,
+            Self::DeleteTrash { items } => purge(items, msg_tx, controller.clone()).await,
             Self::EmptyTrash => {
-                let controller_clone = controller.clone();
-                compio::runtime::spawn_blocking(move || -> Result<(), OperationError> {
-                    let controller = controller_clone;
-                    let items = trash::os_limited::list()
-                        .map_err(|e| OperationError::from_err(e, &controller))?;
-                    let count = items.len();
-                    let mut errors: Vec<trash::Error> = Vec::new();
-
-                    for (i, item) in items.into_iter().enumerate() {
-                        futures::executor::block_on(async {
-                            controller
-                                .check()
-                                .await
-                                .map_err(|s| OperationError::from_state(s, &controller))
-                        })?;
-
-                        if let Err(e) = trash::os_limited::purge_all([item]) {
-                            errors.push(e);
-                        }
-
-                        controller.set_progress(i as f32 / count as f32);
-                    }
-
-                    // Report errors at the end
-                    if !errors.is_empty() {
-                        log::warn!("Failed to purge {} items:", errors.len());
-                        for e in &errors {
-                            log::warn!("  - {e}");
-                        }
-
-                        // Return an error to signal partial failure
-                        return Err(OperationError::from_err(
-                            format!(
-                                "Failed to delete {} of {} items. Check log for details.",
-                                errors.len(),
-                                count
-                            ),
-                            &controller,
-                        ));
-                    }
-
-                    Ok(())
-                })
-                .await
-                .map_err(wrap_compio_spawn_error)?
-                .map_err(|e| OperationError::from_err(e, &controller))?;
-                Ok(OperationSelection::default())
+                let items = compio::runtime::spawn_blocking(trash::os_limited::list)
+                    .await
+                    .map_err(wrap_compio_spawn_error)?
+                    .map_err(|e| OperationError::from_err(e, &controller))?;
+                purge(items, msg_tx, controller.clone()).await
             }
             Self::Extract {
                 paths,
@@ -2114,33 +2208,7 @@ impl Operation {
             .await
             .map_err(wrap_compio_spawn_error)?,
             Self::PermanentlyDelete { paths } => {
-                let total = paths.len();
-                for (idx, path) in paths.into_iter().enumerate() {
-                    controller
-                        .check()
-                        .await
-                        .map_err(|s| OperationError::from_state(s, &controller))?;
-
-                    controller.set_progress((idx as f32) / (total as f32));
-
-                    tokio::task::spawn_blocking(|| {
-                        if path.is_symlink() || path.is_file() {
-                            fs::remove_file(path)
-                        } else if path.is_dir() {
-                            fs::remove_dir_all(path)
-                        } else {
-                            Err(std::io::Error::new(
-                                std::io::ErrorKind::InvalidData,
-                                "File to delete is not symlink, file or directory",
-                            ))
-                        }
-                    })
-                    .await
-                    .map_err(|e| OperationError::from_err(e, &controller))?
-                    .map_err(|e| OperationError::from_err(e, &controller))?;
-                }
-
-                Ok(OperationSelection::default())
+                delete(paths.into_vec(), true, msg_tx, controller.clone()).await
             }
             Self::RemoveFromRecents { paths } => {
                 // Through the same worker that records and clears recents.
@@ -2319,53 +2387,7 @@ impl Operation {
             }
             .await
             .map_err(wrap_compio_spawn_error)?,
-            Self::Restore { items } => {
-                let total = items.len();
-                let mut paths = Vec::with_capacity(total);
-                for (i, item) in items.into_iter().enumerate() {
-                    controller
-                        .check()
-                        .await
-                        .map_err(|s| OperationError::from_state(s, &controller))?;
-
-                    controller.set_progress((i as f32) / (total as f32));
-
-                    paths.push(item.original_path());
-
-                    // Items with .trashinfo id use standard restore; sub-items use manual move
-                    if item.id.to_str().is_some_and(|s| s.ends_with(".trashinfo")) {
-                        compio::runtime::spawn_blocking(|| trash::os_limited::restore_all([item]))
-                            .await
-                            .map_err(wrap_compio_spawn_error)?
-                            .map_err(|e| OperationError::from_err(e, &controller))?;
-                    } else {
-                        let from = PathBuf::from(&item.id);
-                        let to = item.original_path();
-                        // Restoring must never take the place of something the
-                        // user has since put back at the original path
-                        compio::runtime::spawn_blocking({
-                            let (from, to) = (from.clone(), to.clone());
-                            move || {
-                                if let Some(parent) = to.parent() {
-                                    fs::create_dir_all(parent)?;
-                                }
-                                rename_no_replace(&from, &to)
-                            }
-                        })
-                        .await
-                        .map_err(wrap_compio_spawn_error)?
-                        .map_err(|e| OperationError::from_err(e, &controller))?;
-                    }
-                }
-                Ok(OperationSelection {
-                    ignored: Vec::new(),
-                    selected: paths,
-                    created: Vec::new(),
-                    moved: Vec::new(),
-                    trash_items: Vec::new(),
-                    skipped: Vec::new(),
-                })
-            }
+            Self::Restore { items } => restore(items, msg_tx, controller.clone()).await,
             Self::SetExecutableAndLaunch { path } => {
                 controller
                     .check()
@@ -4118,6 +4140,47 @@ mod tests {
             .await
             .expect("restored");
         assert_eq!(fs::read(path.join("to/b"))?, b"old");
+        Ok(())
+    }
+
+    /// A restore into a folder whose name is taken asks about it, and
+    /// merges; one whose folder is gone makes it again
+    #[test(compio::test)]
+    async fn a_restore_merges_or_makes_its_folder_again() -> io::Result<()> {
+        let fs = empty_fs()?;
+        let path = fs.path();
+        // Kept by a trash at its id, as entries inside a trashed folder are
+        let kept = path.join("trash");
+        fs::create_dir_all(kept.join("d"))?;
+        fs::write(kept.join("d/a"), b"A")?;
+        fs::write(kept.join("lone"), b"L")?;
+        fs::create_dir_all(path.join("to/d"))?;
+        fs::write(path.join("to/d/c"), b"C")?;
+        let item = |id: PathBuf, parent: PathBuf| trash::TrashItem {
+            name: id.file_name().expect("name").to_owned(),
+            id: id.into(),
+            original_parent: parent,
+            time_deleted: 1,
+        };
+        let items = vec![
+            item(kept.join("d"), path.join("to")),
+            item(kept.join("lone"), path.join("gone/deeper")),
+        ];
+        let result = perform(Operation::Restore { items }, ReplaceResult::Merge(false))
+            .await
+            .expect("restored");
+        assert_eq!(fs::read(path.join("to/d/a"))?, b"A");
+        assert_eq!(fs::read(path.join("to/d/c"))?, b"C");
+        assert_eq!(fs::read(path.join("gone/deeper/lone"))?, b"L");
+        assert!(!kept.join("d").exists() && !kept.join("lone").exists());
+        // Undone, only what came back goes: not the folder it merged into
+        let undo = Operation::Restore { items: Vec::new() }.undo(&result);
+        let [Operation::Delete { paths }] = undo.as_slice() else {
+            panic!("a delete: {undo:?}");
+        };
+        assert!(paths.contains(&path.join("to/d/a")));
+        assert!(paths.contains(&path.join("gone/deeper/lone")));
+        assert!(!paths.contains(&path.join("to/d")));
         Ok(())
     }
 
