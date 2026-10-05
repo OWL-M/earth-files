@@ -10,8 +10,11 @@
 //!
 //! An operation waiting on the user about a path it may not touch is marked
 //! on its row, one question at a time: the oldest is asking, the rest wait.
-//! One that ended having skipped paths, or failed, stays until it is
-//! dismissed.
+//! One that failed stays until it is dismissed.
+//!
+//! A row that ended is held while the pointer is over it; when the pointer
+//! leaves, it lingers half its time again before it slides out. A right
+//! click dismisses any row that ended.
 //!
 //! Pure: the caller passes the time, so it can be tested without a clock.
 
@@ -23,7 +26,7 @@ use crate::ui::widget::segmented_button::Entity;
 pub(crate) const SLOW: Duration = Duration::from_millis(600);
 
 /// How long a row that succeeded stays before it slides out.
-pub(crate) const DONE_LINGER: Duration = Duration::from_millis(1500);
+pub(crate) const DONE_LINGER: Duration = Duration::from_millis(1300);
 
 /// How long a row that failed stays before it slides out: longer than one
 /// that succeeded, so a failure is not missed.
@@ -78,13 +81,15 @@ struct Entry {
     ended: Option<(Instant, bool)>,
     /// While it waits on the user: in which turn it asked, lowest first.
     blocked: Option<u64>,
-    /// How many paths it skipped.
-    skipped: usize,
-    /// Its ended row stays until it is dismissed: it skipped paths, or it
-    /// failed and can be tried again from there.
+    /// Its ended row stays until it is dismissed: it failed and can be
+    /// tried again from there.
     kept: bool,
-    /// When its kept row was dismissed.
+    /// When its row was dismissed.
     dismissed: Option<Instant>,
+    /// The pointer is over its row, which holds it.
+    held: bool,
+    /// When the pointer last left its row.
+    released: Option<Instant>,
 }
 
 impl Entry {
@@ -94,11 +99,18 @@ impl Entry {
 
     /// When it starts to slide out, if it does on its own or was dismissed.
     fn leaves_at(&self) -> Option<Instant> {
-        if self.kept {
-            self.dismissed
-        } else {
-            self.ended.map(|(at, ok)| at + linger(ok))
+        if let Some(at) = self.dismissed {
+            return Some(at);
         }
+        if self.kept || self.held {
+            return None;
+        }
+        let (ended, ok) = self.ended?;
+        // Left after it ended: half its time again from then
+        Some(match self.released.filter(|&at| at >= ended) {
+            Some(at) => at + linger(ok) / 2,
+            None => ended + linger(ok),
+        })
     }
 
     fn is_leaving(&self, now: Instant) -> bool {
@@ -122,8 +134,6 @@ pub(crate) struct Row<'a> {
     pub(crate) state: State,
     /// Past its linger: sliding out.
     pub(crate) leaving: bool,
-    /// How many paths it skipped; above zero, it stays until dismissed.
-    pub(crate) skipped: usize,
 }
 
 /// What the card shows now.
@@ -174,9 +184,10 @@ impl Tasks {
             entry.shows_at = now;
             entry.ended = None;
             entry.blocked = None;
-            entry.skipped = 0;
             entry.kept = false;
             entry.dismissed = None;
+            entry.held = false;
+            entry.released = None;
             return;
         }
         self.entries.retain(|entry| entry.key != key);
@@ -189,9 +200,10 @@ impl Tasks {
             shows_at: now + delay,
             ended: None,
             blocked: None,
-            skipped: 0,
             kept: false,
             dismissed: None,
+            held: false,
+            released: None,
         });
     }
 
@@ -212,21 +224,6 @@ impl Tasks {
     pub(crate) fn unblock(&mut self, key: &Key) {
         for entry in self.entries.iter_mut().filter(|entry| entry.key == *key) {
             entry.blocked = None;
-        }
-    }
-
-    /// Task `key` ended having skipped `skipped` paths: its row stays until
-    /// [`Self::dismiss`]. With nothing skipped, the same as a success.
-    pub(crate) fn finish_skipped(
-        &mut self,
-        key: &Key,
-        skipped: usize,
-        label: Option<String>,
-        now: Instant,
-    ) {
-        self.finish_kept(key, true, skipped > 0, label, now);
-        if let Some(entry) = self.ended_now(key, now) {
-            entry.skipped = skipped;
         }
     }
 
@@ -257,14 +254,24 @@ impl Tasks {
             .find(|entry| entry.key == *key && entry.ended.is_some_and(|(at, _)| at == now))
     }
 
-    /// The user closed row `id`, which stayed until then: it slides out now.
+    /// The user closed row `id`, which had ended: it slides out now.
     pub(crate) fn dismiss(&mut self, id: u64, now: Instant) {
         if let Some(entry) = self
             .entries
             .iter_mut()
-            .find(|entry| entry.id == id && entry.kept)
+            .find(|entry| entry.id == id && entry.ended.is_some())
         {
             entry.dismissed.get_or_insert(now);
+        }
+    }
+
+    /// The pointer came over row `id` (`over`), or left it, at `now`.
+    pub(crate) fn hover(&mut self, id: u64, over: bool, now: Instant) {
+        if let Some(entry) = self.entries.iter_mut().find(|entry| entry.id == id) {
+            entry.held = over;
+            if !over {
+                entry.released = Some(now);
+            }
         }
     }
 
@@ -299,11 +306,6 @@ impl Tasks {
             .filter_map(|entry| entry.blocked.map(|turn| (turn, &entry.key)))
             .min_by_key(|(turn, _)| *turn)
             .map(|(_, key)| key)
-    }
-
-    /// Whether task `key` is tracked, shown or not.
-    pub(crate) fn contains(&self, key: &Key) -> bool {
-        self.entries.iter().any(|entry| entry.key == *key)
     }
 
     /// Forgets task `key` at once, shown or not, without the slide: for
@@ -387,7 +389,6 @@ impl Tasks {
                     (Some((_, false)), _) => State::Failed,
                 },
                 leaving: entry.is_leaving(now),
-                skipped: entry.skipped,
             })
             .collect();
         Visible { rows, more }
@@ -468,27 +469,37 @@ mod tests {
     }
 
     #[test]
-    fn a_row_that_skipped_stays_until_dismissed_then_slides_out() {
+    fn a_held_row_waits_and_then_lingers_half_its_time() {
         let now = Instant::now();
         let mut tasks = Tasks::default();
         tasks.start(op(1), "copying".into(), Duration::ZERO, now);
-        tasks.finish_skipped(&op(1), 3, Some("copied".into()), now);
+        let id = tasks.visible(now).rows[0].id;
+        tasks.finish(&op(1), true, Some("copied".into()), now);
 
-        let later = now + FAILED_LINGER * 10;
-        let visible = tasks.visible(later);
-        let row = &visible.rows[0];
-        assert_eq!(
-            (row.state, row.skipped, row.leaving),
-            (State::Done, 3, false)
-        );
-        assert_eq!(tasks.next_deadline(now), None, "nothing happens on its own");
+        // Held well past its time: still there, not leaving
+        tasks.hover(id, true, now);
+        let later = now + DONE_LINGER * 5;
+        assert!(!tasks.visible(later).rows[0].leaving);
+        assert_eq!(tasks.next_deadline(later), None);
 
-        let id = row.id;
-        tasks.dismiss(id, later);
-        assert!(tasks.visible(later).rows[0].leaving);
-        assert_eq!(tasks.next_deadline(later), Some(later + LEAVE));
-        tasks.prune(later + LEAVE);
-        assert!(tasks.is_empty());
+        // Let go: half its time again, then it slides out
+        tasks.hover(id, false, later);
+        assert_eq!(tasks.next_deadline(later), Some(later + DONE_LINGER / 2));
+        assert!(tasks.visible(later + DONE_LINGER / 2).rows[0].leaving);
+    }
+
+    #[test]
+    fn a_right_click_dismisses_an_ended_row_only() {
+        let now = Instant::now();
+        let mut tasks = Tasks::default();
+        tasks.start(op(1), "running".into(), Duration::ZERO, now);
+        let id = tasks.visible(now).rows[0].id;
+        tasks.dismiss(id, now);
+        assert!(!tasks.visible(now).rows[0].leaving, "a running row stays");
+
+        tasks.finish(&op(1), true, None, now);
+        tasks.dismiss(id, now);
+        assert!(tasks.visible(now).rows[0].leaving);
     }
 
     #[test]

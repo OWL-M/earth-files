@@ -175,7 +175,6 @@ task-done = Hotovo
 task-failed = Selhalo
 task-paused = Pozastaveno
 task-paused-waiting = Pozastaveno, čeká
-task-skipped = Přeskočeno: {$count}
 blocked-read = Položku „{$name}“ nelze přečíst
 blocked-list = Složku „{$name}“ nelze otevřít
 blocked-remove = Položka „{$name}“ byla zkopírována, ale nelze ji odstranit
@@ -185,11 +184,6 @@ retry-as-root = Zkusit znovu jako správce
 use-root-again = Znovu použít oprávnění správce
 root-not-granted = Přístup správce nebyl udělen
 keep-original = Ponechat originál
-skipped-more = { $count ->
-    [one] a {$count} další
-    [few] a {$count} další
-   *[other] a {$count} dalších
-  }
 destination-no-permission = Do složky „{$folder}“ nelze zapisovat: chybí oprávnění
 destination-read-only = Do složky „{$folder}“ nelze zapisovat: je pouze pro čtení
 blocked-link = Položka „{$name}“ je odkaz a tento disk odkazy uložit neumí

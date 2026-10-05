@@ -436,8 +436,9 @@ pub enum Message {
     /// Operation `id`'s question was answered on its desktop notification,
     /// which is gone with the answer.
     QuestionNoticeAnswered(u64, BlockedAnswer),
-    /// Unrolls or rolls up the paths operation `id` skipped, on its row.
-    ProgressToggleSkipped(u64),
+    /// The pointer came over the progress card's row with this id, or left
+    /// it: an ended row is held while it is over it.
+    ProgressHover(u64, bool),
     /// Runs what is left of failed operation `id` again, from its row.
     RetryFailed(u64),
     /// A folder load, mount or unmount tracked in the progress card ended,
@@ -877,9 +878,6 @@ impl Window {
 /// How many completed operations can be undone, newest first
 const UNDO_DEPTH: usize = 20;
 
-/// How many skipped paths a progress card row lists before counting the rest.
-const SKIPPED_SHOWN: usize = 8;
-
 /// What an operation asked about a path it may not touch.
 struct Question {
     blocked: Blocked,
@@ -943,11 +941,6 @@ pub struct App {
     /// The last question each running operation asked about a path it may
     /// not touch. Dropping one still unanswered answers Cancel.
     blocked: BTreeMap<u64, Question>,
-    /// The paths each ended operation skipped, as its progress card row
-    /// lists them, for as long as the row is there.
-    skipped_paths: BTreeMap<u64, Vec<String>>,
-    /// The operations whose row has its list of skipped paths unrolled.
-    skipped_open: BTreeSet<u64>,
     /// The question asked in a desktop notification, by operation: `None`
     /// while the notification is still being shown.
     question_notices: BTreeMap<u64, Option<QuestionNotice>>,
@@ -2010,18 +2003,18 @@ impl App {
                     commands.push(self.rescan_recents());
                 }
 
-                // Paths left out keep the row until the user has seen it
                 commands.push(self.drop_question(id));
-                if !op_sel_pending.skipped.is_empty() {
-                    self.skipped_paths
-                        .insert(id, skipped_lines(&op, &op_sel_pending.skipped));
+                // Skipped paths or not, it reports success. Seen in the card
+                // while the window has the keyboard; otherwise as a desktop
+                // notification instead
+                let key = progress::Key::Operation(id);
+                if self.window_is_seen() {
+                    self.progress
+                        .finish(&key, true, Some(op.completed_text()), Instant::now());
+                } else {
+                    self.progress.remove(&key);
+                    commands.push(notify_done(op.completed_text()));
                 }
-                self.progress.finish_skipped(
-                    &progress::Key::Operation(id),
-                    op_sel_pending.skipped.len(),
-                    Some(op.completed_text()),
-                    Instant::now(),
-                );
 
                 let mut op = op;
                 op.release_payload();
@@ -2724,6 +2717,12 @@ impl App {
         ])
     }
 
+    /// Whether anyone is looking at the window: it is open and one of ours
+    /// has the keyboard. Unfocused or minimised, it is not.
+    fn window_is_seen(&self) -> bool {
+        self.core.main_window_id().is_some() && self.core.focused_window().is_some()
+    }
+
     /// Keeps the desktop notification for questions in step with the card:
     /// the question being asked goes out as one while nobody can see its row
     /// (the window is closed, or none of ours has the keyboard), and any
@@ -2746,7 +2745,7 @@ impl App {
                 tasks.push(close_question_notice(notice));
             }
         }
-        let seen = self.core.main_window_id().is_some() && self.core.focused_window().is_some();
+        let seen = self.window_is_seen();
         if let Some(id) = asking
             && !seen
             && !self.question_notices.contains_key(&id)
@@ -2984,8 +2983,15 @@ impl App {
         for row in &visible.rows {
             rows = rows.push(
                 row.id,
-                widget::spring_height(widget::container(self.progress_row(row)).padding(gap))
-                    .collapsed(row.leaving),
+                widget::spring_height(
+                    iced::widget::mouse_area(
+                        widget::container(self.progress_row(row)).padding(gap),
+                    )
+                    .on_enter(Message::ProgressHover(row.id, true))
+                    .on_exit(Message::ProgressHover(row.id, false))
+                    .on_right_press(Message::ProgressDismiss(row.id)),
+                )
+                .collapsed(row.leaving),
             );
         }
         let more = (visible.more > 0).then(|| {
@@ -3100,12 +3106,6 @@ impl App {
             // Its question, if it waits on one, is a dialog of its own
             let stopped = row.state != progress::State::Running;
             return Self::pending_operation_view(*id, op, controller, stopped);
-        }
-
-        if let (progress::Key::Operation(id), progress::State::Done) = (row.key, row.state)
-            && row.skipped > 0
-        {
-            return self.skipped_row(*id, row);
         }
 
         if let (progress::Key::Operation(id), progress::State::Failed) = (row.key, row.state)
@@ -3243,51 +3243,6 @@ impl App {
                     .align_y(Alignment::Center),
             )
             .push(widget::text::caption(reason))
-            .spacing(space_xxs)
-            .into()
-    }
-
-    /// A row whose operation ended having skipped paths: it stays until
-    /// closed, and its count unrolls the paths.
-    fn skipped_row<'a>(&'a self, id: u64, row: &progress::Row<'a>) -> Element<'a, Message> {
-        let space_xxs = spacing().space_xxs.to_pixels();
-        let lines = self.skipped_paths.get(&id).map_or(&[][..], Vec::as_slice);
-        let mut list =
-            widget::Column::with_capacity(SKIPPED_SHOWN + 1).padding(iced::padding::top(space_xxs));
-        for line in lines.iter().take(SKIPPED_SHOWN) {
-            list = list.push(widget::text::caption(line.as_str()));
-        }
-        if lines.len() > SKIPPED_SHOWN {
-            let more = lines.len() - SKIPPED_SHOWN;
-            list = list.push(widget::text::caption(fl!("skipped-more", count = more)));
-        }
-        widget::Column::with_capacity(3)
-            .push(
-                widget::determinate_linear(1.0)
-                    .style(widget::progress_bar::style::Bar::Warning)
-                    .width(Length::Fill)
-                    .girth(Length::Fixed(4.0)),
-            )
-            .push(
-                widget::Row::with_capacity(4)
-                    .push(widget::text::body(row.label))
-                    .push(widget::space::horizontal())
-                    .push(
-                        widget::button::link(fl!("task-skipped", count = row.skipped))
-                            .on_press(Message::ProgressToggleSkipped(id))
-                            .padding(0),
-                    )
-                    .push(widget::tooltip(
-                        widget::button::icon(icon::from_name("window-close-symbolic"))
-                            .on_press(Message::ProgressDismiss(row.id))
-                            .padding(8),
-                        widget::text::body(fl!("close")),
-                        widget::tooltip::Position::Top,
-                    ))
-                    .spacing(space_xxs)
-                    .align_y(Alignment::Center),
-            )
-            .push(widget::spring_height(list).collapsed(!self.skipped_open.contains(&id)))
             .spacing(space_xxs)
             .into()
     }
@@ -3727,8 +3682,6 @@ impl Application for App {
             complete_operations: BTreeMap::new(),
             failed_operations: BTreeMap::new(),
             blocked: BTreeMap::new(),
-            skipped_paths: BTreeMap::new(),
-            skipped_open: BTreeSet::new(),
             question_notices: BTreeMap::new(),
             undo_stack: Vec::new(),
             undo_ids: BTreeSet::new(),
@@ -5752,11 +5705,6 @@ impl Application for App {
                     return self.operation(operation);
                 }
             }
-            Message::ProgressToggleSkipped(id) => {
-                if !self.skipped_open.remove(&id) {
-                    self.skipped_open.insert(id);
-                }
-            }
             Message::PendingComplete(id, op_sel) => {
                 return self.handle_completed_operations(vec![(id, op_sel)]);
             }
@@ -5787,13 +5735,10 @@ impl Application for App {
             Message::ProgressDismiss(row) => {
                 self.progress.dismiss(row, Instant::now());
             }
+            Message::ProgressHover(row, over) => {
+                self.progress.hover(row, over, Instant::now());
+            }
             Message::ProgressTick => {
-                // A row that slid out takes its list of skipped paths along
-                let progress = &self.progress;
-                self.skipped_paths
-                    .retain(|id, _| progress.contains(&progress::Key::Operation(*id)));
-                self.skipped_open
-                    .retain(|id| progress.contains(&progress::Key::Operation(*id)));
                 // A slid-shut action card is forgotten by `after_update`,
                 // which runs after this
                 self.progress.prune(Instant::now());
@@ -8796,24 +8741,25 @@ fn close_question_notice((): QuestionNotice) -> Task<Message> {
     Task::none()
 }
 
-/// The paths `op` skipped, one line each as its progress card row lists
-/// them: relative to the folder its sources were in, where they are.
-fn skipped_lines(op: &Operation, skipped: &[PathBuf]) -> Vec<String> {
-    let base = match op {
-        Operation::Copy { paths, .. } | Operation::Move { paths, .. } => {
-            paths.first().and_then(|path| path.parent())
-        }
-        _ => None,
-    };
-    skipped
-        .iter()
-        .map(|path| {
-            base.and_then(|base| path.strip_prefix(base).ok())
-                .unwrap_or(path)
-                .display()
-                .to_string()
+/// Tells the desktop an operation succeeded, for when the window is not
+/// looked at: `text` says what it did.
+#[cfg(feature = "notify")]
+fn notify_done(text: String) -> Task<Message> {
+    Task::future(async move {
+        let shown = tokio::task::spawn_blocking(move || {
+            notify_rust::Notification::new().summary(&text).show()
         })
-        .collect()
+        .await;
+        if let Ok(Err(err)) = shown {
+            log::warn!("failed to show the success notification: {err}");
+        }
+        crate::ui::action::none()
+    })
+}
+
+#[cfg(not(feature = "notify"))]
+fn notify_done(_text: String) -> Task<Message> {
+    Task::none()
 }
 
 fn move_path_changes(
