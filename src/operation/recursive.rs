@@ -76,12 +76,20 @@ fn is_denied(err: &std::io::Error) -> bool {
 /// The folder a walk error is about, when the walk could not list it for
 /// lack of permission. The walk carries on past it.
 fn unlisted_dir(err: &ignore::Error) -> Option<PathBuf> {
-    match err {
-        ignore::Error::WithPath { path, err } if err.io_error().is_some_and(is_denied) => {
-            Some(path.clone())
-        }
-        _ => None,
+    if !err.io_error().is_some_and(is_denied) {
+        return None;
     }
+    // The walkers wrap the path and the depth around the I/O error in
+    // either order: the one-thread walk puts the path outside, the parallel
+    // one can put the depth there
+    fn path_of(err: &ignore::Error) -> Option<PathBuf> {
+        match err {
+            ignore::Error::WithPath { path, .. } => Some(path.clone()),
+            ignore::Error::WithDepth { err, .. } => path_of(err),
+            _ => None,
+        }
+    }
+    path_of(err)
 }
 
 /// The first folder a move could not remove one of `froms` from, and
@@ -128,6 +136,8 @@ pub enum Method {
     Move { cross_device_copy: bool },
 }
 
+mod check;
+
 /// One step of a planned copy or move, with nothing thread-local in it.
 ///
 /// [`Op`] cannot cross threads: its `Rc<Skip>` is shared with the cleanup op
@@ -138,130 +148,6 @@ struct PlannedOp {
     kind: OpKind,
     from: PathBuf,
     to: PathBuf,
-}
-
-/// What a walk planned, and the folders in it that it could not list.
-type Plan = (Vec<PlannedOp>, Vec<PathBuf>);
-
-/// Work out every step of copying or moving `from_parent` to `to_parent`.
-///
-/// A folder that cannot be listed for lack of permission is left out, its
-/// own step included, and returned beside the plan so the user can be asked
-/// about it.
-///
-/// Blocking by nature: it reads the whole tree and stats every entry. Run it
-/// on a worker, never on the thread the operations themselves run on.
-fn plan_tree(
-    from_parent: &Path,
-    to_parent: &Path,
-    method: Method,
-    controller: &Controller,
-) -> Result<Plan, OperationError> {
-    let mut planned = Vec::new();
-    let mut unlisted = Vec::new();
-    // A root that is itself a link is one step, never a walk: the walker
-    // follows a root link that points at a regular file, and would plan a
-    // copy of the target's bytes where the user selected the link.
-    let root = fs::symlink_metadata(from_parent).map_err(|err| {
-        OperationError::from_err(
-            format!("failed to stat {}: {}", from_parent.display(), err),
-            controller,
-        )
-    })?;
-    if root.file_type().is_symlink() {
-        let target = fs::read_link(from_parent).map_err(|err| {
-            OperationError::from_err(
-                format!("failed to read link {}: {}", from_parent.display(), err),
-                controller,
-            )
-        })?;
-        planned.push(PlannedOp {
-            kind: OpKind::Symlink { target },
-            from: from_parent.to_path_buf(),
-            to: to_parent.to_path_buf(),
-        });
-        return Ok((planned, unlisted));
-    }
-    for entry in ignore::WalkBuilder::new(from_parent)
-        .standard_filters(false)
-        .build()
-    {
-        // Checked here, inside the work: nothing outside can interrupt a
-        // blocking job, so a walk that is not watched from within would run to
-        // the end of the tree after the user cancelled it.
-        loop {
-            match controller.state() {
-                super::ControllerState::Running => break,
-                super::ControllerState::Paused => std::thread::sleep(PLAN_PAUSE_POLL),
-                state => return Err(OperationError::from_state(state, controller)),
-            }
-        }
-
-        let entry = match entry {
-            Ok(entry) => entry,
-            Err(err) => {
-                if let Some(dir) = unlisted_dir(&err) {
-                    // Its own step came before the error: without it,
-                    // nothing of the folder is copied, not even empty
-                    planned.retain(|op: &PlannedOp| op.from != dir);
-                    unlisted.push(dir);
-                    continue;
-                }
-                return Err(OperationError::from_err(
-                    format!(
-                        "failed to walk directory {}: {}",
-                        from_parent.display(),
-                        err
-                    ),
-                    controller,
-                ));
-            }
-        };
-        let file_type = entry.file_type();
-        let from = entry.into_path();
-        let kind = if file_type.is_some_and(|t| t.is_dir()) {
-            OpKind::Mkdir
-        } else if file_type.is_some_and(|t| t.is_file()) {
-            match method {
-                Method::Copy => OpKind::Copy,
-                Method::Move { cross_device_copy } => OpKind::Move { cross_device_copy },
-            }
-        } else if file_type.is_some_and(|t| t.is_symlink()) {
-            let target = fs::read_link(&from).map_err(|err| {
-                OperationError::from_err(
-                    format!("failed to read link {}: {}", from_parent.display(), err),
-                    controller,
-                )
-            })?;
-            OpKind::Symlink { target }
-        } else {
-            // Sockets, FIFOs and device nodes cannot be copied meaningfully
-            log::warn!(
-                "skipping {}: not a regular file, directory or symlink",
-                from.display()
-            );
-            continue;
-        };
-        let to = if from == from_parent {
-            // When copying a file, from matches from_parent, and to_parent must be used
-            to_parent.to_path_buf()
-        } else {
-            let relative = from.strip_prefix(from_parent).map_err(|err| {
-                OperationError::from_err(
-                    format!(
-                        "failed to remove prefix {} from {}: {}",
-                        from_parent.display(),
-                        from.display(),
-                        err
-                    ),
-                    controller,
-                )
-            })?;
-            to_parent.join(relative)
-        };
-        planned.push(PlannedOp { kind, from, to });
-    }
-    Ok((planned, unlisted))
 }
 
 /// How long a plan that finds its controller paused waits before looking
@@ -279,8 +165,12 @@ pub struct Context {
     remaining_conflicts: usize,
     /// The user chose to skip every blocked path from here on.
     skip_blocked: bool,
-    /// The user chose to copy every item that cannot be moved from here on.
-    copy_instead: bool,
+    /// What the user decided, before the operation ran, for each
+    /// destination that was already taken.
+    decided: std::collections::HashMap<PathBuf, ReplaceResult>,
+    /// How much room a folder's filesystem has; replaced in tests, where no
+    /// real drive can be made to run out.
+    free_space: fn(&Path) -> Option<u64>,
     /// The steps that ran, oldest first, so a cancelled operation can put
     /// back what they did.
     done: Vec<Done>,
@@ -289,37 +179,51 @@ pub struct Context {
     landed: std::collections::HashMap<PathBuf, PathBuf>,
 }
 
-/// One selected item, planned: its steps, the folders in it the walk could
-/// not list yet, and what the user decided about it.
+/// One selected item, checked: its steps, and whether the user left it out
+/// whole.
 struct Item {
     from_parent: PathBuf,
     to_parent: PathBuf,
     planned: Vec<PlannedOp>,
-    unlisted: std::collections::VecDeque<PathBuf>,
-    /// Copied instead of moved: its originals could not be removed.
-    keeps_original: bool,
-    /// Left out whole.
     skipped: bool,
 }
 
-/// A later step as a question would see it: what of it could be blocked.
-enum Ahead {
-    /// It reads `from`.
-    Read(PathBuf),
-    /// It makes a link at `to`.
-    Link(PathBuf),
-    /// It removes `from` from its folder.
-    Remove(PathBuf),
+/// What the check of one selected item came to.
+struct ItemCheck {
+    checked: check::Checked,
+    /// For a move: the folder its originals could not be removed from, and
+    /// whether because it is read-only.
+    removal: Option<(PathBuf, bool)>,
+    /// Destinations already taken: `(from, to)`.
+    clashes: Vec<(PathBuf, PathBuf)>,
+    /// Copying it takes room at the destination: anything but a move on the
+    /// same filesystem, which needs none.
+    takes_room: bool,
 }
 
-impl Ahead {
-    /// Whether this step would be blocked too, as far as can be told before
-    /// it runs. Blocking: it asks the filesystem.
-    fn would_block(&self) -> bool {
+/// A problem found before the operation runs, to ask about.
+enum Problem {
+    Blocked(Blocked),
+    /// A destination already taken.
+    Clash {
+        from: PathBuf,
+        to: PathBuf,
+    },
+}
+
+impl Problem {
+    fn path(&self) -> &Path {
         match self {
-            Self::Read(from) => super::cannot_read(from),
-            Self::Link(to) => to.parent().and_then(super::filesystem_name).is_some(),
-            Self::Remove(from) => from.parent().and_then(super::cannot_write).is_some(),
+            Self::Blocked(blocked) => blocked.path(),
+            Self::Clash { from, .. } => from,
+        }
+    }
+
+    /// Which kind of question it makes, for "Same for the rest".
+    fn kind(&self) -> Option<std::mem::Discriminant<Blocked>> {
+        match self {
+            Self::Blocked(blocked) => Some(std::mem::discriminant(blocked)),
+            Self::Clash { .. } => None,
         }
     }
 }
@@ -347,14 +251,18 @@ impl<F> OnReplace for F where
 {
 }
 
-/// Asked about a blocked path, with whether anything after it could be asked
-/// about too.
+/// Asked about a blocked path, with how many questions of its kind are left
+/// in the operation, this one included: "Same for the rest" is offered
+/// above one.
+///
+/// The flag: whether Retry is offered. Before the operation runs nothing has
+/// changed to try again for; while it runs, a step can.
 pub trait OnBlocked:
-    Fn(Blocked, bool) -> Pin<Box<dyn Future<Output = BlockedAnswer>>> + 'static
+    Fn(Blocked, usize, bool) -> Pin<Box<dyn Future<Output = BlockedAnswer>>> + 'static
 {
 }
 impl<F> OnBlocked for F where
-    F: Fn(Blocked, bool) -> Pin<Box<dyn Future<Output = BlockedAnswer>>> + 'static
+    F: Fn(Blocked, usize, bool) -> Pin<Box<dyn Future<Output = BlockedAnswer>>> + 'static
 {
 }
 
@@ -366,12 +274,15 @@ impl Context {
             controller,
             on_progress: Box::new(|_op, _progress| {}),
             on_replace: Box::pin(|_op, _count| Box::pin(async { ReplaceResult::Cancel })),
-            on_blocked: Box::new(|_blocked, _more| Box::pin(async { BlockedAnswer::Cancel })),
+            on_blocked: Box::new(|_blocked, _count, _retry| {
+                Box::pin(async { BlockedAnswer::Cancel })
+            }),
             op_sel: OperationSelection::default(),
             replace_result_opt: None,
             remaining_conflicts: 0,
             skip_blocked: false,
-            copy_instead: false,
+            decided: std::collections::HashMap::new(),
+            free_space: super::free_space,
             done: Vec::new(),
             landed: std::collections::HashMap::new(),
         }
@@ -382,32 +293,81 @@ impl Context {
         self.controller.clone()
     }
 
-    /// Plan `from_parent` to `to_parent` on a blocking worker; see
-    /// [`plan_tree`] for why.
-    async fn plan(
+    /// Checks one selected item on a blocking worker: walks it (see
+    /// [`check::check_tree`]), and for a move, whether its originals could
+    /// be removed; then which of its destinations are already taken.
+    async fn check_item(
         &self,
         from_parent: &Path,
         to_parent: &Path,
         method: Method,
-    ) -> Result<Plan, OperationError> {
+    ) -> Result<ItemCheck, OperationError> {
+        use std::os::unix::fs::MetadataExt;
+
         let from_parent = from_parent.to_path_buf();
         let to_parent = to_parent.to_path_buf();
         let controller = self.controller.clone();
         compio::runtime::spawn_blocking(move || {
-            plan_tree(&from_parent, &to_parent, method, &controller)
+            let into = to_parent.parent().unwrap_or(&to_parent);
+            let target = check::Target::of(into);
+            let parallel = check::walks_in_parallel(&from_parent);
+            let checked = check::check_tree(
+                &from_parent,
+                &to_parent,
+                method,
+                &controller,
+                target,
+                parallel,
+            )?;
+            let same_device = matches!(
+                (fs::symlink_metadata(&from_parent), fs::metadata(into)),
+                (Ok(from), Ok(into)) if from.dev() == into.dev()
+            );
+            let removal = match method {
+                Method::Move {
+                    cross_device_copy: false,
+                } => {
+                    let froms: Vec<PathBuf> =
+                        checked.planned.iter().map(|op| op.from.clone()).collect();
+                    removal_block(&froms)
+                }
+                _ => None,
+            };
+            // Following links, as the copy does when it looks before writing.
+            // The same file reached another way, as through a symlinked
+            // folder, is no clash: the copy leaves it alone without asking.
+            let clashes = checked
+                .planned
+                .iter()
+                .filter(|op| !matches!(op.kind, OpKind::Mkdir))
+                .filter(|op| {
+                    fs::metadata(&op.to).is_ok_and(|to| {
+                        to.is_file()
+                            && !fs::metadata(&op.from)
+                                .is_ok_and(|from| from.dev() == to.dev() && from.ino() == to.ino())
+                    })
+                })
+                .map(|op| (op.from.clone(), op.to.clone()))
+                .collect();
+            Ok(ItemCheck {
+                checked,
+                removal,
+                clashes,
+                takes_room: matches!(method, Method::Copy) || !same_device,
+            })
         })
         .await
         .map_err(super::wrap_compio_spawn_error)?
     }
 
     /// Ask what to do about `blocked`, unless the user already chose to skip
-    /// every blocked path. `more`: whether anything after it could be asked
-    /// about too.
-    async fn blocked(&mut self, blocked: Blocked, more: bool) -> BlockedAnswer {
+    /// every blocked path. `count`: how many of its kind are left, it
+    /// included.
+    async fn blocked(&mut self, blocked: Blocked, count: usize, retry: bool) -> BlockedAnswer {
         if self.skip_blocked {
             return BlockedAnswer::Skip(false);
         }
-        let answer = (self.on_blocked)(blocked, more).await;
+        let answer = (self.on_blocked)(blocked, count, retry).await;
         if answer == BlockedAnswer::Skip(true) {
             self.skip_blocked = true;
         }
@@ -531,7 +491,6 @@ impl Context {
                 }),
                 is_cleanup: false,
                 created_to: Cell::new(false),
-                keeps_original: true,
             };
             let progress = Progress {
                 current_ops: 0,
@@ -554,10 +513,13 @@ impl Context {
         let mut cleanup_ops = Vec::new();
         let mut written_files = Vec::new();
         let mut target_dirs = std::collections::HashSet::new();
-        // Every item is planned before anything is asked, so each question
-        // knows whether another like it is still to come: "Same for the
-        // rest" is offered only then.
+        // Every item is checked before anything is touched or asked: the
+        // whole size is known before the first question, and every question
+        // knows how many more of its kind there are.
         let mut items = Vec::new();
+        let mut problems: Vec<(Option<usize>, Problem)> = Vec::new();
+        self.controller.set_checking(true);
+        let mut room: std::collections::HashMap<PathBuf, u64> = std::collections::HashMap::new();
         for (from_parent, to_parent) in from_to_pairs {
             self.controller
                 .check()
@@ -569,111 +531,180 @@ impl Context {
                 continue;
             }
 
-            // Walked on a blocking worker. Reading a whole tree and stat-ing
-            // every entry is blocking work, and this runs on the one thread
-            // every file operation shares: done here, a large or slow tree
-            // stops every other copy, move and delete until it is finished.
-            //
-            // What comes back is plain data. The `Rc<Skip>` each op shares
-            // with its cleanup op belongs to this thread and cannot be made on
-            // another, so it is put on afterwards, below.
-            let (planned, unlisted) = self.plan(&from_parent, &to_parent, method).await?;
+            let into = to_parent.parent().unwrap_or(&to_parent).to_path_buf();
+            if !room.contains_key(&into) {
+                // A folder this user may not write to is asked about first,
+                // once; a read-only one was refused before anything ran
+                let folder = into.clone();
+                let denied = compio::runtime::spawn_blocking(move || super::cannot_write(&folder))
+                    .await
+                    .map_err(super::wrap_compio_spawn_error)?;
+                if denied == Some(false) {
+                    problems.push((None, Problem::Blocked(Blocked::Destination(into.clone()))));
+                }
+                room.insert(into.clone(), 0);
+            }
+
+            let index = items.len();
+            let check = self.check_item(&from_parent, &to_parent, method).await?;
+            if check.takes_room
+                && let Some(needed) = room.get_mut(&into)
+            {
+                *needed += check.checked.size;
+            }
+            problems.extend(
+                check
+                    .checked
+                    .problems
+                    .into_iter()
+                    .map(|blocked| (Some(index), Problem::Blocked(blocked))),
+            );
+            if let Some((folder, read_only)) = check.removal {
+                let blocked = Blocked::Move {
+                    path: from_parent.clone(),
+                    folder,
+                    read_only,
+                };
+                problems.push((Some(index), Problem::Blocked(blocked)));
+            }
+            problems.extend(
+                check
+                    .clashes
+                    .into_iter()
+                    .map(|(from, to)| (Some(index), Problem::Clash { from, to })),
+            );
             items.push(Item {
                 from_parent,
                 to_parent,
-                planned,
-                unlisted: unlisted.into(),
-                keeps_original: false,
+                planned: check.checked.planned,
                 skipped: false,
             });
         }
 
-        // Folders the walk could not list, asked about one at a time. A
-        // retry walks that folder alone again, and what it could still not
-        // list is asked about next.
-        for index in 0..items.len() {
-            while let Some(dir) = items[index].unlisted.pop_front() {
-                let more = items[index..].iter().any(|item| !item.unlisted.is_empty());
-                match self.blocked(Blocked::List(dir.clone()), more).await {
-                    BlockedAnswer::Retry => {
-                        let item = &items[index];
-                        let to_dir = match dir.strip_prefix(&item.from_parent) {
-                            Ok(relative) if !relative.as_os_str().is_empty() => {
-                                item.to_parent.join(relative)
-                            }
-                            _ => item.to_parent.clone(),
-                        };
-                        let (more, still) = self.plan(&dir, &to_dir, method).await?;
-                        let item = &mut items[index];
-                        item.planned.extend(more);
-                        for dir in still.into_iter().rev() {
-                            item.unlisted.push_front(dir);
-                        }
-                    }
-                    // Copying instead answers only a move's question
-                    BlockedAnswer::Skip(_) | BlockedAnswer::CopyInstead(_) => {
-                        self.op_sel.skipped.push(dir);
-                    }
-                    BlockedAnswer::Cancel => return Err(self.cancelled()),
-                }
+        // The size, before any question
+        self.controller.set_checking(false);
+        for (into, needed) in room {
+            let folder = into.clone();
+            let free_space = self.free_space;
+            let free = compio::runtime::spawn_blocking(move || free_space(&folder))
+                .await
+                .map_err(super::wrap_compio_spawn_error)?;
+            if let Some(free) = free
+                && needed > free
+            {
+                return Err(OperationError::from_err(
+                    fl!(
+                        "not-enough-space",
+                        needed = crate::tab::format_size(needed),
+                        free = crate::tab::format_size(free)
+                    ),
+                    &self.controller,
+                ));
             }
         }
 
-        // Before anything of a moved item is touched: could its originals be
-        // removed once they are copied? If not, it is not moved by default;
-        // the user decides whether to copy it instead. Every item is checked
-        // first, so the question knows whether another one follows.
-        if matches!(
-            method,
-            Method::Move {
-                cross_device_copy: false
+        // Then the questions, in the order their problems were found. One
+        // that an earlier answer already settles is not asked.
+        let mut skipped: Vec<PathBuf> = Vec::new();
+        let mut rest: Vec<std::mem::Discriminant<Blocked>> = Vec::new();
+        let mut rest_clash: Option<ReplaceResult> = None;
+        for index in 0..problems.len() {
+            let settled = |item: Option<usize>, problem: &Problem, skipped: &[PathBuf]| {
+                item.is_some_and(|item| items[item].skipped)
+                    || skipped.iter().any(|path| problem.path().starts_with(path))
+            };
+            let (item, problem) = &problems[index];
+            let item = *item;
+            if settled(item, problem, &skipped) {
+                continue;
             }
-        ) {
-            let froms: Vec<Vec<PathBuf>> = items
+            // How many of its kind are left, this one included
+            let count = problems[index..]
                 .iter()
-                .map(|item| item.planned.iter().map(|op| op.from.clone()).collect())
-                .collect();
-            let mut blocks: Vec<Option<(PathBuf, bool)>> =
-                compio::runtime::spawn_blocking(move || {
-                    froms.iter().map(|froms| removal_block(froms)).collect()
+                .filter(|(other_item, other)| {
+                    other.kind() == problem.kind() && !settled(*other_item, other, &skipped)
                 })
-                .await
-                .map_err(super::wrap_compio_spawn_error)?;
-            for index in 0..items.len() {
-                while let Some((folder, read_only)) = blocks[index].take() {
-                    let answer = if self.copy_instead {
-                        BlockedAnswer::CopyInstead(false)
-                    } else {
-                        let blocked = Blocked::Move {
-                            path: items[index].from_parent.clone(),
-                            folder,
-                            read_only,
-                        };
-                        let more = blocks[index + 1..].iter().any(Option::is_some);
-                        self.blocked(blocked, more).await
+                .count();
+            match problem {
+                Problem::Clash { from, to } => {
+                    let answer = match rest_clash {
+                        Some(answer) => answer,
+                        None => {
+                            // Asked as the copy itself would ask, about a
+                            // step that has not run
+                            let step = Op {
+                                kind: OpKind::Copy,
+                                from: from.clone(),
+                                to: to.clone(),
+                                skipped: Rc::new(Skip {
+                                    normal: Cell::new(false),
+                                    cleanup: Cell::new(false),
+                                }),
+                                is_cleanup: false,
+                                created_to: Cell::new(false),
+                            };
+                            (self.on_replace)(&step, count).await
+                        }
                     };
                     match answer {
-                        // Not offered; asking again finds out afresh
-                        BlockedAnswer::Retry => {
-                            let froms: Vec<PathBuf> = items[index]
-                                .planned
-                                .iter()
-                                .map(|op| op.from.clone())
-                                .collect();
-                            blocks[index] =
-                                compio::runtime::spawn_blocking(move || removal_block(&froms))
-                                    .await
-                                    .map_err(super::wrap_compio_spawn_error)?;
+                        ReplaceResult::Replace(all) | ReplaceResult::Skip(all) if all => {
+                            rest_clash = Some(answer);
                         }
-                        BlockedAnswer::CopyInstead(all) => {
-                            self.copy_instead |= all;
-                            items[index].keeps_original = true;
+                        _ => {}
+                    }
+                    match answer {
+                        ReplaceResult::Replace(_) | ReplaceResult::KeepBoth => {
+                            self.decided.insert(to.clone(), answer);
                         }
-                        BlockedAnswer::Skip(_) => {
-                            items[index].skipped = true;
-                            self.op_sel.skipped.push(items[index].from_parent.clone());
+                        ReplaceResult::Skip(_) => {
+                            skipped.push(from.clone());
+                            self.op_sel.skipped.push(from.clone());
+                        }
+                        ReplaceResult::Cancel => return Err(self.cancelled()),
+                    }
+                }
+                Problem::Blocked(blocked) => {
+                    let kind = std::mem::discriminant(blocked);
+                    // Asked directly: "Same for the rest" here covers its own
+                    // kind only, unlike a tick while the operation runs
+                    let answer = if rest.contains(&kind) {
+                        BlockedAnswer::Skip(false)
+                    } else {
+                        (self.on_blocked)(blocked.clone(), count, false).await
+                    };
+                    match answer {
+                        BlockedAnswer::Skip(all) => {
+                            if all {
+                                rest.push(kind);
+                            }
+                            match blocked {
+                                // Nothing can go there: everything going
+                                // there is left out
+                                Blocked::Destination(into) => {
+                                    for item in &mut items {
+                                        if item.to_parent.parent() == Some(into.as_path()) {
+                                            item.skipped = true;
+                                            self.op_sel.skipped.push(item.from_parent.clone());
+                                        }
+                                    }
+                                }
+                                // Not moved at all, rather than half moved
+                                Blocked::Move { .. } => {
+                                    if let Some(item) = item {
+                                        items[item].skipped = true;
+                                    }
+                                    self.op_sel.skipped.push(blocked.path().to_path_buf());
+                                }
+                                _ => {
+                                    skipped.push(blocked.path().to_path_buf());
+                                    self.op_sel.skipped.push(blocked.path().to_path_buf());
+                                }
+                            }
                         }
                         BlockedAnswer::Cancel => return Err(self.cancelled()),
+                        // Not offered before the operation runs: nothing
+                        // has changed to try again for
+                        BlockedAnswer::Retry => {}
                     }
                 }
             }
@@ -683,14 +714,10 @@ impl Context {
             if item.skipped {
                 continue;
             }
-            let keeps_original = item.keeps_original;
             for PlannedOp { kind, from, to } in item.planned {
-                // Copied instead of moved: a plain copy, never a hard link
-                // that would leave the two sharing their contents
-                let kind = match kind {
-                    OpKind::Move { .. } if keeps_original => OpKind::Copy,
-                    kind => kind,
-                };
+                if skipped.iter().any(|path| from.starts_with(path)) {
+                    continue;
+                }
                 let op = Op {
                     kind,
                     from,
@@ -701,10 +728,8 @@ impl Context {
                     }),
                     is_cleanup: false,
                     created_to: Cell::new(false),
-                    keeps_original,
                 };
                 if matches!(method, Method::Move { .. })
-                    && !keeps_original
                     && let Some(cleanup_op) = op.move_cleanup_op()
                 {
                     cleanup_ops.push(cleanup_op);
@@ -722,46 +747,11 @@ impl Context {
         cleanup_ops.reverse();
         ops.append(&mut cleanup_ops);
 
-        // Count potential conflicts (files that would need replacement).
-        // Another stat per op, and for the same reason as the walk it does not
-        // belong on this thread.
-        self.remaining_conflicts = {
-            let conflict_candidates: Vec<PathBuf> = ops
-                .iter()
-                .filter(|op| {
-                    matches!(
-                        op.kind,
-                        OpKind::Copy | OpKind::Move { .. } | OpKind::Symlink { .. }
-                    )
-                })
-                .map(|op| op.to.clone())
-                .collect();
-            compio::runtime::spawn_blocking(move || {
-                conflict_candidates
-                    .into_iter()
-                    .filter(|to| to.is_file())
-                    .count()
-            })
-            .await
-            .map_err(super::wrap_compio_spawn_error)?
-        };
+        // Taken destinations were asked about up front; one that appears
+        // while the operation runs is asked about on its own
+        self.remaining_conflicts = 1;
 
         let total_ops = ops.len();
-        // What each step could be blocked on, for a question to look ahead
-        // at whether another like it is still to come
-        let ahead: Vec<(Option<Ahead>, Rc<Skip>, bool)> = ops
-            .iter()
-            .map(|op| {
-                let ahead = match op.kind {
-                    OpKind::Copy | OpKind::Move { .. } => Some(Ahead::Read(op.from.clone())),
-                    OpKind::Symlink { .. } => Some(Ahead::Link(op.to.clone())),
-                    OpKind::Remove | OpKind::Rmdir => Some(Ahead::Remove(op.from.clone())),
-                    OpKind::Mkdir => None,
-                };
-                (ahead, op.skipped.clone(), op.is_cleanup)
-            })
-            .collect();
-        let ahead = Rc::new(ahead);
         for (current_ops, mut op) in ops.into_iter().enumerate() {
             self.controller
                 .check()
@@ -793,33 +783,11 @@ impl Context {
                     break Err(err);
                 };
                 let blocked = blocked.clone();
-                // Whether a later step would be blocked too: not this one's
-                // own cleanup, nor any step of something already left out
-                let later: Vec<&Ahead> = ahead[current_ops + 1..]
-                    .iter()
-                    .filter(|(_, skipped, is_cleanup)| {
-                        !Rc::ptr_eq(skipped, &op.skipped)
-                            && !skipped.normal.get()
-                            && !(*is_cleanup && skipped.cleanup.get())
-                    })
-                    .filter_map(|(ahead, ..)| ahead.as_ref())
-                    .collect();
-                let later: Vec<Ahead> = later
-                    .into_iter()
-                    .map(|ahead| match ahead {
-                        Ahead::Read(path) => Ahead::Read(path.clone()),
-                        Ahead::Link(path) => Ahead::Link(path.clone()),
-                        Ahead::Remove(path) => Ahead::Remove(path.clone()),
-                    })
-                    .collect();
-                let more =
-                    compio::runtime::spawn_blocking(move || later.iter().any(Ahead::would_block))
-                        .await
-                        .map_err(super::wrap_compio_spawn_error)
-                        .unwrap_or(true);
-                match self.blocked(blocked.clone(), more).await {
+                // Not foreseen by the checks: asked on its own
+                let retry = blocked.can_retry();
+                match self.blocked(blocked.clone(), 1, retry).await {
                     BlockedAnswer::Retry => {}
-                    BlockedAnswer::Skip(_) | BlockedAnswer::CopyInstead(_) => {
+                    BlockedAnswer::Skip(_) => {
                         // A file left unread is not written, and with it
                         // skipped its original stays; a cleanup that could
                         // not remove an original simply leaves it
@@ -897,7 +865,6 @@ impl Context {
                 // transfers only its children and carrying the whole folder
                 // back would take what it already held with it.
                 if !op.is_cleanup
-                    && !op.keeps_original
                     && !op.skipped.normal.get()
                     && (created
                         || matches!(
@@ -958,9 +925,12 @@ impl Context {
             return Ok(ControlFlow::Break(true));
         }
 
-        let replace_result = match self.replace_result_opt {
-            Some(result) => result,
-            None => (self.on_replace)(op, self.remaining_conflicts).await,
+        // Decided before the operation ran, or asked now: a destination
+        // taken since the checks
+        let replace_result = match (self.decided.get(&op.to), self.replace_result_opt) {
+            (Some(decided), _) => *decided,
+            (None, Some(result)) => result,
+            (None, None) => (self.on_replace)(op, self.remaining_conflicts).await,
         };
 
         match replace_result {
@@ -1049,9 +1019,6 @@ pub struct Op {
     /// Whether this op brought `to` into existence, so that cleaning up after
     /// a failure removes only what it put there.
     pub created_to: Cell<bool>,
-    /// Part of an item copied instead of moved, because its originals could
-    /// not be removed: what it makes is a copy, not a move.
-    pub keeps_original: bool,
 }
 
 impl Op {
@@ -1068,7 +1035,6 @@ impl Op {
             skipped: self.skipped.clone(),
             is_cleanup: true,
             created_to: Cell::new(false),
-            keeps_original: self.keeps_original,
         })
     }
 
@@ -1136,7 +1102,6 @@ impl Op {
                                 skipped: self.skipped.clone(),
                                 is_cleanup: self.is_cleanup,
                                 created_to: Cell::new(false),
-                                keeps_original: self.keeps_original,
                             };
                             return Box::pin(copy_op.run(ctx, progress)).await;
                         }
@@ -1523,7 +1488,8 @@ impl Op {
 
 #[cfg(test)]
 mod tests {
-    use super::{Context, Done, Method, OpKind, PlannedOp, plan_tree};
+    use super::check::{Target, check_tree};
+    use super::{Context, Done, Method, OpKind, PlannedOp};
     use crate::operation::{Controller, ControllerState};
     use std::fs;
     use std::path::Path;
@@ -1581,6 +1547,47 @@ mod tests {
         }
     }
 
+    /// A copy that does not fit is refused before anything is touched or
+    /// asked; a move on the same filesystem needs no room and is not.
+    #[test(compio::test)]
+    async fn what_does_not_fit_is_refused_before_anything() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let from = dir.path().join("big.bin");
+        fs::write(&from, vec![0u8; 4096]).expect("write");
+        let to = dir.path().join("dest");
+        fs::create_dir(&to).expect("mkdir");
+        let full = |_: &Path| Some(1024);
+
+        let mut ctx = Context::new(Controller::default());
+        ctx.free_space = full;
+        let err = ctx
+            .recursive_copy_or_move([(from.clone(), to.join("big.bin"))], Method::Copy)
+            .await
+            .expect_err("it does not fit");
+        assert_eq!(
+            err.to_string(),
+            crate::fl!(
+                "not-enough-space",
+                needed = crate::tab::format_size(4096),
+                free = crate::tab::format_size(1024)
+            )
+        );
+        assert!(!to.join("big.bin").exists(), "nothing was copied");
+
+        let mut ctx = Context::new(Controller::default());
+        ctx.free_space = full;
+        let moved = ctx
+            .recursive_copy_or_move(
+                [(from.clone(), to.join("big.bin"))],
+                Method::Move {
+                    cross_device_copy: false,
+                },
+            )
+            .await;
+        assert!(moved.is_ok(), "{moved:?}");
+        assert!(to.join("big.bin").exists());
+    }
+
     #[test]
     fn a_selected_link_to_a_file_is_planned_as_a_link() {
         let dir = tempfile::tempdir().expect("tempdir");
@@ -1588,14 +1595,16 @@ mod tests {
         let link = dir.path().join("link");
         std::os::unix::fs::symlink("target.txt", &link).expect("symlink");
 
-        let planned = plan_tree(
+        let planned = check_tree(
             &link,
             &dir.path().join("out"),
             Method::Copy,
             &Controller::default(),
+            Target::default(),
+            false,
         )
         .expect("planning")
-        .0;
+        .planned;
 
         assert_eq!(planned.len(), 1);
         assert!(
@@ -1615,9 +1624,17 @@ mod tests {
         fs::write(from.join("sub").join("b.txt"), b"b").expect("write");
         std::os::unix::fs::symlink("a.txt", from.join("link")).expect("symlink");
 
-        let (planned, unlisted) =
-            plan_tree(&from, &to, Method::Copy, &Controller::default()).expect("planning");
-        assert!(unlisted.is_empty());
+        let checked = check_tree(
+            &from,
+            &to,
+            Method::Copy,
+            &Controller::default(),
+            Target::default(),
+            false,
+        )
+        .expect("planning");
+        assert!(checked.problems.is_empty());
+        let planned = checked.planned;
 
         let mut kinds: Vec<(String, &'static str)> = planned
             .iter()
@@ -1661,7 +1678,14 @@ mod tests {
         let controller = Controller::default();
         controller.set_state(ControllerState::Cancelled);
 
-        let result = plan_tree(&from, &dir.path().join("to"), Method::Copy, &controller);
+        let result = check_tree(
+            &from,
+            &dir.path().join("to"),
+            Method::Copy,
+            &controller,
+            Target::default(),
+            false,
+        );
 
         assert!(
             result.is_err(),

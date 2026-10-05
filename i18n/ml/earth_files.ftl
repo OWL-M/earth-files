@@ -16,6 +16,8 @@ destination-no-permission = "{$folder}" എന്നതിലേക്ക് എ
 destination-read-only = "{$folder}" എന്നതിലേക്ക് എഴുതാൻ കഴിയില്ല: ഇത് വായിക്കാൻ മാത്രമുള്ളതാണ്
 blocked-link = "{$name}" ഒരു ലിങ്ക് ആണ്, ഈ ഡ്രൈവിന് ലിങ്കുകൾ സൂക്ഷിക്കാൻ കഴിയില്ല
 blocked-link-fs = "{$name}" ഒരു ലിങ്ക് ആണ്, ഈ ഡ്രൈവിന് ({$fs}) ലിങ്കുകൾ സൂക്ഷിക്കാൻ കഴിയില്ല
+blocked-too-big = "{$name}" ഈ ഡ്രൈവിന് ({$fs}) വളരെ വലുതാണ്
+blocked-bad-name = ഈ ഡ്രൈവിന് ({$fs}) സൂക്ഷിക്കാൻ കഴിയാത്ത അക്ഷരങ്ങൾ "{$name}" എന്നതിലുണ്ട്
 progress-asking = താൽക്കാലികമായി നിർത്തി
 failed-path = "{$name}": {$reason}
 reason-no-permission = അനുമതിയില്ല
@@ -24,8 +26,10 @@ reason-read-only = ഡ്രൈവ് വായിക്കാൻ മാത്�
 reason-gone = ഇത് ഇപ്പോൾ നിലവിലില്ല
 reason-too-big = ഈ ഡ്രൈവിന് ഇത് വളരെ വലുതാണ്
 blocked-move = "{$name}" നീക്കാൻ കഴിയില്ല
-blocked-move-detail = "{$folder}" ൽ നിന്ന് ഒറിജിനലുകൾ നീക്കം ചെയ്യാൻ കഴിയില്ല: {$reason}. പകരം ഇത് പകർത്താം.
-copy-instead = പകരം പകർത്തുക
+blocked-move-reason = "{$folder}" എന്നതിൽ നിന്ന് മൂലഫയലുകൾ നീക്കം ചെയ്യാൻ കഴിയില്ല: {$reason}
+same-for-rest-count = ബാക്കിയുള്ളവയ്ക്കും ഇതുതന്നെ ({$count})
+not-enough-space = ഇതിന് {$needed} വേണം, പക്ഷേ {$free} മാത്രമേ ഒഴിവുള്ളൂ
+checking = പരിശോധിക്കുന്നു… ഫയലുകൾ: {$files}, {$size}
 rollback-failed = {$more ->
     [0] റദ്ദാക്കി, പക്ഷേ "{$name}" തിരികെ വയ്ക്കാൻ കഴിഞ്ഞില്ല
     *[other] റദ്ദാക്കി, പക്ഷേ "{$name}" ഉം കൂടാതെ {$more} എണ്ണം കൂടിയും തിരികെ വയ്ക്കാൻ കഴിഞ്ഞില്ല

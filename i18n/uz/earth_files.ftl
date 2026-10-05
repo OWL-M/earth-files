@@ -16,6 +16,8 @@ destination-no-permission = “{$folder}” jildiga yozib bo‘lmaydi: ruxsat yo
 destination-read-only = “{$folder}” jildiga yozib bo‘lmaydi: faqat o‘qish uchun
 blocked-link = “{$name}” havola, bu disk esa havolalarni saqlay olmaydi
 blocked-link-fs = “{$name}” havola, bu disk ({$fs}) esa havolalarni saqlay olmaydi
+blocked-too-big = “{$name}” bu disk ({$fs}) uchun juda katta
+blocked-bad-name = “{$name}” nomida bu disk ({$fs}) saqlay olmaydigan belgilar bor
 progress-asking = to‘xtatib qo‘yilgan
 failed-path = “{$name}”: {$reason}
 reason-no-permission = ruxsat yo‘q
@@ -24,8 +26,10 @@ reason-read-only = disk faqat o‘qish uchun
 reason-gone = u endi mavjud emas
 reason-too-big = u bu disk uchun juda katta
 blocked-move = “{$name}”ni ko‘chirib bo‘lmadi
-blocked-move-detail = Asl nusxalarni “{$folder}” jildidan o‘chirib bo‘lmadi: {$reason}. Uning o‘rniga nusxa olish mumkin.
-copy-instead = Uning o‘rniga nusxalash
+blocked-move-reason = Asl nusxalarni “{$folder}” jildidan olib tashlab bo‘lmaydi: {$reason}
+same-for-rest-count = Qolganlari uchun ham shunday ({$count})
+not-enough-space = Buning uchun {$needed} kerak, lekin faqat {$free} bo‘sh
+checking = Tekshirilmoqda… fayllar: {$files}, {$size}
 rollback-failed = {$more ->
     [0] Bekor qilindi, lekin “{$name}”ni joyiga qaytarib bo‘lmadi
     *[other] Bekor qilindi, lekin “{$name}” va yana {$more} ta elementni joyiga qaytarib bo‘lmadi

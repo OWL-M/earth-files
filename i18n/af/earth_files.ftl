@@ -60,6 +60,8 @@ destination-no-permission = Kan nie na "{$folder}" skryf nie: geen toestemming
 destination-read-only = Kan nie na "{$folder}" skryf nie: dit is leesalleen
 blocked-link = "{$name}" is 'n skakel, en hierdie skyf kan nie skakels hou nie
 blocked-link-fs = "{$name}" is 'n skakel, en hierdie skyf ({$fs}) kan nie skakels hou nie
+blocked-too-big = "{$name}" is te groot vir hierdie skyf ({$fs})
+blocked-bad-name = "{$name}" het karakters wat hierdie skyf ({$fs}) nie kan hou nie
 progress-asking = onderbreek
 failed-path = "{$name}": {$reason}
 reason-no-permission = geen toestemming
@@ -68,8 +70,10 @@ reason-read-only = die skyf is leesalleen
 reason-gone = dit bestaan nie meer nie
 reason-too-big = dit is te groot vir hierdie skyf
 blocked-move = "{$name}" kan nie geskuif word nie
-blocked-move-detail = Die oorspronklikes kan nie uit "{$folder}" verwyder word nie: {$reason}. Dit kan eerder gekopieer word.
-copy-instead = Kopieer eerder
+blocked-move-reason = Die oorspronklikes kan nie uit "{$folder}" verwyder word nie: {$reason}
+same-for-rest-count = Dieselfde vir die res ({$count})
+not-enough-space = Dit benodig {$needed}, maar slegs {$free} is vry
+checking = Kontroleer… lêers: {$files}, {$size}
 rollback-failed = {$more ->
     [0] Gekanselleer, maar "{$name}" kon nie teruggesit word nie
     *[other] Gekanselleer, maar "{$name}" en nog {$more} kon nie teruggesit word nie

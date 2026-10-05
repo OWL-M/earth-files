@@ -52,6 +52,8 @@ destination-no-permission = ไม่สามารถเขียนไปย�
 destination-read-only = ไม่สามารถเขียนไปยัง "{$folder}": เป็นแบบอ่านอย่างเดียว
 blocked-link = "{$name}" เป็นลิงก์ และไดร์ฟนี้ไม่รองรับลิงก์
 blocked-link-fs = "{$name}" เป็นลิงก์ และไดร์ฟนี้ ({$fs}) ไม่รองรับลิงก์
+blocked-too-big = "{$name}" ใหญ่เกินไปสำหรับไดร์ฟนี้ ({$fs})
+blocked-bad-name = "{$name}" มีอักขระที่ไดร์ฟนี้ ({$fs}) ไม่รองรับ
 progress-asking = หยุดชั่วคราว
 failed-path = "{$name}": {$reason}
 reason-no-permission = ไม่มีสิทธิ์
@@ -60,8 +62,10 @@ reason-read-only = ไดร์ฟเป็นแบบอ่านอย่า�
 reason-gone = ไม่มีอยู่แล้ว
 reason-too-big = ใหญ่เกินไปสำหรับไดร์ฟนี้
 blocked-move = ไม่สามารถย้าย "{$name}" ได้
-blocked-move-detail = ไม่สามารถลบต้นฉบับออกจาก "{$folder}" ได้: {$reason} แต่สามารถคัดลอกแทนได้
-copy-instead = คัดลอกแทน
+blocked-move-reason = ไม่สามารถลบต้นฉบับออกจาก "{$folder}": {$reason}
+same-for-rest-count = ใช้กับรายการที่เหลือทั้งหมด ({$count})
+not-enough-space = ต้องใช้ {$needed} แต่มีพื้นที่ว่างเพียง {$free}
+checking = กำลังตรวจสอบ… ไฟล์: {$files}, {$size}
 rollback-failed = {$more ->
     [0] ยกเลิกแล้ว แต่ไม่สามารถนำ "{$name}" กลับที่เดิมได้
     *[other] ยกเลิกแล้ว แต่ไม่สามารถนำ "{$name}" และอีก {$more} รายการกลับที่เดิมได้

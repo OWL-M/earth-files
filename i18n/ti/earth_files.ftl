@@ -16,6 +16,8 @@ destination-no-permission = ናብ "{$folder}" ክጽሓፍ ኣይከኣልን: 
 destination-read-only = ናብ "{$folder}" ክጽሓፍ ኣይከኣልን: ንንባብ ጥራይ እዩ
 blocked-link = "{$name}" መላግቦ እዩ፣ እዚ ድራይቭ መላግቦታት ክሕዝ ኣይክእልን
 blocked-link-fs = "{$name}" መላግቦ እዩ፣ እዚ ድራይቭ ({$fs}) መላግቦታት ክሕዝ ኣይክእልን
+blocked-too-big = "{$name}" ነዚ ድራይቭ ({$fs}) ኣዝዩ ዓቢ እዩ
+blocked-bad-name = "{$name}" እዚ ድራይቭ ({$fs}) ክሕዞም ዘይክእል ፊደላት ኣለዎ
 progress-asking = ደው ኢሉ
 failed-path = "{$name}": {$reason}
 reason-no-permission = ፍቓድ የለን
@@ -24,8 +26,10 @@ reason-read-only = እቲ ድራይቭ ንንባብ ጥራይ እዩ
 reason-gone = ደጊም የለን
 reason-too-big = ነዚ ድራይቭ ኣዝዩ ዓቢ እዩ
 blocked-move = "{$name}" ክግዓዝ ኣይከኣልን
-blocked-move-detail = መበቆላት ካብ "{$folder}" ክእለዩ ኣይከኣሉን: {$reason}። ኣብ ክንድኡ ክቕዳሕ ይከኣል።
-copy-instead = ኣብ ክንድኡ ቅዳሕ
+blocked-move-reason = ካብ "{$folder}" እቶም መበቆላውያን ክእለዩ ኣይከኣሉን: {$reason}
+same-for-rest-count = ንዝተረፉ እውን ከምኡ ({$count})
+not-enough-space = እዚ {$needed} የድልዮ፣ ግን {$free} ጥራይ ነጻ እዩ
+checking = ይምርመር ኣሎ… ፋይላት: {$files}፣ {$size}
 rollback-failed = {$more ->
     [0] ተሰሪዙ፣ ግን "{$name}" ናብ ቦታኡ ክምለስ ኣይከኣለን
     *[other] ተሰሪዙ፣ ግን "{$name}" ከምኡውን {$more} ተወሰኽቲ ናብ ቦታኦም ክምለሱ ኣይከኣሉን

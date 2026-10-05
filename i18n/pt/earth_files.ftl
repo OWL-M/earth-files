@@ -241,6 +241,8 @@ destination-no-permission = Não é possível escrever em "{$folder}": sem permi
 destination-read-only = Não é possível escrever em "{$folder}": é apenas de leitura
 blocked-link = "{$name}" é uma ligação e esta unidade não suporta ligações
 blocked-link-fs = "{$name}" é uma ligação e esta unidade ({$fs}) não suporta ligações
+blocked-too-big = "{$name}" é demasiado grande para esta unidade ({$fs})
+blocked-bad-name = "{$name}" tem caracteres que esta unidade ({$fs}) não suporta
 progress-asking = em pausa
 failed-path = "{$name}": {$reason}
 reason-no-permission = sem permissão
@@ -249,8 +251,10 @@ reason-read-only = a unidade é apenas de leitura
 reason-gone = já não existe
 reason-too-big = é demasiado grande para esta unidade
 blocked-move = Não é possível mover "{$name}"
-blocked-move-detail = Não é possível remover os originais de "{$folder}": {$reason}. Em vez disso, pode ser copiado.
-copy-instead = Copiar em vez disso
+blocked-move-reason = Não é possível remover os originais de "{$folder}": {$reason}
+same-for-rest-count = Igual para os restantes ({$count})
+not-enough-space = São necessários {$needed}, mas só há {$free} livres
+checking = A verificar… ficheiros: {$files}, {$size}
 rollback-failed = {$more ->
     [0] Cancelado, mas não foi possível restaurar "{$name}"
     *[other] Cancelado, mas não foi possível restaurar "{$name}" e mais {$more}

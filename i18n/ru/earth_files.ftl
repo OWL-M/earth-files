@@ -304,6 +304,8 @@ destination-no-permission = Не удаётся записать в «{$folder}�
 destination-read-only = Не удаётся записать в «{$folder}»: только для чтения
 blocked-link = «{$name}» — это ссылка, а этот диск не поддерживает ссылки
 blocked-link-fs = «{$name}» — это ссылка, а этот диск ({$fs}) не поддерживает ссылки
+blocked-too-big = «{$name}» слишком велик для этого диска ({$fs})
+blocked-bad-name = «{$name}» содержит символы, которые этот диск ({$fs}) не поддерживает
 progress-asking = приостановлена
 failed-path = «{$name}»: {$reason}
 reason-no-permission = нет прав доступа
@@ -312,8 +314,10 @@ reason-read-only = диск доступен только для чтения
 reason-gone = больше не существует
 reason-too-big = размер слишком велик для этого диска
 blocked-move = Не удаётся переместить «{$name}»
-blocked-move-detail = Не удаётся удалить оригиналы из «{$folder}»: {$reason}. Вместо этого объект можно скопировать.
-copy-instead = Копировать вместо этого
+blocked-move-reason = Не удаётся удалить оригиналы из «{$folder}»: {$reason}
+same-for-rest-count = Для всех остальных ({$count})
+not-enough-space = Требуется {$needed}, но свободно только {$free}
+checking = Проверка… файлов: {$files}, {$size}
 rollback-failed = {$more ->
     [0] Отменена, но «{$name}» не удалось вернуть на место
     [one] Отменена, но «{$name}» и ещё {$more} объект не удалось вернуть на место

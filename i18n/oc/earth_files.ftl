@@ -48,6 +48,8 @@ destination-no-permission = Impossible d'escriure dins « {$folder} »: pas d'au
 destination-read-only = Impossible d'escriure dins « {$folder} »: es en lectura sola
 blocked-link = « {$name} » es un ligam, e aqueste disc pòt pas conténer de ligams
 blocked-link-fs = « {$name} » es un ligam, e aqueste disc ({$fs}) pòt pas conténer de ligams
+blocked-too-big = « {$name} » es tròp grand per aqueste disc ({$fs})
+blocked-bad-name = « {$name} » conten de caractèrs qu'aqueste disc ({$fs}) pòt pas conténer
 progress-asking = en pausa
 failed-path = « {$name} »: {$reason}
 reason-no-permission = pas d'autorizacion
@@ -56,8 +58,10 @@ reason-read-only = lo disc es en lectura sola
 reason-gone = existís pas pus
 reason-too-big = es tròp gròs per aqueste disc
 blocked-move = Impossible de desplaçar « {$name} »
-blocked-move-detail = Los originals se pòdon pas suprimir de « {$folder} » : {$reason}. Se pòt copiar a la plaça.
-copy-instead = Copiar a la plaça
+blocked-move-reason = Impossible de suprimir los originals de « {$folder} »: {$reason}
+same-for-rest-count = Parièr per la rèsta ({$count})
+not-enough-space = Cal {$needed}, mas i a pas que {$free} de liure
+checking = Verificacion… fichièrs: {$files}, {$size}
 rollback-failed = {$more ->
     [0] Anullat, mas « {$name} » a pas pogut èsser restablit
     *[other] Anullat, mas « {$name} » e {$more} de mai an pas pogut èsser restablits

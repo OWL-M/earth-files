@@ -55,6 +55,8 @@ destination-no-permission = Kan ikke skrive til “{$folder}”: ingen tilladels
 destination-read-only = Kan ikke skrive til “{$folder}”: den er skrivebeskyttet
 blocked-link = “{$name}” er et link, og dette drev kan ikke indeholde links
 blocked-link-fs = “{$name}” er et link, og dette drev ({$fs}) kan ikke indeholde links
+blocked-too-big = “{$name}” er for stor til dette drev ({$fs})
+blocked-bad-name = “{$name}” har tegn, som dette drev ({$fs}) ikke kan indeholde
 progress-asking = sat på pause
 failed-path = “{$name}”: {$reason}
 reason-no-permission = ingen tilladelse
@@ -63,8 +65,10 @@ reason-read-only = drevet er skrivebeskyttet
 reason-gone = det findes ikke længere
 reason-too-big = det er for stort til dette drev
 blocked-move = “{$name}” kan ikke flyttes
-blocked-move-detail = Originalerne kan ikke fjernes fra “{$folder}”: {$reason}. Det kan kopieres i stedet.
-copy-instead = Kopiér i stedet
+blocked-move-reason = Originalerne kan ikke fjernes fra “{$folder}”: {$reason}
+same-for-rest-count = Samme for resten ({$count})
+not-enough-space = Dette kræver {$needed}, men kun {$free} er ledig
+checking = Kontrollerer… filer: {$files}, {$size}
 rollback-failed = {$more ->
     [0] Annulleret, men “{$name}” kunne ikke lægges tilbage
     *[other] Annulleret, men “{$name}” og {$more} mere kunne ikke lægges tilbage

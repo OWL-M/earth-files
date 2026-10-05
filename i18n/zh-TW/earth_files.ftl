@@ -331,6 +331,8 @@ destination-no-permission = 無法寫入「{$folder}」：沒有權限
 destination-read-only = 無法寫入「{$folder}」：唯讀
 blocked-link = 「{$name}」是連結，而此磁碟機無法存放連結
 blocked-link-fs = 「{$name}」是連結，而此磁碟機（{$fs}）無法存放連結
+blocked-too-big = 「{$name}」太大，此磁碟機（{$fs}）無法存放
+blocked-bad-name = 「{$name}」包含此磁碟機（{$fs}）無法存放的字元
 progress-asking = 已經暫停
 failed-path = 「{$name}」：{$reason}
 reason-no-permission = 沒有權限
@@ -339,8 +341,10 @@ reason-read-only = 磁碟機為唯讀
 reason-gone = 已不存在
 reason-too-big = 對此磁碟機來說太大
 blocked-move = 無法移動「{$name}」
-blocked-move-detail = 無法從「{$folder}」刪除原始項目：{$reason}。可以改為複製。
-copy-instead = 改為複製
+blocked-move-reason = 無法從「{$folder}」移除原始檔案：{$reason}
+same-for-rest-count = 其餘項目也套用相同操作 ({$count})
+not-enough-space = 需要 {$needed}，但只有 {$free} 可用
+checking = 正在檢查… {$files} 個檔案，{$size}
 rollback-failed = {$more ->
     [0] 已取消，但無法將「{$name}」放回原處
     *[other] 已取消，但無法將「{$name}」及另外 {$more} 項放回原處

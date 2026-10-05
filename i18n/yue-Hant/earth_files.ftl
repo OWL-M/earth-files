@@ -16,6 +16,8 @@ destination-no-permission = 寫唔入「{$folder}」：冇權限
 destination-read-only = 寫唔入「{$folder}」：唯讀
 blocked-link = 「{$name}」係連結，呢個磁碟機存唔到連結
 blocked-link-fs = 「{$name}」係連結，呢個磁碟機（{$fs}）存唔到連結
+blocked-too-big = 「{$name}」太大，呢個磁碟機（{$fs}）放唔落
+blocked-bad-name = 「{$name}」有啲字元呢個磁碟機（{$fs}）存唔到
 progress-asking = 已暫停
 failed-path = 「{$name}」：{$reason}
 reason-no-permission = 冇權限
@@ -24,8 +26,10 @@ reason-read-only = 磁碟機係唯讀
 reason-gone = 已經唔存在
 reason-too-big = 對呢個磁碟機嚟講太大
 blocked-move = 搬唔到「{$name}」
-blocked-move-detail = 原本嘅項目喺「{$folder}」刪唔到：{$reason}。可以改為複製。
-copy-instead = 改為複製
+blocked-move-reason = 喺「{$folder}」刪除唔到原本嘅檔案：{$reason}
+same-for-rest-count = 其餘項目都照樣處理 ({$count})
+not-enough-space = 需要 {$needed}，但係只係得 {$free} 可用
+checking = 檢查緊… {$files} 個檔案，{$size}
 rollback-failed = {$more ->
     [0] 已經取消，但係「{$name}」放唔返原位
     *[other] 已經取消，但係「{$name}」同另外 {$more} 個項目放唔返原位

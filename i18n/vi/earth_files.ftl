@@ -16,6 +16,8 @@ destination-no-permission = Không thể ghi vào "{$folder}": không có quyề
 destination-read-only = Không thể ghi vào "{$folder}": chỉ đọc
 blocked-link = "{$name}" là liên kết và ổ đĩa này không thể chứa liên kết
 blocked-link-fs = "{$name}" là liên kết và ổ đĩa này ({$fs}) không thể chứa liên kết
+blocked-too-big = "{$name}" quá lớn đối với ổ đĩa này ({$fs})
+blocked-bad-name = "{$name}" có ký tự mà ổ đĩa này ({$fs}) không thể chứa
 progress-asking = đã tạm dừng
 failed-path = "{$name}": {$reason}
 reason-no-permission = không có quyền
@@ -24,8 +26,10 @@ reason-read-only = ổ đĩa chỉ đọc
 reason-gone = không còn tồn tại
 reason-too-big = quá lớn đối với ổ đĩa này
 blocked-move = Không thể di chuyển "{$name}"
-blocked-move-detail = Không thể xóa bản gốc khỏi "{$folder}": {$reason}. Thay vào đó, có thể sao chép mục này.
-copy-instead = Sao chép thay vì di chuyển
+blocked-move-reason = Không thể xóa bản gốc khỏi "{$folder}": {$reason}
+same-for-rest-count = Áp dụng cho các mục còn lại ({$count})
+not-enough-space = Cần {$needed}, nhưng chỉ còn trống {$free}
+checking = Đang kiểm tra… tệp: {$files}, {$size}
 rollback-failed = {$more ->
     [0] Đã hủy, nhưng không thể đưa "{$name}" trở lại chỗ cũ
     *[other] Đã hủy, nhưng không thể đưa "{$name}" và {$more} mục khác trở lại chỗ cũ

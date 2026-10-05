@@ -1,5 +1,5 @@
 use std::sync::Arc;
-use std::sync::atomic::{self, AtomicU16, AtomicU32};
+use std::sync::atomic::{self, AtomicBool, AtomicU16, AtomicU32, AtomicU64};
 use tokio::sync::Notify;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -36,6 +36,11 @@ struct ControllerInner {
     state: AtomicU16,
     /// `f32` progress stored as its bit pattern.
     progress: AtomicU32,
+    /// Checking the selection before anything is touched.
+    checking: AtomicBool,
+    /// What the checks have walked so far: files, and their size in bytes.
+    checked_files: AtomicU64,
+    checked_bytes: AtomicU64,
     notify: Notify,
 }
 
@@ -52,6 +57,9 @@ impl Default for Controller {
             inner: Arc::new(ControllerInner {
                 state: AtomicU16::new(ControllerState::Running.into()),
                 progress: AtomicU32::new(0.0f32.to_bits()),
+                checking: AtomicBool::new(false),
+                checked_files: AtomicU64::new(0),
+                checked_bytes: AtomicU64::new(0),
                 notify: Notify::new(),
             }),
         }
@@ -80,6 +88,36 @@ impl Controller {
         self.inner
             .progress
             .swap(progress.to_bits(), atomic::Ordering::Relaxed);
+    }
+
+    /// Whether the operation is still checking its selection, before
+    /// anything is touched.
+    pub fn is_checking(&self) -> bool {
+        self.inner.checking.load(atomic::Ordering::Relaxed)
+    }
+
+    pub fn set_checking(&self, checking: bool) {
+        self.inner
+            .checking
+            .store(checking, atomic::Ordering::Relaxed);
+    }
+
+    /// The checks walked `files` more files, of `bytes` in all.
+    pub fn add_checked(&self, files: u64, bytes: u64) {
+        self.inner
+            .checked_files
+            .fetch_add(files, atomic::Ordering::Relaxed);
+        self.inner
+            .checked_bytes
+            .fetch_add(bytes, atomic::Ordering::Relaxed);
+    }
+
+    /// What the checks have walked so far: files, and their size in bytes.
+    pub fn checked(&self) -> (u64, u64) {
+        (
+            self.inner.checked_files.load(atomic::Ordering::Relaxed),
+            self.inner.checked_bytes.load(atomic::Ordering::Relaxed),
+        )
     }
 
     pub fn state(&self) -> ControllerState {

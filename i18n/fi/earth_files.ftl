@@ -331,6 +331,8 @@ destination-no-permission = Kansioon ”{$folder}” ei voi kirjoittaa: ei oikeu
 destination-read-only = Kansioon ”{$folder}” ei voi kirjoittaa: vain luku
 blocked-link = ”{$name}” on linkki, eikä tälle levylle voi tallentaa linkkejä
 blocked-link-fs = ”{$name}” on linkki, eikä tälle levylle ({$fs}) voi tallentaa linkkejä
+blocked-too-big = ”{$name}” on liian suuri tälle levylle ({$fs})
+blocked-bad-name = ”{$name}” sisältää merkkejä, joita tälle levylle ({$fs}) ei voi tallentaa
 progress-asking = keskeytetty
 failed-path = ”{$name}”: {$reason}
 reason-no-permission = ei oikeuksia
@@ -339,8 +341,10 @@ reason-read-only = levy on vain luku -tilassa
 reason-gone = sitä ei ole enää olemassa
 reason-too-big = se on liian suuri tälle levylle
 blocked-move = Kohdetta ”{$name}” ei voi siirtää
-blocked-move-detail = Alkuperäisiä ei voi poistaa kansiosta ”{$folder}”: {$reason}. Sen voi kopioida sen sijaan.
-copy-instead = Kopioi sen sijaan
+blocked-move-reason = Alkuperäisiä ei voi poistaa kansiosta ”{$folder}”: {$reason}
+same-for-rest-count = Sama muille ({$count})
+not-enough-space = Tarvitaan {$needed}, mutta vapaana on vain {$free}
+checking = Tarkistetaan… tiedostoja: {$files}, {$size}
 rollback-failed = {$more ->
     [0] Peruttu, mutta kohdetta ”{$name}” ei voitu palauttaa
     *[other] Peruttu, mutta kohdetta ”{$name}” ja {$more} muuta ei voitu palauttaa

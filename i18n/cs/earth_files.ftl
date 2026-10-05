@@ -191,6 +191,8 @@ destination-no-permission = Do složky „{$folder}“ nelze zapisovat: chybí o
 destination-read-only = Do složky „{$folder}“ nelze zapisovat: je pouze pro čtení
 blocked-link = Položka „{$name}“ je odkaz a tento disk odkazy uložit neumí
 blocked-link-fs = Položka „{$name}“ je odkaz a tento disk ({$fs}) odkazy uložit neumí
+blocked-too-big = Položka „{$name}“ je pro tento disk ({$fs}) příliš velká
+blocked-bad-name = Položka „{$name}“ obsahuje znaky, které tento disk ({$fs}) uložit neumí
 progress-asking = pozastaveno
 failed-path = „{$name}“: {$reason}
 reason-no-permission = chybí oprávnění
@@ -199,8 +201,10 @@ reason-read-only = disk je pouze pro čtení
 reason-gone = už neexistuje
 reason-too-big = je pro tento disk příliš velká
 blocked-move = Položku „{$name}“ nelze přesunout
-blocked-move-detail = Originály nelze odstranit ze složky „{$folder}“: {$reason}. Místo toho ji lze zkopírovat.
-copy-instead = Místo toho kopírovat
+blocked-move-reason = Originály nelze odstranit ze složky „{$folder}“: {$reason}
+same-for-rest-count = Totéž pro zbývající ({$count})
+not-enough-space = Je potřeba {$needed}, ale volné je jen {$free}
+checking = Kontrola… souborů: {$files}, {$size}
 rollback-failed = {$more ->
     [0] Zrušeno, ale položku „{$name}“ nelze vrátit zpět
     [few] Zrušeno, ale položku „{$name}“ a {$more} další nelze vrátit zpět

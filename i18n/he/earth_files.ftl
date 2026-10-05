@@ -18,6 +18,8 @@ destination-no-permission = לא ניתן לכתוב אל "{$folder}": אין ה
 destination-read-only = לא ניתן לכתוב אל "{$folder}": לקריאה בלבד
 blocked-link = "{$name}" הוא קישור, והכונן הזה אינו יכול להכיל קישורים
 blocked-link-fs = "{$name}" הוא קישור, והכונן הזה ({$fs}) אינו יכול להכיל קישורים
+blocked-too-big = "{$name}" גדול מדי עבור הכונן הזה ({$fs})
+blocked-bad-name = "{$name}" מכיל תווים שהכונן הזה ({$fs}) אינו יכול להכיל
 progress-asking = מושהה
 failed-path = "{$name}": {$reason}
 reason-no-permission = אין הרשאה
@@ -26,8 +28,10 @@ reason-read-only = הכונן לקריאה בלבד
 reason-gone = הוא כבר לא קיים
 reason-too-big = הוא גדול מדי עבור הכונן הזה
 blocked-move = לא ניתן להעביר את "{$name}"
-blocked-move-detail = לא ניתן להסיר את המקור מ־"{$folder}": {$reason}. במקום זאת ניתן להעתיק אותו.
-copy-instead = העתקה במקום זאת
+blocked-move-reason = לא ניתן להסיר את המקוריים מ־"{$folder}": {$reason}
+same-for-rest-count = אותו הדבר לשאר ({$count})
+not-enough-space = נדרשים {$needed}, אך רק {$free} פנויים
+checking = בבדיקה… קבצים: {$files}, {$size}
 rollback-failed = {$more ->
     [0] בוטל, אך לא ניתן היה להחזיר את "{$name}" למקומו
     [two] בוטל, אך לא ניתן היה להחזיר את "{$name}" ועוד {$more} למקומם

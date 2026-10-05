@@ -55,6 +55,8 @@ destination-no-permission = Не може да се пише в „{$folder}“:
 destination-read-only = Не може да се пише в „{$folder}“: само за четене
 blocked-link = „{$name}“ е връзка, а това устройство не може да съдържа връзки
 blocked-link-fs = „{$name}“ е връзка, а това устройство ({$fs}) не може да съдържа връзки
+blocked-too-big = „{$name}“ е твърде голям за това устройство ({$fs})
+blocked-bad-name = „{$name}“ съдържа знаци, които това устройство ({$fs}) не може да съхрани
 progress-asking = на пауза
 failed-path = „{$name}“: {$reason}
 reason-no-permission = няма права
@@ -63,8 +65,10 @@ reason-read-only = устройството е само за четене
 reason-gone = вече не съществува
 reason-too-big = твърде голям е за това устройство
 blocked-move = „{$name}“ не може да бъде преместен
-blocked-move-detail = Оригиналите не могат да бъдат премахнати от „{$folder}“: {$reason}. Вместо това може да бъде копиран.
-copy-instead = Копиране вместо това
+blocked-move-reason = Оригиналите не могат да бъдат премахнати от „{$folder}“: {$reason}
+same-for-rest-count = Същото за останалите ({$count})
+not-enough-space = Нужни са {$needed}, но свободни са само {$free}
+checking = Проверка… файлове: {$files}, {$size}
 rollback-failed = {$more ->
     [0] Отменена, но „{$name}“ не може да бъде върнат на мястото си
     *[other] Отменена, но „{$name}“ и още {$more} не могат да бъдат върнати на местата си

@@ -55,6 +55,8 @@ destination-no-permission = No es pot escriure a «{$folder}»: sense permís
 destination-read-only = No es pot escriure a «{$folder}»: és només de lectura
 blocked-link = «{$name}» és un enllaç, i aquesta unitat no pot contenir enllaços
 blocked-link-fs = «{$name}» és un enllaç, i aquesta unitat ({$fs}) no pot contenir enllaços
+blocked-too-big = «{$name}» és massa gran per a aquesta unitat ({$fs})
+blocked-bad-name = «{$name}» té caràcters que aquesta unitat ({$fs}) no pot contenir
 progress-asking = en pausa
 failed-path = «{$name}»: {$reason}
 reason-no-permission = sense permís
@@ -63,8 +65,10 @@ reason-read-only = la unitat és només de lectura
 reason-gone = ja no existeix
 reason-too-big = és massa gran per a aquesta unitat
 blocked-move = No es pot moure «{$name}»
-blocked-move-detail = Els originals no es poden suprimir de «{$folder}»: {$reason}. Es pot copiar en lloc seu.
-copy-instead = Copia en lloc seu
+blocked-move-reason = No es poden eliminar els originals de «{$folder}»: {$reason}
+same-for-rest-count = El mateix per a la resta ({$count})
+not-enough-space = Calen {$needed}, però només hi ha {$free} lliures
+checking = S'està comprovant… fitxers: {$files}, {$size}
 rollback-failed = {$more ->
     [0] Cancel·lat, però no s'ha pogut restaurar «{$name}»
     *[other] Cancel·lat, però no s'han pogut restaurar «{$name}» i {$more} més

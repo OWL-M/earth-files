@@ -55,6 +55,8 @@ destination-no-permission = Nepavyksta rašyti į „{$folder}“: nėra leidimo
 destination-read-only = Nepavyksta rašyti į „{$folder}“: tik skaitomas
 blocked-link = „{$name}“ yra nuoroda, o ši kaupyklė negali saugoti nuorodų
 blocked-link-fs = „{$name}“ yra nuoroda, o ši kaupyklė ({$fs}) negali saugoti nuorodų
+blocked-too-big = „{$name}“ per didelis šiai kaupyklei ({$fs})
+blocked-bad-name = „{$name}“ turi simbolių, kurių ši kaupyklė ({$fs}) negali saugoti
 progress-asking = pristabdyta
 failed-path = „{$name}“: {$reason}
 reason-no-permission = nėra leidimo
@@ -63,8 +65,10 @@ reason-read-only = kaupyklė tik skaitoma
 reason-gone = jo nebėra
 reason-too-big = jis per didelis šiai kaupyklei
 blocked-move = Nepavyksta perkelti „{$name}“
-blocked-move-detail = Nepavyksta pašalinti originalų iš „{$folder}“: {$reason}. Vietoj to jį galima nukopijuoti.
-copy-instead = Kopijuoti vietoj to
+blocked-move-reason = Nepavyksta pašalinti originalų iš „{$folder}“: {$reason}
+same-for-rest-count = Taip pat ir likusiems ({$count})
+not-enough-space = Reikia {$needed}, bet laisva tik {$free}
+checking = Tikrinama… failų: {$files}, {$size}
 rollback-failed = {$more ->
     [0] Atšaukta, bet „{$name}“ nepavyko grąžinti atgal
     [one] Atšaukta, bet „{$name}“ ir dar {$more} elemento nepavyko grąžinti atgal

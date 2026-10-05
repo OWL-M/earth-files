@@ -99,6 +99,8 @@ destination-no-permission = Can't write to "{$folder}": no permission
 destination-read-only = Can't write to "{$folder}": it is read-only
 blocked-link = "{$name}" is a link, and this drive can't hold links
 blocked-link-fs = "{$name}" is a link, and this drive ({$fs}) can't hold links
+blocked-too-big = "{$name}" is too big for this drive ({$fs})
+blocked-bad-name = "{$name}" has characters this drive ({$fs}) can't hold
 progress-asking = paused
 failed-path = "{$name}": {$reason}
 reason-no-permission = no permission
@@ -107,8 +109,10 @@ reason-read-only = the drive is read-only
 reason-gone = it no longer exists
 reason-too-big = it is too big for this drive
 blocked-move = "{$name}" can't be moved
-blocked-move-detail = Its originals can't be removed from "{$folder}": {$reason}. It can be copied instead.
-copy-instead = Copy instead
+blocked-move-reason = Its originals can't be removed from "{$folder}": {$reason}
+same-for-rest-count = Same for the rest ({$count})
+not-enough-space = This needs {$needed}, but only {$free} is free
+checking = Checking… {$files} files, {$size}
 rollback-failed = Cancelled, but "{$name}" {$more ->
     [0] could not be put back
     *[other] and {$more} more could not be put back

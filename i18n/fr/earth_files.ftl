@@ -55,6 +55,8 @@ destination-no-permission = Impossible d'écrire dans « {$folder} » : permissi
 destination-read-only = Impossible d'écrire dans « {$folder} » : dossier en lecture seule
 blocked-link = « {$name} » est un lien, et ce lecteur ne peut pas contenir de liens
 blocked-link-fs = « {$name} » est un lien, et ce lecteur ({$fs}) ne peut pas contenir de liens
+blocked-too-big = « {$name} » est trop volumineux pour ce lecteur ({$fs})
+blocked-bad-name = « {$name} » contient des caractères que ce lecteur ({$fs}) ne peut pas accepter
 progress-asking = en pause
 failed-path = « {$name} » : {$reason}
 reason-no-permission = permission refusée
@@ -63,8 +65,10 @@ reason-read-only = le lecteur est en lecture seule
 reason-gone = il n'existe plus
 reason-too-big = il est trop volumineux pour ce lecteur
 blocked-move = Impossible de déplacer « {$name} »
-blocked-move-detail = Impossible de supprimer les originaux de « {$folder} » : {$reason}. Il peut être copié à la place.
-copy-instead = Copier à la place
+blocked-move-reason = Impossible de supprimer les originaux de « {$folder} » : {$reason}
+same-for-rest-count = Faire de même pour les suivants ({$count})
+not-enough-space = Il faut {$needed}, mais seulement {$free} sont libres
+checking = Vérification… fichiers : {$files}, {$size}
 rollback-failed = {$more ->
     [0] Annulé, mais « {$name} » n'a pas pu être remis en place
     *[other] Annulé, mais « {$name} » et {$more} de plus n'ont pas pu être remis en place

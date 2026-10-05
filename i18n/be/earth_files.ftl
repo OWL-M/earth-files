@@ -57,6 +57,8 @@ destination-no-permission = Немагчыма запісаць у «{$folder}»
 destination-read-only = Немагчыма запісаць у «{$folder}»: толькі для чытання
 blocked-link = «{$name}» — гэта спасылка, а на гэтым дыску нельга захоўваць спасылкі
 blocked-link-fs = «{$name}» — гэта спасылка, а на гэтым дыску ({$fs}) нельга захоўваць спасылкі
+blocked-too-big = «{$name}» занадта вялікі для гэтага дыска ({$fs})
+blocked-bad-name = «{$name}» мае сімвалы, якія гэты дыск ({$fs}) не можа захоўваць
 progress-asking = прыпынена
 failed-path = «{$name}»: {$reason}
 reason-no-permission = няма дазволу
@@ -65,8 +67,10 @@ reason-read-only = дыск толькі для чытання
 reason-gone = яго больш не існуе
 reason-too-big = ён занадта вялікі для гэтага дыска
 blocked-move = Немагчыма перанесці «{$name}»
-blocked-move-detail = Арыгіналы немагчыма выдаліць з «{$folder}»: {$reason}. Замест гэтага яго можна скапіяваць.
-copy-instead = Скапіяваць замест гэтага
+blocked-move-reason = Немагчыма выдаліць арыгіналы з «{$folder}»: {$reason}
+same-for-rest-count = Тое ж для астатніх ({$count})
+not-enough-space = Патрабуецца {$needed}, але вольна толькі {$free}
+checking = Праверка… файлаў: {$files}, {$size}
 rollback-failed = {$more ->
     [0] Скасавана, але «{$name}» немагчыма вярнуць на месца
     [one] Скасавана, але «{$name}» і яшчэ {$more} аб’ект немагчыма вярнуць на месца

@@ -87,6 +87,8 @@ destination-no-permission = Није могуће писати у „{$folder}�
 destination-read-only = Није могуће писати у „{$folder}“: само за читање
 blocked-link = „{$name}“ је веза, а овај уређај не може да садржи везе
 blocked-link-fs = „{$name}“ је веза, а овај уређај ({$fs}) не може да садржи везе
+blocked-too-big = Ставка „{$name}“ је превелика за овај уређај ({$fs})
+blocked-bad-name = Ставка „{$name}“ садржи знакове које овај уређај ({$fs}) не може да сачува
 progress-asking = паузирано
 failed-path = „{$name}“: {$reason}
 reason-no-permission = нема овлашћења
@@ -95,8 +97,10 @@ reason-read-only = уређај је само за читање
 reason-gone = више не постоји
 reason-too-big = превелико је за овај уређај
 blocked-move = Ставка „{$name}“ не може да се премести
-blocked-move-detail = Оригинали не могу да се уклоне из „{$folder}“: {$reason}. Уместо тога може да се копира.
-copy-instead = Копирај уместо тога
+blocked-move-reason = Оригинали не могу да се уклоне из „{$folder}“: {$reason}
+same-for-rest-count = Исто за остале ({$count})
+not-enough-space = Потребно је {$needed}, али је слободно само {$free}
+checking = Провера… датотеке: {$files}, {$size}
 rollback-failed = {$more ->
     [0] Отказано, али ставку „{$name}“ није могуће вратити
     [one] Отказано, али ставку „{$name}“ и још {$more} ставку није могуће вратити

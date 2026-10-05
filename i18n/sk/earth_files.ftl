@@ -62,6 +62,8 @@ destination-no-permission = Do „{$folder}“ sa nedá zapisovať: chýba oprá
 destination-read-only = Do „{$folder}“ sa nedá zapisovať: je len na čítanie
 blocked-link = „{$name}“ je odkaz a tento disk nedokáže uchovávať odkazy
 blocked-link-fs = „{$name}“ je odkaz a tento disk ({$fs}) nedokáže uchovávať odkazy
+blocked-too-big = Položka „{$name}“ je pre tento disk ({$fs}) príliš veľká
+blocked-bad-name = Položka „{$name}“ obsahuje znaky, ktoré tento disk ({$fs}) nedokáže uložiť
 progress-asking = pozastavené
 failed-path = „{$name}“: {$reason}
 reason-no-permission = chýba oprávnenie
@@ -70,8 +72,10 @@ reason-read-only = disk je len na čítanie
 reason-gone = už neexistuje
 reason-too-big = je príliš veľký pre tento disk
 blocked-move = Položka „{$name}“ sa nedá presunúť
-blocked-move-detail = Originály sa nedajú odstrániť z „{$folder}“: {$reason}. Namiesto toho ju možno skopírovať.
-copy-instead = Namiesto toho kopírovať
+blocked-move-reason = Originály sa nedajú odstrániť z „{$folder}“: {$reason}
+same-for-rest-count = Rovnako pre ostatné ({$count})
+not-enough-space = Je potrebných {$needed}, ale voľných je len {$free}
+checking = Kontrola… súbory: {$files}, {$size}
 rollback-failed = {$more ->
     [0] Zrušené, ale položku „{$name}“ nebolo možné vrátiť späť
     [few] Zrušené, ale položku „{$name}“ a ešte {$more} ďalšie nebolo možné vrátiť späť

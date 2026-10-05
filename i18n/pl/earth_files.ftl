@@ -59,6 +59,8 @@ destination-no-permission = Nie można zapisać w „{$folder}”: brak uprawnie
 destination-read-only = Nie można zapisać w „{$folder}”: tylko do odczytu
 blocked-link = „{$name}” jest dowiązaniem, a ten dysk nie obsługuje dowiązań
 blocked-link-fs = „{$name}” jest dowiązaniem, a ten dysk ({$fs}) nie obsługuje dowiązań
+blocked-too-big = „{$name}” jest za duży dla tego dysku ({$fs})
+blocked-bad-name = „{$name}” zawiera znaki, których ten dysk ({$fs}) nie obsługuje
 progress-asking = wstrzymano
 failed-path = „{$name}”: {$reason}
 reason-no-permission = brak uprawnień
@@ -67,8 +69,10 @@ reason-read-only = dysk jest tylko do odczytu
 reason-gone = już nie istnieje
 reason-too-big = jest za duży dla tego dysku
 blocked-move = Nie można przenieść „{$name}”
-blocked-move-detail = Nie można usunąć oryginałów z „{$folder}”: {$reason}. Zamiast tego można go skopiować.
-copy-instead = Kopiuj zamiast tego
+blocked-move-reason = Nie można usunąć oryginałów z „{$folder}”: {$reason}
+same-for-rest-count = To samo dla pozostałych ({$count})
+not-enough-space = Potrzeba {$needed}, ale wolne jest tylko {$free}
+checking = Sprawdzanie… pliki: {$files}, {$size}
 rollback-failed = {$more ->
     [0] Anulowano, ale nie udało się przywrócić „{$name}”
     [few] Anulowano, ale nie udało się przywrócić „{$name}” i jeszcze {$more} inne elementy

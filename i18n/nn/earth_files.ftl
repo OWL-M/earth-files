@@ -27,6 +27,8 @@ destination-no-permission = Kan ikkje skriva til «{$folder}»: manglar løyve
 destination-read-only = Kan ikkje skriva til «{$folder}»: skriveverna
 blocked-link = «{$name}» er ei lenkje, og denne disken kan ikkje lagra lenkjer
 blocked-link-fs = «{$name}» er ei lenkje, og denne disken ({$fs}) kan ikkje lagra lenkjer
+blocked-too-big = «{$name}» er for stor for denne disken ({$fs})
+blocked-bad-name = «{$name}» har teikn som denne disken ({$fs}) ikkje kan lagra
 progress-asking = sett på pause
 failed-path = «{$name}»: {$reason}
 reason-no-permission = manglar løyve
@@ -35,8 +37,10 @@ reason-read-only = disken er skriveverna
 reason-gone = det finst ikkje lenger
 reason-too-big = det er for stort for denne disken
 blocked-move = «{$name}» kan ikkje flyttast
-blocked-move-detail = Originalane kan ikkje fjernast frå «{$folder}»: {$reason}. Det kan kopierast i staden.
-copy-instead = Kopier i staden
+blocked-move-reason = Originalane kan ikkje fjernast frå «{$folder}»: {$reason}
+same-for-rest-count = Same for resten ({$count})
+not-enough-space = Dette krev {$needed}, men berre {$free} er ledig
+checking = Kontrollerer… filer: {$files}, {$size}
 rollback-failed = {$more ->
     [0] Avbrote, men «{$name}» kunne ikkje leggjast tilbake
     *[other] Avbrote, men «{$name}» og {$more} til kunne ikkje leggjast tilbake

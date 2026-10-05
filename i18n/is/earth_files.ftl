@@ -71,6 +71,8 @@ destination-no-permission = Ekki er hægt að skrifa í „{$folder}“: engin h
 destination-read-only = Ekki er hægt að skrifa í „{$folder}“: mappan er skrifvarin
 blocked-link = „{$name}“ er tengill og þetta drif getur ekki geymt tengla
 blocked-link-fs = „{$name}“ er tengill og þetta drif ({$fs}) getur ekki geymt tengla
+blocked-too-big = „{$name}“ er of stórt fyrir þetta drif ({$fs})
+blocked-bad-name = „{$name}“ inniheldur stafi sem þetta drif ({$fs}) getur ekki geymt
 progress-asking = á pásu
 failed-path = „{$name}“: {$reason}
 reason-no-permission = engin heimild
@@ -79,8 +81,10 @@ reason-read-only = drifið er skrifvarið
 reason-gone = það er ekki lengur til
 reason-too-big = það er of stórt fyrir þetta drif
 blocked-move = Ekki er hægt að færa „{$name}“
-blocked-move-detail = Ekki er hægt að fjarlægja upprunalegu atriðin úr „{$folder}“: {$reason}. Í staðinn er hægt að afrita það.
-copy-instead = Afrita í staðinn
+blocked-move-reason = Ekki er hægt að fjarlægja upprunalegu skrárnar úr „{$folder}“: {$reason}
+same-for-rest-count = Sama fyrir afganginn ({$count})
+not-enough-space = Þetta þarf {$needed}, en aðeins {$free} er laust
+checking = Athuga… skrár: {$files}, {$size}
 rollback-failed = {$more ->
     [0] Hætt við, en ekki tókst að setja „{$name}“ aftur á sinn stað
     [one] Hætt við, en ekki tókst að setja „{$name}“ og {$more} í viðbót aftur á sinn stað

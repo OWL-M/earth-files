@@ -48,6 +48,8 @@ destination-no-permission = "{$folder}" ਵਿੱਚ ਲਿਖਿਆ ਨਹੀ�
 destination-read-only = "{$folder}" ਵਿੱਚ ਲਿਖਿਆ ਨਹੀਂ ਜਾ ਸਕਦਾ: ਇਹ ਸਿਰਫ਼ ਪੜ੍ਹਨ ਲਈ ਹੈ
 blocked-link = "{$name}" ਇੱਕ ਲਿੰਕ ਹੈ, ਅਤੇ ਇਹ ਡਰਾਇਵ ਲਿੰਕ ਨਹੀਂ ਰੱਖ ਸਕਦੀ
 blocked-link-fs = "{$name}" ਇੱਕ ਲਿੰਕ ਹੈ, ਅਤੇ ਇਹ ਡਰਾਇਵ ({$fs}) ਲਿੰਕ ਨਹੀਂ ਰੱਖ ਸਕਦੀ
+blocked-too-big = "{$name}" ਇਸ ਡਰਾਇਵ ({$fs}) ਲਈ ਬਹੁਤ ਵੱਡਾ ਹੈ
+blocked-bad-name = "{$name}" ਵਿੱਚ ਅਜਿਹੇ ਅੱਖਰ ਹਨ ਜੋ ਇਹ ਡਰਾਇਵ ({$fs}) ਨਹੀਂ ਰੱਖ ਸਕਦੀ
 progress-asking = ਵਿਰਾਮ ਹੈ
 failed-path = "{$name}": {$reason}
 reason-no-permission = ਇਜਾਜ਼ਤ ਨਹੀਂ ਹੈ
@@ -56,8 +58,10 @@ reason-read-only = ਡਰਾਇਵ ਸਿਰਫ਼ ਪੜ੍ਹਨ ਲਈ ਹੈ
 reason-gone = ਇਹ ਹੁਣ ਮੌਜੂਦ ਨਹੀਂ ਹੈ
 reason-too-big = ਇਹ ਇਸ ਡਰਾਇਵ ਲਈ ਬਹੁਤ ਵੱਡੀ ਹੈ
 blocked-move = "{$name}" ਨੂੰ ਭੇਜਿਆ ਨਹੀਂ ਜਾ ਸਕਦਾ
-blocked-move-detail = "{$folder}" ਵਿੱਚੋਂ ਅਸਲ ਹਟਾਏ ਨਹੀਂ ਜਾ ਸਕਦੇ: {$reason}। ਇਸਦੀ ਬਜਾਏ ਇਸਨੂੰ ਕਾਪੀ ਕੀਤਾ ਜਾ ਸਕਦਾ ਹੈ।
-copy-instead = ਇਸਦੀ ਬਜਾਏ ਕਾਪੀ ਕਰੋ
+blocked-move-reason = "{$folder}" ਵਿੱਚੋਂ ਮੂਲ ਫ਼ਾਈਲਾਂ ਹਟਾਈਆਂ ਨਹੀਂ ਜਾ ਸਕਦੀਆਂ: {$reason}
+same-for-rest-count = ਬਾਕੀਆਂ ਲਈ ਵੀ ਇਹੀ ({$count})
+not-enough-space = ਇਸ ਲਈ {$needed} ਚਾਹੀਦਾ ਹੈ, ਪਰ ਸਿਰਫ਼ {$free} ਖਾਲੀ ਹੈ
+checking = ਜਾਂਚ ਹੋ ਰਹੀ ਹੈ… ਫ਼ਾਈਲਾਂ: {$files}, {$size}
 rollback-failed = {$more ->
     [0] ਰੱਦ ਕੀਤਾ, ਪਰ "{$name}" ਨੂੰ ਵਾਪਸ ਨਹੀਂ ਰੱਖਿਆ ਜਾ ਸਕਿਆ
     *[other] ਰੱਦ ਕੀਤਾ, ਪਰ "{$name}" ਅਤੇ {$more} ਹੋਰ ਨੂੰ ਵਾਪਸ ਨਹੀਂ ਰੱਖਿਆ ਜਾ ਸਕਿਆ

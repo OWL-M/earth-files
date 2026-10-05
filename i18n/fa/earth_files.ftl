@@ -52,6 +52,8 @@ destination-no-permission = نوشتن در «{$folder}» ممکن نیست: م�
 destination-read-only = نوشتن در «{$folder}» ممکن نیست: فقط خواندنی است
 blocked-link = «{$name}» یک پیوند است و این درایو نمی‌تواند پیوند نگه دارد
 blocked-link-fs = «{$name}» یک پیوند است و این درایو ({$fs}) نمی‌تواند پیوند نگه دارد
+blocked-too-big = «{$name}» برای این درایو ({$fs}) بیش از حد بزرگ است
+blocked-bad-name = «{$name}» نویسه‌هایی دارد که این درایو ({$fs}) نمی‌تواند نگه دارد
 progress-asking = متوقف شد
 failed-path = «{$name}»: {$reason}
 reason-no-permission = مجوز ندارید
@@ -60,8 +62,10 @@ reason-read-only = درایو فقط خواندنی است
 reason-gone = دیگر وجود ندارد
 reason-too-big = برای این درایو بیش از حد بزرگ است
 blocked-move = «{$name}» قابل انتقال نیست
-blocked-move-detail = نسخه‌های اصلی از «{$folder}» حذف نمی‌شوند: {$reason}. در عوض می‌توان آن را کپی کرد.
-copy-instead = در عوض کپی کن
+blocked-move-reason = فایل‌های اصلی را نمی‌توان از «{$folder}» حذف کرد: {$reason}
+same-for-rest-count = برای بقیه هم همین ({$count})
+not-enough-space = این کار به {$needed} نیاز دارد، اما فقط {$free} آزاد است
+checking = در حال بررسی… فایل: {$files}، {$size}
 rollback-failed = {$more ->
     [0] لغو شد، اما «{$name}» به جای قبلی بازگردانده نشد
     *[other] لغو شد، اما «{$name}» و {$more} مورد دیگر به جای قبلی بازگردانده نشدند

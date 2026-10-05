@@ -16,6 +16,8 @@ destination-no-permission = V „{$folder}“ ni mogoče pisati: ni dovoljenja
 destination-read-only = V „{$folder}“ ni mogoče pisati: je samo za branje
 blocked-link = „{$name}“ je povezava in ta pogon ne more hraniti povezav
 blocked-link-fs = „{$name}“ je povezava in ta pogon ({$fs}) ne more hraniti povezav
+blocked-too-big = Predmet „{$name}“ je prevelik za ta pogon ({$fs})
+blocked-bad-name = Predmet „{$name}“ vsebuje znake, ki jih ta pogon ({$fs}) ne more hraniti
 progress-asking = začasno ustavljeno
 failed-path = „{$name}“: {$reason}
 reason-no-permission = ni dovoljenja
@@ -24,8 +26,10 @@ reason-read-only = pogon je samo za branje
 reason-gone = ne obstaja več
 reason-too-big = je prevelik za ta pogon
 blocked-move = Predmeta „{$name}“ ni mogoče premakniti
-blocked-move-detail = Izvirnikov ni mogoče odstraniti iz „{$folder}“: {$reason}. Namesto tega ga je mogoče kopirati.
-copy-instead = Namesto tega kopiraj
+blocked-move-reason = Izvirnikov ni mogoče odstraniti iz „{$folder}“: {$reason}
+same-for-rest-count = Enako za ostale ({$count})
+not-enough-space = Potrebno je {$needed}, prostega pa je le {$free}
+checking = Preverjanje… datoteke: {$files}, {$size}
 rollback-failed = {$more ->
     [0] Preklicano, vendar predmeta „{$name}“ ni bilo mogoče vrniti
     [one] Preklicano, vendar predmeta „{$name}“ in še {$more} ni bilo mogoče vrniti

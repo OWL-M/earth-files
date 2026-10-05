@@ -233,6 +233,8 @@ destination-no-permission = Не вдається записати до «{$fold
 destination-read-only = Не вдається записати до «{$folder}»: тільки для читання
 blocked-link = «{$name}» — це посилання, а цей диск не підтримує посилань
 blocked-link-fs = «{$name}» — це посилання, а цей диск ({$fs}) не підтримує посилань
+blocked-too-big = «{$name}» завеликий для цього диска ({$fs})
+blocked-bad-name = «{$name}» містить символи, які цей диск ({$fs}) не підтримує
 progress-asking = призупинено
 failed-path = «{$name}»: {$reason}
 reason-no-permission = немає прав доступу
@@ -241,8 +243,10 @@ reason-read-only = диск доступний тільки для читанн�
 reason-gone = більше не існує
 reason-too-big = розмір завеликий для цього диска
 blocked-move = Не вдається перемістити «{$name}»
-blocked-move-detail = Не вдається видалити оригінали з «{$folder}»: {$reason}. Натомість об’єкт можна скопіювати.
-copy-instead = Копіювати натомість
+blocked-move-reason = Не вдається вилучити оригінали з «{$folder}»: {$reason}
+same-for-rest-count = Для всіх інших ({$count})
+not-enough-space = Потрібно {$needed}, але вільно лише {$free}
+checking = Перевірка… файлів: {$files}, {$size}
 rollback-failed = {$more ->
     [0] Скасовано, але «{$name}» не вдалося повернути на місце
     [one] Скасовано, але «{$name}» і ще {$more} об’єкт не вдалося повернути на місце

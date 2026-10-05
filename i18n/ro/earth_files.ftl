@@ -56,6 +56,8 @@ destination-no-permission = Nu se poate scrie în „{$folder}”: lipsă permis
 destination-read-only = Nu se poate scrie în „{$folder}”: este doar pentru citire
 blocked-link = „{$name}” este o legătură, iar această unitate nu poate stoca legături
 blocked-link-fs = „{$name}” este o legătură, iar această unitate ({$fs}) nu poate stoca legături
+blocked-too-big = „{$name}” este prea mare pentru această unitate ({$fs})
+blocked-bad-name = „{$name}” conține caractere pe care această unitate ({$fs}) nu le poate stoca
 progress-asking = întrerupt
 failed-path = „{$name}”: {$reason}
 reason-no-permission = lipsă permisiune
@@ -64,8 +66,10 @@ reason-read-only = unitatea este doar pentru citire
 reason-gone = nu mai există
 reason-too-big = este prea mare pentru această unitate
 blocked-move = „{$name}” nu poate fi mutat
-blocked-move-detail = Originalele nu pot fi eliminate din „{$folder}”: {$reason}. În schimb, poate fi copiat.
-copy-instead = Copiază în schimb
+blocked-move-reason = Originalele nu pot fi eliminate din „{$folder}”: {$reason}
+same-for-rest-count = La fel pentru restul ({$count})
+not-enough-space = Sunt necesari {$needed}, dar doar {$free} sunt liberi
+checking = Se verifică… fișiere: {$files}, {$size}
 rollback-failed = {$more ->
     [0] Anulat, dar „{$name}” nu a putut fi pus la loc
     [few] Anulat, dar „{$name}” și încă {$more} elemente nu au putut fi puse la loc

@@ -84,6 +84,8 @@ destination-no-permission = Kausta „{$folder}“ ei saa kirjutada: puudub õig
 destination-read-only = Kausta „{$folder}“ ei saa kirjutada: see on ainult loetav
 blocked-link = „{$name}“ on link ja see ketas ei saa linke sisaldada
 blocked-link-fs = „{$name}“ on link ja see ketas ({$fs}) ei saa linke sisaldada
+blocked-too-big = „{$name}“ on selle ketta ({$fs}) jaoks liiga suur
+blocked-bad-name = „{$name}“ sisaldab märke, mida see ketas ({$fs}) ei saa hoida
 progress-asking = peatatud
 failed-path = „{$name}“: {$reason}
 reason-no-permission = puudub õigus
@@ -92,8 +94,10 @@ reason-read-only = ketas on ainult loetav
 reason-gone = seda pole enam olemas
 reason-too-big = see on selle ketta jaoks liiga suur
 blocked-move = „{$name}“ ei saa teisaldada
-blocked-move-detail = Originaale ei saa kaustast „{$folder}“ eemaldada: {$reason}. Selle asemel saab selle kopeerida.
-copy-instead = Kopeeri selle asemel
+blocked-move-reason = Originaale ei saa kaustast „{$folder}“ eemaldada: {$reason}
+same-for-rest-count = Sama ülejäänutele ({$count})
+not-enough-space = Vaja on {$needed}, kuid vaba on ainult {$free}
+checking = Kontrollimine… faile: {$files}, {$size}
 rollback-failed = {$more ->
     [0] Katkestatud, kuid „{$name}“ ei õnnestunud taastada
     *[other] Katkestatud, kuid „{$name}“ ja veel {$more} ei õnnestunud taastada

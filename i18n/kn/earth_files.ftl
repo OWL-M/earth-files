@@ -188,6 +188,8 @@ destination-no-permission = "{$folder}" ಗೆ ಬರೆಯಲು ಸಾಧ್�
 destination-read-only = "{$folder}" ಗೆ ಬರೆಯಲು ಸಾಧ್ಯವಿಲ್ಲ: ಇದು ಓದಲು ಮಾತ್ರ
 blocked-link = "{$name}" ಒಂದು ಲಿಂಕ್ ಆಗಿದೆ, ಮತ್ತು ಈ ಡ್ರೈವ್ ಲಿಂಕ್‌ಗಳನ್ನು ಹೊಂದಲು ಸಾಧ್ಯವಿಲ್ಲ
 blocked-link-fs = "{$name}" ಒಂದು ಲಿಂಕ್ ಆಗಿದೆ, ಮತ್ತು ಈ ಡ್ರೈವ್ ({$fs}) ಲಿಂಕ್‌ಗಳನ್ನು ಹೊಂದಲು ಸಾಧ್ಯವಿಲ್ಲ
+blocked-too-big = "{$name}" ಈ ಡ್ರೈವ್‌ಗೆ ({$fs}) ತುಂಬಾ ದೊಡ್ಡದಾಗಿದೆ
+blocked-bad-name = "{$name}" ನಲ್ಲಿ ಈ ಡ್ರೈವ್ ({$fs}) ಹೊಂದಲು ಸಾಧ್ಯವಿಲ್ಲದ ಅಕ್ಷರಗಳಿವೆ
 progress-asking = ವಿರಾಮಗೊಳಿಸಲಾಗಿದೆ
 failed-path = "{$name}": {$reason}
 reason-no-permission = ಅನುಮತಿ ಇಲ್ಲ
@@ -196,8 +198,10 @@ reason-read-only = ಡ್ರೈವ್ ಓದಲು ಮಾತ್ರ
 reason-gone = ಇದು ಇನ್ನು ಮುಂದೆ ಅಸ್ತಿತ್ವದಲ್ಲಿಲ್ಲ
 reason-too-big = ಈ ಡ್ರೈವ್‌ಗೆ ಇದು ತುಂಬಾ ದೊಡ್ಡದಾಗಿದೆ
 blocked-move = "{$name}" ಅನ್ನು ಸರಿಸಲು ಸಾಧ್ಯವಿಲ್ಲ
-blocked-move-detail = "{$folder}" ನಿಂದ ಮೂಲಗಳನ್ನು ತೆಗೆದುಹಾಕಲು ಸಾಧ್ಯವಿಲ್ಲ: {$reason}. ಬದಲಿಗೆ ಇದನ್ನು ನಕಲಿಸಬಹುದು.
-copy-instead = ಬದಲಿಗೆ ನಕಲಿಸಿ
+blocked-move-reason = "{$folder}" ನಿಂದ ಮೂಲಗಳನ್ನು ತೆಗೆದುಹಾಕಲು ಸಾಧ್ಯವಿಲ್ಲ: {$reason}
+same-for-rest-count = ಉಳಿದವುಗಳಿಗೂ ಇದೇ ({$count})
+not-enough-space = ಇದಕ್ಕೆ {$needed} ಬೇಕು, ಆದರೆ ಕೇವಲ {$free} ಖಾಲಿ ಇದೆ
+checking = ಪರಿಶೀಲಿಸಲಾಗುತ್ತಿದೆ… ಫೈಲ್‌ಗಳು: {$files}, {$size}
 rollback-failed = {$more ->
     [0] ರದ್ದುಗೊಳಿಸಲಾಗಿದೆ, ಆದರೆ "{$name}" ಅನ್ನು ಮರಳಿ ಇರಿಸಲು ಸಾಧ್ಯವಾಗಲಿಲ್ಲ
     *[other] ರದ್ದುಗೊಳಿಸಲಾಗಿದೆ, ಆದರೆ "{$name}" ಮತ್ತು ಇನ್ನೂ {$more} ಅನ್ನು ಮರಳಿ ಇರಿಸಲು ಸಾಧ್ಯವಾಗಲಿಲ್ಲ

@@ -16,6 +16,8 @@ destination-no-permission = ບໍ່ສາມາດຂຽນໃສ່ "{$folder
 destination-read-only = ບໍ່ສາມາດຂຽນໃສ່ "{$folder}" ໄດ້: ອ່ານໄດ້ຢ່າງດຽວ
 blocked-link = "{$name}" ເປັນລິ້ງ, ແລະ ໄດຣຟ໌ນີ້ບໍ່ສາມາດເກັບລິ້ງໄດ້
 blocked-link-fs = "{$name}" ເປັນລິ້ງ, ແລະ ໄດຣຟ໌ນີ້ ({$fs}) ບໍ່ສາມາດເກັບລິ້ງໄດ້
+blocked-too-big = "{$name}" ໃຫຍ່ເກີນໄປສຳລັບໄດຣຟ໌ນີ້ ({$fs})
+blocked-bad-name = "{$name}" ມີຕົວອັກສອນທີ່ໄດຣຟ໌ນີ້ ({$fs}) ບໍ່ສາມາດເກັບໄດ້
 progress-asking = ຢຸດຊົ່ວຄາວ
 failed-path = "{$name}": {$reason}
 reason-no-permission = ບໍ່ມີສິດ
@@ -24,8 +26,10 @@ reason-read-only = ໄດຣຟ໌ອ່ານໄດ້ຢ່າງດຽວ
 reason-gone = ມັນບໍ່ມີຢູ່ແລ້ວ
 reason-too-big = ມັນໃຫຍ່ເກີນໄປສຳລັບໄດຣຟ໌ນີ້
 blocked-move = ບໍ່ສາມາດຍ້າຍ "{$name}" ໄດ້
-blocked-move-detail = ບໍ່ສາມາດລຶບຕົ້ນສະບັບອອກຈາກ "{$folder}" ໄດ້: {$reason}. ສາມາດສຳເນົາແທນໄດ້.
-copy-instead = ສຳເນົາແທນ
+blocked-move-reason = ບໍ່ສາມາດລຶບຕົ້ນສະບັບອອກຈາກ "{$folder}" ໄດ້: {$reason}
+same-for-rest-count = ເຮັດແບບດຽວກັນກັບສ່ວນທີ່ເຫຼືອ ({$count})
+not-enough-space = ຕ້ອງການ {$needed}, ແຕ່ວ່າງພຽງ {$free}
+checking = ກຳລັງກວດສອບ… ໄຟລ໌: {$files}, {$size}
 rollback-failed = {$more ->
     [0] ຍົກເລີກແລ້ວ ແຕ່ບໍ່ສາມາດນຳ "{$name}" ກັບຄືນບ່ອນເດີມໄດ້
     *[other] ຍົກເລີກແລ້ວ ແຕ່ບໍ່ສາມາດນຳ "{$name}" ແລະ ອີກ {$more} ລາຍການກັບຄືນບ່ອນເດີມໄດ້

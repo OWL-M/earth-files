@@ -52,6 +52,8 @@ destination-no-permission = "{$folder}" konumuna yazılamıyor: izin yok
 destination-read-only = "{$folder}" konumuna yazılamıyor: salt okunur
 blocked-link = "{$name}" bir bağlantı ve bu sürücü bağlantıları tutamıyor
 blocked-link-fs = "{$name}" bir bağlantı ve bu sürücü ({$fs}) bağlantıları tutamıyor
+blocked-too-big = "{$name}" bu sürücü ({$fs}) için çok büyük
+blocked-bad-name = "{$name}" bu sürücünün ({$fs}) tutamadığı karakterler içeriyor
 progress-asking = duraklatıldı
 failed-path = "{$name}": {$reason}
 reason-no-permission = izin yok
@@ -60,8 +62,10 @@ reason-read-only = sürücü salt okunur
 reason-gone = artık mevcut değil
 reason-too-big = bu sürücü için çok büyük
 blocked-move = "{$name}" taşınamıyor
-blocked-move-detail = Orijinaller "{$folder}" konumundan kaldırılamıyor: {$reason}. Bunun yerine kopyalanabilir.
-copy-instead = Bunun yerine kopyala
+blocked-move-reason = Orijinaller "{$folder}" konumundan kaldırılamıyor: {$reason}
+same-for-rest-count = Geri kalanlar için de aynısı ({$count})
+not-enough-space = Bunun için {$needed} gerekiyor, ancak yalnızca {$free} boş
+checking = Denetleniyor… dosyalar: {$files}, {$size}
 rollback-failed = {$more ->
     [0] İptal edildi, ancak "{$name}" geri konulamadı
     *[other] İptal edildi, ancak "{$name}" ve {$more} tane daha geri konulamadı

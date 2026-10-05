@@ -181,6 +181,8 @@ destination-no-permission = تعذّرت الكتابة في «{$folder}»: لا
 destination-read-only = تعذّرت الكتابة في «{$folder}»: للقراءة فقط
 blocked-link = «{$name}» رابط، وهذا القرص لا يدعم الروابط
 blocked-link-fs = «{$name}» رابط، وهذا القرص ({$fs}) لا يدعم الروابط
+blocked-too-big = «{$name}» كبير جدًا على هذا القرص ({$fs})
+blocked-bad-name = «{$name}» يحتوي على أحرف لا يدعمها هذا القرص ({$fs})
 progress-asking = أُلبِث
 failed-path = «{$name}»: {$reason}
 reason-no-permission = لا توجد أذونات
@@ -189,8 +191,10 @@ reason-read-only = القرص للقراءة فقط
 reason-gone = لم يعد موجودًا
 reason-too-big = حجمه أكبر مما يتسع له هذا القرص
 blocked-move = تعذّر نقل «{$name}»
-blocked-move-detail = تعذّرت إزالة الأصل من «{$folder}»: {$reason}. يمكن نسخه بدلًا من ذلك.
-copy-instead = انسخ بدلًا من ذلك
+blocked-move-reason = تعذّرت إزالة الملفات الأصلية من «{$folder}»: {$reason}
+same-for-rest-count = نفس الخيار للبقية ({$count})
+not-enough-space = يتطلب هذا {$needed}، لكن المساحة الحرة {$free} فقط
+checking = جارٍ التحقق… الملفات: {$files}، {$size}
 rollback-failed = {$more ->
     [0] أُلغِيَ، لكن تعذّرت إعادة «{$name}» إلى مكانه
     [two] أُلغِيَ، لكن تعذّرت إعادة «{$name}» و{$more} أخرى إلى أماكنها

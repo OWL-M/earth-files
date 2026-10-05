@@ -56,6 +56,8 @@ destination-no-permission = Δεν είναι δυνατή η εγγραφή σ�
 destination-read-only = Δεν είναι δυνατή η εγγραφή στο «{$folder}»: είναι μόνο για ανάγνωση
 blocked-link = Το «{$name}» είναι σύνδεσμος και αυτή η μονάδα δεν μπορεί να περιέχει συνδέσμους
 blocked-link-fs = Το «{$name}» είναι σύνδεσμος και αυτή η μονάδα ({$fs}) δεν μπορεί να περιέχει συνδέσμους
+blocked-too-big = Το «{$name}» είναι πολύ μεγάλο για αυτή τη μονάδα ({$fs})
+blocked-bad-name = Το «{$name}» περιέχει χαρακτήρες που αυτή η μονάδα ({$fs}) δεν μπορεί να αποθηκεύσει
 progress-asking = σε παύση
 failed-path = «{$name}»: {$reason}
 reason-no-permission = δεν υπάρχουν δικαιώματα
@@ -64,8 +66,10 @@ reason-read-only = η μονάδα είναι μόνο για ανάγνωση
 reason-gone = δεν υπάρχει πλέον
 reason-too-big = είναι πολύ μεγάλο για αυτή τη μονάδα
 blocked-move = Δεν είναι δυνατή η μετακίνηση του «{$name}»
-blocked-move-detail = Δεν είναι δυνατή η αφαίρεση των πρωτοτύπων από το «{$folder}»: {$reason}. Μπορεί να αντιγραφεί αντί αυτού.
-copy-instead = Αντιγραφή αντί αυτού
+blocked-move-reason = Δεν είναι δυνατή η αφαίρεση των πρωτοτύπων από το «{$folder}»: {$reason}
+same-for-rest-count = Το ίδιο για τα υπόλοιπα ({$count})
+not-enough-space = Απαιτούνται {$needed}, αλλά είναι ελεύθερα μόνο {$free}
+checking = Έλεγχος… αρχεία: {$files}, {$size}
 rollback-failed = {$more ->
     [0] Ακυρώθηκε, αλλά δεν ήταν δυνατή η επαναφορά του «{$name}»
     *[other] Ακυρώθηκε, αλλά δεν ήταν δυνατή η επαναφορά του «{$name}» και {$more} ακόμη

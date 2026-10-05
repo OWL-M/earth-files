@@ -51,6 +51,8 @@ destination-no-permission = Ur tezmireḍ ara ad taruḍ deg "{$folder}": ulac t
 destination-read-only = Ur tezmireḍ ara ad taruḍ deg "{$folder}": i tɣuri kan
 blocked-link = "{$name}" d aseɣwen, yerna ameɣri-a ur yezmir ara ad yeṭṭef iseɣwan
 blocked-link-fs = "{$name}" d aseɣwen, yerna ameɣri-a ({$fs}) ur yezmir ara ad yeṭṭef iseɣwan
+blocked-too-big = "{$name}" meqqer aṭas i umeɣri-a ({$fs})
+blocked-bad-name = "{$name}" yesεa isekkilen ur yezmir ara ad yeṭṭef umeɣri-a ({$fs})
 progress-asking = ibedd
 failed-path = "{$name}": {$reason}
 reason-no-permission = ulac tisirag
@@ -59,8 +61,10 @@ reason-read-only = ameɣri i tɣuri kan
 reason-gone = ur yelli ara ultah
 reason-too-big = meqqer aṭas i umeɣri-a
 blocked-move = "{$name}" ur yettwasmutti ara
-blocked-move-detail = Iɣbula ur ttwakksen ara seg "{$folder}": {$reason}. Yezmer ad yettwanɣel deg umkan-is.
-copy-instead = Nɣel deg umkan-is
+blocked-move-reason = Ur ttwakksen ara yiɣbula imenza seg "{$folder}": {$reason}
+same-for-rest-count = Akken i wiyaḍ ({$count})
+not-enough-space = Ilaq {$needed}, maca d {$free} kan i yellan d ilelli
+checking = Asenqed… ifuyla: {$files}, {$size}
 rollback-failed = {$more ->
     [0] Yettwasefsex, maca "{$name}" ur d-yettwarra ara
     *[other] Yettwasefsex, maca "{$name}" d {$more} nniḍen ur d-ttwarran ara

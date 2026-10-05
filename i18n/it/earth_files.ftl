@@ -54,6 +54,8 @@ destination-no-permission = Impossibile scrivere in «{$folder}»: permesso nega
 destination-read-only = Impossibile scrivere in «{$folder}»: è di sola lettura
 blocked-link = «{$name}» è un collegamento e questo dispositivo non può contenere collegamenti
 blocked-link-fs = «{$name}» è un collegamento e questo dispositivo ({$fs}) non può contenere collegamenti
+blocked-too-big = «{$name}» è troppo grande per questo dispositivo ({$fs})
+blocked-bad-name = «{$name}» contiene caratteri che questo dispositivo ({$fs}) non può contenere
 progress-asking = in pausa
 failed-path = «{$name}»: {$reason}
 reason-no-permission = permesso negato
@@ -62,8 +64,10 @@ reason-read-only = il dispositivo è di sola lettura
 reason-gone = non esiste più
 reason-too-big = è troppo grande per questo dispositivo
 blocked-move = Impossibile spostare «{$name}»
-blocked-move-detail = Impossibile rimuovere gli originali da «{$folder}»: {$reason}. È possibile copiarlo invece.
-copy-instead = Copia invece
+blocked-move-reason = Impossibile rimuovere gli originali da «{$folder}»: {$reason}
+same-for-rest-count = Stessa scelta per i restanti ({$count})
+not-enough-space = Servono {$needed}, ma solo {$free} sono liberi
+checking = Verifica in corso… file: {$files}, {$size}
 rollback-failed = {$more ->
     [0] Annullato, ma impossibile ripristinare «{$name}»
     *[other] Annullato, ma impossibile ripristinare «{$name}» e altri {$more}

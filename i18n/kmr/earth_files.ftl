@@ -242,6 +242,8 @@ destination-no-permission = Nikare li "{$folder}" binivîse: maf tune
 destination-read-only = Nikare li "{$folder}" binivîse: tenê xwendin e
 blocked-link = "{$name}" girêdanek e, û ev ajoker nikare girêdanan bihewîne
 blocked-link-fs = "{$name}" girêdanek e, û ev ajoker ({$fs}) nikare girêdanan bihewîne
+blocked-too-big = "{$name}" ji bo vî ajokerî ({$fs}) pir mezin e
+blocked-bad-name = Di "{$name}" de tîpên ku ev ajoker ({$fs}) nikare bihewîne hene
 progress-asking = hate rawestandin
 failed-path = "{$name}": {$reason}
 reason-no-permission = maf tune
@@ -250,8 +252,10 @@ reason-read-only = ajoker tenê xwendin e
 reason-gone = êdî tune ye
 reason-too-big = ji bo vî ajokerî pir mezin e
 blocked-move = "{$name}" nayê livandin
-blocked-move-detail = Orjînal ji "{$folder}" nayên rakirin: {$reason}. Li şûna wê dikare were kopîkirin.
-copy-instead = Li şûna wê jê bigire
+blocked-move-reason = Orîjînal ji "{$folder}" nayên rakirin: {$reason}
+same-for-rest-count = Ji bo yên mayî jî wisa ({$count})
+not-enough-space = Ji bo vê {$needed} hewce ye, lê tenê {$free} vala ye
+checking = Tê kontrolkirin… pel: {$files}, {$size}
 rollback-failed = {$more ->
     [0] Têkbirî, lê "{$name}" nehat vegerandin
     *[other] Têkbirî, lê "{$name}" û {$more} zêdetir nehatin vegerandin

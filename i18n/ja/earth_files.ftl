@@ -292,6 +292,8 @@ destination-no-permission = 「{$folder}」に書き込めません: 権限が�
 destination-read-only = 「{$folder}」に書き込めません: 読み取り専用です
 blocked-link = 「{$name}」はリンクですが、このドライブはリンクを保持できません
 blocked-link-fs = 「{$name}」はリンクですが、このドライブ（{$fs}）はリンクを保持できません
+blocked-too-big = 「{$name}」はこのドライブ（{$fs}）には大きすぎます
+blocked-bad-name = 「{$name}」にはこのドライブ（{$fs}）で使用できない文字が含まれています
 progress-asking = 一時停止中
 failed-path = 「{$name}」: {$reason}
 reason-no-permission = 権限がありません
@@ -300,8 +302,10 @@ reason-read-only = ドライブは読み取り専用です
 reason-gone = もう存在しません
 reason-too-big = このドライブには大きすぎます
 blocked-move = 「{$name}」を移動できません
-blocked-move-detail = 元の項目を「{$folder}」から削除できません：{$reason}。代わりにコピーできます。
-copy-instead = 代わりにコピー
+blocked-move-reason = 「{$folder}」から元のファイルを削除できません: {$reason}
+same-for-rest-count = 残りにも適用 ({$count})
+not-enough-space = {$needed} が必要ですが、空き容量は {$free} しかありません
+checking = 確認中… {$files} 個のファイル、{$size}
 rollback-failed = {$more ->
     [0] キャンセルされましたが、「{$name}」を元に戻せませんでした
     *[other] キャンセルされましたが、「{$name}」と他 {$more} 件を元に戻せませんでした

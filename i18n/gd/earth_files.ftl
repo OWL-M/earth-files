@@ -16,6 +16,8 @@ destination-no-permission = Cha ghabh sgrìobhadh gu “{$folder}”: gun chead
 destination-read-only = Cha ghabh sgrìobhadh gu “{$folder}”: tha e ri leughadh a-mhàin
 blocked-link = ’S e ceangal a th’ ann an “{$name}” agus chan urrainn dhan draibh seo ceanglaichean a chumail
 blocked-link-fs = ’S e ceangal a th’ ann an “{$name}” agus chan urrainn dhan draibh seo ({$fs}) ceanglaichean a chumail
+blocked-too-big = Tha “{$name}” ro mhòr dhan draibh seo ({$fs})
+blocked-bad-name = Tha caractaran ann an “{$name}” nach urrainn dhan draibh seo ({$fs}) a chumail
 progress-asking = ’na stad
 failed-path = “{$name}”: {$reason}
 reason-no-permission = gun chead
@@ -24,8 +26,10 @@ reason-read-only = tha an draibh ri leughadh a-mhàin
 reason-gone = chan eil e ann tuilleadh
 reason-too-big = tha e ro mhòr airson na draibh seo
 blocked-move = Cha ghabh “{$name}” gluasad
-blocked-move-detail = Cha ghabh na tùsan a thoirt air falbh à “{$folder}”: {$reason}. Gabhaidh lethbhreac a dhèanamh dheth na àite.
-copy-instead = Dèan lethbhreac na àite
+blocked-move-reason = Cha ghabh na tionndaidhean tùsail a thoirt air falbh à “{$folder}”: {$reason}
+same-for-rest-count = An aon rud dhan chòrr ({$count})
+not-enough-space = Tha feum air {$needed} ach chan eil ach {$free} saor
+checking = Ga sgrùdadh… faidhlichean: {$files}, {$size}
 rollback-failed = {$more ->
     [0] Air a sgur dheth, ach cha b’ urrainn “{$name}” a chur air ais
     [one] Air a sgur dheth, ach cha b’ urrainn “{$name}” agus {$more} eile a chur air ais

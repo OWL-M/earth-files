@@ -55,6 +55,8 @@ destination-no-permission = Kan niet schrijven naar “{$folder}”: geen rechte
 destination-read-only = Kan niet schrijven naar “{$folder}”: alleen lezen
 blocked-link = “{$name}” is een link, en deze schijf kan geen links bevatten
 blocked-link-fs = “{$name}” is een link, en deze schijf ({$fs}) kan geen links bevatten
+blocked-too-big = “{$name}” is te groot voor deze schijf ({$fs})
+blocked-bad-name = “{$name}” bevat tekens die deze schijf ({$fs}) niet kan opslaan
 progress-asking = gepauzeerd
 failed-path = “{$name}”: {$reason}
 reason-no-permission = geen rechten
@@ -63,8 +65,10 @@ reason-read-only = de schijf is alleen-lezen
 reason-gone = het bestaat niet meer
 reason-too-big = het is te groot voor deze schijf
 blocked-move = “{$name}” kan niet worden verplaatst
-blocked-move-detail = De originelen kunnen niet uit “{$folder}” worden verwijderd: {$reason}. Het kan in plaats daarvan worden gekopieerd.
-copy-instead = In plaats daarvan kopiëren
+blocked-move-reason = De originelen kunnen niet uit “{$folder}” worden verwijderd: {$reason}
+same-for-rest-count = Hetzelfde voor de rest ({$count})
+not-enough-space = Hiervoor is {$needed} nodig, maar er is maar {$free} vrij
+checking = Controleren… bestanden: {$files}, {$size}
 rollback-failed = {$more ->
     [0] Geannuleerd, maar “{$name}” kon niet worden teruggezet
     *[other] Geannuleerd, maar “{$name}” en nog {$more} konden niet worden teruggezet

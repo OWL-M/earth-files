@@ -16,6 +16,8 @@ destination-no-permission = Nije moguće pisati u „{$folder}”: nema dozvole
 destination-read-only = Nije moguće pisati u „{$folder}”: samo za čitanje
 blocked-link = „{$name}” je poveznica, a ovaj pogon ne može sadržavati poveznice
 blocked-link-fs = „{$name}” je poveznica, a ovaj pogon ({$fs}) ne može sadržavati poveznice
+blocked-too-big = „{$name}” je prevelik za ovaj pogon ({$fs})
+blocked-bad-name = „{$name}” sadrži znakove koje ovaj pogon ({$fs}) ne može pohraniti
 progress-asking = pauzirano
 failed-path = „{$name}”: {$reason}
 reason-no-permission = nema dozvole
@@ -24,8 +26,10 @@ reason-read-only = pogon je samo za čitanje
 reason-gone = više ne postoji
 reason-too-big = ne stane na ovaj pogon
 blocked-move = „{$name}” nije moguće premjestiti
-blocked-move-detail = Izvornike nije moguće ukloniti iz „{$folder}”: {$reason}. Umjesto toga može se kopirati.
-copy-instead = Kopiraj umjesto toga
+blocked-move-reason = Izvornike nije moguće ukloniti iz „{$folder}”: {$reason}
+same-for-rest-count = Isto za ostale ({$count})
+not-enough-space = Potrebno je {$needed}, ali slobodno je samo {$free}
+checking = Provjera… datoteke: {$files}, {$size}
 rollback-failed = {$more ->
     [0] Otkazano, ali „{$name}” nije moguće vratiti
     [one] Otkazano, ali „{$name}” i još {$more} stavku nije moguće vratiti

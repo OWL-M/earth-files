@@ -55,6 +55,8 @@ destination-no-permission = In „{$folder}“ kann nicht geschrieben werden: ke
 destination-read-only = In „{$folder}“ kann nicht geschrieben werden: schreibgeschützt
 blocked-link = „{$name}“ ist eine Verknüpfung, und dieses Laufwerk kann keine Verknüpfungen speichern
 blocked-link-fs = „{$name}“ ist eine Verknüpfung, und dieses Laufwerk ({$fs}) kann keine Verknüpfungen speichern
+blocked-too-big = „{$name}“ ist zu groß für dieses Laufwerk ({$fs})
+blocked-bad-name = „{$name}“ enthält Zeichen, die dieses Laufwerk ({$fs}) nicht speichern kann
 progress-asking = pausiert
 failed-path = „{$name}“: {$reason}
 reason-no-permission = keine Berechtigung
@@ -63,8 +65,10 @@ reason-read-only = das Laufwerk ist schreibgeschützt
 reason-gone = es existiert nicht mehr
 reason-too-big = es ist zu groß für dieses Laufwerk
 blocked-move = „{$name}“ kann nicht verschoben werden
-blocked-move-detail = Die Originale können nicht aus „{$folder}“ entfernt werden: {$reason}. Stattdessen kann es kopiert werden.
-copy-instead = Stattdessen kopieren
+blocked-move-reason = Die Originale können nicht aus „{$folder}“ entfernt werden: {$reason}
+same-for-rest-count = Für alle weiteren übernehmen ({$count})
+not-enough-space = Benötigt werden {$needed}, aber nur {$free} sind frei
+checking = Wird geprüft… Dateien: {$files}, {$size}
 rollback-failed = {$more ->
     [0] Abgebrochen, aber „{$name}“ konnte nicht wiederhergestellt werden
     *[other] Abgebrochen, aber „{$name}“ und {$more} weitere konnten nicht wiederhergestellt werden

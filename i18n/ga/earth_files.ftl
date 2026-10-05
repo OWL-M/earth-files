@@ -52,6 +52,8 @@ destination-no-permission = Ní féidir scríobh chuig "{$folder}": gan chead
 destination-read-only = Ní féidir scríobh chuig "{$folder}": léamh amháin atá ann
 blocked-link = Is nasc é "{$name}", agus ní féidir naisc a stóráil ar an tiomántán seo
 blocked-link-fs = Is nasc é "{$name}", agus ní féidir naisc a stóráil ar an tiomántán seo ({$fs})
+blocked-too-big = Tá "{$name}" rómhór don tiomántán seo ({$fs})
+blocked-bad-name = Tá carachtair in "{$name}" nach féidir leis an tiomántán seo ({$fs}) a choinneáil
 progress-asking = curtha ar shos
 failed-path = "{$name}": {$reason}
 reason-no-permission = gan chead
@@ -60,8 +62,10 @@ reason-read-only = léamh amháin atá sa tiomántán
 reason-gone = níl sé ann a thuilleadh
 reason-too-big = tá sé rómhór don tiomántán seo
 blocked-move = Ní féidir "{$name}" a bhogadh
-blocked-move-detail = Ní féidir na bunleaganacha a bhaint as "{$folder}": {$reason}. Is féidir é a chóipeáil ina ionad sin.
-copy-instead = Cóipeáil ina ionad sin
+blocked-move-reason = Ní féidir na bunleaganacha a bhaint as "{$folder}": {$reason}
+same-for-rest-count = An rud céanna don chuid eile ({$count})
+not-enough-space = Teastaíonn {$needed}, ach níl ach {$free} saor
+checking = Á sheiceáil… comhaid: {$files}, {$size}
 rollback-failed = {$more ->
     [0] Cealaithe, ach níorbh fhéidir "{$name}" a chur ar ais
     *[other] Cealaithe, ach níorbh fhéidir "{$name}" agus {$more} eile a chur ar ais

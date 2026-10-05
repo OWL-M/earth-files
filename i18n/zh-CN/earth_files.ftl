@@ -52,6 +52,8 @@ destination-no-permission = 无法写入“{$folder}”：没有权限
 destination-read-only = 无法写入“{$folder}”：只读
 blocked-link = “{$name}”是链接，而此驱动器无法存放链接
 blocked-link-fs = “{$name}”是链接，而此驱动器（{$fs}）无法存放链接
+blocked-too-big = “{$name}”太大，此驱动器（{$fs}）无法存放
+blocked-bad-name = “{$name}”包含此驱动器（{$fs}）无法存放的字符
 progress-asking = 已暂停
 failed-path = “{$name}”：{$reason}
 reason-no-permission = 没有权限
@@ -60,8 +62,10 @@ reason-read-only = 驱动器为只读
 reason-gone = 已不存在
 reason-too-big = 对此驱动器来说太大
 blocked-move = 无法移动“{$name}”
-blocked-move-detail = 无法从“{$folder}”中删除原始项目：{$reason}。可以改为复制。
-copy-instead = 改为复制
+blocked-move-reason = 无法从“{$folder}”中删除原始文件：{$reason}
+same-for-rest-count = 对其余项目执行相同操作 ({$count})
+not-enough-space = 需要 {$needed}，但只有 {$free} 可用
+checking = 正在检查… {$files} 个文件，{$size}
 rollback-failed = {$more ->
     [0] 已取消，但无法将“{$name}”放回原处
     *[other] 已取消，但无法将“{$name}”及另外 {$more} 项放回原处

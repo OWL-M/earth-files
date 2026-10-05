@@ -888,9 +888,11 @@ struct Question {
     tx: Option<mpsc::Sender<BlockedAnswer>>,
     /// The "Same for the rest" box.
     same_for_rest: bool,
-    /// Whether anything after this path could be asked about too; the box
-    /// is offered only then.
-    more: bool,
+    /// How many questions of its kind are left in the operation, this one
+    /// included; "Same for the rest" is offered above one.
+    count: usize,
+    /// Whether Retry is offered.
+    retry: bool,
     /// The path as the dialog shows it, when it could be looked at.
     item: Option<Box<tab::Item>>,
 }
@@ -2777,11 +2779,8 @@ impl App {
             .timeout(notify_rust::Timeout::Never)
             .finalize();
         let mut notification = notification;
-        if question.blocked.can_retry() {
+        if question.retry {
             notification.action(NOTICE_RETRY, &fl!("retry"));
-        }
-        if matches!(question.blocked, Blocked::Move { .. }) {
-            notification.action(NOTICE_COPY, &fl!("copy-instead"));
         }
         let notification = notification
             .action(NOTICE_CANCEL, &fl!("cancel"))
@@ -3161,7 +3160,7 @@ impl App {
                 .is_some()
                 .then_some(Message::BlockedAnswer(id, answer))
         };
-        let same_for_rest = question.same_for_rest && question.more;
+        let same_for_rest = question.same_for_rest && question.count > 1;
         let mut dialog = widget::dialog().title(text);
         if let Some(detail) = question_detail(&question.blocked) {
             dialog = dialog.body(detail);
@@ -3172,10 +3171,10 @@ impl App {
                     .map(|message| Message::TabMessage(None, message)),
             );
         }
-        if question.more {
+        if question.count > 1 {
             dialog = dialog.control(
                 widget::checkbox(question.same_for_rest)
-                    .label(fl!("same-for-rest"))
+                    .label(fl!("same-for-rest-count", count = question.count))
                     .on_toggle(move |on| Message::BlockedSameForRest(id, on)),
             );
         }
@@ -3189,17 +3188,9 @@ impl App {
                 widget::button::standard(fl!("cancel"))
                     .on_press_maybe(answer(BlockedAnswer::Cancel)),
             );
-        if question.blocked.can_retry() {
+        if question.retry {
             dialog = dialog.secondary_action(
                 widget::button::standard(fl!("retry")).on_press_maybe(answer(BlockedAnswer::Retry)),
-            );
-        }
-        // A move that cannot remove its originals is not made by default:
-        // copying is the deliberate choice beside Skip
-        if matches!(question.blocked, Blocked::Move { .. }) {
-            dialog = dialog.secondary_action(
-                widget::button::standard(fl!("copy-instead"))
-                    .on_press_maybe(answer(BlockedAnswer::CopyInstead(same_for_rest))),
             );
         }
         dialog
@@ -3339,7 +3330,17 @@ impl App {
             ])
             .align_y(Alignment::Center)
             .into(),
-            widget::text::body(op.pending_text(progress, controller.state())).into(),
+            widget::text::body(if controller.is_checking() {
+                let (files, bytes) = controller.checked();
+                fl!(
+                    "checking",
+                    files = files,
+                    size = crate::tab::format_size(bytes)
+                )
+            } else {
+                op.pending_text(progress, controller.state())
+            })
+            .into(),
         ])
         .into()
     }
@@ -4446,8 +4447,9 @@ impl Application for App {
                         // Enter gives the default answer, Skip
                         DialogPage::Blocked(id) => {
                             if let Some(question) = self.blocked.get(&id) {
-                                let skip =
-                                    BlockedAnswer::Skip(question.same_for_rest && question.more);
+                                let skip = BlockedAnswer::Skip(
+                                    question.same_for_rest && question.count > 1,
+                                );
                                 tasks.push(self.update(Message::BlockedAnswer(id, skip)));
                             }
                         }
@@ -5685,7 +5687,8 @@ impl Application for App {
                         blocked: question.blocked,
                         tx: Some(tx),
                         same_for_rest: false,
-                        more: question.more,
+                        count: question.count,
+                        retry: question.retry,
                         item: question.item,
                     },
                 );
@@ -8685,6 +8688,15 @@ fn question_text(blocked: &Blocked) -> (String, String) {
         ),
         Blocked::Link { fs: None, .. } => (fl!("blocked-link", name = name), fl!("skip")),
         Blocked::Move { .. } => (fl!("blocked-move", name = name), fl!("skip")),
+        Blocked::Destination(_) => (fl!("destination-no-permission", folder = name), fl!("skip")),
+        Blocked::TooBig { fs, .. } => (
+            fl!("blocked-too-big", name = name, fs = fs.to_string()),
+            fl!("skip"),
+        ),
+        Blocked::BadName { fs, .. } => (
+            fl!("blocked-bad-name", name = name, fs = fs.to_string()),
+            fl!("skip"),
+        ),
     }
 }
 
@@ -8706,14 +8718,12 @@ fn question_detail(blocked: &Blocked) -> Option<String> {
     } else {
         fl!("reason-no-permission")
     };
-    Some(fl!("blocked-move-detail", folder = name, reason = reason))
+    Some(fl!("blocked-move-reason", folder = name, reason = reason))
 }
 
 /// The actions of a question's desktop notification.
 #[cfg(feature = "notify")]
 const NOTICE_SKIP: &str = "skip";
-#[cfg(feature = "notify")]
-const NOTICE_COPY: &str = "copy";
 #[cfg(feature = "notify")]
 const NOTICE_RETRY: &str = "retry";
 #[cfg(feature = "notify")]
@@ -8725,7 +8735,6 @@ const NOTICE_CANCEL: &str = "cancel";
 fn notice_answer(action: &str) -> Option<BlockedAnswer> {
     match action {
         NOTICE_SKIP => Some(BlockedAnswer::Skip(false)),
-        NOTICE_COPY => Some(BlockedAnswer::CopyInstead(false)),
         NOTICE_RETRY => Some(BlockedAnswer::Retry),
         NOTICE_CANCEL => Some(BlockedAnswer::Cancel),
         _ => None,
@@ -8848,7 +8857,8 @@ mod tests {
             blocked: Blocked::Read(PathBuf::from("/root/secrets.env")),
             tx: Some(tx),
             same_for_rest,
-            more: true,
+            count: 2,
+            retry: true,
             item: None,
         };
         (question, rx)
@@ -8979,7 +8989,7 @@ mod tests {
     #[test]
     fn the_last_question_has_no_same_for_the_rest() {
         let (mut question, _rx) = question(true);
-        question.more = false;
+        question.count = 1;
         let messages = question_messages(&question, &click_everywhere());
         assert!(
             !messages
@@ -8995,6 +9005,8 @@ mod tests {
     #[test]
     fn a_link_question_has_no_retry() {
         let (mut question, _rx) = question(false);
+        // As the engine asks it before the operation runs
+        question.retry = false;
         question.blocked = Blocked::Link {
             path: PathBuf::from("/p/result"),
             fs: Some("exFAT"),
@@ -9005,23 +9017,20 @@ mod tests {
         assert_eq!(text, fl!("blocked-link-fs", name = "result", fs = "exFAT"));
     }
 
-    /// A move that could not remove its originals offers Copy instead
-    /// beside Skip and Cancel, never Retry, and says why.
+    /// A move that could not remove its originals offers Skip and Cancel,
+    /// never Copy instead or Retry, and says why.
     #[test]
-    fn a_move_question_offers_copy_instead() {
+    fn a_move_question_offers_skip_and_cancel() {
         for same_for_rest in [false, true] {
             let (mut question, _rx) = question(same_for_rest);
+            question.retry = false;
             question.blocked = Blocked::Move {
                 path: PathBuf::from("/p/aplin"),
                 folder: PathBuf::from("/p"),
                 read_only: false,
             };
             let found = answers(&question_messages(&question, &click_everywhere()));
-            let mut expected = vec![
-                BlockedAnswer::Cancel,
-                BlockedAnswer::CopyInstead(same_for_rest),
-                BlockedAnswer::Skip(same_for_rest),
-            ];
+            let mut expected = vec![BlockedAnswer::Cancel, BlockedAnswer::Skip(same_for_rest)];
             expected.sort_by_key(|answer| format!("{answer:?}"));
             assert_eq!(found, expected);
         }
@@ -9033,7 +9042,7 @@ mod tests {
         assert_eq!(
             detail,
             Some(fl!(
-                "blocked-move-detail",
+                "blocked-move-reason",
                 folder = "p",
                 reason = fl!("reason-read-only")
             ))

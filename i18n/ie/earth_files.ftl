@@ -16,6 +16,8 @@ destination-no-permission = Ne posse scrir in "{$folder}": null permission
 destination-read-only = Ne posse scrir in "{$folder}": it es solmen legibil
 blocked-link = "{$name}" es un ligament, e ti-ci unité ne posse contener ligamentes
 blocked-link-fs = "{$name}" es un ligament, e ti-ci unité ({$fs}) ne posse contener ligamentes
+blocked-too-big = "{$name}" es tro grand por ti-ci unité ({$fs})
+blocked-bad-name = "{$name}" contene caracteres queles ti-ci unité ({$fs}) ne posse contener
 progress-asking = pausat
 failed-path = "{$name}": {$reason}
 reason-no-permission = null permission
@@ -24,8 +26,10 @@ reason-read-only = li unité es solmen legibil
 reason-gone = it ne existe plu
 reason-too-big = it es tro grand por ti-ci unité
 blocked-move = "{$name}" ne posse esser movet
-blocked-move-detail = Li originales ne posse esser removet de "{$folder}": {$reason}. It posse esser copiat in vice.
-copy-instead = Copiar in vice
+blocked-move-reason = Li originales ne posse esser removet de "{$folder}": {$reason}
+same-for-rest-count = Li sam por li altris ({$count})
+not-enough-space = To besona {$needed}, ma solmen {$free} es líber
+checking = Controlante… files: {$files}, {$size}
 rollback-failed = {$more ->
     [0] Anullat, ma "{$name}" ne posset esser restituet
     *[other] Anullat, ma "{$name}" e {$more} altris ne posset esser restituet

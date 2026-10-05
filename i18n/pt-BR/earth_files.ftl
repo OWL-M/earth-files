@@ -56,6 +56,8 @@ destination-no-permission = Não é possível gravar em "{$folder}": sem permiss
 destination-read-only = Não é possível gravar em "{$folder}": é somente leitura
 blocked-link = "{$name}" é um link e esta unidade não suporta links
 blocked-link-fs = "{$name}" é um link e esta unidade ({$fs}) não suporta links
+blocked-too-big = "{$name}" é grande demais para esta unidade ({$fs})
+blocked-bad-name = "{$name}" tem caracteres que esta unidade ({$fs}) não suporta
 progress-asking = pausado
 failed-path = "{$name}": {$reason}
 reason-no-permission = sem permissão
@@ -64,8 +66,10 @@ reason-read-only = a unidade é somente leitura
 reason-gone = não existe mais
 reason-too-big = é grande demais para esta unidade
 blocked-move = Não é possível mover "{$name}"
-blocked-move-detail = Não é possível remover os originais de "{$folder}": {$reason}. Em vez disso, pode ser copiado.
-copy-instead = Copiar em vez disso
+blocked-move-reason = Não é possível remover os originais de "{$folder}": {$reason}
+same-for-rest-count = Fazer o mesmo para os demais ({$count})
+not-enough-space = São necessários {$needed}, mas só há {$free} livres
+checking = Verificando… arquivos: {$files}, {$size}
 rollback-failed = {$more ->
     [0] Cancelado, mas não foi possível restaurar "{$name}"
     *[other] Cancelado, mas não foi possível restaurar "{$name}" e mais {$more}

@@ -49,6 +49,8 @@ destination-no-permission = "{$folder}" ішіне жазу мүмкін еме�
 destination-read-only = "{$folder}" ішіне жазу мүмкін емес: тек оқуға арналған
 blocked-link = "{$name}" — сілтеме, ал бұл диск сілтемелерді сақтай алмайды
 blocked-link-fs = "{$name}" — сілтеме, ал бұл диск ({$fs}) сілтемелерді сақтай алмайды
+blocked-too-big = "{$name}" бұл диск ({$fs}) үшін тым үлкен
+blocked-bad-name = "{$name}" ішінде бұл диск ({$fs}) сақтай алмайтын таңбалар бар
 progress-asking = аялдатылды
 failed-path = "{$name}": {$reason}
 reason-no-permission = рұқсат жоқ
@@ -57,8 +59,10 @@ reason-read-only = диск тек оқуға арналған
 reason-gone = ол енді жоқ
 reason-too-big = ол бұл диск үшін тым үлкен
 blocked-move = "{$name}" жылжыту мүмкін емес
-blocked-move-detail = Түпнұсқаларды "{$folder}" ішінен өшіру мүмкін емес: {$reason}. Оның орнына көшіруге болады.
-copy-instead = Оның орнына көшіру
+blocked-move-reason = Түпнұсқаларды "{$folder}" ішінен өшіру мүмкін емес: {$reason}
+same-for-rest-count = Қалғандары үшін де осылай ({$count})
+not-enough-space = {$needed} қажет, бірақ тек {$free} бос
+checking = Тексерілуде… файлдар: {$files}, {$size}
 rollback-failed = {$more ->
     [0] Бас тартылды, бірақ "{$name}" орнына қайтару мүмкін болмады
     *[other] Бас тартылды, бірақ "{$name}" және тағы {$more} элементті орнына қайтару мүмкін болмады

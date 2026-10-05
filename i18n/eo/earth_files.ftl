@@ -18,6 +18,8 @@ destination-no-permission = Ne eblas skribi al "{$folder}": mankas permeso
 destination-read-only = Ne eblas skribi al "{$folder}": ĝi estas nurlega
 blocked-link = "{$name}" estas ligilo, kaj ĉi tiu disko ne povas enhavi ligilojn
 blocked-link-fs = "{$name}" estas ligilo, kaj ĉi tiu disko ({$fs}) ne povas enhavi ligilojn
+blocked-too-big = "{$name}" estas tro granda por ĉi tiu disko ({$fs})
+blocked-bad-name = "{$name}" havas signojn, kiujn ĉi tiu disko ({$fs}) ne povas enhavi
 progress-asking = paŭzigita
 failed-path = "{$name}": {$reason}
 reason-no-permission = mankas permeso
@@ -26,8 +28,10 @@ reason-read-only = la disko estas nurlega
 reason-gone = ĝi ne plu ekzistas
 reason-too-big = ĝi estas tro granda por ĉi tiu disko
 blocked-move = Ne eblas movi "{$name}"
-blocked-move-detail = Ne eblas forigi la originalojn el "{$folder}": {$reason}. Anstataŭe eblas kopii ĝin.
-copy-instead = Kopii anstataŭe
+blocked-move-reason = Ne eblas forigi la originalojn el "{$folder}": {$reason}
+same-for-rest-count = Same por la ceteraj ({$count})
+not-enough-space = Necesas {$needed}, sed nur {$free} estas libera
+checking = Kontrolado… dosieroj: {$files}, {$size}
 rollback-failed = {$more ->
     [0] Nuligita, sed ne eblis remeti "{$name}"
     *[other] Nuligita, sed ne eblis remeti "{$name}" kaj {$more} pliajn

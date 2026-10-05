@@ -16,6 +16,8 @@ destination-no-permission = „{$folder}“-ში ჩაწერა ვერ 
 destination-read-only = „{$folder}“-ში ჩაწერა ვერ ხერხდება: მხოლოდ წასაკითხია
 blocked-link = „{$name}“ ბმულია და ამ დისკს ბმულების შენახვა არ შეუძლია
 blocked-link-fs = „{$name}“ ბმულია და ამ დისკს ({$fs}) ბმულების შენახვა არ შეუძლია
+blocked-too-big = „{$name}“ ძალიან დიდია ამ დისკისთვის ({$fs})
+blocked-bad-name = „{$name}“ შეიცავს სიმბოლოებს, რომელთა შენახვაც ამ დისკს ({$fs}) არ შეუძლია
 progress-asking = შეჩერებულია
 failed-path = „{$name}“: {$reason}
 reason-no-permission = წვდომა არ არის
@@ -24,8 +26,10 @@ reason-read-only = დისკი მხოლოდ წასაკითხ�
 reason-gone = აღარ არსებობს
 reason-too-big = ამ დისკისთვის ზედმეტად დიდია
 blocked-move = „{$name}“-ის გადატანა ვერ ხერხდება
-blocked-move-detail = ორიგინალების წაშლა „{$folder}“-დან ვერ ხერხდება: {$reason}. სანაცვლოდ შესაძლებელია მისი დაკოპირება.
-copy-instead = სანაცვლოდ დაკოპირება
+blocked-move-reason = „{$folder}“-დან ორიგინალების წაშლა ვერ ხერხდება: {$reason}
+same-for-rest-count = იგივე დანარჩენებისთვის ({$count})
+not-enough-space = საჭიროა {$needed}, მაგრამ თავისუფალია მხოლოდ {$free}
+checking = მოწმდება… ფაილები: {$files}, {$size}
 rollback-failed = {$more ->
     [0] გაუქმდა, მაგრამ „{$name}“-ის დაბრუნება ვერ მოხერხდა
     *[other] გაუქმდა, მაგრამ „{$name}“-ის და კიდევ {$more} ელემენტის დაბრუნება ვერ მოხერხდა

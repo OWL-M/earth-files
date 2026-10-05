@@ -16,6 +16,8 @@ destination-no-permission = Ora bisa nulis menyang "{$folder}": ora ana idin
 destination-read-only = Ora bisa nulis menyang "{$folder}": mung kena diwaca
 blocked-link = "{$name}" iku pranala, lan drive iki ora bisa nyimpen pranala
 blocked-link-fs = "{$name}" iku pranala, lan drive iki ({$fs}) ora bisa nyimpen pranala
+blocked-too-big = "{$name}" kegedhen kanggo drive iki ({$fs})
+blocked-bad-name = "{$name}" ngemot karakter sing ora bisa disimpen drive iki ({$fs})
 progress-asking = dijeda
 failed-path = "{$name}": {$reason}
 reason-no-permission = ora ana idin
@@ -24,8 +26,10 @@ reason-read-only = drive mung kena diwaca
 reason-gone = wis ora ana
 reason-too-big = kegedhen kanggo drive iki
 blocked-move = "{$name}" ora bisa dipindhah
-blocked-move-detail = Asline ora bisa dibusak saka "{$folder}": {$reason}. Minangka gantine, bisa disalin.
-copy-instead = Salin wae
+blocked-move-reason = Asline ora bisa dibusak saka "{$folder}": {$reason}
+same-for-rest-count = Padha kanggo liyane ({$count})
+not-enough-space = Iki butuh {$needed}, nanging mung {$free} sing kosong
+checking = Mriksa… berkas: {$files}, {$size}
 rollback-failed = {$more ->
     [0] Dibatalake, nanging "{$name}" ora bisa dibalekake
     *[other] Dibatalake, nanging "{$name}" lan {$more} liyane ora bisa dibalekake

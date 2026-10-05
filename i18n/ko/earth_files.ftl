@@ -166,6 +166,8 @@ destination-no-permission = "{$folder}"에 쓸 수 없음: 권한 없음
 destination-read-only = "{$folder}"에 쓸 수 없음: 읽기 전용
 blocked-link = "{$name}"은(는) 링크이며, 이 드라이브는 링크를 저장할 수 없습니다
 blocked-link-fs = "{$name}"은(는) 링크이며, 이 드라이브({$fs})는 링크를 저장할 수 없습니다
+blocked-too-big = "{$name}"은(는) 이 드라이브({$fs})에 비해 너무 큽니다
+blocked-bad-name = "{$name}"에 이 드라이브({$fs})가 저장할 수 없는 문자가 있습니다
 progress-asking = 정지됨
 failed-path = "{$name}": {$reason}
 reason-no-permission = 권한 없음
@@ -174,8 +176,10 @@ reason-read-only = 드라이브가 읽기 전용임
 reason-gone = 더 이상 존재하지 않음
 reason-too-big = 이 드라이브에 비해 너무 큼
 blocked-move = "{$name}"을(를) 이동할 수 없습니다
-blocked-move-detail = "{$folder}"에서 원본을 제거할 수 없습니다: {$reason}. 대신 복사할 수 있습니다.
-copy-instead = 대신 복사
+blocked-move-reason = "{$folder}"에서 원본을 제거할 수 없음: {$reason}
+same-for-rest-count = 나머지에도 적용 ({$count})
+not-enough-space = {$needed}이(가) 필요하지만 여유 공간은 {$free}뿐입니다
+checking = 확인 중… 파일 {$files}개, {$size}
 rollback-failed = {$more ->
     [0] 취소되었지만 "{$name}"을(를) 되돌려 놓을 수 없습니다
     *[other] 취소되었지만 "{$name}" 외 {$more}개를 되돌려 놓을 수 없습니다

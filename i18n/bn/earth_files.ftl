@@ -16,6 +16,8 @@ destination-no-permission = "{$folder}"-এ লেখা যাচ্ছে ন�
 destination-read-only = "{$folder}"-এ লেখা যাচ্ছে না: এটি শুধু-পঠনযোগ্য
 blocked-link = "{$name}" একটি লিংক, এবং এই ড্রাইভে লিংক রাখা যায় না
 blocked-link-fs = "{$name}" একটি লিংক, এবং এই ড্রাইভে ({$fs}) লিংক রাখা যায় না
+blocked-too-big = "{$name}" এই ড্রাইভের ({$fs}) জন্য খুব বড়
+blocked-bad-name = "{$name}"-এ এমন অক্ষর আছে যা এই ড্রাইভে ({$fs}) রাখা যায় না
 progress-asking = বিরতিতে
 failed-path = "{$name}": {$reason}
 reason-no-permission = অনুমতি নেই
@@ -24,8 +26,10 @@ reason-read-only = ড্রাইভটি শুধু-পঠনযোগ্�
 reason-gone = এটি আর নেই
 reason-too-big = এটি এই ড্রাইভের জন্য অনেক বড়
 blocked-move = "{$name}" স্থানান্তর করা যাচ্ছে না
-blocked-move-detail = "{$folder}" থেকে মূলগুলো সরানো যাচ্ছে না: {$reason}। এর বদলে এটি কপি করা যেতে পারে।
-copy-instead = এর বদলে কপি করুন
+blocked-move-reason = "{$folder}" থেকে মূল ফাইলগুলো সরানো যাচ্ছে না: {$reason}
+same-for-rest-count = বাকিগুলোর জন্যও একই ({$count})
+not-enough-space = এর জন্য {$needed} প্রয়োজন, কিন্তু মাত্র {$free} খালি আছে
+checking = যাচাই করা হচ্ছে… ফাইল: {$files}, {$size}
 rollback-failed = {$more ->
     [0] বাতিল করা হয়েছে, কিন্তু "{$name}" আগের জায়গায় ফেরানো যাচ্ছে না
     *[other] বাতিল করা হয়েছে, কিন্তু "{$name}" এবং আরও {$more}টি আগের জায়গায় ফেরানো যাচ্ছে না

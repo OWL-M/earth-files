@@ -346,6 +346,8 @@ destination-no-permission = "{$folder}" में लिखा नहीं ज�
 destination-read-only = "{$folder}" में लिखा नहीं जा सकता: यह केवल पढ़ने के लिए है
 blocked-link = "{$name}" एक लिंक है, और यह ड्राइव लिंक नहीं रख सकती
 blocked-link-fs = "{$name}" एक लिंक है, और यह ड्राइव ({$fs}) लिंक नहीं रख सकती
+blocked-too-big = "{$name}" इस ड्राइव ({$fs}) के लिए बहुत बड़ा है
+blocked-bad-name = "{$name}" में ऐसे अक्षर हैं जिन्हें यह ड्राइव ({$fs}) नहीं रख सकती
 progress-asking = रुका हुआ
 failed-path = "{$name}": {$reason}
 reason-no-permission = अनुमति नहीं है
@@ -354,8 +356,10 @@ reason-read-only = ड्राइव केवल पढ़ने के लि
 reason-gone = यह अब मौजूद नहीं है
 reason-too-big = यह इस ड्राइव के लिए बहुत बड़ा है
 blocked-move = "{$name}" मूव नहीं किया जा सकता
-blocked-move-detail = "{$folder}" से मूल हटाए नहीं जा सकते: {$reason}। इसके बजाय इसे कॉपी किया जा सकता है।
-copy-instead = इसके बजाय कॉपी करें
+blocked-move-reason = "{$folder}" से मूल फ़ाइलें हटाई नहीं जा सकतीं: {$reason}
+same-for-rest-count = बाकी के लिए भी यही ({$count})
+not-enough-space = इसके लिए {$needed} चाहिए, लेकिन केवल {$free} खाली है
+checking = जाँच हो रही है… फ़ाइलें: {$files}, {$size}
 rollback-failed = {$more ->
     [0] रद्द किया गया, लेकिन "{$name}" को वापस नहीं रखा जा सका
     *[other] रद्द किया गया, लेकिन "{$name}" और {$more} अन्य को वापस नहीं रखा जा सका

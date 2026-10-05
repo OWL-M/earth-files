@@ -49,6 +49,8 @@ destination-no-permission = Tidak dapat menulis ke "{$folder}": tidak ada izin
 destination-read-only = Tidak dapat menulis ke "{$folder}": hanya baca
 blocked-link = "{$name}" adalah tautan, dan drive ini tidak dapat menyimpan tautan
 blocked-link-fs = "{$name}" adalah tautan, dan drive ini ({$fs}) tidak dapat menyimpan tautan
+blocked-too-big = "{$name}" terlalu besar untuk drive ini ({$fs})
+blocked-bad-name = "{$name}" berisi karakter yang tidak dapat disimpan drive ini ({$fs})
 progress-asking = dijeda
 failed-path = "{$name}": {$reason}
 reason-no-permission = tidak ada izin
@@ -57,8 +59,10 @@ reason-read-only = drive hanya baca
 reason-gone = sudah tidak ada
 reason-too-big = terlalu besar untuk drive ini
 blocked-move = "{$name}" tidak dapat dipindahkan
-blocked-move-detail = Aslinya tidak dapat dihapus dari "{$folder}": {$reason}. Sebagai gantinya, ini dapat disalin.
-copy-instead = Salin saja
+blocked-move-reason = Berkas asli tidak dapat dihapus dari "{$folder}": {$reason}
+same-for-rest-count = Sama untuk sisanya ({$count})
+not-enough-space = Ini memerlukan {$needed}, tetapi hanya {$free} yang tersedia
+checking = Memeriksa… berkas: {$files}, {$size}
 rollback-failed = {$more ->
     [0] Dibatalkan, tetapi "{$name}" tidak dapat dikembalikan
     *[other] Dibatalkan, tetapi "{$name}" dan {$more} lainnya tidak dapat dikembalikan

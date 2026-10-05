@@ -54,6 +54,8 @@ destination-no-permission = Nem írható: „{$folder}” (nincs jogosultság)
 destination-read-only = Nem írható: „{$folder}” (csak olvasható)
 blocked-link = „{$name}” egy hivatkozás, és ez a meghajtó nem tud hivatkozásokat tárolni
 blocked-link-fs = „{$name}” egy hivatkozás, és ez a meghajtó ({$fs}) nem tud hivatkozásokat tárolni
+blocked-too-big = „{$name}” túl nagy ehhez a meghajtóhoz ({$fs})
+blocked-bad-name = „{$name}” olyan karaktereket tartalmaz, amelyeket ez a meghajtó ({$fs}) nem tud tárolni
 progress-asking = szüneteltetve
 failed-path = „{$name}”: {$reason}
 reason-no-permission = nincs jogosultság
@@ -62,8 +64,10 @@ reason-read-only = a meghajtó csak olvasható
 reason-gone = már nem létezik
 reason-too-big = túl nagy ehhez a meghajtóhoz
 blocked-move = „{$name}” nem helyezhető át
-blocked-move-detail = Az eredetik nem távolíthatók el a(z) „{$folder}” mappából: {$reason}. Helyette átmásolható.
-copy-instead = Másolás helyette
+blocked-move-reason = Az eredetik nem távolíthatók el innen: „{$folder}” ({$reason})
+same-for-rest-count = A többire is ugyanez ({$count})
+not-enough-space = Ehhez {$needed} szükséges, de csak {$free} szabad
+checking = Ellenőrzés… fájlok: {$files}, {$size}
 rollback-failed = {$more ->
     [0] Megszakítva, de „{$name}” visszaállítása nem sikerült
     *[other] Megszakítva, de „{$name}” és még {$more} elem visszaállítása nem sikerült

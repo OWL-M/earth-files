@@ -19,6 +19,8 @@ destination-no-permission = "{$folder}" ᱨᱮ ᱚᱞ ᱵᱟᱝ ᱜᱟᱱᱚᱜ 
 destination-read-only = "{$folder}" ᱨᱮ ᱚᱞ ᱵᱟᱝ ᱜᱟᱱᱚᱜ ᱠᱟᱱᱟ: ᱱᱚᱶᱟ ᱫᱚ ᱥᱩᱢᱩᱝ ᱯᱟᱲᱦᱟᱣ ᱞᱟᱹᱜᱤᱫ
 blocked-link = "{$name}" ᱫᱚ ᱢᱤᱫᱴᱟᱹᱝ ᱞᱤᱝᱠ ᱠᱟᱱᱟ, ᱟᱨ ᱱᱚᱶᱟ ᱰᱨᱟᱭᱤᱵ ᱞᱤᱝᱠ ᱫᱚᱦᱚ ᱵᱟᱝ ᱜᱟᱱᱚᱜ ᱠᱟᱱᱟ
 blocked-link-fs = "{$name}" ᱫᱚ ᱢᱤᱫᱴᱟᱹᱝ ᱞᱤᱝᱠ ᱠᱟᱱᱟ, ᱟᱨ ᱱᱚᱶᱟ ᱰᱨᱟᱭᱤᱵ ({$fs}) ᱞᱤᱝᱠ ᱫᱚᱦᱚ ᱵᱟᱝ ᱜᱟᱱᱚᱜ ᱠᱟᱱᱟ
+blocked-too-big = "{$name}" ᱫᱚ ᱱᱚᱶᱟ ᱰᱨᱟᱭᱤᱵ ({$fs}) ᱞᱟᱹᱜᱤᱫ ᱟᱹᱰᱤ ᱢᱟᱨᱟᱝ ᱜᱮᱭᱟ
+blocked-bad-name = "{$name}" ᱨᱮ ᱢᱮᱱᱟᱜ ᱚᱠᱷᱚᱨ ᱠᱚ ᱱᱚᱶᱟ ᱰᱨᱟᱭᱤᱵ ({$fs}) ᱫᱚᱦᱚ ᱵᱟᱝ ᱜᱟᱱᱚᱜ ᱠᱟᱱᱟ
 progress-asking = ᱛᱷᱤᱨ ᱮᱱᱟ
 failed-path = "{$name}": {$reason}
 reason-no-permission = ᱟᱹᱜᱭᱟᱹ ᱵᱟᱹᱱᱩᱜᱼᱟ
@@ -27,8 +29,10 @@ reason-read-only = ᱰᱨᱟᱭᱤᱵ ᱫᱚ ᱥᱩᱢᱩᱝ ᱯᱟᱲᱦᱟᱣ 
 reason-gone = ᱱᱚᱶᱟ ᱫᱚ ᱱᱤᱛ ᱵᱟᱹᱱᱩᱜᱼᱟ
 reason-too-big = ᱱᱚᱶᱟ ᱰᱨᱟᱭᱤᱵ ᱞᱟᱹᱜᱤᱫ ᱟᱹᱰᱤ ᱢᱟᱨᱟᱝ ᱜᱮᱭᱟ
 blocked-move = "{$name}" ᱩᱪᱟᱹᱲ ᱵᱟᱝ ᱜᱟᱱᱚᱜ ᱠᱟᱱᱟ
-blocked-move-detail = "{$folder}" ᱠᱷᱚᱱ ᱢᱩᱞ ᱠᱚ ᱚᱪᱚᱜ ᱵᱟᱝ ᱜᱟᱱᱚᱜ ᱠᱟᱱᱟ: {$reason}. ᱚᱱᱟ ᱵᱚᱫᱚᱞ ᱛᱮ ᱱᱚᱠᱚᱞ ᱫᱟᱲᱮᱭᱟᱜᱼᱟ.
-copy-instead = ᱚᱱᱟ ᱵᱚᱫᱚᱞ ᱛᱮ ᱱᱚᱠᱚᱞ ᱢᱮ
+blocked-move-reason = "{$folder}" ᱠᱷᱚᱱ ᱢᱩᱞ ᱨᱮᱫ ᱠᱚ ᱚᱪᱚᱜ ᱵᱟᱝ ᱜᱟᱱᱚᱜ ᱠᱟᱱᱟ: {$reason}
+same-for-rest-count = ᱮᱴᱟᱜ ᱠᱚ ᱞᱟᱹᱜᱤᱫ ᱦᱚᱸ ᱚᱱᱟ ᱜᱮ ({$count})
+not-enough-space = ᱱᱚᱶᱟ ᱞᱟᱹᱜᱤᱫ {$needed} ᱞᱟᱹᱠᱛᱤ, ᱢᱮᱱᱠᱷᱟᱱ ᱥᱩᱢᱩᱝ {$free} ᱠᱷᱟᱹᱞᱤ ᱢᱮᱱᱟᱜᱼᱟ
+checking = ᱧᱮᱞ ᱧᱟᱢ ᱠᱟᱱᱟ… ᱨᱮᱫ ᱠᱚ: {$files}, {$size}
 rollback-failed = {$more ->
     [0] ᱵᱟᱹᱛᱤᱞ ᱮᱱᱟ ᱢᱮᱱᱠᱷᱟᱱ "{$name}" ᱨᱩᱣᱟᱹᱲ ᱫᱚᱦᱚ ᱵᱟᱝ ᱜᱟᱱᱚᱜ ᱠᱟᱱᱟ
     [two] ᱵᱟᱹᱛᱤᱞ ᱮᱱᱟ ᱢᱮᱱᱠᱷᱟᱱ "{$name}" ᱟᱨ ᱦᱚᱸ {$more} ᱨᱩᱣᱟᱹᱲ ᱫᱚᱦᱚ ᱵᱟᱝ ᱜᱟᱱᱚᱜ ᱠᱟᱱᱟ
