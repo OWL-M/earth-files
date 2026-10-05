@@ -5587,7 +5587,10 @@ impl Tab {
                             .and_then(|i| self.items_opt.as_ref()?.get(i)?.path_opt().cloned())
                             .or_else(|| self.location.path_opt().cloned())
                     {
-                        commands.push(Command::DropFiles(to, mod_ctrl));
+                        commands.push(Command::DropFiles(
+                            to,
+                            crate::ui::dnd::drop_copies(modifiers),
+                        ));
                     }
                     self.end_file_drag();
                 }
@@ -5613,7 +5616,10 @@ impl Tab {
                 }
                 if dnd.ended {
                     if dnd.dropped && dnd.position.is_some() && self.location.supports_paste() {
-                        commands.push(Command::DropFiles(to, mod_ctrl));
+                        commands.push(Command::DropFiles(
+                            to,
+                            crate::ui::dnd::drop_copies(modifiers),
+                        ));
                     }
                     self.end_file_drag();
                 }

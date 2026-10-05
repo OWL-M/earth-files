@@ -429,6 +429,13 @@ pub fn start_drag(mime: &str, payload: LocalPayload) -> bool {
     start_drag_data(Arc::new(Placeholder(mime.to_owned())), payload)
 }
 
+/// Whether a file drop copies rather than moves: only while Shift is held.
+/// Every drop moves otherwise, whatever the drive, so the same gesture always
+/// does the same thing.
+pub fn drop_copies(modifiers: crate::ui::iced::keyboard::Modifiers) -> bool {
+    modifiers.shift()
+}
+
 /// How long a file drag held over a place opens it: a folder in the list, an
 /// ancestor crumb, a tab or a sidebar entry.
 pub const HOVER_OPEN: std::time::Duration = std::time::Duration::from_millis(1500);
@@ -1422,6 +1429,7 @@ delegate_noop!(State: ignore WlSurface);
 /// one for the whole process.
 #[cfg(test)]
 pub(crate) mod fake {
+
     use super::{Drag, LocalPayload};
     use std::cell::RefCell;
 
@@ -1456,6 +1464,14 @@ pub(crate) mod fake {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_drop_copies_only_with_shift_held() {
+        use crate::ui::iced::keyboard::Modifiers;
+        assert!(super::drop_copies(Modifiers::SHIFT));
+        assert!(!super::drop_copies(Modifiers::CTRL));
+        assert!(!super::drop_copies(Modifiers::empty()));
+    }
+
     use super::HoverOpen;
 
     #[test]

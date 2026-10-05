@@ -1643,7 +1643,8 @@ impl App {
     }
 
     // This wrapper ensures that local folders use trash and remote folders permanently delete with a dialog
-    /// Move the dropped files into `to`, or copy them if Ctrl was held.
+    /// Move the dropped files into `to`, or copy them if Shift was held (see
+    /// [`crate::ui::dnd::drop_copies`]).
     ///
     /// All drop targets use this handler: the file list, breadcrumb, nav bar and tab
     /// bar. Drops use the same `wl_data_device` transfer, MIME types and file operation
@@ -6780,7 +6781,7 @@ impl Application for App {
                     .data::<Location>(entity)
                     .and_then(|location| location.path_opt().cloned())
                 {
-                    return Self::drop_files(to, self.modifiers.control());
+                    return Self::drop_files(to, crate::ui::dnd::drop_copies(self.modifiers));
                 }
             }
             Message::NavDrop(drop) => {
@@ -6862,7 +6863,7 @@ impl Application for App {
                     .data::<Tab>(entity)
                     .and_then(|tab| tab.location.path_opt().cloned())
                 {
-                    return Self::drop_files(to, self.modifiers.control());
+                    return Self::drop_files(to, crate::ui::dnd::drop_copies(self.modifiers));
                 }
             }
             Message::NavBarContext(entity) => {
