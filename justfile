@@ -12,6 +12,14 @@ cargo-target-dir := env('CARGO_TARGET_DIR', 'target')
 bin-src := cargo-target-dir / 'release' / name
 bin-dst := base-dir / 'bin' / name
 
+helper := name + '-helper'
+helper-src := cargo-target-dir / 'release' / helper
+helper-dst := base-dir / 'bin' / helper
+
+policy := APPID + '.helper.policy'
+policy-src := 'res' / policy
+policy-dst := clean(rootdir / prefix) / 'share' / 'polkit-1' / 'actions' / policy
+
 desktop := APPID + '.desktop'
 desktop-src := 'target/xdgen' / desktop
 desktop-dst := clean(rootdir / prefix) / 'share' / 'applications' / desktop
@@ -83,6 +91,9 @@ heaptrack *args:
 # Installs files
 install:
     install -Dm0755 {{bin-src}} {{bin-dst}}
+    install -Dm0755 {{helper-src}} {{helper-dst}}
+    install -d "$(dirname {{policy-dst}})"
+    sed 's|@HELPER@|{{helper-dst}}|' {{policy-src}} > {{policy-dst}}
     install -Dm0644 {{desktop-src}} {{desktop-dst}}
     install -Dm0644 {{metainfo-src}} {{metainfo-dst}}
     for size in `ls {{icons-src}}`; do \
@@ -91,7 +102,7 @@ install:
 
 # Uninstalls installed files
 uninstall:
-    rm -f {{bin-dst}}
+    rm -f {{bin-dst}} {{helper-dst}} {{policy-dst}}
 
 # Vendor dependencies locally
 vendor:

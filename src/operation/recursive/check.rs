@@ -12,6 +12,7 @@
 //! network shares.
 
 use super::{Method, OpKind, PLAN_PAUSE_POLL, PlannedOp, unlisted_dir};
+use crate::operation::root::proto::{Entry, Kind};
 use crate::operation::{Blocked, Controller, ControllerState, OperationError};
 use std::ffi::OsStr;
 use std::fs;
@@ -337,6 +338,81 @@ impl Walk<'_> {
         })?;
         Ok(self.to_parent.join(relative))
     }
+}
+
+/// Plans and checks a folder this user could not list, by listing it as
+/// root through `list`: the folder itself and everything in it, against what
+/// `target` can hold. Nothing in it needs reading permission any more, so
+/// only the target's limits make problems.
+///
+/// Blocking: every folder in it is one request to the helper.
+pub(crate) fn check_listed(
+    from_dir: &Path,
+    to_dir: &Path,
+    method: Method,
+    target: Target,
+    list: &mut dyn FnMut(&Path) -> std::io::Result<Vec<Entry>>,
+) -> std::io::Result<Checked> {
+    let mut checked = Checked::default();
+    let name_problem = |from: &Path, to: &Path| -> Option<Blocked> {
+        let (name, fs) = (to.file_name()?, target.fs?);
+        (!target.allows_name(name)).then(|| Blocked::BadName {
+            path: from.to_path_buf(),
+            fs,
+        })
+    };
+    checked.problems.extend(name_problem(from_dir, to_dir));
+    checked.planned.push(PlannedOp {
+        kind: OpKind::Mkdir,
+        from: from_dir.to_path_buf(),
+        to: to_dir.to_path_buf(),
+    });
+    let mut folders = vec![(from_dir.to_path_buf(), to_dir.to_path_buf())];
+    while let Some((from_dir, to_dir)) = folders.pop() {
+        for entry in list(&from_dir)? {
+            let (from, to) = (from_dir.join(&entry.name), to_dir.join(&entry.name));
+            let kind = match entry.kind {
+                Kind::Dir => {
+                    folders.push((from.clone(), to.clone()));
+                    OpKind::Mkdir
+                }
+                Kind::File => {
+                    checked.size += entry.size;
+                    if let (Some(max), Some(fs)) = (target.max_file_size(), target.fs)
+                        && entry.size > max
+                    {
+                        checked.problems.push(Blocked::TooBig {
+                            path: from.clone(),
+                            fs,
+                        });
+                    }
+                    match method {
+                        Method::Copy => OpKind::Copy,
+                        Method::Move { cross_device_copy } => OpKind::Move { cross_device_copy },
+                    }
+                }
+                Kind::Link => {
+                    if !target.holds_links() {
+                        checked.problems.push(Blocked::Link {
+                            path: from.clone(),
+                            fs: target.fs,
+                        });
+                    }
+                    OpKind::Symlink {
+                        target: entry.target.clone().unwrap_or_default(),
+                    }
+                }
+                Kind::Other => continue,
+            };
+            checked.problems.extend(name_problem(&from, &to));
+            checked.planned.push(PlannedOp { kind, from, to });
+        }
+    }
+    // A folder before what goes in it
+    checked
+        .planned
+        .sort_by(|a: &PlannedOp, b: &PlannedOp| a.from.cmp(&b.from));
+    Ok(checked)
 }
 
 /// Whether a walk of `path` is faster on several threads: only on a local

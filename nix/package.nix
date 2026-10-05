@@ -74,6 +74,8 @@ rustPlatform.buildRustPackage rec {
     "earth-files"
     "--bin"
     "earth-files-portal"
+    "--bin"
+    "earth-files-helper"
   ];
   cargoTestFlags = [ "--lib" ];
 
@@ -88,6 +90,14 @@ rustPlatform.buildRustPackage rec {
       "$out/share/metainfo/${appId}.metainfo.xml"
     cp -r res/icons "$out/share/icons"
     desktop-file-validate "$out/share/applications/${appId}.desktop"
+
+    # Lets the helper do a copy, move or delete's steps as root through
+    # pkexec, with a prompt of its own; polkit finds it in the system
+    # profile, where the NixOS module puts this package.
+    mkdir -p "$out/share/polkit-1/actions"
+    substitute res/${appId}.helper.policy \
+      "$out/share/polkit-1/actions/${appId}.helper.policy" \
+      --replace-fail @HELPER@ "$out/bin/earth-files-helper"
 
     # The portal's own class, so compositors and docks find an icon for its
     # file chooser windows; hidden from launchers.

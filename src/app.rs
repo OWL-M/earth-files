@@ -59,7 +59,7 @@ use crate::mounter::{
     MOUNTERS, MounterAuth, MounterItem, MounterItems, MounterKey, MounterMessage, Outcome,
 };
 use crate::operation::{
-    Blocked, BlockedAnswer, BlockedQuestion, Controller, ControllerState, Operation,
+    Ask, Blocked, BlockedAnswer, BlockedQuestion, Controller, ControllerState, Operation,
     OperationError, OperationErrorType, OperationSelection, ReplaceResult,
 };
 use crate::progress;
@@ -888,11 +888,9 @@ struct Question {
     tx: Option<mpsc::Sender<BlockedAnswer>>,
     /// The "Same for the rest" box.
     same_for_rest: bool,
-    /// How many questions of its kind are left in the operation, this one
-    /// included; "Same for the rest" is offered above one.
-    count: usize,
-    /// Whether Retry is offered.
-    retry: bool,
+    /// What it offers besides Skip and Cancel: "Same for the rest" for how
+    /// many, Retry, root.
+    ask: Ask,
     /// The path as the dialog shows it, when it could be looked at.
     item: Option<Box<tab::Item>>,
 }
@@ -2779,8 +2777,11 @@ impl App {
             .timeout(notify_rust::Timeout::Never)
             .finalize();
         let mut notification = notification;
-        if question.retry {
+        if question.ask.retry {
             notification.action(NOTICE_RETRY, &fl!("retry"));
+        }
+        if let Some(again) = question.ask.root {
+            notification.action(NOTICE_ROOT, &root_label(again));
         }
         let notification = notification
             .action(NOTICE_CANCEL, &fl!("cancel"))
@@ -3160,10 +3161,14 @@ impl App {
                 .is_some()
                 .then_some(Message::BlockedAnswer(id, answer))
         };
-        let same_for_rest = question.same_for_rest && question.count > 1;
+        let same_for_rest = question.same_for_rest && question.ask.count > 1;
         let mut dialog = widget::dialog().title(text);
         if let Some(detail) = question_detail(&question.blocked) {
             dialog = dialog.body(detail);
+        }
+        // Not an error: the question stands, and root can be tried again
+        if question.ask.not_granted {
+            dialog = dialog.control(widget::text::caption(fl!("root-not-granted")));
         }
         if let Some(item) = &question.item {
             dialog = dialog.control(
@@ -3171,10 +3176,10 @@ impl App {
                     .map(|message| Message::TabMessage(None, message)),
             );
         }
-        if question.count > 1 {
+        if question.ask.count > 1 {
             dialog = dialog.control(
                 widget::checkbox(question.same_for_rest)
-                    .label(fl!("same-for-rest-count", count = question.count))
+                    .label(fl!("same-for-rest-count", count = question.ask.count))
                     .on_toggle(move |on| Message::BlockedSameForRest(id, on)),
             );
         }
@@ -3188,10 +3193,26 @@ impl App {
                 widget::button::standard(fl!("cancel"))
                     .on_press_maybe(answer(BlockedAnswer::Cancel)),
             );
-        if question.retry {
-            dialog = dialog.secondary_action(
-                widget::button::standard(fl!("retry")).on_press_maybe(answer(BlockedAnswer::Retry)),
-            );
+        let root = question.ask.root.map(|again| {
+            widget::button::standard(root_label(again))
+                .on_press_maybe(answer(BlockedAnswer::RetryAsRoot(same_for_rest)))
+        });
+        let retry = question.ask.retry.then(|| {
+            widget::button::standard(fl!("retry")).on_press_maybe(answer(BlockedAnswer::Retry))
+        });
+        // Both share the middle of the row
+        match (root, retry) {
+            (Some(root), Some(retry)) => {
+                dialog = dialog.secondary_action(
+                    widget::Row::with_capacity(2)
+                        .push(root)
+                        .push(retry)
+                        .spacing(spacing().space_xxs.to_pixels()),
+                );
+            }
+            (Some(root), None) => dialog = dialog.secondary_action(root),
+            (None, Some(retry)) => dialog = dialog.secondary_action(retry),
+            (None, None) => {}
         }
         dialog
     }
@@ -4448,7 +4469,7 @@ impl Application for App {
                         DialogPage::Blocked(id) => {
                             if let Some(question) = self.blocked.get(&id) {
                                 let skip = BlockedAnswer::Skip(
-                                    question.same_for_rest && question.count > 1,
+                                    question.same_for_rest && question.ask.count > 1,
                                 );
                                 tasks.push(self.update(Message::BlockedAnswer(id, skip)));
                             }
@@ -5687,8 +5708,7 @@ impl Application for App {
                         blocked: question.blocked,
                         tx: Some(tx),
                         same_for_rest: false,
-                        count: question.count,
-                        retry: question.retry,
+                        ask: question.ask,
                         item: question.item,
                     },
                 );
@@ -8721,11 +8741,23 @@ fn question_detail(blocked: &Blocked) -> Option<String> {
     Some(fl!("blocked-move-reason", folder = name, reason = reason))
 }
 
+/// What the root button says: asking for the password the first time,
+/// using what was granted after.
+fn root_label(again: bool) -> String {
+    if again {
+        fl!("use-root-again")
+    } else {
+        fl!("retry-as-root")
+    }
+}
+
 /// The actions of a question's desktop notification.
 #[cfg(feature = "notify")]
 const NOTICE_SKIP: &str = "skip";
 #[cfg(feature = "notify")]
 const NOTICE_RETRY: &str = "retry";
+#[cfg(feature = "notify")]
+const NOTICE_ROOT: &str = "root";
 #[cfg(feature = "notify")]
 const NOTICE_CANCEL: &str = "cancel";
 
@@ -8736,6 +8768,7 @@ fn notice_answer(action: &str) -> Option<BlockedAnswer> {
     match action {
         NOTICE_SKIP => Some(BlockedAnswer::Skip(false)),
         NOTICE_RETRY => Some(BlockedAnswer::Retry),
+        NOTICE_ROOT => Some(BlockedAnswer::RetryAsRoot(false)),
         NOTICE_CANCEL => Some(BlockedAnswer::Cancel),
         _ => None,
     }
@@ -8857,8 +8890,12 @@ mod tests {
             blocked: Blocked::Read(PathBuf::from("/root/secrets.env")),
             tx: Some(tx),
             same_for_rest,
-            count: 2,
-            retry: true,
+            ask: Ask {
+                count: 2,
+                retry: true,
+                root: None,
+                not_granted: false,
+            },
             item: None,
         };
         (question, rx)
@@ -8989,7 +9026,7 @@ mod tests {
     #[test]
     fn the_last_question_has_no_same_for_the_rest() {
         let (mut question, _rx) = question(true);
-        question.count = 1;
+        question.ask.count = 1;
         let messages = question_messages(&question, &click_everywhere());
         assert!(
             !messages
@@ -9006,7 +9043,7 @@ mod tests {
     fn a_link_question_has_no_retry() {
         let (mut question, _rx) = question(false);
         // As the engine asks it before the operation runs
-        question.retry = false;
+        question.ask.retry = false;
         question.blocked = Blocked::Link {
             path: PathBuf::from("/p/result"),
             fs: Some("exFAT"),
@@ -9023,7 +9060,7 @@ mod tests {
     fn a_move_question_offers_skip_and_cancel() {
         for same_for_rest in [false, true] {
             let (mut question, _rx) = question(same_for_rest);
-            question.retry = false;
+            question.ask.retry = false;
             question.blocked = Blocked::Move {
                 path: PathBuf::from("/p/aplin"),
                 folder: PathBuf::from("/p"),

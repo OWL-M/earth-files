@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC
+ "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
+<!--
+  Lets Earth Files do a copy, move or delete's steps as root, through its
+  helper, for one operation at a time. The password is asked every time:
+  nothing is remembered. @HELPER@ is replaced with the installed helper's
+  path when the package is built.
+-->
+<policyconfig>
+  <vendor>Earth Files</vendor>
+  <icon_name>com.owlm.EarthFiles</icon_name>
+  <action id="com.owlm.EarthFiles.helper">
+    <description>Change files as administrator</description>
+    <message>Earth Files needs administrator access to copy, move or delete files you are not allowed to change</message>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>auth_admin</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">@HELPER@</annotate>
+  </action>
+</policyconfig>

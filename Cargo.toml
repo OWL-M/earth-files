@@ -208,6 +208,13 @@ path = "src/main.rs"
 name = "earth-files-portal"
 path = "src/bin/earth-files-portal.rs"
 
+# Does a copy or move's steps as root, started through pkexec for one
+# operation. A binary of its own so that nothing else of the app runs as
+# root: it includes only `src/operation/root/proto.rs`.
+[[bin]]
+name = "earth-files-helper"
+path = "src/bin/earth-files-helper.rs"
+
 [features]
 default = [
     "bzip2",

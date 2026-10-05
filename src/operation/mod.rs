@@ -27,6 +27,7 @@ use self::recursive::{Context, Method};
 /// Source and destination paths, paired
 type PathPairs = Vec<(PathBuf, PathBuf)>;
 pub mod recursive;
+pub mod root;
 
 async fn handle_replace(
     msg_tx: Arc<TokioMutex<Sender<Message>>>,
@@ -79,8 +80,7 @@ async fn handle_blocked(
     msg_tx: Arc<TokioMutex<Sender<Message>>>,
     controller: Controller,
     blocked: Blocked,
-    count: usize,
-    retry: bool,
+    ask: Ask,
 ) -> BlockedAnswer {
     // What the dialog shows of the path; it is still there to look at, only
     // not to read, list, link or remove
@@ -94,12 +94,7 @@ async fn handle_blocked(
         .await
         .send(Message::OperationBlocked(
             controller,
-            BlockedQuestion {
-                blocked,
-                count,
-                retry,
-                item,
-            },
+            BlockedQuestion { blocked, ask, item },
             tx,
         ))
         .await;
@@ -206,6 +201,16 @@ impl Blocked {
         }
     }
 
+    /// Whether root could do what this user may not: only a lack of
+    /// permission. Root cannot make a drive writable, or FAT hold a link.
+    pub fn root_can_help(&self) -> bool {
+        match self {
+            Self::Read(_) | Self::List(_) | Self::Remove(_) | Self::Destination(_) => true,
+            Self::Move { read_only, .. } => !read_only,
+            Self::Link { .. } | Self::TooBig { .. } | Self::BadName { .. } => false,
+        }
+    }
+
     /// Whether trying the same step again could succeed. A filesystem that
     /// cannot hold links never will.
     pub fn can_retry(&self) -> bool {
@@ -288,14 +293,28 @@ pub(crate) fn failure_text(path: &Path, err: &(dyn std::error::Error + 'static))
 #[derive(Clone, Debug)]
 pub struct BlockedQuestion {
     pub blocked: Blocked,
+    pub ask: Ask,
+    /// The path as its dialog shows it, when it could be looked at.
+    pub item: Option<Box<tab::Item>>,
+}
+
+/// How a [`Blocked`] question is asked: what it offers besides Skip and
+/// Cancel.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct Ask {
     /// How many questions of its kind are left in the operation, this one
     /// included: "Same for the rest" is offered above one.
     pub count: usize,
     /// Whether Retry is offered: only while the operation runs, when a step
     /// can change.
     pub retry: bool,
-    /// The path as its dialog shows it, when it could be looked at.
-    pub item: Option<Box<tab::Item>>,
+    /// Whether root is offered, and if so whether it is already granted in
+    /// this operation: "Retry as root" asks for the password, "Use root
+    /// again" does not.
+    pub root: Option<bool>,
+    /// The last "Retry as root" was not granted: the prompt was dismissed or
+    /// the password refused.
+    pub not_granted: bool,
 }
 
 /// The answer to a [`Blocked`] question.
@@ -308,6 +327,9 @@ pub enum BlockedAnswer {
     Skip(bool),
     /// Stop the operation, keeping what it has done.
     Cancel,
+    /// Do it as root; `true` also does every later path of this kind as root,
+    /// without asking.
+    RetryAsRoot(bool),
 }
 
 /// Whether the folder `dir` can take new entries at all. A read-only
@@ -571,13 +593,12 @@ async fn recursive_pairs(
     });
 
     let blocked_controller = context.controller();
-    context = context.on_blocked(move |blocked, count, retry| {
+    context = context.on_blocked(move |blocked, ask| {
         Box::pin(handle_blocked(
             blocked_tx.clone(),
             blocked_controller.clone(),
             blocked,
-            count,
-            retry,
+            ask,
         ))
     });
 
@@ -2498,7 +2519,8 @@ mod tests {
                             .expect("Sending a response to a replace request should succeed");
                     }
                     Message::OperationBlocked(_, question, tx) => {
-                        let reply = answer(&question.blocked, question.count, question.retry);
+                        let reply =
+                            answer(&question.blocked, question.ask.count, question.ask.retry);
                         asked.push(question.blocked);
                         tx.send(reply)
                             .await

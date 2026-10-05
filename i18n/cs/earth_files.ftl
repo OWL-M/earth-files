@@ -181,6 +181,9 @@ blocked-list = Složku „{$name}“ nelze otevřít
 blocked-remove = Položka „{$name}“ byla zkopírována, ale nelze ji odstranit
 same-for-rest = Totéž pro zbývající
 retry = Zkusit znovu
+retry-as-root = Zkusit znovu jako správce
+use-root-again = Znovu použít oprávnění správce
+root-not-granted = Přístup správce nebyl udělen
 keep-original = Ponechat originál
 skipped-more = { $count ->
     [one] a {$count} další
