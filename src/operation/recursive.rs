@@ -322,6 +322,9 @@ pub struct Context {
     replaced: Vec<PathBuf>,
     /// What a delete removed for good, which nothing can bring back.
     deleted: Vec<PathBuf>,
+    /// How many more went for good than `deleted` names: the rest of a
+    /// folder whose removal failed part-way, named there by its first.
+    deleted_more: usize,
     /// The step running replaced what was at its destination: what it puts
     /// there is its own, to take away when putting things back.
     replaced_now: bool,
@@ -485,6 +488,7 @@ impl Context {
             trash: TRASH,
             replaced: Vec::new(),
             deleted: Vec::new(),
+            deleted_more: 0,
             replaced_now: false,
             merge_folders: false,
             id: NEXT_CONTEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
@@ -942,7 +946,15 @@ impl Context {
             }
         }
         for (from, to) in renamed.iter().rev() {
-            if let Err(err) = compio::fs::rename(to, from).await {
+            // Never over something made at `from` since: then it stays at `to`
+            let back = compio::runtime::spawn_blocking({
+                let (from, to) = (from.clone(), to.clone());
+                move || super::rename_no_replace(&to, &from)
+            })
+            .await
+            .map_err(|_| std::io::Error::other("the rename's worker stopped"))
+            .and_then(|result| result);
+            if let Err(err) = back {
                 log::warn!(
                     "failed to put back {} from {}: {err}",
                     from.display(),
@@ -2995,6 +3007,24 @@ mod tests {
             assert_eq!(fs::read(&to).expect("kept"), b"moved");
             fs::remove_file(&from).expect("clean up");
         }
+    }
+
+    /// A whole item a move renamed into place goes back only to a free
+    /// place: made again there since, it stays where it landed
+    #[test(compio::test)]
+    async fn a_renamed_item_goes_back_only_to_a_free_place() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let from = dir.path().join("a");
+        let to = dir.path().join("moved");
+        fs::write(&to, b"moved").expect("write");
+        fs::write(&from, b"new").expect("write");
+
+        let mut ctx = Context::new(Controller::default());
+        let not_back = ctx.roll_back(&[(from.clone(), to.clone())]).await;
+
+        assert_eq!(not_back, vec![from.clone()]);
+        assert_eq!(fs::read(&from).expect("new"), b"new");
+        assert_eq!(fs::read(&to).expect("kept"), b"moved");
     }
 
     fake_root!(root_links_back, true);

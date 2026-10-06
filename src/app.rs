@@ -442,6 +442,14 @@ pub enum Message {
     /// Operation `id`'s question was answered on its desktop notification,
     /// which is gone with the answer.
     QuestionNoticeAnswered(u64, BlockedAnswer),
+    /// Operation `id`'s question notification closed without an answer:
+    /// dismissed, or taken down by the app.
+    QuestionNoticeClosed(u64),
+    /// Bring the question notifications in step with who can see the
+    /// window: after a focus change, or a while after one was dismissed.
+    QuestionNoticesSync,
+    /// A window of ours gained or lost the keyboard.
+    WindowFocusChanged(bool),
     /// The pointer came over the progress card's row with this id, or left
     /// it: an ended row is held while it is over it.
     ProgressHover(u64, bool),
@@ -2894,10 +2902,12 @@ impl App {
             _ => None,
         };
         let mut tasks = Vec::new();
+        let seen = self.window_is_seen();
+        // Seen again, the window asks; its notification goes
         let stale: Vec<u64> = self
             .question_notices
             .keys()
-            .filter(|id| Some(**id) != asking)
+            .filter(|id| Some(**id) != asking || seen)
             .copied()
             .collect();
         for id in stale {
@@ -2906,7 +2916,6 @@ impl App {
                 tasks.push(close_question_notice(notice));
             }
         }
-        let seen = self.window_is_seen();
         if let Some(id) = asking
             && !seen
             && !self.question_notices.contains_key(&id)
@@ -2992,9 +3001,11 @@ impl App {
                     .await
                     .ok()
                     .flatten();
-                    if let Some(answer) = picked {
-                        let _ = out.send(Message::QuestionNoticeAnswered(id, answer)).await;
-                    }
+                    let message = match picked {
+                        Some(answer) => Message::QuestionNoticeAnswered(id, answer),
+                        None => Message::QuestionNoticeClosed(id),
+                    };
+                    let _ = out.send(message).await;
                 },
             ))
             .map(crate::ui::Action::App),
@@ -5940,6 +5951,30 @@ impl Application for App {
                 self.question_notices.remove(&id);
                 return self.update(Message::BlockedAnswer(id, answer));
             }
+            Message::QuestionNoticeClosed(id) => {
+                // Dismissed while still the one asking: it comes back after a
+                // moment, as nothing else can answer it while nobody sees the
+                // window. One the app took down is no longer listed.
+                if let Some(Some(_)) = self.question_notices.get(&id) {
+                    self.question_notices.remove(&id);
+                    return Task::future(async {
+                        tokio::time::sleep(NOTICE_AGAIN).await;
+                        crate::ui::action::app(Message::QuestionNoticesSync)
+                    });
+                }
+            }
+            Message::QuestionNoticesSync => return self.sync_question_notices(),
+            Message::WindowFocusChanged(focused) => {
+                // Looked at once the shell has taken the change in
+                let sync = Task::future(async {
+                    tokio::time::sleep(FOCUS_SETTLE).await;
+                    crate::ui::action::app(Message::QuestionNoticesSync)
+                });
+                if focused {
+                    return Task::batch([self.update(Message::CheckClipboard), sync]);
+                }
+                return sync;
+            }
             Message::BlockedSameForRest(id, same_for_rest) => {
                 if let Some(question) = self.blocked.get_mut(&id) {
                     question.same_for_rest = same_for_rest;
@@ -8556,7 +8591,8 @@ impl Application for App {
                 Event::Keyboard(KeyEvent::ModifiersChanged(modifiers)) => {
                     Some(Message::ModifiersChanged(window_id, modifiers))
                 }
-                Event::Window(WindowEvent::Focused) => Some(Message::CheckClipboard),
+                Event::Window(WindowEvent::Focused) => Some(Message::WindowFocusChanged(true)),
+                Event::Window(WindowEvent::Unfocused) => Some(Message::WindowFocusChanged(false)),
                 Event::Window(WindowEvent::CloseRequested) => Some(Message::WindowClose),
                 Event::Window(WindowEvent::Opened { position: _, size }) => {
                     Some(Message::Size(window_id, size))
@@ -9068,6 +9104,14 @@ const NOTICE_ROOT: &str = "root";
 const NOTICE_CANCEL: &str = "cancel";
 #[cfg(feature = "notify")]
 const NOTICE_PERMANENTLY: &str = "permanently";
+
+/// How long a dismissed question notification stays away before it comes
+/// back.
+const NOTICE_AGAIN: Duration = Duration::from_secs(1);
+
+/// How long after a focus change the notifications are looked at again,
+/// for the shell to have taken the change in.
+const FOCUS_SETTLE: Duration = Duration::from_millis(50);
 
 /// The answer a question's notification action stands for; none for a
 /// click on the notification itself or its closing.

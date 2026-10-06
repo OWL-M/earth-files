@@ -15,6 +15,7 @@ use std::fs;
 use std::io;
 use std::mem::Discriminant;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 
 /// Where an item sent to the trash ends up.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -137,14 +138,42 @@ fn size_of(path: &Path) -> u64 {
     }
 }
 
+/// What a removal that may fail part-way got done: the first path it
+/// removed, and how many in all.
+#[derive(Debug, Default)]
+struct Gone {
+    first: Option<PathBuf>,
+    count: usize,
+}
+
+impl Gone {
+    fn note(&mut self, path: &Path) {
+        if self.first.is_none() {
+            self.first = Some(path.to_path_buf());
+        }
+        self.count += 1;
+    }
+}
+
 /// Deletes `path` for good, a folder with everything in it. A link goes
 /// itself, never what it points at.
 fn remove_tree(path: &Path) -> io::Result<()> {
+    remove_tree_noting(path, &mut Gone::default())
+}
+
+/// [`remove_tree`], noting in `gone` what went, so a failure part-way still
+/// says what can no longer come back.
+fn remove_tree_noting(path: &Path, gone: &mut Gone) -> io::Result<()> {
     if fs::symlink_metadata(path)?.is_dir() {
-        fs::remove_dir_all(path)
+        for entry in fs::read_dir(path)? {
+            remove_tree_noting(&entry?.path(), gone)?;
+        }
+        fs::remove_dir(path)?;
     } else {
-        fs::remove_file(path)
+        fs::remove_file(path)?;
     }
+    gone.note(path);
+    Ok(())
 }
 
 /// Brings a trash entry back to where it was: renamed, or across drives
@@ -216,20 +245,28 @@ fn copy_tree(from: &Path, to: &Path) -> io::Result<()> {
 /// Deletes `path` for good through the helper, as root: a folder by
 /// listing it and removing what it holds first.
 fn remove_tree_as_root(helper: &mut Helper, path: &Path) -> io::Result<()> {
+    remove_tree_as_root_noting(helper, path, &mut Gone::default())
+}
+
+/// [`remove_tree_as_root`], noting in `gone` what went.
+fn remove_tree_as_root_noting(helper: &mut Helper, path: &Path, gone: &mut Gone) -> io::Result<()> {
     match helper.call(&Request::Remove(path.to_path_buf())) {
         Err(err) if err.raw_os_error() == Some(libc::EISDIR) => {
             for entry in helper.list(path)? {
                 let child = path.join(&entry.name);
                 if entry.kind == Kind::Dir {
-                    remove_tree_as_root(helper, &child)?;
+                    remove_tree_as_root_noting(helper, &child, gone)?;
                 } else {
-                    helper.call(&Request::Remove(child))?;
+                    helper.call(&Request::Remove(child.clone()))?;
+                    gone.note(&child);
                 }
             }
-            helper.call(&Request::Rmdir(path.to_path_buf()))
+            helper.call(&Request::Rmdir(path.to_path_buf()))?;
         }
-        result => result,
+        result => result?,
     }
+    gone.note(path);
+    Ok(())
 }
 
 /// How one item is deleted, once its questions are answered.
@@ -317,6 +354,7 @@ impl Context {
         if self.controller.is_cancelled() {
             let not_back = self.untrash().await;
             let gone = std::mem::take(&mut self.deleted);
+            let gone_more = std::mem::take(&mut self.deleted_more);
             let named = |paths: &[PathBuf]| {
                 let name = paths[0].file_name().map_or_else(
                     || paths[0].display().to_string(),
@@ -333,6 +371,7 @@ impl Context {
             }
             if !gone.is_empty() {
                 let (name, more) = named(&gone);
+                let more = more + gone_more;
                 return Err(OperationError::from_err(
                     fl!("deleted-for-good", name = name, more = more),
                     &self.controller,
@@ -471,23 +510,39 @@ impl Context {
             // A failure asks, and goes again for as long as the answer is
             // Try again
             loop {
-                let done: Result<(), Box<dyn Error>> = match how[index] {
-                    How::Trash => self.trash_one(path).await,
+                // For good, what went is noted even when the rest does not go
+                let (done, gone): (Result<(), Box<dyn Error>>, Gone) = match how[index] {
+                    How::Trash => (self.trash_one(path).await, Gone::default()),
                     How::Permanently => {
                         let path = path.clone();
-                        compio::runtime::spawn_blocking(move || remove_tree(&path))
-                            .await
-                            .map_err(|_| io::Error::other("the delete's worker stopped"))
-                            .and_then(|result| result)
-                            .map_err(Into::into)
+                        compio::runtime::spawn_blocking(move || {
+                            let mut gone = Gone::default();
+                            let done = remove_tree_noting(&path, &mut gone);
+                            (done, gone)
+                        })
+                        .await
+                        .map(|(done, gone)| (done.map_err(Into::into), gone))
+                        .unwrap_or_else(|_| {
+                            let err = io::Error::other("the delete's worker stopped");
+                            (Err(err.into()), Gone::default())
+                        })
                     }
                     How::Root => {
                         let path = path.clone();
-                        self.with_helper(move |helper| remove_tree_as_root(helper, &path))
+                        let gone = Arc::new(Mutex::new(Gone::default()));
+                        let noted = gone.clone();
+                        let done = self
+                            .with_helper(move |helper| {
+                                let mut noted = noted.lock().unwrap_or_else(|p| p.into_inner());
+                                remove_tree_as_root_noting(helper, &path, &mut noted)
+                            })
                             .await
-                            .map_err(Into::into)
+                            .map_err(Into::into);
+                        let gone =
+                            std::mem::take(&mut *gone.lock().unwrap_or_else(|p| p.into_inner()));
+                        (done, gone)
                     }
-                    How::Skip => Ok(()),
+                    How::Skip => (Ok(()), Gone::default()),
                 };
                 let Err(err) = done else {
                     if how[index] != How::Trash {
@@ -495,6 +550,11 @@ impl Context {
                     }
                     break;
                 };
+                // Part of it went before the failure: named by the first
+                if let Some(first) = gone.first {
+                    self.deleted.push(first);
+                    self.deleted_more += gone.count - 1;
+                }
                 let reason = crate::operation::failure_text(path, &*err);
                 log::warn!("failed to delete {}: {err}", path.display());
                 // Stopped by a cancel, it is a cancel, which puts back
@@ -862,6 +922,40 @@ mod tests {
             Path::new("sub/f")
         );
         assert!(!kept.exists() && !info.exists());
+    }
+
+    /// A folder deleted for good that fails part-way still names what went
+    /// when the delete is cancelled
+    #[test(compio::test)]
+    async fn a_cancel_names_what_went_of_a_folder_that_failed_part_way() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().expect("tempdir");
+        let top = dir.path().join("top");
+        // `f` can go; then `inner` cannot leave `locked`
+        let locked = top.join("locked");
+        fs::create_dir_all(locked.join("inner")).expect("mkdir");
+        fs::write(locked.join("inner/f"), "f").expect("write");
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o555)).expect("chmod");
+        if crate::operation::cannot_write(&locked) != Some(false) {
+            return;
+        }
+
+        let (asked, result, _) = delete_with(
+            Context::new(Controller::default()),
+            vec![top.clone()],
+            true,
+            |_| BlockedAnswer::Cancel,
+        )
+        .await;
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o755)).expect("chmod");
+
+        let err = result.expect_err("cancelled");
+        assert!(matches!(asked[0].0, Blocked::Failed { .. }));
+        assert!(!locked.join("inner/f").exists());
+        assert_eq!(
+            err.to_string(),
+            crate::fl!("deleted-for-good", name = "f", more = 0)
+        );
     }
 
     /// The controller the next test's trash cancels, as the user would
