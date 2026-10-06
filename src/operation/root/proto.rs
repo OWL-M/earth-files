@@ -491,6 +491,27 @@ pub fn open_dir_at(
     Ok(unsafe { std::os::fd::OwnedFd::from_raw_fd(fd) })
 }
 
+/// A handle on the folder at `path` for working on what is in it by name,
+/// not for listing it: it takes no permission to read the folder, only what
+/// each step on an entry takes (`O_PATH`).
+pub fn open_path(path: &Path) -> io::Result<std::os::fd::OwnedFd> {
+    use std::os::fd::FromRawFd;
+
+    let path = c_name(path.as_os_str())?;
+    // SAFETY: a CString that outlives the call
+    let fd = unsafe {
+        libc::open(
+            path.as_ptr(),
+            libc::O_PATH | libc::O_DIRECTORY | libc::O_CLOEXEC,
+        )
+    };
+    if fd < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    // SAFETY: `open` just returned it, and nothing else owns it
+    Ok(unsafe { std::os::fd::OwnedFd::from_raw_fd(fd) })
+}
+
 /// The names in the folder open as `dir`, without `.` and `..`, read
 /// through that handle.
 pub fn names_in(dir: std::os::fd::BorrowedFd<'_>) -> io::Result<Vec<OsString>> {

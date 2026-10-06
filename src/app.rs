@@ -123,8 +123,37 @@ type QuestionNotice = ();
 
 /// Whether operation `id`'s notification on record in `notices` is the
 /// desktop's `notice`: a late answer or close of an older one is not.
-fn notice_on_record(notices: &BTreeMap<u64, Option<QuestionNotice>>, id: u64, notice: u32) -> bool {
-    matches!(notices.get(&id), Some(Some(shown)) if notice_id(shown) == notice)
+fn notice_on_record(notices: &BTreeMap<u64, NoticeSlot>, id: u64, notice: u32) -> bool {
+    matches!(
+        notices.get(&id),
+        Some(NoticeSlot { shown: Some(shown), .. }) if notice_id(shown) == notice
+    )
+}
+
+/// An operation's question notification: which showing of it is the one
+/// on record, and the notification once the desktop has shown it.
+struct NoticeSlot {
+    generation: u64,
+    shown: Option<QuestionNotice>,
+}
+
+/// Takes the notification the desktop just showed for operation `id` as
+/// its showing `generation`, if that showing is still the one wanted.
+/// Returns it otherwise, to be closed: it came too late, for a question
+/// that is gone or a showing since replaced.
+fn accept_notice(
+    notices: &mut BTreeMap<u64, NoticeSlot>,
+    id: u64,
+    generation: u64,
+    notice: QuestionNotice,
+) -> Option<QuestionNotice> {
+    match notices.get_mut(&id) {
+        Some(slot) if slot.generation == generation && slot.shown.is_none() => {
+            slot.shown = Some(notice);
+            None
+        }
+        _ => Some(notice),
+    }
 }
 
 /// The desktop's id for a question's notification: which notification a
@@ -455,7 +484,7 @@ pub enum Message {
     /// The "Same for the rest" box of operation `id`'s question.
     BlockedSameForRest(u64, bool),
     /// Operation `id`'s question went out as a desktop notification.
-    QuestionNotified(u64, QuestionNotice),
+    QuestionNotified(u64, u64, QuestionNotice),
     /// Operation `id`'s question was answered on its desktop notification,
     /// which is gone with the answer.
     QuestionNoticeAnswered(u64, u32, BlockedAnswer),
@@ -1015,7 +1044,10 @@ pub struct App {
     stalls: BTreeMap<u64, Stall>,
     /// The question asked in a desktop notification, by operation: `None`
     /// while the notification is still being shown.
-    question_notices: BTreeMap<u64, Option<QuestionNotice>>,
+    question_notices: BTreeMap<u64, NoticeSlot>,
+    /// Counts the showings of question notifications, to tell a late one
+    /// from the one wanted.
+    notice_generation: u64,
     /// The long-running work the card in the bottom-right corner shows.
     progress: progress::Tasks,
     /// The active tab's button, on a card above the progress card.
@@ -2935,16 +2967,28 @@ impl App {
             .collect();
         for id in stale {
             // One still being shown is closed when it reports in
-            if let Some(Some(notice)) = self.question_notices.remove(&id) {
+            if let Some(NoticeSlot {
+                shown: Some(notice),
+                ..
+            }) = self.question_notices.remove(&id)
+            {
                 tasks.push(close_question_notice(notice));
             }
         }
+        let generation = self.notice_generation + 1;
         if let Some(id) = asking
             && !seen
             && !self.question_notices.contains_key(&id)
-            && let Some(task) = self.show_question_notice(id)
+            && let Some(task) = self.show_question_notice(id, generation)
         {
-            self.question_notices.insert(id, None);
+            self.notice_generation = generation;
+            self.question_notices.insert(
+                id,
+                NoticeSlot {
+                    generation,
+                    shown: None,
+                },
+            );
             tasks.push(task);
         }
         Task::batch(tasks)
@@ -2953,7 +2997,7 @@ impl App {
     /// Shows operation `id`'s question as a desktop notification, whose
     /// buttons answer it. `None` when there is nothing to ask.
     #[cfg(feature = "notify")]
-    fn show_question_notice(&self, id: u64) -> Option<Task<Message>> {
+    fn show_question_notice(&self, id: u64, generation: u64) -> Option<Task<Message>> {
         let question = self
             .blocked
             .get(&id)
@@ -3014,7 +3058,9 @@ impl App {
                     };
                     let notice_id = handle.id();
                     let notice = (notice_id, notification);
-                    let _ = out.send(Message::QuestionNotified(id, notice)).await;
+                    let _ = out
+                        .send(Message::QuestionNotified(id, generation, notice))
+                        .await;
                     // Until a button is pressed or the notification closes,
                     // from either side
                     let picked = tokio::task::spawn_blocking(move || {
@@ -3037,7 +3083,7 @@ impl App {
     }
 
     #[cfg(not(feature = "notify"))]
-    fn show_question_notice(&self, _id: u64) -> Option<Task<Message>> {
+    fn show_question_notice(&self, _id: u64, _generation: u64) -> Option<Task<Message>> {
         None
     }
 
@@ -3934,6 +3980,7 @@ impl Application for App {
             failed_operations: BTreeMap::new(),
             blocked: BTreeMap::new(),
             question_notices: BTreeMap::new(),
+            notice_generation: 0,
             stalls: BTreeMap::new(),
             undo_stack: Vec::new(),
             undo_ids: BTreeSet::new(),
@@ -5964,11 +6011,12 @@ impl Application for App {
                     self.sync_question_notices(),
                 ]);
             }
-            Message::QuestionNotified(id, notice) => {
-                match self.question_notices.get_mut(&id) {
-                    Some(slot @ None) => *slot = Some(notice),
-                    // Answered or over while it was being shown
-                    _ => return close_question_notice(notice),
+            Message::QuestionNotified(id, generation, notice) => {
+                // Answered, over, or shown again while it was being shown
+                if let Some(late) =
+                    accept_notice(&mut self.question_notices, id, generation, notice)
+                {
+                    return close_question_notice(late);
                 }
             }
             Message::QuestionNoticeAnswered(id, notice, answer) => {
@@ -9272,13 +9320,50 @@ mod tests {
     #[cfg(feature = "notify")]
     #[test]
     fn only_the_notification_on_record_counts() {
-        let mut notices: BTreeMap<u64, Option<QuestionNotice>> = BTreeMap::new();
-        notices.insert(1, Some((7, notify_rust::Notification::new())));
-        notices.insert(2, None);
+        let mut notices: BTreeMap<u64, NoticeSlot> = BTreeMap::new();
+        notices.insert(
+            1,
+            NoticeSlot {
+                generation: 1,
+                shown: Some((7, notify_rust::Notification::new())),
+            },
+        );
+        notices.insert(
+            2,
+            NoticeSlot {
+                generation: 2,
+                shown: None,
+            },
+        );
         assert!(notice_on_record(&notices, 1, 7));
         assert!(!notice_on_record(&notices, 1, 6), "an older one");
         assert!(!notice_on_record(&notices, 2, 7), "still being shown");
         assert!(!notice_on_record(&notices, 3, 7), "none on record");
+    }
+
+    /// A notification shown too late, for a showing since replaced, is not
+    /// taken in place of the newer one: it is handed back to be closed
+    #[cfg(feature = "notify")]
+    #[test]
+    fn a_late_notification_does_not_take_a_newer_slot() {
+        let mut notices: BTreeMap<u64, NoticeSlot> = BTreeMap::new();
+        // Showing 2 is wanted; showing 1 was cleared before it came
+        notices.insert(
+            1,
+            NoticeSlot {
+                generation: 2,
+                shown: None,
+            },
+        );
+        let late = (5, notify_rust::Notification::new());
+        assert!(accept_notice(&mut notices, 1, 1, late).is_some());
+        assert!(!notice_on_record(&notices, 1, 5));
+        let wanted = (6, notify_rust::Notification::new());
+        assert!(accept_notice(&mut notices, 1, 2, wanted).is_none());
+        assert!(notice_on_record(&notices, 1, 6));
+        // Once shown, another for the same showing is a duplicate
+        let again = (8, notify_rust::Notification::new());
+        assert!(accept_notice(&mut notices, 1, 2, again).is_some());
     }
 
     /// §5.1: copies share; a move shares with nothing; a delete shares with

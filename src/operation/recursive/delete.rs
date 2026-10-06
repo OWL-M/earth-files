@@ -6,7 +6,9 @@
 
 use super::{Context, removal_block};
 use crate::fl;
-use crate::operation::root::proto::{Kind, Request, names_in, open_dir_at, stat_at, unlink_at};
+use crate::operation::root::proto::{
+    Kind, Request, names_in, open_dir_at, open_path, stat_at, unlink_at,
+};
 use crate::operation::root::{self, Helper, StartError};
 use crate::operation::{Ask, Blocked, BlockedAnswer, OperationError};
 use std::collections::HashMap;
@@ -176,7 +178,9 @@ fn remove_tree_noting(path: &Path, gone: &mut Gone) -> io::Result<()> {
         Some(parent) if !parent.as_os_str().is_empty() => parent,
         _ => Path::new("."),
     };
-    let parent = open_dir_at(None, parent.as_os_str(), true)?;
+    // Only to work on `name` in it: removing an entry takes no permission
+    // to list its folder
+    let parent = open_path(parent)?;
     remove_at(parent.as_fd(), name, path, gone)
 }
 
@@ -979,6 +983,31 @@ mod tests {
         assert!(!top.exists());
         assert_eq!(gone.count, 4, "sub/f, sub/link, sub and top");
         assert_eq!(fs::read(outside.join("keep")).expect("kept"), b"keep");
+    }
+
+    /// Removing an entry takes writing to its folder, not reading it: a
+    /// folder this user may not list still gives up what is named in it
+    #[test]
+    fn deleting_takes_no_reading_of_the_folder_it_is_in() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().expect("tempdir");
+        let folder = dir.path().join("unlisted");
+        fs::create_dir_all(folder.join("sub")).expect("mkdir");
+        fs::write(folder.join("f"), "f").expect("write");
+        fs::write(folder.join("sub/g"), "g").expect("write");
+        fs::set_permissions(&folder, fs::Permissions::from_mode(0o300)).expect("chmod");
+        let listed = fs::read_dir(&folder).is_ok();
+
+        let file = super::remove_tree(&folder.join("f"));
+        let sub = super::remove_tree(&folder.join("sub"));
+        fs::set_permissions(&folder, fs::Permissions::from_mode(0o755)).expect("chmod");
+        if listed {
+            // Running with privileges that ignore the mode
+            return;
+        }
+        file.expect("a file in it goes");
+        sub.expect("a folder in it goes, with what it holds");
+        assert!(fs::read_dir(&folder).expect("listed").next().is_none());
     }
 
     /// A folder deleted for good that fails part-way still names what went
