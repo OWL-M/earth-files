@@ -689,11 +689,12 @@ async fn restore(
         // which asks
         let mut op_sel = OperationSelection::default();
         let mut pairs = Vec::new();
+        let mut stopped = None;
         for ((from, _), to) in &entries {
-            controller
-                .check()
-                .await
-                .map_err(|s| OperationError::from_state(s, &controller))?;
+            if let Err(state) = controller.check().await {
+                stopped = Some(state);
+                break;
+            }
             let renamed = compio::runtime::spawn_blocking({
                 let (from, to) = (from.clone(), to.clone());
                 move || rename_no_replace(&from, &to)
@@ -709,9 +710,34 @@ async fn restore(
                 pairs.push((from.clone(), to.clone()));
             }
         }
-        let result = if pairs.is_empty() {
+        let result = if let Some(state) = stopped {
+            // Cancelled: what came back goes into the trash again. Aborted:
+            // it stays, and can be undone
+            if state == ControllerState::Cancelled && !controller.is_aborted() {
+                let back = std::mem::take(&mut op_sel.moved);
+                op_sel = OperationSelection::default();
+                let not_back = compio::runtime::spawn_blocking(move || {
+                    back.into_iter()
+                        .filter(|(from, to)| rename_no_replace(to, from).is_err())
+                        .collect::<Vec<_>>()
+                })
+                .await
+                .map_err(wrap_compio_spawn_error)?;
+                for (from, to) in not_back {
+                    log::warn!("failed to put {} back in the trash", to.display());
+                    op_sel.moved.push((from, to.clone()));
+                    op_sel.created.push(to.clone());
+                    op_sel.selected.push(to);
+                }
+            }
+            Err(OperationError {
+                partial: Box::new(op_sel),
+                ..OperationError::from_state(state, &controller)
+            })
+        } else if pairs.is_empty() {
             Ok(op_sel)
         } else {
+            let renamed = op_sel.clone();
             recursive_pairs(
                 pairs,
                 Method::Move {
@@ -723,6 +749,13 @@ async fn restore(
                 controller.clone(),
             )
             .await
+            .map_err(|mut err| {
+                // What the renames brought back is still back
+                if err.partial.moved.is_empty() && !controller.is_cancelled() {
+                    err.partial = Box::new(renamed);
+                }
+                err
+            })
         };
 
         // Whatever the move came to, an item no longer in the trash's files

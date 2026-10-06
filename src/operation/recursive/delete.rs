@@ -244,12 +244,10 @@ impl Context {
     ) -> Result<(), OperationError> {
         let result = self.delete_items(paths, permanently).await;
         self.resolve_trashed().await;
-        let Err(err) = result else {
-            return Ok(());
-        };
         if self.controller.is_aborted() {
-            return Err(self.cancelled());
+            return result.map_err(|_| self.cancelled());
         }
+        // Cancelled, even as the last item was going: all of it comes back
         if self.controller.is_cancelled() {
             let not_back = self.untrash().await;
             let gone = std::mem::take(&mut self.deleted);
@@ -274,8 +272,14 @@ impl Context {
                     &self.controller,
                 ));
             }
-            return Err(err);
+            return Err(OperationError::from_state(
+                crate::operation::ControllerState::Cancelled,
+                &self.controller,
+            ));
         }
+        let Err(err) = result else {
+            return Ok(());
+        };
         // What reached the trash before the failure can be undone, and a
         // retry has only the rest to do
         Err(OperationError {
@@ -427,7 +431,14 @@ impl Context {
                 };
                 let reason = crate::operation::failure_text(path, &*err);
                 log::warn!("failed to delete {}: {err}", path.display());
-                if self.controller.is_cancelled() || self.controller.is_failed() {
+                // Stopped by a cancel, it is a cancel, which puts back
+                if self.controller.is_cancelled() {
+                    return Err(OperationError::from_state(
+                        crate::operation::ControllerState::Cancelled,
+                        &self.controller,
+                    ));
+                }
+                if self.controller.is_failed() {
                     return Err(OperationError::from_err(reason, &self.controller));
                 }
                 let failed = Blocked::Failed {
@@ -510,7 +521,13 @@ impl Context {
                     break;
                 };
                 log::warn!("failed to remove {} from the trash: {err}", files.display());
-                if self.controller.is_cancelled() || self.controller.is_failed() {
+                if self.controller.is_cancelled() {
+                    return Err(OperationError::from_state(
+                        crate::operation::ControllerState::Cancelled,
+                        &self.controller,
+                    ));
+                }
+                if self.controller.is_failed() {
                     return Err(OperationError::from_err(
                         crate::operation::failure_text(&files, &err),
                         &self.controller,
@@ -739,6 +756,34 @@ mod tests {
             delete_with(ctx, vec![a.clone()], false, |_| BlockedAnswer::Skip(false)).await;
         result.expect("done");
         assert!(a.exists());
+    }
+
+    /// The controller the next test's trash cancels, as the user would
+    /// while the last item goes
+    static CANCEL_DURING: std::sync::Mutex<Option<Controller>> = std::sync::Mutex::new(None);
+
+    /// Cancelled while the last item goes, the delete still brings
+    /// everything back
+    #[test(compio::test)]
+    async fn a_cancel_during_the_last_item_brings_it_back() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let a = dir.path().join("a");
+        fs::write(&a, "a").expect("write");
+        let controller = Controller::default();
+        *CANCEL_DURING.lock().expect("lock") = Some(controller.clone());
+        let mut ctx = Context::new(controller);
+        ctx.trash.delete = |path: &Path| {
+            let done = (crate::operation::recursive::TRASH.delete)(path);
+            if let Some(controller) = CANCEL_DURING.lock().expect("lock").as_ref() {
+                controller.cancel();
+            }
+            done
+        };
+        let (_, result, ctx) =
+            delete_with(ctx, vec![a.clone()], false, |_| BlockedAnswer::Cancel).await;
+        result.expect_err("cancelled");
+        assert!(a.exists(), "it came back from the trash");
+        assert!(ctx.op_sel.trash_items.is_empty());
     }
 
     /// Cancelled mid-way, what reached the trash comes back, and what went

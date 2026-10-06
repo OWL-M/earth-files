@@ -1007,9 +1007,10 @@ pub struct App {
     undo_stack: Vec<Vec<Operation>>,
     /// Operations started by an undo; their completion is not undoable again
     undo_ids: BTreeSet<u64>,
-    /// The parts of an undo still to run, after the one with this id: each
-    /// waits for the one before, as a restore needs its place free first.
-    undo_queue: Option<(u64, VecDeque<Operation>)>,
+    /// The parts of each running undo still to come, by the id of the part
+    /// running now: each waits for the one before, as a restore needs its
+    /// place free first. Undos started one after another keep their own.
+    undo_queues: HashMap<u64, VecDeque<Operation>>,
     scrollable_name: std::borrow::Cow<'static, str>,
     search_id: widget::Id,
     /// The tab whose search just ended, with its last term: its field stays
@@ -2016,6 +2017,9 @@ impl App {
         let mut op_sel = OperationSelection::default();
         for (id, op_sel_pending) in completed {
             commands.push(self.undo_next(id));
+            // Done: its drive is not asked about any more
+            self.stalls.remove(&id);
+            commands.push(self.dialog_pages.remove_stalled(id));
             let trash_items = op_sel_pending.trash_items.clone();
             if let Some((op, _)) = self.pending_operations.get(&id) {
                 let undo = op.undo(&op_sel_pending);
@@ -2121,21 +2125,20 @@ impl App {
         }
         let id = self.pending_operation_id;
         self.undo_ids.insert(id);
-        self.undo_queue = (!rest.is_empty()).then_some((id, rest));
+        if !rest.is_empty() {
+            self.undo_queues.insert(id, rest);
+        }
         self.operation(part)
     }
 
     /// The next part of an undo, once the part before, `id`, completed.
     fn undo_next(&mut self, id: u64) -> Task<Message> {
-        match self.undo_queue.take() {
-            Some((running, mut rest)) if running == id => match rest.pop_front() {
-                Some(next) => self.undo_part(next, rest),
-                None => Task::none(),
-            },
-            queue => {
-                self.undo_queue = queue;
-                Task::none()
-            }
+        let Some(mut rest) = self.undo_queues.remove(&id) else {
+            return Task::none();
+        };
+        match rest.pop_front() {
+            Some(next) => self.undo_part(next, rest),
+            None => Task::none(),
         }
     }
 
@@ -2155,14 +2158,11 @@ impl App {
         let mut tasks = Vec::new();
         for (id, err) in errors.into_iter() {
             // An undo part that failed stops the parts after it
-            if self
-                .undo_queue
-                .as_ref()
-                .is_some_and(|(running, _)| *running == id)
-            {
-                self.undo_queue = None;
-            }
+            self.undo_queues.remove(&id);
             tasks.push(self.drop_question(id));
+            // Nor is its drive asked about any more
+            self.stalls.remove(&id);
+            tasks.push(self.dialog_pages.remove_stalled(id));
             if let Some((op, controller)) = self.pending_operations.remove(&id) {
                 // What was done before the failure can be undone on its own,
                 // and a retry has only the rest to do
@@ -2188,8 +2188,7 @@ impl App {
                     self.progress
                         .finish(&key, false, Some(failed_text), Instant::now());
                 } else {
-                    self.progress
-                        .finish_failed_kept(&key, Some(failed_text), Instant::now());
+                    self.progress.fail_kept(&key, failed_text, Instant::now());
                 }
                 // The payload stays: a failed operation can be retried from
                 // the dialog, and retrying a paste whose bytes were dropped
@@ -3903,7 +3902,7 @@ impl Application for App {
             stalls: BTreeMap::new(),
             undo_stack: Vec::new(),
             undo_ids: BTreeSet::new(),
-            undo_queue: None,
+            undo_queues: HashMap::new(),
             scrollable_name: std::borrow::Cow::Borrowed("File Scrollable"),
             search_id: widget::Id::new("File Search"),
             search_closing: None,

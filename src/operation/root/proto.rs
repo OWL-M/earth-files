@@ -20,6 +20,7 @@
 use std::ffi::OsString;
 use std::fs;
 use std::io::{self, Read, Write};
+use std::os::fd::AsFd;
 use std::os::unix::ffi::{OsStrExt, OsStringExt};
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
@@ -52,6 +53,10 @@ pub enum Request {
     Rmdir(PathBuf),
     /// Rename within one filesystem.
     Rename { from: PathBuf, to: PathBuf },
+    /// Stop the copy under way: it fails with `ECANCELED` and leaves
+    /// nothing at its destination. Sent while no copy runs, it is answered
+    /// Done.
+    Stop,
 }
 
 /// One entry of a listed folder.
@@ -95,6 +100,7 @@ const SYMLINK: u8 = 5;
 const REMOVE: u8 = 6;
 const RMDIR: u8 = 7;
 const RENAME: u8 = 8;
+const STOP: u8 = 9;
 
 const DONE: u8 = 100;
 const COPIED: u8 = 101;
@@ -181,6 +187,7 @@ pub fn write_request(out: &mut impl Write, request: &Request) -> io::Result<()> 
         Request::Remove(path) => (REMOVE, vec![b(path)]),
         Request::Rmdir(path) => (RMDIR, vec![b(path)]),
         Request::Rename { from, to } => (RENAME, vec![b(from), b(to)]),
+        Request::Stop => (STOP, Vec::new()),
     };
     let fields: Vec<&[u8]> = fields.iter().map(Vec::as_slice).collect();
     write_message(out, tag, &fields)
@@ -231,6 +238,7 @@ pub fn read_request(input: &mut impl Read) -> io::Result<Request> {
             let (from, to) = two(&fields)?;
             Request::Rename { from, to }
         }
+        STOP if fields.is_empty() => Request::Stop,
         _ => return Err(bad("unknown request")),
     })
 }
@@ -337,7 +345,9 @@ fn resolve(path: &Path) -> Option<PathBuf> {
 
 /// Runs the helper: reads requests from `input` and answers each on
 /// `output`, until `input` closes. The first request must be the scope.
-pub fn serve(mut input: impl Read, mut output: impl Write) -> io::Result<()> {
+/// `input` is read unbuffered: a copy looks at it for [`Request::Stop`]
+/// without waiting.
+pub fn serve(mut input: impl Read + AsFd, mut output: impl Write) -> io::Result<()> {
     let scope = match read_request(&mut input)? {
         Request::Scope {
             sources,
@@ -346,14 +356,20 @@ pub fn serve(mut input: impl Read, mut output: impl Write) -> io::Result<()> {
         _ => return Err(bad("the first request must be the scope")),
     };
     write_reply(&mut output, &Reply::Done)?;
+    // A request that came while a copy ran, carried out after it
+    let mut queued = None;
     loop {
-        let request = match read_request(&mut input) {
+        let next = match queued.take() {
+            Some(request) => Ok(request),
+            None => read_request(&mut input),
+        };
+        let request = match next {
             Ok(request) => request,
             // The app is done with it: the operation ended
             Err(err) if err.kind() == io::ErrorKind::UnexpectedEof => return Ok(()),
             Err(err) => return Err(err),
         };
-        let reply = match carry_out(&scope, request, &mut output) {
+        let reply = match carry_out(&scope, request, &mut input, &mut queued, &mut output) {
             Ok(reply) => reply,
             Err(err) => Reply::Failed(err.raw_os_error().unwrap_or(libc::EIO)),
         };
@@ -361,9 +377,17 @@ pub fn serve(mut input: impl Read, mut output: impl Write) -> io::Result<()> {
     }
 }
 
-fn carry_out(scope: &Scope, request: Request, output: &mut impl Write) -> io::Result<Reply> {
+fn carry_out(
+    scope: &Scope,
+    request: Request,
+    input: &mut (impl Read + AsFd),
+    queued: &mut Option<Request>,
+    output: &mut impl Write,
+) -> io::Result<Reply> {
     match request {
         Request::Scope { .. } => Err(io::Error::from_raw_os_error(libc::EINVAL)),
+        // The copy it was for had already ended
+        Request::Stop => Ok(Reply::Done),
         Request::List(dir) => {
             let dir = scope.check(&dir)?;
             let mut entries = Vec::new();
@@ -395,7 +419,7 @@ fn carry_out(scope: &Scope, request: Request, output: &mut impl Write) -> io::Re
         }
         Request::Copy { from, to } => {
             let (from, to) = (scope.check(&from)?, scope.check(&to)?);
-            copy(&from, &to, output).map(Reply::Copied)
+            copy(&from, &to, input, queued, output).map(Reply::Copied)
         }
         Request::Mkdir { from, to } => {
             let (from, to) = (scope.check(&from)?, scope.check(&to)?);
@@ -439,10 +463,46 @@ fn carry_out(scope: &Scope, request: Request, output: &mut impl Write) -> io::Re
 /// How often a copy reports how far it got, in bytes.
 const PROGRESS_EVERY: u64 = 8 << 20;
 
+/// Whether the app asked to stop, looking at `input` without waiting: a
+/// [`Request::Stop`], or the app gone. Any other request there is kept in
+/// `queued` for after the copy, and nothing more is looked at until then.
+fn stop_asked(input: &mut (impl Read + AsFd), queued: &mut Option<Request>) -> io::Result<bool> {
+    use std::os::fd::AsRawFd;
+
+    if queued.is_some() {
+        return Ok(false);
+    }
+    let mut poll = libc::pollfd {
+        fd: input.as_fd().as_raw_fd(),
+        events: libc::POLLIN,
+        revents: 0,
+    };
+    // SAFETY: one valid pollfd, for the length given
+    if unsafe { libc::poll(&mut poll, 1, 0) } <= 0 {
+        return Ok(false);
+    }
+    match read_request(input) {
+        Ok(Request::Stop) => Ok(true),
+        Err(err) if err.kind() == io::ErrorKind::UnexpectedEof => Ok(true),
+        Ok(request) => {
+            *queued = Some(request);
+            Ok(false)
+        }
+        Err(err) => Err(err),
+    }
+}
+
 /// Copies `from` to a new `to`: the bytes, then owner, mode and times as
-/// `from` has them. Reports progress on `output` as it goes. A copy that
-/// fails part-way removes what it made.
-fn copy(from: &Path, to: &Path, output: &mut impl Write) -> io::Result<u64> {
+/// `from` has them. Reports progress on `output` as it goes, and stops when
+/// `input` asks it to. A copy that fails or stops part-way removes what it
+/// made.
+fn copy(
+    from: &Path,
+    to: &Path,
+    input: &mut (impl Read + AsFd),
+    queued: &mut Option<Request>,
+    output: &mut impl Write,
+) -> io::Result<u64> {
     let mut source = fs::OpenOptions::new()
         .read(true)
         .custom_flags(libc::O_NOFOLLOW)
@@ -462,6 +522,9 @@ fn copy(from: &Path, to: &Path, output: &mut impl Write) -> io::Result<u64> {
         let mut copied = 0u64;
         let mut reported = 0u64;
         loop {
+            if stop_asked(input, queued)? {
+                return Err(io::Error::from_raw_os_error(libc::ECANCELED));
+            }
             let read = source.read(&mut buf)?;
             if read == 0 {
                 break;
@@ -504,6 +567,13 @@ pub fn started_by_pkexec() -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `input` as the helper reads it: from a pipe, already closed.
+    fn fed(input: Vec<u8>) -> std::io::PipeReader {
+        let (reader, mut writer) = std::io::pipe().expect("pipe");
+        writer.write_all(&input).expect("feed");
+        reader
+    }
     use std::io::Cursor;
 
     /// Runs `requests` through the helper's loop, in this process, as the
@@ -514,7 +584,7 @@ mod tests {
             write_request(&mut input, request).expect("encode");
         }
         let mut output = Vec::new();
-        serve(Cursor::new(input), &mut output).expect("serve");
+        serve(fed(input), &mut output).expect("serve");
         let mut replies = Vec::new();
         let mut output = Cursor::new(output);
         while (output.position() as usize) < output.get_ref().len() {
@@ -685,6 +755,6 @@ mod tests {
     fn the_first_request_must_be_the_scope() {
         let mut input = Vec::new();
         write_request(&mut input, &Request::Remove(PathBuf::from("/tmp/x"))).expect("encode");
-        assert!(serve(Cursor::new(input), Vec::new()).is_err());
+        assert!(serve(fed(input), Vec::new()).is_err());
     }
 }

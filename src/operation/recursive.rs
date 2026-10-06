@@ -618,7 +618,9 @@ impl Context {
         self.with_helper(move |helper| helper.call(&request)).await
     }
 
-    /// Has the helper copy `op`'s file, reporting progress as it goes.
+    /// Has the helper copy `op`'s file, reporting progress as it goes. A
+    /// cancel asks the helper to stop at its next report; an abort stops
+    /// waiting at once, and the helper is left to finish on its own.
     async fn root_copy(&mut self, op: &Op, mut progress: Progress) -> std::io::Result<u64> {
         let helper = self
             .helper
@@ -626,15 +628,19 @@ impl Context {
             .ok_or_else(|| std::io::Error::other("root was not granted"))?;
         let (tx, mut rx) = futures::channel::mpsc::unbounded::<u64>();
         let (from, to) = (op.from.clone(), op.to.clone());
+        let controller = self.controller.clone();
         let job = compio::runtime::spawn_blocking(move || {
             let mut helper = helper
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner());
             helper.copy(&from, &to, |bytes| {
                 let _ = tx.unbounded_send(bytes);
+                !controller.is_cancelled() && !controller.is_failed()
             })
         });
         let mut job = std::pin::pin!(job.fuse());
+        let aborted = self.controller.clone();
+        let mut aborted = std::pin::pin!(aborted.until_aborted().fuse());
         loop {
             futures::select! {
                 bytes = rx.next() => {
@@ -645,6 +651,9 @@ impl Context {
                 }
                 result = job => {
                     return result.map_err(|_| std::io::Error::other("the helper's worker stopped"))?;
+                }
+                () = aborted => {
+                    return Err(std::io::Error::from(std::io::ErrorKind::Interrupted));
                 }
             }
         }
@@ -747,29 +756,45 @@ impl Context {
         not_back
     }
 
-    /// Whether everything going into each folder of `room` fits there,
-    /// besides what the other running operations will still write to the
-    /// same drive. Fitting, it is kept for this operation until it ends.
+    /// Whether everything going into the folders of `room` fits, added up
+    /// per drive, besides what the other running operations will still
+    /// write there. Fitting, it is kept for this operation until it ends;
+    /// looking and keeping happen under one lock, so two operations cannot
+    /// both count on the same room.
     async fn check_room(
         &self,
         room: &std::collections::HashMap<PathBuf, u64>,
     ) -> Result<(), OperationError> {
         use std::os::unix::fs::MetadataExt;
 
-        let mut kept: std::collections::HashMap<u64, u64> = std::collections::HashMap::new();
-        for (into, needed) in room {
-            let folder = into.clone();
-            let free_space = self.free_space;
-            let (free, dev) = compio::runtime::spawn_blocking(move || {
-                (
-                    free_space(&folder),
-                    fs::metadata(&folder).map(|meta| meta.dev()).ok(),
-                )
-            })
-            .await
-            .map_err(super::wrap_compio_spawn_error)?;
+        let folders: Vec<(PathBuf, u64)> = room
+            .iter()
+            .map(|(into, needed)| (into.clone(), *needed))
+            .collect();
+        let free_space = self.free_space;
+        // Per drive: what goes there and what is free; a folder whose drive
+        // cannot be told is a drive of its own
+        let drives = compio::runtime::spawn_blocking(move || {
+            let mut drives: Vec<(Option<u64>, u64, Option<u64>)> = Vec::new();
+            for (folder, needed) in folders {
+                let dev = fs::metadata(&folder).map(|meta| meta.dev()).ok();
+                match drives
+                    .iter_mut()
+                    .find(|(on, _, _)| dev.is_some() && *on == dev)
+                {
+                    Some((_, total, _)) => *total += needed,
+                    None => drives.push((dev, needed, free_space(&folder))),
+                }
+            }
+            drives
+        })
+        .await
+        .map_err(super::wrap_compio_spawn_error)?;
+
+        let mut table = self.reserved();
+        for (dev, needed, free) in &drives {
             let others: u64 = dev.map_or(0, |dev| {
-                self.reserved()
+                table
                     .iter()
                     .filter(|(id, on, _)| *id != self.id && *on == dev)
                     .map(|(_, _, bytes)| bytes)
@@ -787,16 +812,12 @@ impl Context {
                     &self.controller,
                 ));
             }
-            if let Some(dev) = dev {
-                *kept.entry(dev).or_default() += needed;
-            }
         }
-        let mut table = self.reserved();
         table.retain(|(id, _, _)| *id != self.id);
         table.extend(
-            kept.into_iter()
-                .filter(|(_, bytes)| *bytes > 0)
-                .map(|(dev, bytes)| (self.id, dev, bytes)),
+            drives
+                .into_iter()
+                .filter_map(|(dev, needed, _)| (needed > 0).then_some((self.id, dev?, needed))),
         );
         Ok(())
     }
@@ -837,10 +858,11 @@ impl Context {
         let result = self.run_pairs(from_to_pairs, method).await;
         self.resolve_trashed().await;
         // Aborted: stopped where it was, everything done kept, and undoable
-        if result.is_err() && self.controller.is_aborted() {
-            return Err(self.cancelled());
+        if self.controller.is_aborted() {
+            return result.map_err(|_| self.cancelled());
         }
-        if result.is_err() && self.controller.is_cancelled() {
+        // Cancelled, even as the last step was finishing: all of it goes back
+        if self.controller.is_cancelled() {
             let not_back = self.roll_back(&renamed).await;
             if not_back.is_empty() {
                 return Err(OperationError::from_state(
@@ -871,12 +893,34 @@ impl Context {
     /// to cannot. Returns the paths that could not be put back; everything
     /// else still is.
     async fn roll_back(&mut self, renamed: &[(PathBuf, PathBuf)]) -> Vec<PathBuf> {
+        // Putting back is not the operation: it must not stop because the
+        // operation was cancelled, as a copy back across drives would
+        let cancelled = std::mem::take(&mut self.controller);
+        let not_back = self.roll_back_steps(renamed).await;
+        self.controller = cancelled;
+        not_back
+    }
+
+    async fn roll_back_steps(&mut self, renamed: &[(PathBuf, PathBuf)]) -> Vec<PathBuf> {
         let mut not_back = Vec::new();
+        // Where an original that could not be put back still is: never
+        // removed, it is the only copy
+        let mut kept: Vec<PathBuf> = Vec::new();
         for step in std::mem::take(&mut self.done).into_iter().rev() {
-            let result = if step.root {
+            let result = if step.is_cleanup {
+                let result = if step.root {
+                    self.put_back_as_root(&step).await
+                } else {
+                    self.restore(&step).await
+                };
+                if result.is_err() {
+                    kept.push(step.to.clone());
+                }
+                result
+            } else if step.created && kept.iter().any(|path| path.starts_with(&step.to)) {
+                Ok(())
+            } else if step.root {
                 self.put_back_as_root(&step).await
-            } else if step.is_cleanup {
-                self.restore(&step).await
             } else if step.created {
                 unmake(&step.to, step.is_dir).await
             } else {
@@ -932,7 +976,7 @@ impl Context {
                     Err(err) if err.raw_os_error() == Some(libc::EXDEV) => {
                         let (to, from) = (step.to.clone(), step.from.clone());
                         self.with_helper(move |helper| {
-                            helper.copy(&to, &from, |_| {})?;
+                            helper.copy(&to, &from, |_| true)?;
                             helper.call(&Request::Remove(to))
                         })
                         .await?;
@@ -984,6 +1028,7 @@ impl Context {
                 }),
                 is_cleanup: false,
                 created_to: Cell::new(false),
+                moved: Cell::new(false),
                 root: false,
             };
             let progress = Progress {
@@ -992,7 +1037,14 @@ impl Context {
                 current_bytes: 0,
                 total_bytes: None,
             };
-            back.copy(self, progress).await?;
+            if let Err(err) = back.copy(self, progress).await {
+                // Nothing half-written where the original was: the whole
+                // file is still at `to`, and stays
+                if back.created_to.get() {
+                    let _ = compio::fs::remove_file(&step.from).await;
+                }
+                return Err(err);
+            }
         }
         compio::fs::remove_file(&step.to).await?;
         Ok(())
@@ -1153,6 +1205,7 @@ impl Context {
                                 }),
                                 is_cleanup: false,
                                 created_to: Cell::new(false),
+                                moved: Cell::new(false),
                                 root: false,
                             };
                             (self.on_replace)(&step, count).await
@@ -1191,6 +1244,7 @@ impl Context {
                                 }),
                                 is_cleanup: false,
                                 created_to: Cell::new(false),
+                                moved: Cell::new(false),
                                 root: false,
                             };
                             (self.on_replace)(&step, count).await
@@ -1398,6 +1452,7 @@ impl Context {
                     }),
                     is_cleanup: false,
                     created_to: Cell::new(false),
+                    moved: Cell::new(false),
                     root,
                 };
                 if matches!(method, Method::Move { .. })
@@ -1594,7 +1649,9 @@ impl Context {
                     self.done.push(Done {
                         from: op.from.clone(),
                         to,
-                        is_cleanup: op.is_cleanup,
+                        // Renamed whole, it comes back the way a removed
+                        // original does
+                        is_cleanup: op.is_cleanup || op.moved.get(),
                         is_dir: matches!(op.kind, OpKind::Mkdir | OpKind::Rmdir),
                         created,
                         root: op.root,
@@ -1766,6 +1823,9 @@ pub struct Op {
     /// Whether this op brought `to` into existence, so that cleaning up after
     /// a failure removes only what it put there.
     pub created_to: Cell<bool>,
+    /// A move that renamed the original into place: nothing is left where it
+    /// was, so putting it back means renaming it back, not removing it.
+    pub moved: Cell<bool>,
     /// Done by the helper, as root.
     pub root: bool,
 }
@@ -1820,6 +1880,12 @@ impl Op {
                         }
                         ctx.root_copy(self, progress).await?;
                     }
+                    // The original is now only here: this step is the move
+                    // whole, and putting it back renames it back
+                    Ok(()) => {
+                        self.moved.set(true);
+                        self.skipped.cleanup.set(true);
+                    }
                     result => result?,
                 }
                 self.created_to.set(true);
@@ -1862,7 +1928,16 @@ impl Op {
                 if all {
                     ctx.replace_result_opt = Some(answer);
                 }
-                ctx.root_call(Request::Remove(self.to.clone())).await?;
+                // To the trash, as any replaced file; only one this user may
+                // not move there is removed by root, and that is for good
+                if let Err(err) = ctx.trash_replaced(&self.to, false).await {
+                    log::info!(
+                        "removing {} as root: it could not go to the trash: {err}",
+                        self.to.display()
+                    );
+                    ctx.root_call(Request::Remove(self.to.clone())).await?;
+                    ctx.replaced_now = true;
+                }
                 Ok(ControlFlow::Continue(()))
             }
             ReplaceResult::KeepBoth => {
@@ -1900,6 +1975,7 @@ impl Op {
             skipped: self.skipped.clone(),
             is_cleanup: true,
             created_to: Cell::new(false),
+            moved: Cell::new(false),
             root: self.root,
         })
     }
@@ -1971,6 +2047,7 @@ impl Op {
                                 skipped: self.skipped.clone(),
                                 is_cleanup: self.is_cleanup,
                                 created_to: Cell::new(false),
+                                moved: Cell::new(false),
                                 root: self.root,
                             };
                             return Box::pin(copy_op.run(ctx, progress)).await;
@@ -2756,6 +2833,144 @@ mod tests {
         assert!(not_back.is_empty(), "{not_back:?}");
         assert_eq!(fs::read(from.join("f.txt")).expect("back"), b"F");
         assert!(!to.exists(), "nothing is left at the destination");
+    }
+
+    fake_root!(root_moves, true);
+
+    /// A file moved as root is renamed away at once; a cancel before the
+    /// move ends renames it back rather than removing the only copy
+    #[test(compio::test)]
+    async fn a_cancelled_move_as_root_brings_the_original_back() {
+        use crate::operation::{Blocked, BlockedAnswer, ReplaceResult};
+        let dir = tempfile::tempdir().expect("tempdir");
+        let (a, c) = (dir.path().join("a"), dir.path().join("c"));
+        fs::write(&a, b"A").expect("write");
+        fs::write(&c, b"C").expect("write");
+        let to = dir.path().join("to");
+        fs::create_dir(&to).expect("mkdir");
+        fs::write(to.join("c"), b"old").expect("write");
+        if !deny(&a) {
+            return;
+        }
+        *root_moves::ALLOW.lock().expect("allow") = vec![a.clone()];
+
+        let gone = c.clone();
+        let mut ctx = Context::new(Controller::default())
+            // Answering about `c`, it is taken away: it fails while running
+            .on_replace(move |_op, _count| {
+                let _ = fs::remove_file(&gone);
+                Box::pin(async { ReplaceResult::Replace(false) })
+            })
+            .on_blocked(|blocked, _ask| {
+                let answer = match blocked {
+                    Blocked::Read(_) => BlockedAnswer::RetryAsRoot(false),
+                    _ => BlockedAnswer::Cancel,
+                };
+                Box::pin(async move { answer })
+            });
+        ctx.start_helper = root_moves::start;
+        let result = ctx
+            .recursive_copy_or_move(
+                [(a.clone(), to.join("a")), (c.clone(), to.join("c"))],
+                Method::Move {
+                    cross_device_copy: false,
+                },
+            )
+            .await;
+
+        result.expect_err("cancelled");
+        assert_eq!(fs::read(&a).expect("a is back"), b"A");
+        assert!(!to.join("a").exists());
+        assert_eq!(
+            fs::read(to.join("c")).expect("c"),
+            b"old",
+            "c's old one is back"
+        );
+    }
+
+    /// An original that cannot be put back leaves its only copy where it
+    /// landed: the step that made it is not undone
+    #[test(compio::test)]
+    async fn what_cannot_be_put_back_is_not_removed() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        // Its folder is gone, so it cannot come back there
+        let from = dir.path().join("gone/f.txt");
+        let to = dir.path().join("f.txt");
+        fs::write(&to, b"F").expect("write");
+        let step = |is_cleanup, created| Done {
+            from: from.clone(),
+            to: to.clone(),
+            is_cleanup,
+            is_dir: false,
+            created,
+            root: false,
+        };
+
+        let mut ctx = Context::new(Controller::default());
+        ctx.done = vec![step(false, true), step(true, false)];
+        let not_back = ctx.roll_back(&[]).await;
+
+        assert_eq!(not_back, vec![from]);
+        assert_eq!(fs::read(&to).expect("kept"), b"F");
+    }
+
+    fake_root!(root_replaces, true);
+
+    /// Copied as root over a file this user may move, what was there goes
+    /// to the trash like any replaced file, and comes back on cancel
+    #[test(compio::test)]
+    async fn a_file_replaced_as_root_goes_to_the_trash() {
+        use crate::operation::{BlockedAnswer, ReplaceResult};
+        let dir = tempfile::tempdir().expect("tempdir");
+        let a = dir.path().join("a");
+        fs::write(&a, b"new").expect("write");
+        let to = dir.path().join("to");
+        fs::create_dir(&to).expect("mkdir");
+        fs::write(to.join("a"), b"old").expect("write");
+        if !deny(&a) {
+            return;
+        }
+        *root_replaces::ALLOW.lock().expect("allow") = vec![a.clone()];
+
+        let mut ctx = Context::new(Controller::default())
+            .on_replace(|_op, _count| Box::pin(async { ReplaceResult::Replace(false) }))
+            .on_blocked(|_blocked, _ask| Box::pin(async { BlockedAnswer::RetryAsRoot(false) }));
+        ctx.start_helper = root_replaces::start;
+        ctx.recursive_copy_or_move([(a.clone(), to.join("a"))], Method::Copy)
+            .await
+            .expect("copied");
+        assert_eq!(fs::read(to.join("a")).expect("new"), b"new");
+        let trashed: Vec<_> = ctx
+            .op_sel
+            .trash_items
+            .iter()
+            .map(trash::TrashItem::original_path)
+            .collect();
+        assert_eq!(trashed, vec![to.join("a")]);
+    }
+
+    /// Two folders on one drive are one drive's worth of room
+    #[test(compio::test)]
+    async fn room_is_added_up_per_drive() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let (one, two) = (dir.path().join("one"), dir.path().join("two"));
+        fs::create_dir(&one).expect("mkdir");
+        fs::create_dir(&two).expect("mkdir");
+        let mut ctx = Context::new(Controller::default());
+        ctx.free_space = |_: &Path| Some(10_000);
+        let room = [(one, 6000), (two, 6000)].into_iter().collect();
+        let err = ctx
+            .check_room(&room)
+            .await
+            .expect_err("12000 does not fit 10000");
+        assert_eq!(
+            err.to_string(),
+            crate::fl!(
+                "not-enough-space",
+                needed = crate::tab::format_size(12_000),
+                free = crate::tab::format_size(10_000)
+            )
+        );
     }
 
     /// A copy of `a`, `b` and `c` into a folder already holding `b`. The

@@ -144,22 +144,44 @@ impl Helper {
     }
 
     /// Copies a file as root, telling `progress` the bytes copied so far.
+    /// When `progress` answers `false` the copy is asked to stop; one that
+    /// stopped fails with `ECANCELED` and leaves nothing behind, one that
+    /// had finished anyway counts.
     pub fn copy(
         &mut self,
         from: &Path,
         to: &Path,
-        mut progress: impl FnMut(u64),
+        mut progress: impl FnMut(u64) -> bool,
     ) -> io::Result<u64> {
         self.send(&Request::Copy {
             from: from.to_path_buf(),
             to: to.to_path_buf(),
         })?;
+        let mut stopping = false;
         loop {
             match proto::read_reply(&mut self.from)? {
-                Reply::Progress(bytes) => progress(bytes),
-                Reply::Copied(bytes) => return Ok(bytes),
+                Reply::Progress(bytes) => {
+                    if !progress(bytes) && !stopping {
+                        stopping = true;
+                        self.send(&Request::Stop)?;
+                    }
+                }
+                Reply::Copied(bytes) => {
+                    // The stop came after: it is answered on its own
+                    if stopping {
+                        self.expect_done()?;
+                    }
+                    return Ok(bytes);
+                }
                 reply => return Err(unexpected(&reply)),
             }
+        }
+    }
+
+    fn expect_done(&mut self) -> io::Result<()> {
+        match proto::read_reply(&mut self.from)? {
+            Reply::Done => Ok(()),
+            reply => Err(unexpected(&reply)),
         }
     }
 
@@ -217,7 +239,10 @@ mod tests {
         let mut seen = 0;
         assert_eq!(
             helper
-                .copy(&file, &out.join("f"), |bytes| seen = bytes)
+                .copy(&file, &out.join("f"), |bytes| {
+                    seen = bytes;
+                    true
+                })
                 .expect("copy"),
             3
         );
@@ -228,5 +253,40 @@ mod tests {
         assert_eq!(err.kind(), io::ErrorKind::PermissionDenied);
         drop(helper);
         let _ = seen;
+    }
+
+    /// A copy told to stop at its first report stops, leaves nothing, and
+    /// the helper goes on answering; a stop with no copy running is
+    /// answered on its own
+    #[test]
+    fn a_copy_stops_when_asked() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let file = dir.path().join("big");
+        // Larger than one progress report
+        fs::write(&file, vec![0u8; 24 << 20]).expect("write");
+        let out = dir.path().join("out");
+        fs::create_dir(&out).expect("mkdir");
+        let scope = Scope {
+            sources: vec![file.clone()],
+            destinations: vec![out.clone()],
+        };
+        let mut helper = Helper::in_process(&scope).expect("start");
+
+        let err = helper
+            .copy(&file, &out.join("big"), |_| false)
+            .expect_err("stopped");
+        assert_eq!(err.raw_os_error(), Some(libc::ECANCELED));
+        assert!(!out.join("big").exists(), "nothing is left behind");
+
+        helper
+            .call(&Request::Stop)
+            .expect("an idle stop is answered");
+        helper
+            .copy(&file, &out.join("big"), |_| true)
+            .expect("the next copy runs");
+        assert_eq!(
+            fs::metadata(out.join("big")).expect("copied").len(),
+            24 << 20
+        );
     }
 }

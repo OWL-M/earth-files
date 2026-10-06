@@ -155,6 +155,20 @@ impl Controller {
         self.cancel();
     }
 
+    /// Returns once the operation is aborted.
+    pub async fn until_aborted(&self) {
+        loop {
+            // Listening before looking, so an abort in between is not missed
+            let notified = self.inner.notify.notified();
+            let mut notified = std::pin::pin!(notified);
+            notified.as_mut().enable();
+            if self.is_aborted() {
+                return;
+            }
+            notified.await;
+        }
+    }
+
     /// Whether it was stopped by [`Self::abort`] rather than cancelled.
     pub fn is_aborted(&self) -> bool {
         self.inner.aborted.load(atomic::Ordering::Relaxed)

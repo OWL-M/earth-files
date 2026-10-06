@@ -233,6 +233,20 @@ impl Tasks {
         self.finish_kept(key, false, true, label, now);
     }
 
+    /// Task `key` failed: its row says so and stays until closed. A task
+    /// without a row showing gets one: one that never showed progress, or
+    /// one whose row the user closed with Cancel before its failure came.
+    pub(crate) fn fail_kept(&mut self, key: &Key, label: String, now: Instant) {
+        let shown = self
+            .entries
+            .iter()
+            .any(|entry| entry.key == *key && entry.ended.is_none() && entry.is_shown(now));
+        if !shown {
+            self.start(key.clone(), label.clone(), Duration::ZERO, now);
+        }
+        self.finish_failed_kept(key, Some(label), now);
+    }
+
     fn finish_kept(
         &mut self,
         key: &Key,
@@ -514,6 +528,18 @@ mod tests {
         assert_eq!(tasks.asking(), Some(&op(2)));
         tasks.finish(&op(2), true, None, now);
         assert_eq!(tasks.asking(), Some(&op(1)));
+    }
+
+    /// A failure always has a row: here for a task that never had one
+    #[test]
+    fn a_failure_without_a_row_gets_one() {
+        let now = Instant::now();
+        let mut tasks = Tasks::default();
+        tasks.fail_kept(&op(1), "rename".into(), now);
+        assert_eq!(
+            states(&tasks, now + FAILED_LINGER * 10),
+            [("rename", State::Failed)]
+        );
     }
 
     #[test]
