@@ -390,28 +390,27 @@ fn carry_out(
         Request::Stop => Ok(Reply::Done),
         Request::List(dir) => {
             let dir = scope.check(&dir)?;
+            // Through the folder's handle, never through a link put in its
+            // place: what is listed is that folder, whatever its path names
+            let handle = open_dir_at(None, dir.as_os_str(), false)?;
             let mut entries = Vec::new();
-            for entry in fs::read_dir(&dir)? {
-                let entry = entry?;
-                let meta = fs::symlink_metadata(entry.path())?;
-                let kind = if meta.file_type().is_symlink() {
-                    Kind::Link
-                } else if meta.is_dir() {
-                    Kind::Dir
-                } else if meta.is_file() {
-                    Kind::File
-                } else {
-                    Kind::Other
+            for name in names_in(handle.as_fd())? {
+                let stat = stat_at(handle.as_fd(), &name)?;
+                let kind = match stat.st_mode & libc::S_IFMT {
+                    libc::S_IFLNK => Kind::Link,
+                    libc::S_IFDIR => Kind::Dir,
+                    libc::S_IFREG => Kind::File,
+                    _ => Kind::Other,
                 };
                 let target = if kind == Kind::Link {
-                    Some(fs::read_link(entry.path())?)
+                    Some(read_link_at(handle.as_fd(), &name)?)
                 } else {
                     None
                 };
                 entries.push(Entry {
-                    name: entry.file_name(),
+                    name,
                     kind,
-                    size: meta.len(),
+                    size: u64::try_from(stat.st_size).unwrap_or(0),
                     target,
                 });
             }
@@ -458,6 +457,146 @@ fn carry_out(
             fs::rename(from, to).map(|()| Reply::Done)
         }
     }
+}
+
+/// `name` as the system takes it.
+fn c_name(name: &std::ffi::OsStr) -> io::Result<std::ffi::CString> {
+    std::ffi::CString::new(name.as_bytes())
+        .map_err(|err| io::Error::new(io::ErrorKind::InvalidInput, err))
+}
+
+/// Opens the folder `name` in `dir` (or `name` as a path, without `dir`).
+/// With `follow` false a link there is refused, not followed: the handle is
+/// that folder, or nothing.
+pub fn open_dir_at(
+    dir: Option<std::os::fd::BorrowedFd<'_>>,
+    name: &std::ffi::OsStr,
+    follow: bool,
+) -> io::Result<std::os::fd::OwnedFd> {
+    use std::os::fd::{AsRawFd, FromRawFd};
+
+    let name = c_name(name)?;
+    let mut flags = libc::O_RDONLY | libc::O_DIRECTORY | libc::O_CLOEXEC;
+    if !follow {
+        flags |= libc::O_NOFOLLOW;
+    }
+    let at = dir.map_or(libc::AT_FDCWD, |dir| dir.as_raw_fd());
+    // SAFETY: a valid descriptor or AT_FDCWD, and a CString that outlives
+    // the call
+    let fd = unsafe { libc::openat(at, name.as_ptr(), flags) };
+    if fd < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    // SAFETY: `openat` just returned it, and nothing else owns it
+    Ok(unsafe { std::os::fd::OwnedFd::from_raw_fd(fd) })
+}
+
+/// The names in the folder open as `dir`, without `.` and `..`, read
+/// through that handle.
+pub fn names_in(dir: std::os::fd::BorrowedFd<'_>) -> io::Result<Vec<OsString>> {
+    use std::os::fd::IntoRawFd;
+
+    // The stream takes the descriptor it is given: it gets a copy
+    let copy = dir.try_clone_to_owned()?.into_raw_fd();
+    // SAFETY: `copy` is a descriptor of an open folder, owned from here by
+    // the stream, or closed below when there is none
+    let stream = unsafe { libc::fdopendir(copy) };
+    if stream.is_null() {
+        let err = io::Error::last_os_error();
+        // SAFETY: still ours: the stream was not made
+        unsafe { libc::close(copy) };
+        return Err(err);
+    }
+    let mut names = Vec::new();
+    let result = loop {
+        // SAFETY: errno is this thread's; it is cleared to tell the end of
+        // the folder from an error, as `readdir` says both with null
+        unsafe { *libc::__errno_location() = 0 };
+        // SAFETY: `stream` is open until `closedir` below
+        let entry = unsafe { libc::readdir(stream) };
+        if entry.is_null() {
+            let err = io::Error::last_os_error();
+            break if err.raw_os_error() == Some(0) {
+                Ok(())
+            } else {
+                Err(err)
+            };
+        }
+        // SAFETY: `readdir` gave an entry whose name ends in a nul
+        let name = unsafe { std::ffi::CStr::from_ptr((*entry).d_name.as_ptr()) }.to_bytes();
+        if name != b"." && name != b".." {
+            names.push(OsString::from_vec(name.to_vec()));
+        }
+    };
+    // SAFETY: opened above, closed once, with its descriptor
+    unsafe { libc::closedir(stream) };
+    result.map(|()| names)
+}
+
+/// What `name` in `dir` is, not following it when it is a link.
+pub fn stat_at(dir: std::os::fd::BorrowedFd<'_>, name: &std::ffi::OsStr) -> io::Result<libc::stat> {
+    use std::os::fd::AsRawFd;
+
+    let name = c_name(name)?;
+    let mut stat = std::mem::MaybeUninit::<libc::stat>::uninit();
+    // SAFETY: a valid descriptor, a CString that outlives the call, and room
+    // for the answer
+    if unsafe {
+        libc::fstatat(
+            dir.as_raw_fd(),
+            name.as_ptr(),
+            stat.as_mut_ptr(),
+            libc::AT_SYMLINK_NOFOLLOW,
+        )
+    } != 0
+    {
+        return Err(io::Error::last_os_error());
+    }
+    // SAFETY: `fstatat` returned 0, so it filled `stat`
+    Ok(unsafe { stat.assume_init() })
+}
+
+/// Where the link `name` in `dir` points.
+pub fn read_link_at(
+    dir: std::os::fd::BorrowedFd<'_>,
+    name: &std::ffi::OsStr,
+) -> io::Result<PathBuf> {
+    use std::os::fd::AsRawFd;
+
+    let name = c_name(name)?;
+    let mut buf = vec![0u8; libc::PATH_MAX as usize];
+    // SAFETY: a valid descriptor, a CString that outlives the call, and a
+    // buffer of the length given
+    let len = unsafe {
+        libc::readlinkat(
+            dir.as_raw_fd(),
+            name.as_ptr(),
+            buf.as_mut_ptr().cast(),
+            buf.len(),
+        )
+    };
+    if len < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    buf.truncate(len as usize);
+    Ok(PathBuf::from(OsString::from_vec(buf)))
+}
+
+/// Removes `name` from `dir`: a folder, already empty, with `folder`.
+pub fn unlink_at(
+    dir: std::os::fd::BorrowedFd<'_>,
+    name: &std::ffi::OsStr,
+    folder: bool,
+) -> io::Result<()> {
+    use std::os::fd::AsRawFd;
+
+    let name = c_name(name)?;
+    let flags = if folder { libc::AT_REMOVEDIR } else { 0 };
+    // SAFETY: a valid descriptor and a CString that outlives the call
+    if unsafe { libc::unlinkat(dir.as_raw_fd(), name.as_ptr(), flags) } != 0 {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(())
 }
 
 /// How often a copy reports how far it got, in bytes.

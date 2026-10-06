@@ -6,7 +6,7 @@
 
 use super::{Context, removal_block};
 use crate::fl;
-use crate::operation::root::proto::{Kind, Request};
+use crate::operation::root::proto::{Kind, Request, names_in, open_dir_at, stat_at, unlink_at};
 use crate::operation::root::{self, Helper, StartError};
 use crate::operation::{Ask, Blocked, BlockedAnswer, OperationError};
 use std::collections::HashMap;
@@ -14,6 +14,7 @@ use std::error::Error;
 use std::fs;
 use std::io;
 use std::mem::Discriminant;
+use std::os::fd::AsFd;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
@@ -163,16 +164,40 @@ fn remove_tree(path: &Path) -> io::Result<()> {
 
 /// [`remove_tree`], noting in `gone` what went, so a failure part-way still
 /// says what can no longer come back.
+///
+/// It goes through folder handles, as `std::fs::remove_dir_all` does: a
+/// folder swapped for a link while it runs is never followed, so nothing
+/// outside `path` can go.
 fn remove_tree_noting(path: &Path, gone: &mut Gone) -> io::Result<()> {
-    if fs::symlink_metadata(path)?.is_dir() {
-        for entry in fs::read_dir(path)? {
-            remove_tree_noting(&entry?.path(), gone)?;
+    let name = path
+        .file_name()
+        .ok_or_else(|| io::Error::from(io::ErrorKind::InvalidInput))?;
+    let parent = match path.parent() {
+        Some(parent) if !parent.as_os_str().is_empty() => parent,
+        _ => Path::new("."),
+    };
+    let parent = open_dir_at(None, parent.as_os_str(), true)?;
+    remove_at(parent.as_fd(), name, path, gone)
+}
+
+/// Removes `name` from the folder open as `dir`, everything in it first
+/// when it is a folder; `shown` is its path, for what is noted in `gone`.
+fn remove_at(
+    dir: std::os::fd::BorrowedFd<'_>,
+    name: &std::ffi::OsStr,
+    shown: &Path,
+    gone: &mut Gone,
+) -> io::Result<()> {
+    let is_dir = stat_at(dir, name)?.st_mode & libc::S_IFMT == libc::S_IFDIR;
+    if is_dir {
+        // Opened without following: swapped for a link since, it fails
+        let folder = open_dir_at(Some(dir), name, false)?;
+        for child in names_in(folder.as_fd())? {
+            remove_at(folder.as_fd(), &child, &shown.join(&child), gone)?;
         }
-        fs::remove_dir(path)?;
-    } else {
-        fs::remove_file(path)?;
     }
-    gone.note(path);
+    unlink_at(dir, name, is_dir)?;
+    gone.note(shown);
     Ok(())
 }
 
@@ -922,6 +947,38 @@ mod tests {
             Path::new("sub/f")
         );
         assert!(!kept.exists() && !info.exists());
+    }
+
+    /// Deleting for good goes through folder handles: a link inside goes
+    /// itself, never what it points at, and a folder handle opened without
+    /// following refuses a link, as one swapped in mid-way would be
+    #[test]
+    fn deleting_for_good_never_follows_a_link() {
+        use crate::operation::root::proto::open_dir_at;
+        use std::os::fd::AsFd;
+        let dir = tempfile::tempdir().expect("tempdir");
+        let outside = dir.path().join("outside");
+        fs::create_dir(&outside).expect("mkdir");
+        fs::write(outside.join("keep"), "keep").expect("write");
+        let top = dir.path().join("top");
+        fs::create_dir_all(top.join("sub")).expect("mkdir");
+        fs::write(top.join("sub/f"), "f").expect("write");
+        std::os::unix::fs::symlink(&outside, top.join("sub/link")).expect("link");
+
+        let parent = open_dir_at(None, dir.path().as_os_str(), true).expect("parent");
+        std::os::unix::fs::symlink(&outside, dir.path().join("swapped")).expect("link");
+        let err = open_dir_at(Some(parent.as_fd()), "swapped".as_ref(), false)
+            .expect_err("a link is not opened as a folder");
+        assert!(matches!(
+            err.raw_os_error(),
+            Some(libc::ELOOP | libc::ENOTDIR)
+        ));
+
+        let mut gone = super::Gone::default();
+        super::remove_tree_noting(&top, &mut gone).expect("removed");
+        assert!(!top.exists());
+        assert_eq!(gone.count, 4, "sub/f, sub/link, sub and top");
+        assert_eq!(fs::read(outside.join("keep")).expect("kept"), b"keep");
     }
 
     /// A folder deleted for good that fails part-way still names what went

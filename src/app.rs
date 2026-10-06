@@ -121,6 +121,23 @@ type QuestionNotice = (u32, notify_rust::Notification);
 #[cfg(not(feature = "notify"))]
 type QuestionNotice = ();
 
+/// Whether operation `id`'s notification on record in `notices` is the
+/// desktop's `notice`: a late answer or close of an older one is not.
+fn notice_on_record(notices: &BTreeMap<u64, Option<QuestionNotice>>, id: u64, notice: u32) -> bool {
+    matches!(notices.get(&id), Some(Some(shown)) if notice_id(shown) == notice)
+}
+
+/// The desktop's id for a question's notification: which notification a
+/// late answer or close is about.
+#[cfg(feature = "notify")]
+fn notice_id(notice: &QuestionNotice) -> u32 {
+    notice.0
+}
+#[cfg(not(feature = "notify"))]
+fn notice_id((): &QuestionNotice) -> u32 {
+    0
+}
+
 #[derive(Clone, Debug)]
 pub struct Flags {
     pub config_handler: Store,
@@ -441,10 +458,10 @@ pub enum Message {
     QuestionNotified(u64, QuestionNotice),
     /// Operation `id`'s question was answered on its desktop notification,
     /// which is gone with the answer.
-    QuestionNoticeAnswered(u64, BlockedAnswer),
-    /// Operation `id`'s question notification closed without an answer:
-    /// dismissed, or taken down by the app.
-    QuestionNoticeClosed(u64),
+    QuestionNoticeAnswered(u64, u32, BlockedAnswer),
+    /// Operation `id`'s question notification, with the desktop's id for
+    /// it, closed without an answer: dismissed, or taken down by the app.
+    QuestionNoticeClosed(u64, u32),
     /// Bring the question notifications in step with who can see the
     /// window: after a focus change, or a while after one was dismissed.
     QuestionNoticesSync,
@@ -2892,6 +2909,12 @@ impl App {
         self.core.main_window_id().is_some() && self.core.focused_window().is_some()
     }
 
+    /// Whether operation `id`'s notification on record is the desktop's
+    /// `notice`.
+    fn notice_is(&self, id: u64, notice: u32) -> bool {
+        notice_on_record(&self.question_notices, id, notice)
+    }
+
     /// Keeps the desktop notification for questions in step with the card:
     /// the question being asked goes out as one while nobody can see its row
     /// (the window is closed, or none of ours has the keyboard), and any
@@ -2989,7 +3012,8 @@ impl App {
                             return;
                         }
                     };
-                    let notice = (handle.id(), notification);
+                    let notice_id = handle.id();
+                    let notice = (notice_id, notification);
                     let _ = out.send(Message::QuestionNotified(id, notice)).await;
                     // Until a button is pressed or the notification closes,
                     // from either side
@@ -3002,8 +3026,8 @@ impl App {
                     .ok()
                     .flatten();
                     let message = match picked {
-                        Some(answer) => Message::QuestionNoticeAnswered(id, answer),
-                        None => Message::QuestionNoticeClosed(id),
+                        Some(answer) => Message::QuestionNoticeAnswered(id, notice_id, answer),
+                        None => Message::QuestionNoticeClosed(id, notice_id),
                     };
                     let _ = out.send(message).await;
                 },
@@ -5947,15 +5971,20 @@ impl Application for App {
                     _ => return close_question_notice(notice),
                 }
             }
-            Message::QuestionNoticeAnswered(id, answer) => {
-                self.question_notices.remove(&id);
-                return self.update(Message::BlockedAnswer(id, answer));
+            Message::QuestionNoticeAnswered(id, notice, answer) => {
+                // Only from the notification on record: an older one's late
+                // answer was for a question that is gone
+                if self.notice_is(id, notice) {
+                    self.question_notices.remove(&id);
+                    return self.update(Message::BlockedAnswer(id, answer));
+                }
             }
-            Message::QuestionNoticeClosed(id) => {
+            Message::QuestionNoticeClosed(id, notice) => {
                 // Dismissed while still the one asking: it comes back after a
                 // moment, as nothing else can answer it while nobody sees the
-                // window. One the app took down is no longer listed.
-                if let Some(Some(_)) = self.question_notices.get(&id) {
+                // window. One the app took down is no longer listed, and a
+                // late close of an older one leaves the newer alone.
+                if self.notice_is(id, notice) {
                     self.question_notices.remove(&id);
                     return Task::future(async {
                         tokio::time::sleep(NOTICE_AGAIN).await;
@@ -9237,6 +9266,20 @@ fn search_text_input<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Only the notification on record answers or closes: a late word from
+    /// an older one, or from one still being shown, changes nothing
+    #[cfg(feature = "notify")]
+    #[test]
+    fn only_the_notification_on_record_counts() {
+        let mut notices: BTreeMap<u64, Option<QuestionNotice>> = BTreeMap::new();
+        notices.insert(1, Some((7, notify_rust::Notification::new())));
+        notices.insert(2, None);
+        assert!(notice_on_record(&notices, 1, 7));
+        assert!(!notice_on_record(&notices, 1, 6), "an older one");
+        assert!(!notice_on_record(&notices, 2, 7), "still being shown");
+        assert!(!notice_on_record(&notices, 3, 7), "none on record");
+    }
 
     /// §5.1: copies share; a move shares with nothing; a delete shares with
     /// neither a copy nor a move
