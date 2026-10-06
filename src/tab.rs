@@ -2014,6 +2014,24 @@ impl Location {
         }
     }
 
+    /// The folder this lists in full: a folder's own, or the one an empty
+    /// search of it shows.
+    fn listed_folder(&self) -> Option<&PathBuf> {
+        match self {
+            Self::Path(path) => Some(path),
+            _ => self.empty_search_folder(),
+        }
+    }
+
+    /// Whether `other` lists what this does: the same location, or a folder
+    /// and the empty search of it.
+    pub fn lists_same_as(&self, other: &Self) -> bool {
+        self == other
+            || self
+                .listed_folder()
+                .is_some_and(|folder| other.listed_folder() == Some(folder))
+    }
+
     /// Where the listing's sort is kept: the folder's own, which an empty
     /// search of it shares, or none for a search, whose results are always
     /// newest first.
@@ -2105,14 +2123,16 @@ impl Location {
 
     /// The tab's title, named as [`folder_name`] does for `look`.
     pub fn title(&self, look: bool) -> String {
+        self.title_with(|path| folder_name(path, look).0)
+    }
+
+    /// As [`Self::title`], naming a folder with `folder`.
+    fn title_with(&self, folder: impl FnOnce(&Path) -> String) -> String {
         match self {
-            Self::Path(path) => {
-                let (name, _) = folder_name(path, look);
-                name
-            }
+            Self::Path(path) => folder(path),
             Self::Search(location, term, ..) => {
                 let name = match location {
-                    SearchLocation::Path(path) => folder_name(path, look).0,
+                    SearchLocation::Path(path) => folder(path),
                     SearchLocation::Trash => fl!("trash"),
                     SearchLocation::Recents => fl!("recents"),
                 };
@@ -3666,6 +3686,9 @@ pub struct Tab {
     /// How many times this tab has been sent somewhere. See
     /// [`Self::navigation`].
     navigation: u64,
+    /// How many folder reads have been started for this tab. See
+    /// [`Self::start_scan`].
+    scans: u64,
     /// The batch number given to the next set of items sent off to be re-read
     /// for this tab, and the newest batch already adopted per path. Per tab,
     /// because two tabs can show the same folder and each has to see its own
@@ -3991,6 +4014,7 @@ impl Tab {
             resolving_network: None,
             listing: 0,
             navigation: 0,
+            scans: 0,
             item_filter: None,
             refresh_batch: 0,
             type_check_order: OnceCell::new(),
@@ -5117,7 +5141,104 @@ impl Tab {
         self.resolving_network = None;
     }
 
+    /// As [`Self::change_location`], but a location that lists the same
+    /// folder, as an empty search of it does, keeps the listing on screen
+    /// until the rescan replaces it, instead of going blank for a frame. The
+    /// kept listing has nothing selected, as the rescan's own would not.
+    pub fn change_location_keeping_listing(&mut self, location: &Location) {
+        let kept = if self.location.lists_same_as(location) {
+            self.items_opt.take()
+        } else {
+            None
+        };
+        self.change_location(location, None);
+        if let Some(mut items) = kept {
+            Self::deselect(&mut items);
+            self.items_opt = Some(items);
+        }
+    }
+
+    /// Whether going to `location` only opens the empty search of the folder
+    /// on screen, or closes it again: what is listed stays the same.
+    pub fn only_switches_search(&self, location: &Location) -> bool {
+        self.items_opt.is_some()
+            && matches!(self.location, Location::Path(_)) != matches!(location, Location::Path(_))
+            && self.location.lists_same_as(location)
+    }
+
+    /// Goes to `location`, which [`Self::only_switches_search`] said lists
+    /// what is on screen. The listing stays as it is, with everything already
+    /// counted, typed and drawn for it, and needs no rescan. As a rescan
+    /// would, it leaves nothing selected but the top of an empty search.
+    /// The folder names are the ones the last rescan read from the
+    /// filesystem, so the title and path bar do not change either.
+    pub fn switch_search(&mut self, location: &Location) {
+        let names: Vec<String> = self
+            .location_ancestors
+            .iter()
+            .map(|(_, name)| name.clone())
+            .collect();
+        self.change_location_inner(location, None, false);
+        if let Some((ancestors, title)) = self.named_folders(names) {
+            self.location_ancestors = ancestors;
+            self.location_title = title;
+        }
+        if let Some(items) = &mut self.items_opt {
+            Self::deselect(items);
+        }
+        self.follow_search_top(self.search_selection_is_own());
+    }
+
+    /// The breadcrumbs and title of this location, named with `names` (the
+    /// folder's own first) as read from the filesystem for this same folder
+    /// in either mode, a folder or its empty search. The breadcrumbs lead to
+    /// this location's own kind: a folder's to folders, a search's to
+    /// searches. `None` if the names do not fit the path.
+    pub fn named_folders(&self, names: Vec<String>) -> Option<(Vec<(Location, String)>, String)> {
+        let mut ancestors = self.location.ancestors(false);
+        if names.len() != ancestors.len() || names.is_empty() {
+            return None;
+        }
+        for ((_, name), read) in ancestors.iter_mut().zip(names) {
+            *name = read;
+        }
+        let title = self.location.title_with(|_| ancestors[0].1.clone());
+        Some((ancestors, title))
+    }
+
+    /// Numbers a folder read started for this tab. Only the latest one
+    /// started may be shown: an earlier one that lands after it, or before
+    /// it, describes the folder as it was, and its arrival does not mean the
+    /// latest read is done.
+    pub fn start_scan(&mut self) -> u64 {
+        self.scans = self.scans.wrapping_add(1);
+        self.scans
+    }
+
+    /// Whether `scan` is the latest read [`Self::start_scan`] numbered.
+    pub fn is_latest_scan(&self, scan: u64) -> bool {
+        scan == self.scans
+    }
+
+    fn deselect(items: &mut [Item]) {
+        for item in items {
+            item.selected = false;
+            item.highlighted = false;
+        }
+    }
+
     pub fn change_location(&mut self, location: &Location, history_i_opt: Option<usize>) {
+        self.change_location_inner(location, history_i_opt, true);
+    }
+
+    /// As [`Self::change_location`]; without `new_listing`, what is listed
+    /// stays, with its scroll offset.
+    fn change_location_inner(
+        &mut self,
+        location: &Location,
+        history_i_opt: Option<usize>,
+        new_listing: bool,
+    ) {
         self.location = location.normalize();
         // Named from the path alone, so the tab turns at once even when the
         // folder is on a mount that has stopped answering; the rescan that
@@ -5126,14 +5247,20 @@ impl Tab {
         self.location_title = self.location.title(false);
         // Going somewhere answers the question the address field was asking.
         self.dismiss_edit_location();
-        self.new_listing();
+        if new_listing {
+            self.new_listing();
+        }
         self.navigation = self.navigation.wrapping_add(1);
-        self.items_opt = None;
+        if new_listing {
+            self.items_opt = None;
+        }
         // Remember where this entry was scrolled to before leaving it
         if let Some(saved) = self.history_scroll.get_mut(self.history_i) {
             *saved = self.scroll_opt;
         }
-        self.scroll_opt = None;
+        if new_listing {
+            self.scroll_opt = None;
+        }
         self.pending_scroll = None;
         self.select_focus = None;
         self.search_context = None;
@@ -10808,6 +10935,264 @@ mod tests {
             tab.search_options_for_query().show_hidden,
             "typing into a restored search kept hiding files the menu says to show"
         );
+        Ok(())
+    }
+
+    /// Opening an empty search of the folder on screen, or closing it, lists
+    /// the same folder: the listing stays as it is, with what was already
+    /// counted for it, and the folder names the last rescan read. As a
+    /// rescan would, it selects the top of the search, and nothing once the
+    /// search is closed.
+    #[test]
+    fn opening_or_closing_an_empty_search_keeps_the_listing() -> io::Result<()> {
+        use crate::tab::{SearchLocation, SearchOptions};
+        use std::time::Instant;
+
+        let (fs, mut tab) = tab_click_new(NUM_FILES, NUM_NESTED, NUM_DIRS, NUM_NESTED, NAME_LEN)?;
+        let path = fs.path().to_owned();
+        let search = |term: &str| {
+            Location::Search(
+                SearchLocation::Path(path.clone()),
+                term.to_owned(),
+                SearchOptions {
+                    show_hidden: false,
+                    recursive: false,
+                },
+                Instant::now(),
+            )
+        };
+        let counted = |tab: &Tab| {
+            tab.items_opt()
+                .into_iter()
+                .flatten()
+                .filter(|item| {
+                    matches!(
+                        item.metadata,
+                        ItemMetadata::Path {
+                            children_opt: Some(7),
+                            ..
+                        }
+                    )
+                })
+                .count()
+        };
+        let selected = |tab: &Tab| {
+            tab.items_opt()
+                .into_iter()
+                .flatten()
+                .filter(|item| item.selected)
+                .count()
+        };
+        if let Some(items) = tab.items_opt.as_mut() {
+            for item in items.iter_mut() {
+                if let ItemMetadata::Path { children_opt, .. } = &mut item.metadata {
+                    *children_opt = Some(7);
+                }
+            }
+            items[0].selected = true;
+            items[1].highlighted = true;
+        }
+        // As the rescan named it from the filesystem
+        for (_, name) in &mut tab.location_ancestors {
+            *name = format!("looked {name}");
+        }
+        let listing = tab.listing();
+
+        assert!(tab.only_switches_search(&search("")));
+        tab.switch_search(&search(""));
+        assert_eq!(listing, tab.listing(), "opening the search started a new listing");
+        assert_eq!(NUM_DIRS, counted(&tab), "opening the search lost the counts");
+        assert_eq!(1, selected(&tab), "the top of the search is selected");
+        assert!(tab.items_opt().into_iter().flatten().all(|item| !item.highlighted));
+        assert!(tab.location_ancestors.iter().all(|(_, name)| name.starts_with("looked ")));
+        assert!(tab.location_title.contains("looked "));
+
+        // A search with a term, or the same search again, lists anew
+        assert!(!tab.only_switches_search(&search("x")));
+        assert!(!tab.only_switches_search(&search("")));
+
+        let closed = Location::Path(path.clone());
+        assert!(tab.only_switches_search(&closed));
+        tab.switch_search(&closed);
+        assert_eq!(listing, tab.listing(), "closing the search started a new listing");
+        assert_eq!(NUM_DIRS, counted(&tab), "closing the search lost the counts");
+        assert_eq!(0, selected(&tab));
+        assert!(tab.location_title.starts_with("looked "));
+        Ok(())
+    }
+
+    /// A read of a folder still counts once its empty search is opened, or
+    /// closed, as both list the folder; a search with a term, a recursive
+    /// one, or another folder lists something else.
+    #[test]
+    fn a_folder_and_its_empty_search_list_the_same() {
+        use crate::tab::{SearchLocation, SearchOptions};
+        use std::time::Instant;
+
+        let search = |path: &str, term: &str, recursive: bool| {
+            Location::Search(
+                SearchLocation::Path(PathBuf::from(path)),
+                term.to_owned(),
+                SearchOptions {
+                    show_hidden: false,
+                    recursive,
+                },
+                Instant::now(),
+            )
+        };
+        let folder = Location::Path(PathBuf::from("/a"));
+        assert!(folder.lists_same_as(&search("/a", "", false)));
+        assert!(search("/a", "", false).lists_same_as(&folder));
+        assert!(search("/a", "", false).lists_same_as(&search("/a", "", false)));
+        assert!(!folder.lists_same_as(&search("/a", "x", false)));
+        assert!(!folder.lists_same_as(&search("/a", "", true)));
+        assert!(!folder.lists_same_as(&search("/b", "", false)));
+        assert!(!folder.lists_same_as(&Location::Trash));
+    }
+
+    /// A read made before the search was opened, or closed, keeps the names
+    /// it read, but its breadcrumbs and title are the current mode's: a
+    /// folder's lead to folders, a search's to searches
+    #[test]
+    fn a_read_for_the_other_mode_is_named_for_this_one() -> io::Result<()> {
+        use crate::tab::{SearchLocation, SearchOptions};
+        use std::time::Instant;
+
+        let (fs, mut tab) = tab_click_new(NUM_FILES, NUM_NESTED, NUM_DIRS, NUM_NESTED, NAME_LEN)?;
+        let path = fs.path().to_owned();
+        let folder = Location::Path(path.clone());
+        let search = Location::Search(
+            SearchLocation::Path(path),
+            String::new(),
+            SearchOptions {
+                show_hidden: false,
+                recursive: false,
+            },
+            Instant::now(),
+        );
+        let read = |location: &Location| -> Vec<String> {
+            location
+                .ancestors(false)
+                .into_iter()
+                .map(|(_, name)| format!("looked {name}"))
+                .collect()
+        };
+
+        tab.switch_search(&search);
+        let (ancestors, title) = tab.named_folders(read(&folder)).expect("same folder");
+        assert!(ancestors.iter().all(|(location, name)| {
+            matches!(location, Location::Search(..)) && name.starts_with("looked ")
+        }));
+        assert_eq!(title, search.title_with(|_| ancestors[0].1.clone()));
+        assert_ne!(title, ancestors[0].1, "a search titled as its folder");
+
+        tab.switch_search(&folder);
+        let (ancestors, title) = tab.named_folders(read(&search)).expect("same folder");
+        assert!(ancestors.iter().all(|(location, name)| {
+            matches!(location, Location::Path(_)) && name.starts_with("looked ")
+        }));
+        assert_eq!(title, ancestors[0].1);
+
+        // Names that do not fit the path are not used
+        let mut too_many = read(&folder);
+        too_many.push("extra".to_owned());
+        assert!(tab.named_folders(too_many).is_none());
+        Ok(())
+    }
+
+    /// Only the latest folder read started for a tab may be shown: an
+    /// earlier one is out of date whenever it lands
+    #[test]
+    fn only_the_latest_read_counts() -> io::Result<()> {
+        let (_fs, mut tab) = tab_click_new(NUM_FILES, NUM_NESTED, NUM_DIRS, NUM_NESTED, NAME_LEN)?;
+        let first = tab.start_scan();
+        assert!(tab.is_latest_scan(first));
+        let second = tab.start_scan();
+        assert!(!tab.is_latest_scan(first), "an earlier read replaced a later one");
+        assert!(tab.is_latest_scan(second));
+        Ok(())
+    }
+
+    /// Opening the search while scrolled down keeps the offset, so the top
+    /// it selects, which Enter opens, has to be scrolled to
+    #[test]
+    fn the_top_an_opened_search_selects_is_scrolled_to() -> io::Result<()> {
+        use crate::tab::{SearchLocation, SearchOptions};
+        use crate::ui::iced::{Point, Rectangle, Size};
+        use crate::ui::widget::scrollable::AbsoluteOffset;
+        use std::time::Instant;
+
+        let (fs, mut tab) = tab_click_new(NUM_FILES, NUM_NESTED, NUM_DIRS, NUM_NESTED, NAME_LEN)?;
+        let row = 40.0;
+        if let Some(items) = tab.items_opt.as_mut() {
+            for (i, item) in items.iter().enumerate() {
+                item.rect_opt.set(Some(Rectangle::new(
+                    Point::new(0.0, i as f32 * row),
+                    Size::new(400.0, row),
+                )));
+            }
+        }
+        tab.item_view_size_opt.set(Some(Size::new(400.0, row)));
+        let below = NUM_DIRS as f32 * row;
+        tab.scroll_opt = Some(AbsoluteOffset { x: 0.0, y: below });
+
+        let search = Location::Search(
+            SearchLocation::Path(fs.path().to_owned()),
+            String::new(),
+            SearchOptions {
+                show_hidden: false,
+                recursive: false,
+            },
+            Instant::now(),
+        );
+        tab.switch_search(&search);
+        assert_eq!(Some(AbsoluteOffset { x: 0.0, y: below }), tab.scroll_opt);
+        let top = tab.select_focus.expect("the search selected its top");
+        let top_y = tab.items_opt().unwrap()[top].rect_opt.get().unwrap().y;
+        assert_eq!(
+            Some(AbsoluteOffset { x: 0.0, y: top_y }),
+            tab.select_focus_scroll(),
+            "the selected top was left out of view"
+        );
+        Ok(())
+    }
+
+    /// Reading the same folder again keeps the listing on screen until the
+    /// rescan replaces it, instead of the view going blank for a frame. It
+    /// keeps no selection, as the rescan's own listing would not.
+    #[test]
+    fn reading_an_empty_search_again_keeps_the_listing() -> io::Result<()> {
+        use crate::tab::{SearchLocation, SearchOptions};
+        use std::time::Instant;
+
+        let (fs, mut tab) = tab_click_new(NUM_FILES, NUM_NESTED, NUM_DIRS, NUM_NESTED, NAME_LEN)?;
+        let path = fs.path().to_owned();
+        let search = |term: &str| {
+            Location::Search(
+                SearchLocation::Path(path.clone()),
+                term.to_owned(),
+                SearchOptions {
+                    show_hidden: false,
+                    recursive: false,
+                },
+                Instant::now(),
+            )
+        };
+        tab.change_location(&search(""), None);
+        tab.set_items(Location::Path(path.clone()).scan(IconSizes::default()).1);
+        if let Some(items) = tab.items_opt.as_mut() {
+            items[0].selected = true;
+            items[0].highlighted = true;
+        }
+
+        tab.change_location_keeping_listing(&search(""));
+        let items = tab.items_opt().expect("reading the search again blanked the listing");
+        assert_eq!(NUM_DIRS, items.len());
+        assert!(items.iter().all(|item| !item.selected && !item.highlighted));
+
+        // A term lists something else: that listing starts empty
+        tab.change_location_keeping_listing(&search("x"));
+        assert!(tab.items_opt().is_none());
         Ok(())
     }
 

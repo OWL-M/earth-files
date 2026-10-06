@@ -601,13 +601,15 @@ pub enum Message {
     TabConfig(TabConfig),
     TabMessage(Option<Entity>, tab::Message),
     TabNew,
-    /// A listing read on a worker: the normalized location it is of, its
-    /// parent item, the items, the breadcrumb names and the title, the
+    /// A listing read on a worker: the tab's number for the read (see
+    /// [`Tab::start_scan`]), the normalized location it is of, its parent
+    /// item, the items, the breadcrumb names and the title, the
     /// paths to select once shown, and whether the read worked (an
     /// unreadable folder arrives as an empty listing, and its progress row
     /// ends as failed rather than done).
     TabRescan(
         Entity,
+        u64,
         Location,
         Option<Box<tab::Item>>,
         Vec<tab::Item>,
@@ -2425,6 +2427,10 @@ impl App {
         log::info!("rescan_tab {entity:?} {location:?} {selection_paths:?}");
         let icon_sizes = self.config.tab.icon_sizes;
         let mounter_items = self.mounter_items.clone();
+        let scan = self
+            .tab_model
+            .data_mut::<Tab>(entity)
+            .map_or(0, Tab::start_scan);
         // Shown only if the folder is slow to read, as on a waking drive.
         if track {
             self.progress.start(
@@ -2469,6 +2475,7 @@ impl App {
 
                     crate::ui::action::app(Message::TabRescan(
                         entity,
+                        scan,
                         location,
                         parent_item_opt,
                         items,
@@ -2714,16 +2721,34 @@ impl App {
                 },
             };
             if let Some((location, focus_search)) = location_opt {
-                tab.change_location(&location, None);
-                title_location_opt = Some((tab.title(), tab.location.clone(), focus_search));
+                // Opening an empty search of the folder on screen, or closing
+                // it, lists the same folder: nothing to read again
+                let rescan = if selection_paths.is_none() && tab.only_switches_search(&location) {
+                    tab.switch_search(&location);
+                    false
+                } else {
+                    tab.change_location_keeping_listing(&location);
+                    true
+                };
+                title_location_opt =
+                    Some((tab.title(), tab.location.clone(), focus_search, rescan));
             }
         }
-        if let Some((title, location, focus_search)) = title_location_opt {
+        if let Some((title, location, focus_search, rescan)) = title_location_opt {
             self.tab_model.text_set(tab, title);
             return Task::batch([
                 self.update_title(),
                 self.update_watcher(),
-                self.rescan_tab(tab, location, selection_paths, track),
+                if rescan {
+                    self.rescan_tab(tab, location, selection_paths, track)
+                } else {
+                    // The listing keeps its scroll offset: bring the top the
+                    // search selected into view, as Enter opens it
+                    Task::done(crate::ui::action::app(Message::TabMessage(
+                        Some(tab),
+                        tab::Message::ScrollToFocused,
+                    )))
+                },
                 if focus_search {
                     widget::text_input::focus(self.search_id.clone())
                 } else {
@@ -6243,8 +6268,9 @@ impl Application for App {
                 if let Some(tab) = self.tab_model.data_mut::<Tab>(entity) {
                     // The tab may have been sent somewhere else, or rescanned
                     // from scratch, while these were being read; either way
-                    // they describe a listing it is no longer showing.
-                    if tab.location == location && tab.listing() == listing {
+                    // they describe a listing it is no longer showing. Opening
+                    // or closing an empty search keeps the listing.
+                    if tab.location.lists_same_as(&location) && tab.listing() == listing {
                         let mut adopted = Vec::new();
                         for (path, fresh) in rebuilt {
                             // Batches overlap: two bursts naming the same file
@@ -6904,6 +6930,7 @@ impl Application for App {
             }
             Message::TabRescan(
                 entity,
+                scan,
                 location,
                 parent_item_opt,
                 items,
@@ -6914,8 +6941,12 @@ impl Application for App {
             ) => {
                 // Both sides were normalized already: the tab's location by
                 // `Tab::new` or `change_location`, this one on the worker.
+                // Opening or closing an empty search meanwhile lists the same
+                // folder, and reads nothing itself: the read is still wanted.
+                // A read started after this one has the newer listing.
                 if let Some(tab) = self.tab_model.data_mut::<Tab>(entity)
-                    && location == tab.location
+                    && tab.is_latest_scan(scan)
+                    && tab.location.lists_same_as(&location)
                 {
                     self.progress.finish(
                         &progress::Key::Load(entity),
@@ -6928,6 +6959,16 @@ impl Application for App {
                     // restored is the user's, not the search's.
                     let search_selects = tab.search_selection_is_own() && selection_paths.is_none();
                     tab.set_items(items);
+                    // Read for the other mode, folder or empty search, the
+                    // names hold but the breadcrumbs and title are this one's
+                    let (ancestors, title) = if location == tab.location {
+                        (ancestors, title)
+                    } else {
+                        tab.named_folders(ancestors.into_iter().map(|(_, name)| name).collect())
+                            .unwrap_or_else(|| {
+                                (tab.location.ancestors(false), tab.location.title(false))
+                            })
+                    };
                     tab.location_ancestors = ancestors;
                     // An empty search of a folder is sorted as the folder is
                     let location_str = location
