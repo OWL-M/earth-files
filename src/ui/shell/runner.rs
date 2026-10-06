@@ -154,7 +154,7 @@ fn split_settings<App: Application>(
         },
         // Stops and per-scroll details for `ui::widget::scrollable`, which
         // coasts a touchpad fling once the fingers lift.
-        scroll_frames: true,
+        gestures: true,
         ..Default::default()
     };
 

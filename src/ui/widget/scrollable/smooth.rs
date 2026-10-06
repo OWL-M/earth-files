@@ -11,7 +11,7 @@
 //! first, how far a notch goes, where the edges are.
 //!
 //! A touchpad follows the fingers 1:1, as iced already does. When the fingers
-//! lift, the compositor says so (`iced_exwlshell::scroll::Stop`), and the list
+//! lift, the compositor says so (`iced_exwlshell::gesture::Stop`), and the list
 //! coasts on with the speed it had, slowing under friction.
 //!
 //! Programmatic scrolling is instant with [`super::scroll_to`] and glides with
@@ -27,7 +27,7 @@ use iced_core::{
     Clipboard, Element, Layout, Length, Rectangle, Shell, Size, Vector, Widget, keyboard, layout,
     mouse, overlay, renderer, window,
 };
-use iced_exwlshell::scroll::{self as frames, Source, StopReceiver};
+use iced_exwlshell::gesture::{self as frames, Gesture, GestureReceiver, Source, Stop};
 use iced_texture_cache::iced_animate::{Decay, Spring, SpringParams};
 
 use crate::ui::{Renderer, Theme};
@@ -229,7 +229,7 @@ struct State {
     modifiers: keyboard::Modifiers,
     /// Touchpad movement since the fingers last came down, newest last.
     samples: Vec<Sample>,
-    stop: StopReceiver,
+    gestures: GestureReceiver,
     request: GlideRequest,
 }
 
@@ -241,7 +241,7 @@ impl Default for State {
             moved_instantly: false,
             modifiers: keyboard::Modifiers::default(),
             samples: Vec::new(),
-            stop: StopReceiver::new(),
+            gestures: GestureReceiver::new(),
             request: GlideRequest::default(),
         }
     }
@@ -405,6 +405,27 @@ impl<Message> Smooth<'_, Message> {
     }
 }
 
+/// Takes every gesture delivered since the last call and returns their stops
+/// as one: the latest time, and each axis any of them stopped. Swipes, pinches
+/// and holds are dropped.
+fn take_stop(gestures: &mut GestureReceiver) -> Option<Stop> {
+    let mut merged: Option<Stop> = None;
+    while let Some(gesture) = gestures.take() {
+        let Gesture::Stop(stop) = gesture else {
+            continue;
+        };
+        match &mut merged {
+            None => merged = Some(stop),
+            Some(earlier) => {
+                earlier.time = stop.time.or(earlier.time);
+                earlier.axes.x |= stop.axes.x;
+                earlier.axes.y |= stop.axes.y;
+            }
+        }
+    }
+    merged
+}
+
 /// The speed the fingers had when they lifted at `lifted` (compositor
 /// milliseconds), in pixels per second, or `None` if they had come to rest.
 fn lift_velocity(samples: &[Sample], lifted: Option<u32>, now: Instant) -> Option<Vector> {
@@ -486,7 +507,7 @@ impl<Message> Widget<Message, Theme, Renderer> for Smooth<'_, Message> {
     ) {
         let state = tree.state.downcast_mut::<State>();
         // Where `iced_exwlshell` delivers the end of a touchpad gesture.
-        operation.custom(self.id.as_ref(), layout.bounds(), &mut state.stop);
+        operation.custom(self.id.as_ref(), layout.bounds(), &mut state.gestures);
         operation.custom(self.id.as_ref(), layout.bounds(), &mut state.request);
         let mut watch = Watch {
             operation,
@@ -553,7 +574,7 @@ impl<Message> Widget<Message, Theme, Renderer> for Smooth<'_, Message> {
             shell.request_redraw();
         }
 
-        if let Some(stop) = state.stop.take_stop() {
+        if let Some(stop) = take_stop(&mut state.gestures) {
             let samples = std::mem::take(&mut state.samples);
             if let Some(velocity) = lift_velocity(&samples, stop.time, Instant::now()) {
                 let velocity = Vector::new(
@@ -674,7 +695,7 @@ impl<Message> Widget<Message, Theme, Renderer> for Smooth<'_, Message> {
                 // sees the event, and the last to claim it gets the stop.
                 if has_moved
                     && frame.and_then(|frame| frame.source) == Some(Source::Finger)
-                    && state.stop.claim()
+                    && state.gestures.claim()
                 {
                     let received = Instant::now();
                     // A new gesture starts a new record.
