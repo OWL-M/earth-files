@@ -123,7 +123,6 @@ impl<Message: Clone + 'static> ContextMenu<'_, Message> {
         {
             use crate::ui::surface::action::destroy_popup;
             use crate::ui::surface::{PopupSettings, Positioner};
-            use crate::ui::widget::menu::Menu;
 
             let mut bounds = layout.bounds();
             bounds.x = my_state.context_cursor.x;
@@ -155,30 +154,14 @@ impl<Message: Clone + 'static> ContextMenu<'_, Message> {
                 return;
             };
 
-            let mut popup_menu: Menu<'static, _> = Menu {
-                tree: my_state.menu_bar_state.clone(),
-                menu_roots: std::borrow::Cow::Owned(context_menu.clone()),
-                bounds_expand: 16,
-                menu_overlays_parent: true,
-                close_condition: CloseCondition {
-                    leave: false,
-                    click_outside: true,
-                    click_inside: true,
-                },
-                item_width: self.item_width,
-                item_height: ItemHeight::Dynamic(40),
-                bar_bounds: bounds,
-                main_offset: -(bounds.height as i32),
-                cross_offset: 0,
-                root_bounds_list: vec![bounds],
-                path_highlight: Some(PathHighlight::MenuActive),
-                style: std::borrow::Cow::Owned(crate::ui::theme::menu_bar::MenuBarStyle::Default),
-                position: Point::new(0., 0.),
-                is_overlay: false,
-                window_id: id,
-                depth: 0,
-                on_surface_action: self.on_surface_action.clone(),
-            };
+            let mut popup_menu = popup_menu(
+                context_menu.clone(),
+                my_state.menu_bar_state.clone(),
+                self.item_width,
+                bounds,
+                id,
+                self.on_surface_action.clone(),
+            );
 
             init_root_menu(
                 &mut popup_menu,
@@ -825,6 +808,43 @@ pub struct LocalState {
     reported_open: bool,
 }
 
+/// The menu a context menu's popup surface shows, placed at `bounds`.
+fn popup_menu<Message: Clone + 'static>(
+    roots: Vec<menu::Tree<Message>>,
+    tree: MenuBarState,
+    item_width: ItemWidth,
+    bounds: iced::Rectangle,
+    window_id: window::Id,
+    on_surface_action: Option<
+        Arc<dyn Fn(crate::ui::surface::Action<Message>) -> Message + Send + Sync + 'static>,
+    >,
+) -> crate::ui::widget::menu::Menu<'static, Message> {
+    crate::ui::widget::menu::Menu {
+        tree,
+        menu_roots: std::borrow::Cow::Owned(roots),
+        bounds_expand: 16,
+        menu_overlays_parent: true,
+        close_condition: CloseCondition {
+            leave: false,
+            click_outside: true,
+            click_inside: true,
+        },
+        item_width,
+        item_height: ItemHeight::Dynamic(40),
+        bar_bounds: bounds,
+        main_offset: -(bounds.height as i32),
+        cross_offset: 0,
+        root_bounds_list: vec![bounds],
+        path_highlight: Some(PathHighlight::MenuActive),
+        style: std::borrow::Cow::Owned(crate::ui::theme::menu_bar::MenuBarStyle::Default),
+        position: Point::new(0., 0.),
+        is_overlay: false,
+        window_id,
+        depth: 0,
+        on_surface_action,
+    }
+}
+
 /// A menu asked for by a right press and not yet presented.
 ///
 /// It opens on the press rather than the release, so it does not wait for the
@@ -1040,5 +1060,103 @@ mod tests {
             }),
         );
         assert!(fingers.is_empty());
+    }
+
+    /// A context menu's popup draws the items its layout placed.
+    ///
+    /// The popup surface is the menu plus a one-pixel border, and the menu
+    /// is centred in it. Drawing used to work out the visible items again
+    /// from where it found the menu, one pixel in, so a menu starting with
+    /// a one-pixel divider (a file and a folder selected) lost that divider
+    /// from the range: every item was drawn into the next item's place, the
+    /// dividers as grey blocks a whole row tall.
+    #[test]
+    fn a_popup_menu_starting_with_a_divider_draws_each_item_in_its_row() {
+        use crate::ui::widget::menu::Item;
+        use iced_core::renderer::Headless;
+
+        #[derive(Clone, Copy, PartialEq, Eq)]
+        struct Act;
+        impl crate::ui::widget::menu::action::MenuAction for Act {
+            type Message = Msg;
+            fn message(&self) -> Msg {
+                Msg::Selected
+            }
+        }
+
+        let button = || Item::Button(String::new(), None, Act);
+        let mut roots = vec![menu::Tree::with_children(
+            crate::ui::Element::from(crate::ui::widget::Row::new()),
+            menu::items(
+                &std::collections::HashMap::new(),
+                vec![Item::Divider, button(), Item::Divider, button()],
+            ),
+        )];
+        roots.iter_mut().for_each(menu::Tree::set_index);
+
+        let mut renderer = iced_texture_cache::testing::headless_tiny_skia();
+        let tree = MenuBarState::default();
+        tree.inner.with_data_mut(|d| {
+            d.open = true;
+            menu_roots_diff(&roots, &mut d.tree);
+        });
+        let bounds = iced::Rectangle::new(INSIDE, Size::new(1.0, 1.0));
+        let mut menu = popup_menu(
+            roots,
+            tree,
+            ItemWidth::Uniform(200),
+            bounds,
+            window::Id::unique(),
+            None,
+        );
+        let mut messages = Vec::new();
+        init_root_menu(
+            &mut menu,
+            &renderer,
+            &mut iced_core::Shell::new(&mut messages),
+            INSIDE,
+            WINDOW,
+            Vector::new(0., 0.),
+            bounds,
+            -bounds.height,
+        );
+        let size = menu
+            .layout(
+                &renderer,
+                iced_core::layout::Limits::NONE.min_width(1.).min_height(1.),
+            )
+            .size();
+        // Sized as `create_popup` sizes the surface.
+        let (width, height) = (size.width.ceil() as u32 + 2, size.height.ceil() as u32 + 2);
+
+        let mut ui = UserInterface::build(
+            crate::ui::widget::container(menu).center(Length::Fill),
+            Size::new(width as f32, height as f32),
+            Cache::default(),
+            &mut renderer,
+        );
+        ui.draw(
+            &mut renderer,
+            &crate::ui::Theme::default(),
+            &iced_core::renderer::Style {
+                text_color: iced::Color::BLACK,
+            },
+            mouse::Cursor::Unavailable,
+        );
+        let pixels = renderer.screenshot(
+            iced::Size::new(width, height),
+            1.0,
+            iced::Color::TRANSPARENT,
+        );
+        let at = |y: u32| {
+            let i = ((y * width + width / 2) * 4) as usize;
+            pixels[i..i + 4].to_vec()
+        };
+
+        // Rows: divider, button, divider, button. Both buttons are empty, so
+        // the middle of each is plain menu background.
+        let first = 1 + size.height as u32 / 4;
+        let second = 1 + size.height as u32 * 3 / 4;
+        assert_eq!(at(first), at(second));
     }
 }

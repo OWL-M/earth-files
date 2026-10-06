@@ -309,6 +309,13 @@ pub(crate) struct MenuState {
     pub(crate) index: Option<usize>,
     scroll_offset: f32,
     pub menu_bounds: MenuBounds,
+    /// The items the last layout made nodes for, first and last.
+    ///
+    /// `draw` pairs items with those nodes, so it has to take the same
+    /// range rather than work it out again: it sees the menu where its
+    /// parent placed it, which in a popup is inset by the surface's border,
+    /// and that inset alone can drop a one-pixel divider at the top.
+    laid_out: Option<(usize, usize)>,
 }
 impl MenuState {
     pub(super) fn layout<Message>(
@@ -327,6 +334,7 @@ impl MenuState {
         } = slice;
 
         debug_assert_eq!(menu_tree.len(), self.menu_bounds.child_positions.len());
+        self.laid_out = Some((start_index, end_index));
 
         // viewport space children bounds
         let children_bounds = self.menu_bounds.children_bounds + overlay_offset;
@@ -799,9 +807,11 @@ impl<'b, Message: Clone + 'static> Menu<'b, Message> {
 
                         let draw_menu = |r: &mut crate::ui::Renderer| {
                             // calc slice
-                            let slice = ms.slice(viewport_size, overlay_offset, self.item_height);
-                            let start_index = slice.start_index;
-                            let end_index = slice.end_index;
+                            let (start_index, end_index) = ms.laid_out.unwrap_or_else(|| {
+                                let slice =
+                                    ms.slice(viewport_size, overlay_offset, self.item_height);
+                                (slice.start_index, slice.end_index)
+                            });
 
                             let children_bounds = children_layout.bounds();
 
@@ -1255,6 +1265,7 @@ pub(crate) fn init_root_menu<Message: Clone>(
                     index: None,
                     scroll_offset: 0.0,
                     menu_bounds,
+                    laid_out: None,
                 };
                 state.menu_states.push(ms);
                 // Hack to ensure menu opens properly
@@ -1335,6 +1346,7 @@ pub(super) fn init_root_popup_menu<Message>(
             index: None,
             scroll_offset: 0.0,
             menu_bounds,
+            laid_out: None,
         };
         state.menu_states.push(ms);
 
@@ -1614,6 +1626,7 @@ where
                     tree,
                     menu.is_overlay,
                 ),
+                laid_out: None,
             };
 
             new_menu_root = Some((new_index, ms.clone()));
