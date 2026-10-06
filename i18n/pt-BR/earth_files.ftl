@@ -67,7 +67,6 @@ blocked-too-big = "{$name}" é grande demais para esta unidade ({$fs})
 blocked-bad-name = "{$name}" tem caracteres que esta unidade ({$fs}) não suporta
 blocked-delete = Você não tem permissão para excluir "{$name}"
 blocked-no-trash = "{$name}" está em uma unidade sem lixeira
-blocked-trash-full = Não há espaço na lixeira para "{$name}"
 delete-permanently-as-root = Excluir permanentemente como administrador
 deleted-for-good = {$more ->
     [0] Cancelado, mas "{$name}" já foi excluído permanentemente
@@ -113,6 +112,9 @@ extract-to-title = Extrair para pasta
 
 empty-trash = Esvaziar a lixeira
 empty-trash-warning = Todos os itens da Lixeira serão permanentemente excluídos
+empty-before-eject-title = Esvaziar a lixeira antes de ejetar?
+empty-before-eject-body = Esvazie a lixeira para liberar espaço em “{$name}”. Todos os itens da lixeira serão excluídos permanentemente.
+do-not-empty = Não esvaziar
 
 ## Mount Error Dialog
 
@@ -444,6 +446,8 @@ new-folder = Nova pasta...
 open-in-terminal = Abrir no terminal
 move-to-trash = Mover para a lixeira
 restore-from-trash = Restaurar da lixeira
+trash-original-location = Local original: {$location}
+trash-original-unknown = Desconhecido
 remove-from-sidebar = Remover da barra lateral
 removed-from-sidebar = { $name } removido da barra lateral
 change-sidebar-label = Alterar legenda da barra lateral

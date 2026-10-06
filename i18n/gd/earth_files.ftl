@@ -27,7 +27,6 @@ blocked-too-big = Tha “{$name}” ro mhòr dhan draibh seo ({$fs})
 blocked-bad-name = Tha caractaran ann an “{$name}” nach urrainn dhan draibh seo ({$fs}) a chumail
 blocked-delete = Chan eil cead agad “{$name}” a sguabadh às
 blocked-no-trash = Tha “{$name}” air draibh às aonais sgudail
-blocked-trash-full = Chan eil rùm san sgudal airson “{$name}”
 delete-permanently-as-root = Sguab às gu buan mar rianaire
 deleted-for-good = {$more ->
     [0] Air a sgur dheth, ach chaidh “{$name}” a sguabadh às gu buan mar-thà
@@ -70,3 +69,8 @@ folder-totals = { $files ->
     [few] { $files } faidhlichean, { $size }
    *[other] { $files } faidhle, { $size }
 }
+trash-original-location = An t-ionad tùsail: {$location}
+trash-original-unknown = Neo-aithnichte
+empty-before-eject-title = A bheil thu airson an sgudal fhalamhachadh mus tèid a ghluasad a-mach?
+empty-before-eject-body = Falamhaich an sgudal gus àite a shaoradh air “{$name}”. Thèid a h-uile nì san sgudal a sguabadh às gu buan.
+do-not-empty = Na falamhaich

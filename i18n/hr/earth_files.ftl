@@ -27,7 +27,6 @@ blocked-too-big = „{$name}” je prevelik za ovaj pogon ({$fs})
 blocked-bad-name = „{$name}” sadrži znakove koje ovaj pogon ({$fs}) ne može pohraniti
 blocked-delete = Nemate dopuštenje za brisanje stavke „{$name}”
 blocked-no-trash = Stavka „{$name}” nalazi se na pogonu bez koša za smeće
-blocked-trash-full = U košu za smeće nema mjesta za stavku „{$name}”
 delete-permanently-as-root = Izbriši trajno kao administrator
 deleted-for-good = {$more ->
     [0] Otkazano, ali je stavka „{$name}” već trajno izbrisana
@@ -66,3 +65,8 @@ folder-totals = { $files ->
     [few] { $files } datoteke, { $size }
    *[other] { $files } datoteka, { $size }
 }
+trash-original-location = Izvorna lokacija: {$location}
+trash-original-unknown = Nepoznato
+empty-before-eject-title = Isprazniti smeće prije izbacivanja?
+empty-before-eject-body = Ispraznite smeće kako biste oslobodili prostor na „{$name}”. Sve stavke u smeću bit će trajno izbrisane.
+do-not-empty = Ne prazni

@@ -43,6 +43,9 @@ create-archive = ಆರ್ಕೈವ್ ರಚಿಸಿ
 
 empty-trash = ಕಸ ಖಾಲಿ ಮಾಡಿ
 empty-trash-warning = ಕಸದಲ್ಲಿನ ಎಲ್ಲಾ ಐಟಂಗಳನ್ನು ಶಾಶ್ವತವಾಗಿ ಅಳಿಸಲು ನೀವು ನಿಜವಾಗಿಯೂ ಬಯಸುತ್ತೀರಾ?
+empty-before-eject-title = ಹೊರತೆಗೆಯುವ ಮೊದಲು ಕಸದಬುಟ್ಟಿಯನ್ನು ಖಾಲಿ ಮಾಡುವುದೇ?
+empty-before-eject-body = “{$name}” ನಲ್ಲಿ ಸ್ಥಳ ಮುಕ್ತಗೊಳಿಸಲು ಕಸದಬುಟ್ಟಿಯನ್ನು ಖಾಲಿ ಮಾಡಿ. ಕಸದಬುಟ್ಟಿಯ ಎಲ್ಲಾ ಅಂಶಗಳನ್ನು ಶಾಶ್ವತವಾಗಿ ಅಳಿಸಲಾಗುತ್ತದೆ.
+do-not-empty = ಖಾಲಿ ಮಾಡಬೇಡ
 
 ## New File/Folder Dialog
 
@@ -205,7 +208,6 @@ blocked-too-big = "{$name}" ಈ ಡ್ರೈವ್‌ಗೆ ({$fs}) ತುಂಬ
 blocked-bad-name = "{$name}" ನಲ್ಲಿ ಈ ಡ್ರೈವ್ ({$fs}) ಹೊಂದಲು ಸಾಧ್ಯವಿಲ್ಲದ ಅಕ್ಷರಗಳಿವೆ
 blocked-delete = "{$name}" ಅನ್ನು ಅಳಿಸಲು ನಿಮಗೆ ಅನುಮತಿ ಇಲ್ಲ
 blocked-no-trash = "{$name}" ಕಸದ ಬುಟ್ಟಿ ಇಲ್ಲದ ಡ್ರೈವ್‌ನಲ್ಲಿದೆ
-blocked-trash-full = "{$name}" ಗಾಗಿ ಕಸದಲ್ಲಿ ಜಾಗವಿಲ್ಲ
 delete-permanently-as-root = ನಿರ್ವಾಹಕರಾಗಿ ಶಾಶ್ವತವಾಗಿ ಅಳಿಸಿ
 deleted-for-good = {$more ->
     [0] ರದ್ದುಗೊಳಿಸಲಾಗಿದೆ, ಆದರೆ "{$name}" ಅನ್ನು ಈಗಾಗಲೇ ಶಾಶ್ವತವಾಗಿ ಅಳಿಸಲಾಗಿದೆ
@@ -328,6 +330,8 @@ new-folder = ಹೊಸ ಫೋಲ್ಡರ್...
 open-in-terminal = ಟರ್ಮಿನಲ್‌ನಲ್ಲಿ ತೆರೆಯಿರಿ
 move-to-trash = ಕಸಕ್ಕೆ ಸರಿಸಿ
 restore-from-trash = ಕಸದಿಂದ ಮರುಸ್ಥಾಪಿಸಿ
+trash-original-location = ಮೂಲ ಸ್ಥಳ: {$location}
+trash-original-unknown = ಅಜ್ಞಾತ
 remove-from-sidebar = ಸೈಡ್‌ಬಾರ್‌ನಿಂದ ತೆಗೆಯಿರಿ
 removed-from-sidebar = { $name } ಅನ್ನು ಸೈಡ್‌ಬಾರ್‌ನಿಂದ ತೆಗೆಯಲಾಗಿದೆ
 

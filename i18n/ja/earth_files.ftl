@@ -36,6 +36,9 @@ create-archive = アーカイブを作成
 
 empty-trash = ゴミ箱を空にする
 empty-trash-warning = ゴミ箱のアイテムをすべて完全に削除してもよろしいですか？
+empty-before-eject-title = 取り出す前にゴミ箱を空にしますか？
+empty-before-eject-body = 「{$name}」の空き領域を増やすにはゴミ箱を空にしてください。ゴミ箱内のアイテムはすべて完全に削除されます。
+do-not-empty = 空にしない
 # New File/Folder Dialog
 create-new-file = 新しいファイルを作成
 create-new-folder = 新しいフォルダを作成
@@ -218,6 +221,8 @@ new-folder = 新しいフォルダ...
 open-in-terminal = 端末で開く
 move-to-trash = ゴミ箱に移動
 restore-from-trash = ゴミ箱から復元
+trash-original-location = 元の場所: {$location}
+trash-original-unknown = 不明
 remove-from-sidebar = サイドバーから削除
 removed-from-sidebar = { $name } をサイドバーから削除しました
 
@@ -308,7 +313,6 @@ blocked-too-big = 「{$name}」はこのドライブ（{$fs}）には大きす�
 blocked-bad-name = 「{$name}」にはこのドライブ（{$fs}）で使用できない文字が含まれています
 blocked-delete = 「{$name}」を削除する権限がありません
 blocked-no-trash = 「{$name}」はゴミ箱のないドライブにあります
-blocked-trash-full = ゴミ箱に「{$name}」を入れる空きがありません
 delete-permanently-as-root = 管理者として完全に削除する
 deleted-for-good = {$more ->
     [0] キャンセルされましたが、「{$name}」はすでに完全に削除されています

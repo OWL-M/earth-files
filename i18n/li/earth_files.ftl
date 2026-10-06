@@ -27,7 +27,6 @@ blocked-too-big = “{$name}” is te groot veur deze sjijf ({$fs})
 blocked-bad-name = “{$name}” haet teikens die deze sjijf ({$fs}) neet kin bewaare
 blocked-delete = Doe höbs gein toestemming om “{$name}” te wisse
 blocked-no-trash = “{$name}” steit op ein drive zonder prullenbak
-blocked-trash-full = Gein ruumte in de prullenbak veur “{$name}”
 delete-permanently-as-root = Permanent wisse es beheerder
 deleted-for-good = {$more ->
     [0] Geannuleerd, mer “{$name}” is al permanent gewis
@@ -60,3 +59,8 @@ folder-totals = { $files ->
     [one] { $files } besjtandj, { $size }
    *[other] { $files } besjtenj, { $size }
 }
+trash-original-location = Oorsprunkelike plek: {$location}
+trash-original-unknown = Ónbekind
+empty-before-eject-title = Prullebak laege veur 't oetwerpe?
+empty-before-eject-body = Laeg de prullebak óm plaats vrie te make op “{$name}”. Alle items in de prullebak waere veur good gewösj.
+do-not-empty = Neet laege

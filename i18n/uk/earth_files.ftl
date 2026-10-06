@@ -29,6 +29,9 @@ file-type-other = Інше
 
 empty-trash = Спорожнити смітник
 empty-trash-warning = Елементи зі смітника будуть остаточно видалені
+empty-before-eject-title = Спорожнити смітник перед вийманням?
+empty-before-eject-body = Спорожніть смітник, щоб звільнити місце на «{$name}». Усі елементи у смітнику буде остаточно вилучено.
+do-not-empty = Не спорожнювати
 
 ## New File/Folder Dialog
 
@@ -164,6 +167,8 @@ new-folder = Нова тека...
 open-in-terminal = Відкрити у терміналі
 move-to-trash = Пересунути до смітника
 restore-from-trash = Відновити зі смітника
+trash-original-location = Початкове розташування: {$location}
+trash-original-unknown = Невідомо
 remove-from-sidebar = Вилучити з бічної панелі
 removed-from-sidebar = { $name } вилучено з бічної панелі
 
@@ -252,7 +257,6 @@ blocked-too-big = «{$name}» завеликий для цього диска ({
 blocked-bad-name = «{$name}» містить символи, які цей диск ({$fs}) не підтримує
 blocked-delete = У вас немає дозволу видалити об’єкт «{$name}»
 blocked-no-trash = Об’єкт «{$name}» розташований на диску без смітника
-blocked-trash-full = У смітнику немає місця для об’єкта «{$name}»
 delete-permanently-as-root = Видалити остаточно від імені адміністратора
 deleted-for-good = {$more ->
     [0] Скасовано, але об’єкт «{$name}» уже остаточно видалено

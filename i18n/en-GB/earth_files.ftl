@@ -110,7 +110,6 @@ blocked-too-big = "{$name}" is too big for this drive ({$fs})
 blocked-bad-name = "{$name}" has characters this drive ({$fs}) can't hold
 blocked-delete = You don't have permission to delete "{$name}"
 blocked-no-trash = "{$name}" is on a drive without a rubbish bin
-blocked-trash-full = There is no room in the rubbish bin for "{$name}"
 delete-permanently-as-root = Delete permanently as root
 deleted-for-good = {$more ->
     [0] Cancelled, but "{$name}" was already deleted for good
@@ -143,3 +142,8 @@ folder-totals = { $files ->
     [one] 1 file, { $size }
    *[other] { $files } files, { $size }
 }
+trash-original-location = Original location: {$location}
+trash-original-unknown = Unknown
+empty-before-eject-title = Empty wastebasket before ejecting?
+empty-before-eject-body = Empty the wastebasket to free up space on “{$name}”. All items in the wastebasket will be permanently deleted.
+do-not-empty = Do not empty

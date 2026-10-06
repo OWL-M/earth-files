@@ -27,7 +27,6 @@ blocked-too-big = Predmet „{$name}“ je prevelik za ta pogon ({$fs})
 blocked-bad-name = Predmet „{$name}“ vsebuje znake, ki jih ta pogon ({$fs}) ne more hraniti
 blocked-delete = Nimate dovoljenja za brisanje predmeta „{$name}“
 blocked-no-trash = Predmet „{$name}“ je na pogonu brez koša
-blocked-trash-full = V košu ni prostora za predmet „{$name}“
 delete-permanently-as-root = Trajno izbriši kot skrbnik
 deleted-for-good = {$more ->
     [0] Preklicano, vendar je bil predmet „{$name}“ že trajno izbrisan
@@ -70,3 +69,8 @@ folder-totals = { $files ->
     [few] { $files } datoteke, { $size }
    *[other] { $files } datotek, { $size }
 }
+trash-original-location = Izvirno mesto: {$location}
+trash-original-unknown = Neznano
+empty-before-eject-title = Ali želite izprazniti smeti pred izmetom?
+empty-before-eject-body = Izpraznite smeti, da sprostite prostor na »{$name}«. Vsi predmeti v smeteh bodo trajno izbrisani.
+do-not-empty = Ne izprazni

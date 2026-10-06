@@ -88,6 +88,8 @@ pub fn context_menu(
     let mut selected_types: Vec<Mime> = vec![];
     let mut selected_mount_point = 0;
     let mut any_trash_item = false;
+    // Nothing with no record of where it came from can be put back
+    let mut any_unknown_origin = false;
     if let Some(items) = tab.items_opt() {
         for item in items {
             if item.selected {
@@ -108,8 +110,9 @@ pub fn context_menu(
                     }
                     _ => (),
                 }
-                if matches!(&item.metadata, ItemMetadata::Trash { .. }) {
+                if let ItemMetadata::Trash { entry, .. } = &item.metadata {
                     any_trash_item = true;
+                    any_unknown_origin |= crate::trashing::origin_unknown(entry);
                 }
                 selected_types.push(item.mime.clone());
             }
@@ -238,11 +241,13 @@ pub fn context_menu(
 
                 children.push(menu_item(fl!("show-details"), Action::Preview));
                 if any_trash_item {
-                    children.push(menu::Item::Divider);
-                    children.push(menu_item(
-                        fl!("restore-from-trash"),
-                        Action::RestoreFromTrash,
-                    ));
+                    if !any_unknown_origin {
+                        children.push(menu::Item::Divider);
+                        children.push(menu_item(
+                            fl!("restore-from-trash"),
+                            Action::RestoreFromTrash,
+                        ));
+                    }
                     children.push(menu::Item::Divider);
                     children.push(menu_item(fl!("delete-permanently"), Action::Delete));
                 } else {
@@ -377,11 +382,13 @@ pub fn context_menu(
             }
             if selected > 0 {
                 children.push(menu_item(fl!("show-details"), Action::Preview));
-                children.push(menu::Item::Divider);
-                children.push(menu_item(
-                    fl!("restore-from-trash"),
-                    Action::RestoreFromTrash,
-                ));
+                if !any_unknown_origin {
+                    children.push(menu::Item::Divider);
+                    children.push(menu_item(
+                        fl!("restore-from-trash"),
+                        Action::RestoreFromTrash,
+                    ));
+                }
                 children.push(menu::Item::Divider);
                 children.push(menu_item(fl!("delete-permanently"), Action::Delete));
             } else {
@@ -576,10 +583,14 @@ pub fn menu_bar<'a>(
     let mut selected_dir = 0;
     let mut selected = 0;
     let mut selected_gallery = 0;
+    let mut any_unknown_origin = false;
     if let Some(items) = tab_opt.and_then(|tab| tab.items_opt()) {
         for item in items {
             if item.selected {
                 selected += 1;
+                if let ItemMetadata::Trash { entry, .. } = &item.metadata {
+                    any_unknown_origin |= crate::trashing::origin_unknown(entry);
+                }
                 if item.metadata.is_dir() {
                     selected_dir += 1;
                 }
@@ -646,7 +657,7 @@ pub fn menu_bar<'a>(
                         menu_button_optional(
                             fl!("restore-from-trash"),
                             Action::RestoreFromTrash,
-                            selected > 0 && in_trash,
+                            selected > 0 && in_trash && !any_unknown_origin,
                         ),
                         menu_button_optional(delete_item, delete_item_action, selected > 0),
                         menu::Item::Divider,

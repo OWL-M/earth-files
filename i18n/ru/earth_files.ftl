@@ -38,6 +38,9 @@ create-archive = Создать архив
 
 empty-trash = Очистить корзину
 empty-trash-warning = Элементы в папке «Корзина» будут удалены без возможности восстановления
+empty-before-eject-title = Очистить корзину перед извлечением?
+empty-before-eject-body = Очистите корзину, чтобы освободить место на «{$name}». Все элементы в корзине будут удалены без возможности восстановления.
+do-not-empty = Не очищать
 # New File/Folder Dialog
 create-new-file = Создать новый файл
 create-new-folder = Создать новую папку
@@ -228,6 +231,8 @@ new-folder = Новая папка…
 open-in-terminal = Открыть в терминале
 move-to-trash = Переместить в корзину
 restore-from-trash = Восстановить из корзины
+trash-original-location = Исходное расположение: {$location}
+trash-original-unknown = Неизвестно
 remove-from-sidebar = Убрать с боковой панели
 removed-from-sidebar = { $name } убрано с боковой панели
 
@@ -323,7 +328,6 @@ blocked-too-big = «{$name}» слишком велик для этого дис
 blocked-bad-name = «{$name}» содержит символы, которые этот диск ({$fs}) не поддерживает
 blocked-delete = У вас нет прав на удаление объекта «{$name}»
 blocked-no-trash = Объект «{$name}» находится на диске без корзины
-blocked-trash-full = В корзине нет места для объекта «{$name}»
 delete-permanently-as-root = Удалить навсегда от имени администратора
 deleted-for-good = {$more ->
     [0] Отменена, но объект «{$name}» уже удалён навсегда

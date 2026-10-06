@@ -27,7 +27,6 @@ blocked-too-big = Masyadong malaki ang "{$name}" para sa drive na ito ({$fs})
 blocked-bad-name = May mga character ang "{$name}" na hindi kayang hawakan ng drive na ito ({$fs})
 blocked-delete = Wala kang pahintulot na burahin ang "{$name}"
 blocked-no-trash = Ang "{$name}" ay nasa drive na walang basurahan
-blocked-trash-full = Walang espasyo sa basurahan para sa "{$name}"
 delete-permanently-as-root = Burahin nang permanente bilang administrator
 deleted-for-good = {$more ->
     [0] Kinansela, pero permanente nang nabura ang "{$name}"
@@ -61,3 +60,8 @@ folder-totals = { $files ->
     [one] { $files } file, { $size }
    *[other] { $files } file, { $size }
 }
+trash-original-location = Orihinal na lokasyon: {$location}
+trash-original-unknown = Hindi alam
+empty-before-eject-title = Alisan ng laman ang basurahan bago i-eject?
+empty-before-eject-body = Alisan ng laman ang basurahan para magbakante ng espasyo sa “{$name}”. Permanenteng mabubura ang lahat ng item sa basurahan.
+do-not-empty = Huwag alisan ng laman

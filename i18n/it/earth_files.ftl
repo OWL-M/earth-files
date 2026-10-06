@@ -65,7 +65,6 @@ blocked-too-big = «{$name}» è troppo grande per questo dispositivo ({$fs})
 blocked-bad-name = «{$name}» contiene caratteri che questo dispositivo ({$fs}) non può contenere
 blocked-delete = Non hai il permesso di eliminare «{$name}»
 blocked-no-trash = «{$name}» si trova su un disco senza cestino
-blocked-trash-full = Non c'è spazio nel cestino per «{$name}»
 delete-permanently-as-root = Elimina definitivamente come amministratore
 deleted-for-good = {$more ->
     [0] Annullato, ma «{$name}» era già stato eliminato definitivamente
@@ -111,6 +110,9 @@ extract-to-title = Estrai nella cartella
 
 empty-trash = Svuota cestino
 empty-trash-warning = Sei sicuro di voler eliminare definitivamente tutti gli elementi nel cestino?
+empty-before-eject-title = Svuotare il cestino prima di espellere?
+empty-before-eject-body = Svuota il cestino per liberare spazio su «{$name}». Tutti gli elementi nel cestino verranno eliminati definitivamente.
+do-not-empty = Non svuotare
 
 ## Mount Error Dialog
 
@@ -430,6 +432,8 @@ new-folder = Nuova cartella...
 open-in-terminal = Apri nel terminale
 move-to-trash = Sposta nel cestino
 restore-from-trash = Ripristina dal cestino
+trash-original-location = Posizione originale: {$location}
+trash-original-unknown = Sconosciuta
 remove-from-sidebar = Rimuovi dalla barra laterale
 removed-from-sidebar = { $name } rimosso dalla barra laterale
 remove-from-recents = Rimuovi da recenti

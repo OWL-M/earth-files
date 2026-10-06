@@ -82,6 +82,8 @@ new-folder = 새 폴더...
 open-in-terminal = 터미널에서 열기
 move-to-trash = 휴지통으로 이동
 restore-from-trash = 휴지통에서 복구
+trash-original-location = 원래 위치: {$location}
+trash-original-unknown = 알 수 없음
 
 # Menu
 
@@ -177,7 +179,6 @@ blocked-too-big = "{$name}"은(는) 이 드라이브({$fs})에 비해 너무 큽
 blocked-bad-name = "{$name}"에 이 드라이브({$fs})가 저장할 수 없는 문자가 있습니다
 blocked-delete = "{$name}"을(를) 삭제할 권한이 없습니다
 blocked-no-trash = "{$name}"은(는) 휴지통이 없는 드라이브에 있습니다
-blocked-trash-full = 휴지통에 "{$name}"을(를) 넣을 공간이 없습니다
 delete-permanently-as-root = 관리자 권한으로 완전히 삭제
 deleted-for-good = {$more ->
     [0] 취소되었지만 "{$name}"은(는) 이미 완전히 삭제되었습니다
@@ -276,6 +277,9 @@ write-only = 쓰기 전용
 today = 오늘
 permanently-delete-warning = { $target } 이(가) 완전히 삭제됩니다. 이 행동은 되돌릴 수 없습니다.
 empty-trash-warning = 휴지통의 항목이 완전히 삭제됩니다
+empty-before-eject-title = 꺼내기 전에 휴지통을 비울까요?
+empty-before-eject-body = “{$name}”의 공간을 확보하려면 휴지통을 비우세요. 휴지통의 모든 항목이 영구적으로 삭제됩니다.
+do-not-empty = 비우지 않기
 empty-trash = 휴지통 비우기
 empty-trash-title = 휴지통을 비울까요?
 type-to-search = 입력하여 검색

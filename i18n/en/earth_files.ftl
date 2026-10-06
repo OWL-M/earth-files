@@ -69,7 +69,6 @@ blocked-too-big = "{$name}" is too big for this drive ({$fs})
 blocked-bad-name = "{$name}" has characters this drive ({$fs}) can't hold
 blocked-delete = You don't have permission to delete "{$name}"
 blocked-no-trash = "{$name}" is on a drive without a trash
-blocked-trash-full = There is no room in the trash for "{$name}"
 delete-permanently-as-root = Delete permanently as root
 deleted-for-good = Cancelled, but "{$name}" {$more ->
     [0] was already deleted for good
@@ -116,6 +115,9 @@ extract-to-title = Extract to folder
 empty-trash = Empty trash
 empty-trash-title = Empty trash?
 empty-trash-warning = Items in the Trash folder will be permanently deleted
+empty-before-eject-title = Empty trash before ejecting?
+empty-before-eject-body = Empty the trash to free up space on “{$name}”. All trashed items will be permanently deleted.
+do-not-empty = Do not empty
 
 ## Mount Error Dialog
 mount-error = Unable to access drive
@@ -434,6 +436,8 @@ open-in-terminal = Open in terminal
 move-to = Move to...
 move-to-trash = Move to trash
 restore-from-trash = Restore from trash
+trash-original-location = Original location: {$location}
+trash-original-unknown = Unknown
 remove-from-sidebar = Remove from sidebar
 removed-from-sidebar = Removed { $name } from sidebar
 change-sidebar-label = Change sidebar label

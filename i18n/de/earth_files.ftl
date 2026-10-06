@@ -66,7 +66,6 @@ blocked-too-big = „{$name}“ ist zu groß für dieses Laufwerk ({$fs})
 blocked-bad-name = „{$name}“ enthält Zeichen, die dieses Laufwerk ({$fs}) nicht speichern kann
 blocked-delete = Keine Berechtigung zum Löschen von „{$name}“
 blocked-no-trash = „{$name}“ befindet sich auf einem Laufwerk ohne Papierkorb
-blocked-trash-full = Im Papierkorb ist kein Platz für „{$name}“
 delete-permanently-as-root = Als Administrator endgültig löschen
 deleted-for-good = {$more ->
     [0] Abgebrochen, aber „{$name}“ wurde bereits endgültig gelöscht
@@ -112,6 +111,9 @@ extract-to-title = In Ordner entpacken
 
 empty-trash = Papierkorb leeren
 empty-trash-warning = Elemente im Papierkorb werden endgültig gelöscht
+empty-before-eject-title = Papierkorb vor dem Auswerfen leeren?
+empty-before-eject-body = Leeren Sie den Papierkorb, um Platz auf „{$name}“ freizugeben. Alle Elemente im Papierkorb werden endgültig gelöscht.
+do-not-empty = Nicht leeren
 
 ## Einhängefehler-Dialog
 
@@ -413,6 +415,8 @@ new-folder = Neuer Ordner ...
 open-in-terminal = Im Terminal öffnen
 move-to-trash = In den Papierkorb verschieben
 restore-from-trash = Aus dem Papierkorb wiederherstellen
+trash-original-location = Ursprünglicher Ort: {$location}
+trash-original-unknown = Unbekannt
 remove-from-sidebar = Aus der Seitenleiste entfernen
 removed-from-sidebar = { $name } aus der Seitenleiste entfernt
 

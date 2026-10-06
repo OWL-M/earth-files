@@ -27,7 +27,6 @@ blocked-too-big = "{$name}" এই ড্রাইভের ({$fs}) জন্য
 blocked-bad-name = "{$name}"-এ এমন অক্ষর আছে যা এই ড্রাইভে ({$fs}) রাখা যায় না
 blocked-delete = "{$name}" মুছে ফেলার অনুমতি আপনার নেই
 blocked-no-trash = "{$name}" এমন ড্রাইভে আছে যাতে ট্র্যাশ নেই
-blocked-trash-full = "{$name}"-এর জন্য ট্র্যাশে জায়গা নেই
 delete-permanently-as-root = প্রশাসক হিসেবে স্থায়ীভাবে মুছুন
 deleted-for-good = {$more ->
     [0] বাতিল করা হয়েছে, কিন্তু "{$name}" আগেই স্থায়ীভাবে মুছে ফেলা হয়েছে
@@ -60,3 +59,8 @@ folder-totals = { $files ->
     [one] { $files }টি ফাইল, { $size }
    *[other] { $files }টি ফাইল, { $size }
 }
+trash-original-location = মূল অবস্থান: {$location}
+trash-original-unknown = অজানা
+empty-before-eject-title = বের করার আগে ট্র্যাশ খালি করবেন?
+empty-before-eject-body = “{$name}”-এ জায়গা খালি করতে ট্র্যাশ খালি করুন। ট্র্যাশের সব আইটেম স্থায়ীভাবে মুছে যাবে।
+do-not-empty = খালি করবেন না

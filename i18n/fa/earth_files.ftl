@@ -63,7 +63,6 @@ blocked-too-big = «{$name}» برای این درایو ({$fs}) بیش از ح�
 blocked-bad-name = «{$name}» نویسه‌هایی دارد که این درایو ({$fs}) نمی‌تواند نگه دارد
 blocked-delete = شما اجازهٔ حذف «{$name}» را ندارید
 blocked-no-trash = «{$name}» روی درایوی بدون زباله‌دان است
-blocked-trash-full = برای «{$name}» در زباله‌دان جا نیست
 delete-permanently-as-root = حذف دائمی به‌عنوان مدیر
 deleted-for-good = {$more ->
     [0] لغو شد، اما «{$name}» پیش‌تر برای همیشه حذف شده بود
@@ -109,6 +108,9 @@ extract-to-title = استخراج در پوشه
 
 empty-trash = خالی کردن زباله‌دان
 empty-trash-warning = آیا از حذف دائمی همه موارد در زباله‌دان مطمئن هستید؟
+empty-before-eject-title = پیش از بیرون دادن، زباله‌دان خالی شود؟
+empty-before-eject-body = برای آزاد کردن فضا روی «{$name}» زباله‌دان را خالی کنید. همهٔ موارد زباله‌دان برای همیشه حذف می‌شوند.
+do-not-empty = خالی نکن
 
 ## Mount Error Dialog
 
@@ -380,6 +382,8 @@ new-folder = پوشه جدید...
 open-in-terminal = باز کردن در ترمینال
 move-to-trash = انتقال به زباله‌دان
 restore-from-trash = بازیابی از زباله‌دان
+trash-original-location = مکان اصلی: {$location}
+trash-original-unknown = نامشخص
 remove-from-sidebar = حذف از نوار کناری
 removed-from-sidebar = { $name } از نوار کناری حذف شد
 remove-from-recents = حذف از موارد اخیر

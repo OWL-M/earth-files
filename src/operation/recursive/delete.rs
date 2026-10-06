@@ -23,121 +23,21 @@ use std::sync::{Arc, Mutex};
 /// Where an item sent to the trash ends up.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum Place {
-    /// Renamed into a trash on its own filesystem: the home trash, or the
+    /// Renamed into the trash on its own drive: the home trash, or the
     /// drive's own.
     Here,
-    /// Copied into the home trash, on another drive: it takes room there.
-    Home,
-    /// Nowhere: a network or FUSE drive with no trash of its own.
+    /// Nowhere: its drive has no trash that can be used or made.
     Nowhere,
 }
 
-/// The home trash, as the trash crate finds it.
-fn home_trash() -> Option<PathBuf> {
-    let data = std::env::var_os("XDG_DATA_HOME")
-        .filter(|dir| !dir.is_empty())
-        .map(PathBuf::from)
-        .or_else(|| dirs::home_dir().map(|home| home.join(".local/share")))?;
-    Some(data.join("Trash"))
-}
-
-/// The nearest folder of `path` that exists, `path` included.
-fn existing(path: &Path) -> Option<&Path> {
-    path.ancestors()
-        .find(|ancestor| fs::symlink_metadata(ancestor).is_ok())
-}
-
-/// The mount point `path` is under, from `/proc/self/mountinfo`.
-fn mount_point(path: &Path) -> Option<PathBuf> {
-    let path = existing(path)?.canonicalize().ok()?;
-    let mountinfo = fs::read_to_string("/proc/self/mountinfo").ok()?;
-    mountinfo
-        .lines()
-        .filter_map(|line| line.split(' ').nth(4).map(unescape))
-        .filter(|point| path.starts_with(point))
-        .max_by_key(|point| point.as_os_str().len())
-}
-
-/// A mount point as `mountinfo` writes it, with spaces and the like as
-/// octal escapes.
-fn unescape(field: &str) -> PathBuf {
-    use std::os::unix::ffi::OsStringExt;
-
-    let bytes = field.as_bytes();
-    let mut out = Vec::with_capacity(bytes.len());
-    let mut i = 0;
-    while i < bytes.len() {
-        if bytes[i] == b'\\'
-            && let Some(code) = bytes
-                .get(i + 1..i + 4)
-                .and_then(|digits| std::str::from_utf8(digits).ok())
-                .and_then(|digits| u8::from_str_radix(digits, 8).ok())
-        {
-            out.push(code);
-            i += 4;
-        } else {
-            out.push(bytes[i]);
-            i += 1;
-        }
-    }
-    PathBuf::from(std::ffi::OsString::from_vec(out))
-}
-
-/// Whether this user may write to `dir`.
-fn writable(dir: &Path) -> bool {
-    crate::operation::cannot_write(dir).is_none() && dir.is_dir()
-}
-
-/// Where `path` would go in the trash, worked out as the trash crate does
-/// it: the home trash when it is on the same filesystem, else the drive's
-/// own trash (`.Trash/$uid` in a shared sticky `.Trash`, or `.Trash-$uid`),
-/// else the home trash after all, by copying.
+/// Where `path` would go in the trash: see [`crate::trashing::bin_for`].
 ///
 /// Blocking: it asks the filesystem.
 pub(super) fn trash_place(path: &Path) -> Place {
-    use std::os::unix::fs::MetadataExt;
-
-    let Ok(item) = fs::symlink_metadata(path) else {
-        return Place::Here;
-    };
-    if let Some(home) = home_trash().as_deref().and_then(existing)
-        && fs::metadata(home).is_ok_and(|home| home.dev() == item.dev())
-    {
-        return Place::Here;
-    }
-    let Some(top) = mount_point(path.parent().unwrap_or(path)) else {
-        return Place::Here;
-    };
-    // SAFETY: `getuid` has no preconditions and cannot fail
-    let uid = unsafe { libc::getuid() };
-    let shared = top.join(".Trash");
-    if fs::symlink_metadata(&shared)
-        .is_ok_and(|meta| meta.is_dir() && meta.mode() & libc::S_ISVTX != 0)
-    {
-        let own = shared.join(uid.to_string());
-        if writable(&own) || (fs::symlink_metadata(&own).is_err() && writable(&shared)) {
-            return Place::Here;
-        }
-    }
-    let own = top.join(format!(".Trash-{uid}"));
-    match fs::symlink_metadata(&own) {
-        Ok(meta) if meta.is_dir() && writable(&own) => return Place::Here,
-        Err(_) if writable(&top) => return Place::Here,
-        _ => {}
-    }
-    if super::check::is_remote(path.parent().unwrap_or(path)) {
-        Place::Nowhere
+    if fs::symlink_metadata(path).is_err() || crate::trashing::bin_for(path, false).is_some() {
+        Place::Here
     } else {
-        Place::Home
-    }
-}
-
-/// How much `path` takes: a file's size, or all a folder holds.
-fn size_of(path: &Path) -> u64 {
-    match fs::symlink_metadata(path) {
-        Ok(meta) if meta.is_dir() => crate::operation::folder_totals(path).1,
-        Ok(meta) => meta.len(),
-        Err(_) => 0,
+        Place::Nowhere
     }
 }
 
@@ -160,7 +60,7 @@ impl Gone {
 
 /// Deletes `path` for good, a folder with everything in it. A link goes
 /// itself, never what it points at.
-fn remove_tree(path: &Path) -> io::Result<()> {
+pub(crate) fn remove_tree(path: &Path) -> io::Result<()> {
     remove_tree_noting(path, &mut Gone::default())
 }
 
@@ -316,10 +216,8 @@ fn check_deletes(
     paths: &[PathBuf],
     permanently: bool,
     place: fn(&Path) -> Place,
-    free_space: fn(&Path) -> Option<u64>,
 ) -> Result<Vec<Option<Blocked>>, String> {
     let mut problems = vec![None; paths.len()];
-    let mut home = Vec::new();
     for (index, path) in paths.iter().enumerate() {
         if let Err(err) = fs::symlink_metadata(path)
             && err.kind() == io::ErrorKind::NotFound
@@ -340,24 +238,8 @@ fn check_deletes(
         if permanently {
             continue;
         }
-        match place(path) {
-            Place::Here => {}
-            Place::Home => home.push(index),
-            Place::Nowhere => problems[index] = Some(Blocked::NoTrash(path.clone())),
-        }
-    }
-    // Copied into the home trash together: when they do not all fit, each
-    // is asked about
-    if !home.is_empty() {
-        let needed: u64 = home.iter().map(|&index| size_of(&paths[index])).sum();
-        let free = home_trash()
-            .as_deref()
-            .and_then(existing)
-            .and_then(free_space);
-        if free.is_some_and(|free| needed > free) {
-            for index in home {
-                problems[index] = Some(Blocked::TrashFull(paths[index].clone()));
-            }
+        if place(path) == Place::Nowhere {
+            problems[index] = Some(Blocked::NoTrash(path.clone()));
         }
     }
     Ok(problems)
@@ -375,7 +257,6 @@ impl Context {
         permanently: bool,
     ) -> Result<(), OperationError> {
         let result = self.delete_items(paths, permanently).await;
-        self.resolve_trashed().await;
         if self.controller.is_aborted() {
             return result.map_err(|_| self.cancelled());
         }
@@ -433,12 +314,10 @@ impl Context {
             destinations: Vec::new(),
         };
         let checked = {
-            let (paths, place, free_space) = (paths.clone(), self.trash.place, self.free_space);
-            compio::runtime::spawn_blocking(move || {
-                check_deletes(&paths, permanently, place, free_space)
-            })
-            .await
-            .map_err(crate::operation::wrap_compio_spawn_error)?
+            let (paths, place) = (paths.clone(), self.trash.place);
+            compio::runtime::spawn_blocking(move || check_deletes(&paths, permanently, place))
+                .await
+                .map_err(crate::operation::wrap_compio_spawn_error)?
         };
         let problems =
             checked.map_err(|reason| OperationError::from_err(reason, &self.controller))?;
@@ -473,10 +352,7 @@ impl Context {
                             root: blocked.root_can_help().then_some(self.helper.is_some()),
                             not_granted,
                             skip: true,
-                            permanently: matches!(
-                                blocked,
-                                Blocked::NoTrash(_) | Blocked::TrashFull(_)
-                            ),
+                            permanently: matches!(blocked, Blocked::NoTrash(_)),
                             ..Ask::default()
                         };
                         (self.on_blocked)(blocked.clone(), ask).await
@@ -662,15 +538,10 @@ impl Context {
                     .await
                 } else {
                     let item = item.clone();
-                    compio::runtime::spawn_blocking(move || trash::os_limited::purge_all([item]))
+                    compio::runtime::spawn_blocking(move || crate::trashing::purge(&item))
                         .await
                         .map_err(|_| io::Error::other("the trash's worker stopped"))
-                        .and_then(|result| {
-                            result.map_err(|err| match err {
-                                trash::Error::FileSystem { source, .. } => source,
-                                err => io::Error::other(err.to_string()),
-                            })
-                        })
+                        .and_then(|result| result)
                 };
                 let Err(err) = done else {
                     break;
@@ -764,13 +635,13 @@ impl Context {
                 .and_then(|parent| parent.canonicalize().ok())
                 .zip(target.file_name())
                 .map_or(target.clone(), |(parent, name)| parent.join(name));
-            delete(&target).map(|()| target)
+            delete(&target)
         })
         .await
         .map_err(|_| io::Error::other("the trash's worker stopped"))?;
         match trashed {
-            Ok(original) => {
-                self.replaced.push(original);
+            Ok(item) => {
+                self.op_sel.trash_items.push(item);
                 Ok(())
             }
             Err(err) => Err(err as Box<dyn Error>),
@@ -780,7 +651,7 @@ impl Context {
 
 #[cfg(test)]
 mod tests {
-    use super::{Place, unescape};
+    use super::Place;
     use crate::operation::recursive::Context;
     use crate::operation::{Ask, Blocked, BlockedAnswer, Controller};
     use std::cell::RefCell;
@@ -788,15 +659,6 @@ mod tests {
     use std::path::{Path, PathBuf};
     use std::rc::Rc;
     use test_log::test;
-
-    #[test]
-    fn mount_points_are_unescaped() {
-        assert_eq!(
-            unescape(r"/run/media/user/My\040Stick"),
-            PathBuf::from("/run/media/user/My Stick")
-        );
-        assert_eq!(unescape("/"), PathBuf::from("/"));
-    }
 
     /// A local folder always has somewhere in a trash to go: its drive's
     /// own, or the home trash
@@ -1120,5 +982,43 @@ mod tests {
             err.to_string(),
             crate::fl!("deleted-for-good", name = "b", more = 0)
         );
+    }
+
+    /// What went to the trash is recorded as the trash gave it back, for undo
+    #[test(compio::test)]
+    async fn the_delete_records_each_trashed_item() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let (a, b) = (dir.path().join("a"), dir.path().join("b"));
+        fs::write(&a, "a").expect("write");
+        fs::write(&b, "b").expect("write");
+        let ctx = Context::new(Controller::default());
+        let (_, result, ctx) = delete_with(ctx, vec![a.clone(), b.clone()], false, |_| {
+            BlockedAnswer::Cancel
+        })
+        .await;
+        result.expect("deleted");
+        let mut back: Vec<PathBuf> = ctx
+            .op_sel
+            .trash_items
+            .iter()
+            .map(trash::TrashItem::original_path)
+            .collect();
+        back.sort();
+        assert_eq!(back, vec![a, b]);
+    }
+
+    /// An entry with no `.trashinfo` is removed from the trash like any
+    #[test(compio::test)]
+    async fn purging_takes_an_orphan_too() {
+        let top = tempfile::tempdir().expect("tempdir");
+        let bin = crate::trashing::drive_bin(top.path(), true).expect("bin");
+        fs::create_dir_all(bin.root.join("files/o/sub")).expect("mkdir");
+        let (orphan, _) = crate::trashing::list_bin(&bin).pop().expect("listed");
+        let (files, info) = crate::operation::in_trash(&orphan);
+        let mut ctx = Context::new(Controller::default());
+        ctx.purge(vec![(orphan, files, info)])
+            .await
+            .expect("purged");
+        assert_eq!(fs::read_dir(bin.root.join("files")).expect("ls").count(), 0);
     }
 }

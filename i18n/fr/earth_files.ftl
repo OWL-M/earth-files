@@ -66,7 +66,6 @@ blocked-too-big = « {$name} » est trop volumineux pour ce lecteur ({$fs})
 blocked-bad-name = « {$name} » contient des caractères que ce lecteur ({$fs}) ne peut pas accepter
 blocked-delete = Vous n'avez pas l'autorisation de supprimer « {$name} »
 blocked-no-trash = « {$name} » se trouve sur un disque sans corbeille
-blocked-trash-full = Il n'y a pas assez de place dans la corbeille pour « {$name} »
 delete-permanently-as-root = Supprimer définitivement en tant qu'administrateur
 deleted-for-good = {$more ->
     [0] Annulé, mais « {$name} » avait déjà été supprimé définitivement
@@ -112,6 +111,9 @@ extract-to-title = Extraire vers le dossier
 
 empty-trash = Vider la corbeille
 empty-trash-warning = Les éléments de la corbeille seront définitivement supprimés
+empty-before-eject-title = Vider la corbeille avant l'éjection ?
+empty-before-eject-body = Videz la corbeille pour libérer de l'espace sur « {$name} ». Tous les éléments de la corbeille seront définitivement supprimés.
+do-not-empty = Ne pas vider
 
 ## Mount Error Dialog
 
@@ -421,6 +423,8 @@ new-folder = Nouveau dossier...
 open-in-terminal = Ouvrir dans le terminal
 move-to-trash = Déplacer vers la corbeille
 restore-from-trash = Restaurer depuis la corbeille
+trash-original-location = Emplacement d'origine : {$location}
+trash-original-unknown = Inconnu
 remove-from-sidebar = Retirer de la barre latérale
 removed-from-sidebar = { $name } retiré de la barre latérale
 

@@ -70,7 +70,6 @@ blocked-too-big = „{$name}” jest za duży dla tego dysku ({$fs})
 blocked-bad-name = „{$name}” zawiera znaki, których ten dysk ({$fs}) nie obsługuje
 blocked-delete = Nie masz uprawnień do usunięcia „{$name}”
 blocked-no-trash = „{$name}” znajduje się na dysku bez kosza
-blocked-trash-full = W koszu nie ma miejsca na „{$name}”
 delete-permanently-as-root = Usuń definitywnie jako administrator
 deleted-for-good = {$more ->
     [0] Anulowano, ale „{$name}” zostało już definitywnie usunięte
@@ -123,6 +122,9 @@ extract-to-title = Wypakuj do katalogu
 
 empty-trash = Opróżnienie kosza
 empty-trash-warning = Elementy z kosza zostaną bezpowrotnie usunięte
+empty-before-eject-title = Opróżnić kosz przed wysunięciem?
+empty-before-eject-body = Opróżnij kosz, aby zwolnić miejsce na „{$name}”. Wszystkie elementy w koszu zostaną trwale usunięte.
+do-not-empty = Nie opróżniaj
 
 ## Mount Error Dialog
 
@@ -456,6 +458,8 @@ new-folder = Nowy katalog...
 open-in-terminal = Otwórz w terminalu
 move-to-trash = Przenieś do kosza
 restore-from-trash = Przywróć z kosza
+trash-original-location = Pierwotne położenie: {$location}
+trash-original-unknown = Nieznane
 remove-from-sidebar = Usuń z bocznego panelu
 removed-from-sidebar = Usunięto { $name } z bocznego panelu
 remove-from-recents = Usuń z poprzednich

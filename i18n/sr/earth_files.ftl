@@ -162,7 +162,6 @@ blocked-too-big = Ставка „{$name}“ је превелика за ова
 blocked-bad-name = Ставка „{$name}“ садржи знакове које овај уређај ({$fs}) не може да сачува
 blocked-delete = Немате дозволу да обришете ставку „{$name}“
 blocked-no-trash = Ставка „{$name}“ се налази на диску без смећа
-blocked-trash-full = У смећу нема места за ставку „{$name}“
 delete-permanently-as-root = Обриши трајно као администратор
 deleted-for-good = {$more ->
     [0] Отказано, али је ставка „{$name}“ већ трајно обрисана
@@ -347,6 +346,8 @@ sort-largest-to-smallest = Од највеће до најмање
 sort-type-a-z = Врста А-Ш
 sort-type-z-a = Врста Ш-А
 restore-from-trash = Врати из смећа
+trash-original-location = Изворна локација: {$location}
+trash-original-unknown = Непознато
 cut = Исеци
 moved =
     Премештено { $items } { $items ->
@@ -377,6 +378,9 @@ favorite-path-error-description =
 
     Желите ли да га уклоните из бочне површи?
 empty-trash-warning = Ставке у смећу биће трајно обрисане
+empty-before-eject-title = Испразнити смеће пре избацивања?
+empty-before-eject-body = Испразните смеће да бисте ослободили простор на „{$name}“. Све ставке у смећу биће трајно обрисане.
+do-not-empty = Не празни
 empty-trash = Испразни смеће
 empty-trash-title = Испразнити смеће?
 type-to-search = Куцајте за претрагу

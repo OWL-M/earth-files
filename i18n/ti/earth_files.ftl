@@ -27,7 +27,6 @@ blocked-too-big = "{$name}" ነዚ ድራይቭ ({$fs}) ኣዝዩ ዓቢ እዩ
 blocked-bad-name = "{$name}" እዚ ድራይቭ ({$fs}) ክሕዞም ዘይክእል ፊደላት ኣለዎ
 blocked-delete = ነቲ "{$name}" ንምድምሳስ ፍቓድ የብልካን
 blocked-no-trash = "{$name}" ቆሻሻ ዘይብሉ ድራይቭ ኣሎ
-blocked-trash-full = ንናይ "{$name}" ኣብ ቆሻሻ ቦታ የለን
 delete-permanently-as-root = ከም ኣመሓዳሪ ንዘልኣለም ደምስስ
 deleted-for-good = {$more ->
     [0] ተሰሪዙ፣ ግን "{$name}" ኣቐዲሙ ንዘልኣለም ተደምሲሱ
@@ -60,3 +59,8 @@ folder-totals = { $files ->
     [one] { $files } ፋይል, { $size }
    *[other] { $files } ፋይላት, { $size }
 }
+trash-original-location = ናይ መጀመርታ ቦታ: {$location}
+trash-original-unknown = ዘይፍለጥ
+empty-before-eject-title = ቅድሚ ምውጻእ ጓሓፍ ክጽረ ዶ?
+empty-before-eject-body = ኣብ “{$name}” ቦታ ንምፍናው ጓሓፍ ኣጽርዩ። ኩሎም ኣብ ጓሓፍ ዘለዉ ነገራት ንሓዋሩ ክድምሰሱ እዮም።
+do-not-empty = ኣይተጽሪ

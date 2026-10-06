@@ -65,7 +65,6 @@ blocked-too-big = „{$name}” túl nagy ehhez a meghajtóhoz ({$fs})
 blocked-bad-name = „{$name}” olyan karaktereket tartalmaz, amelyeket ez a meghajtó ({$fs}) nem tud tárolni
 blocked-delete = Nincs jogosultsága törölni: „{$name}”
 blocked-no-trash = „{$name}” kuka nélküli meghajtón van
-blocked-trash-full = Nincs elég hely a kukában ehhez: „{$name}”
 delete-permanently-as-root = Végleges törlés rendszergazdaként
 deleted-for-good = {$more ->
     [0] Megszakítva, de „{$name}” már véglegesen törölve lett
@@ -111,6 +110,9 @@ extract-to-title = Kibontási cél kiválasztása
 
 empty-trash = A Kuka ürítése
 empty-trash-warning = A Kukában lévő összes elem véglegesen törölve lesz
+empty-before-eject-title = Kiüríti a kukát a kiadás előtt?
+empty-before-eject-body = Ürítse ki a kukát, hogy helyet szabadítson fel ezen: „{$name}”. A kuka minden eleme véglegesen törlődik.
+do-not-empty = Ne ürítse
 
 ## Mount Error Dialog
 
@@ -431,6 +433,8 @@ new-folder = Új mappa…
 open-in-terminal = Megnyitás a terminálban
 move-to-trash = Áthelyezés a Kukába
 restore-from-trash = Visszaállítás a Kukából
+trash-original-location = Eredeti hely: {$location}
+trash-original-unknown = Ismeretlen
 remove-from-sidebar = Eltávolítás az oldalsávról
 removed-from-sidebar = { $name } eltávolítva az oldalsávról
 remove-from-recents = Eltávolítás a legutóbbiak közül

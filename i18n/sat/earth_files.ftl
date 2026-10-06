@@ -30,7 +30,6 @@ blocked-too-big = "{$name}" ᱫᱚ ᱱᱚᱶᱟ ᱰᱨᱟᱭᱤᱵ ({$fs}) ᱞ�
 blocked-bad-name = "{$name}" ᱨᱮ ᱢᱮᱱᱟᱜ ᱚᱠᱷᱚᱨ ᱠᱚ ᱱᱚᱶᱟ ᱰᱨᱟᱭᱤᱵ ({$fs}) ᱫᱚᱦᱚ ᱵᱟᱝ ᱜᱟᱱᱚᱜ ᱠᱟᱱᱟ
 blocked-delete = ᱟᱢ ᱥᱟᱶᱛᱮ "{$name}" ᱚᱪᱚᱜ ᱞᱟᱹᱜᱤᱫ ᱪᱷᱚᱴ ᱵᱟᱝ ᱢᱮᱱᱟᱜ-ᱟ
 blocked-no-trash = "{$name}" ᱴᱨᱟᱥ ᱵᱟᱹᱱᱩᱜ ᱰᱨᱟᱭᱣ ᱨᱮ ᱢᱮᱱᱟᱜ-ᱟ
-blocked-trash-full = ᱴᱨᱟᱥ ᱨᱮ "{$name}" ᱞᱟᱹᱜᱤᱫ ᱡᱟᱭᱜᱟ ᱵᱟᱹᱱᱩᱜ-ᱟ
 delete-permanently-as-root = ᱮᱰᱢᱤᱱᱤᱥᱴᱨᱮᱴᱚᱨ ᱞᱮᱠᱟᱛᱮ ᱥᱚᱫᱚᱢ ᱞᱟᱹᱜᱤᱫ ᱚᱪᱚᱜ ᱢᱮ
 deleted-for-good = {$more ->
     [0] ᱵᱟᱹᱛᱤᱞ ᱮᱱᱟ ᱢᱮᱱᱠᱷᱟᱱ "{$name}" ᱫᱚ ᱵᱟᱝ ᱥᱟᱹᱜᱷᱟᱱ ᱥᱚᱫᱚᱢ ᱞᱟᱹᱜᱤᱫ ᱚᱪᱚᱜ ᱦᱚᱪᱚᱭ ᱮᱱᱟ
@@ -66,3 +65,8 @@ folder-totals = { $files ->
     [two] { $files } ᱯᱷᱟᱭᱤᱞ, { $size }
    *[other] { $files } ᱯᱷᱟᱭᱤᱞ, { $size }
 }
+trash-original-location = ᱢᱩᱞ ᱡᱟᱭᱜᱟ: {$location}
+trash-original-unknown = ᱵᱟᱝ ᱵᱟᱰᱟᱭᱟ
+empty-before-eject-title = ᱚᱰᱚᱠ ᱞᱟᱦᱟ ᱨᱮ ᱠᱩᱲᱟᱹ ᱠᱷᱟᱹᱞᱤ ᱢᱮ?
+empty-before-eject-body = “{$name}” ᱨᱮ ᱡᱟᱭᱜᱟ ᱠᱷᱟᱹᱞᱤ ᱞᱟᱹᱜᱤᱫ ᱠᱩᱲᱟᱹ ᱠᱷᱟᱹᱞᱤ ᱢᱮ ᱾ ᱠᱩᱲᱟᱹ ᱨᱮᱭᱟᱜ ᱡᱷᱚᱛᱚ ᱡᱤᱱᱤᱥ ᱡᱩᱨᱤ ᱞᱟᱹᱜᱤᱫ ᱢᱮᱴᱟᱣᱜᱼᱟ ᱾
+do-not-empty = ᱟᱞᱚᱢ ᱠᱷᱟᱹᱞᱤᱭᱟ

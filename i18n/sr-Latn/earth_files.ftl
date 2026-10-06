@@ -26,6 +26,8 @@ new-file = Nova datoteka
 new-folder = Nova fascikla
 move-to-trash = Premesti u otpad
 restore-from-trash = Vrati iz otpada
+trash-original-location = Izvorna lokacija: {$location}
+trash-original-unknown = Nepoznato
 
 # Menu
 
@@ -90,7 +92,6 @@ blocked-too-big = Stavka „{$name}“ je prevelika za ovaj uređaj ({$fs})
 blocked-bad-name = Stavka „{$name}“ sadrži znakove koje ovaj uređaj ({$fs}) ne može da sačuva
 blocked-delete = Nemate dozvolu da obrišete stavku „{$name}“
 blocked-no-trash = Stavka „{$name}“ se nalazi na disku bez otpada
-blocked-trash-full = U otpadu nema mesta za stavku „{$name}“
 delete-permanently-as-root = Obriši trajno kao administrator
 deleted-for-good = {$more ->
     [0] Otkazano, ali je stavka „{$name}“ već trajno obrisana
@@ -129,3 +130,6 @@ folder-totals = { $files ->
     [few] { $files } datoteke, { $size }
    *[other] { $files } datoteka, { $size }
 }
+empty-before-eject-title = Isprazniti smeće pre izbacivanja?
+empty-before-eject-body = Ispraznite smeće da biste oslobodili prostor na „{$name}“. Sve stavke u smeću biće trajno obrisane.
+do-not-empty = Ne prazni

@@ -31,6 +31,9 @@ file-type-other = Outro
 
 empty-trash = Esvaziar lixo
 empty-trash-warning = Pretende eliminar permanentemente todos os itens do Lixo?
+empty-before-eject-title = Esvaziar o lixo antes de ejetar?
+empty-before-eject-body = Esvazie o lixo para libertar espaço em “{$name}”. Todos os itens no lixo serão eliminados permanentemente.
+do-not-empty = Não esvaziar
 # New File/Folder Dialog
 create-new-file = Criar novo ficheiro
 create-new-folder = Criar nova pasta
@@ -173,6 +176,8 @@ new-folder = Nova pasta...
 open-in-terminal = Abrir no terminal
 move-to-trash = Mover para o lixo
 restore-from-trash = Restaurar do lixo
+trash-original-location = Localização original: {$location}
+trash-original-unknown = Desconhecida
 remove-from-sidebar = Remover da barra lateral
 removed-from-sidebar = { $name } removido da barra lateral
 
@@ -259,7 +264,6 @@ blocked-too-big = "{$name}" é demasiado grande para esta unidade ({$fs})
 blocked-bad-name = "{$name}" tem caracteres que esta unidade ({$fs}) não suporta
 blocked-delete = Não tem permissão para eliminar "{$name}"
 blocked-no-trash = "{$name}" está numa unidade sem lixo
-blocked-trash-full = Não há espaço no lixo para "{$name}"
 delete-permanently-as-root = Eliminar permanentemente como administrador
 deleted-for-good = {$more ->
     [0] Cancelado, mas "{$name}" já foi eliminado permanentemente

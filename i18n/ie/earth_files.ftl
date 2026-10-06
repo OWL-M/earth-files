@@ -27,7 +27,6 @@ blocked-too-big = "{$name}" es tro grand por ti-ci unité ({$fs})
 blocked-bad-name = "{$name}" contene caracteres queles ti-ci unité ({$fs}) ne posse contener
 blocked-delete = Tu ne have permission por deleter "{$name}"
 blocked-no-trash = "{$name}" es sur un disc sin paper-corb
-blocked-trash-full = Il ne hay spacie in li paper-corb por "{$name}"
 delete-permanently-as-root = Deleter permanentmen quam administrator
 deleted-for-good = {$more ->
     [0] Anullat, ma "{$name}" esset ja deletet permanentmen
@@ -60,3 +59,8 @@ folder-totals = { $files ->
     [one] { $files } file, { $size }
    *[other] { $files } files, { $size }
 }
+trash-original-location = Original localisation: {$location}
+trash-original-unknown = Ínconosset
+empty-before-eject-title = Vacuar li Paper-corbe ante ejecter?
+empty-before-eject-body = Vacua li paper-corbe por liberar spacie sur “{$name}”. Omni elementes in li paper-corbe va esser deletet permanentmen.
+do-not-empty = Ne vacuar

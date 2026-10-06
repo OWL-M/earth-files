@@ -27,7 +27,6 @@ blocked-too-big = "{$name}" terlalu besar untuk pemacu ini ({$fs})
 blocked-bad-name = "{$name}" mempunyai aksara yang tidak dapat disimpan oleh pemacu ini ({$fs})
 blocked-delete = Anda tiada kebenaran untuk memadam "{$name}"
 blocked-no-trash = "{$name}" berada pada pemacu tanpa tong sampah
-blocked-trash-full = Tiada ruang dalam tong sampah untuk "{$name}"
 delete-permanently-as-root = Padam secara kekal sebagai pentadbir
 deleted-for-good = {$more ->
     [0] Dibatalkan, tetapi "{$name}" sudah dipadam secara kekal
@@ -58,3 +57,8 @@ replace-folder-warning = Adakah anda mahu menggabungkannya, atau menggantikan fo
 folder-totals = { $files ->
    *[other] { $files } fail, { $size }
 }
+trash-original-location = Lokasi asal: {$location}
+trash-original-unknown = Tidak diketahui
+empty-before-eject-title = Kosongkan tong sampah sebelum mengeluarkan?
+empty-before-eject-body = Kosongkan tong sampah untuk mengosongkan ruang pada “{$name}”. Semua item dalam tong sampah akan dipadam secara kekal.
+do-not-empty = Jangan kosongkan

@@ -28,6 +28,9 @@ create-archive = Skapa arkiv
 
 empty-trash = Töm papperskorgen
 empty-trash-warning = Objekt i papperskorgen kommer att tas bort permanent
+empty-before-eject-title = Töm papperskorgen innan utmatning?
+empty-before-eject-body = Töm papperskorgen för att frigöra utrymme på ”{$name}”. Alla objekt i papperskorgen tas bort permanent.
+do-not-empty = Töm inte
 
 ## Monteringsfel dialogruta
 
@@ -158,7 +161,6 @@ blocked-too-big = "{$name}" är för stor för den här enheten ({$fs})
 blocked-bad-name = "{$name}" innehåller tecken som den här enheten ({$fs}) inte kan lagra
 blocked-delete = Du har inte behörighet att ta bort "{$name}"
 blocked-no-trash = "{$name}" finns på en enhet utan papperskorg
-blocked-trash-full = Det finns inte plats i papperskorgen för "{$name}"
 delete-permanently-as-root = Ta bort permanent som administratör
 deleted-for-good = {$more ->
     [0] Avbruten, men "{$name}" hade redan tagits bort permanent
@@ -350,6 +352,8 @@ new-folder = Ny mapp…
 open-in-terminal = Öppna i terminal
 move-to-trash = Flytta till papperskorg
 restore-from-trash = Återställ från papperskorgen
+trash-original-location = Ursprunglig plats: {$location}
+trash-original-unknown = Okänd
 remove-from-sidebar = Ta bort från sidofält
 removed-from-sidebar = { $name } togs bort från sidofältet
 

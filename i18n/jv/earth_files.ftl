@@ -27,7 +27,6 @@ blocked-too-big = "{$name}" kegedhen kanggo drive iki ({$fs})
 blocked-bad-name = "{$name}" ngemot karakter sing ora bisa disimpen drive iki ({$fs})
 blocked-delete = Sampeyan ora duwe ijin kanggo mbusak "{$name}"
 blocked-no-trash = "{$name}" ana ing drive tanpa tempat sampah
-blocked-trash-full = Ora ana papan ing tempat sampah kanggo "{$name}"
 delete-permanently-as-root = Busak permanen minangka administrator
 deleted-for-good = {$more ->
     [0] Dibatalake, nanging "{$name}" wis dibusak permanen
@@ -58,3 +57,8 @@ replace-folder-warning = Apa sampeyan péngin nggabung, utawa ngganti folder sin
 folder-totals = { $files ->
    *[other] { $files } berkas, { $size }
 }
+trash-original-location = Lokasi asli: {$location}
+trash-original-unknown = Ora dingerteni
+empty-before-eject-title = Kosongaké sampah sadurungé dicopot?
+empty-before-eject-body = Kosongaké sampah kanggo mbebasaké papan ing “{$name}”. Kabèh item ing sampah bakal dibusak permanen.
+do-not-empty = Aja dikosongaké

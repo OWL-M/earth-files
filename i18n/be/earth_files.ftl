@@ -68,7 +68,6 @@ blocked-too-big = «{$name}» занадта вялікі для гэтага д
 blocked-bad-name = «{$name}» мае сімвалы, якія гэты дыск ({$fs}) не можа захоўваць
 blocked-delete = У вас няма дазволу выдаліць «{$name}»
 blocked-no-trash = «{$name}» знаходзіцца на дыску без сметніцы
-blocked-trash-full = У сметніцы няма месца для «{$name}»
 delete-permanently-as-root = Выдаліць назаўжды як адміністратар
 deleted-for-good = {$more ->
     [0] Скасавана, але «{$name}» ужо выдалена назаўжды
@@ -122,6 +121,9 @@ extract-to-title = Выняць у папку
 
 empty-trash = Ачысціць сметніцу
 empty-trash-warning = Вы сапраўды хочаце назаўсёды выдаліць усе элементы з сметніцы?
+empty-before-eject-title = Ачысціць сметніцу перад выманнем?
+empty-before-eject-body = Ачысціце сметніцу, каб вызваліць месца на «{$name}». Усе элементы ў сметніцы будуць выдалены назаўсёды.
+do-not-empty = Не ачышчаць
 
 ## Mount Error Dialog
 
@@ -461,6 +463,8 @@ new-folder = Новая папка...
 open-in-terminal = Адкрыць у кансолі
 move-to-trash = Перамясціць у сметніцу
 restore-from-trash = Аднавіць са сметніцы
+trash-original-location = Зыходнае месца: {$location}
+trash-original-unknown = Невядома
 remove-from-sidebar = Выдаліць з бакавой панэлі
 removed-from-sidebar = { $name } выдалена з бакавой панэлі
 

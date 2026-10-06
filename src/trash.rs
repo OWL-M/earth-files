@@ -2,7 +2,7 @@ use crate::ui::widget;
 use regex::Regex;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
-use std::sync::LazyLock;
+use std::sync::RwLock;
 
 use crate::config::IconSizes;
 use crate::tab::{Item, SearchItem};
@@ -14,7 +14,7 @@ use crate::tab::{Item, SearchItem};
 /// keeps any name the filesystem allows, including ones that are not UTF-8.
 /// Pushing each byte as a `char` would instead read them as Latin-1 and
 /// mangle every non-ASCII name.
-fn percent_decode(s: &str) -> Option<PathBuf> {
+pub(crate) fn percent_decode(s: &str) -> Option<PathBuf> {
     use std::ffi::OsString;
     use std::os::unix::ffi::OsStringExt;
 
@@ -56,17 +56,10 @@ pub trait TrashExt {
     }
 }
 
-/// Derive the actual filesystem path of a trashed item from its .trashinfo path
-/// (or return the id directly if it's already a filesystem path).
+/// Where the trash keeps `item`: see [`crate::operation::in_trash`].
+/// `None` for an id that is no full path, which names no copy.
 pub fn trash_item_path(item: &trash::TrashItem) -> Option<PathBuf> {
-    let id_path = Path::new(&item.id);
-    if id_path.extension().is_some_and(|e| e == "trashinfo") {
-        let trash_root = id_path.parent()?.parent()?;
-        let file_name = id_path.file_stem()?;
-        Some(trash_root.join("files").join(file_name))
-    } else {
-        Some(PathBuf::from(&item.id))
-    }
+    Some(crate::operation::in_trash(item).0).filter(|path| path.is_absolute())
 }
 
 /// For a path inside a trash `files/` directory, reconstruct the original path
@@ -78,33 +71,69 @@ pub fn trash_item_path(item: &trash::TrashItem) -> Option<PathBuf> {
 /// - Compute: `<original_path>/sub/file.txt`
 pub fn original_path_for_trash_child(p: &Path) -> Option<PathBuf> {
     let files = trash_files_dir(p)?;
-    let root = files.parent()?;
+    let bin = crate::trashing::bin_at(files.parent()?);
     let top = p.strip_prefix(files).ok()?.components().next()?;
-    let mut trashinfo_name = top.as_os_str().to_os_string();
-    trashinfo_name.push(".trashinfo");
-    let info = std::fs::read_to_string(root.join("info").join(trashinfo_name)).ok()?;
-    let orig = percent_decode(info.lines().find_map(|l| l.strip_prefix("Path="))?.trim())?;
+    let mut result = crate::trashing::origin_of(&bin, top.as_os_str())?;
     let rel = p.strip_prefix(files.join(top)).ok()?;
-    let mut result = orig;
     if !rel.as_os_str().is_empty() {
         result.push(rel);
     }
     Some(result)
 }
 
-static TRASH_FOLDERS: LazyLock<HashSet<PathBuf>> = LazyLock::new(|| {
-    Trash::folders().unwrap_or_else(|e| {
-        log::warn!("failed to list trash folders: {}", e);
-        HashSet::new()
-    })
-});
+/// The trash folders there are, as last looked at: see [`refresh_folders`]
+/// and [`set_folders`].
+static TRASH_FOLDERS: RwLock<Option<HashSet<PathBuf>>> = RwLock::new(None);
+
+/// Looks again for the trash folders, after drives were mounted or a delete
+/// may have made a drive's trash.
+pub fn refresh_folders() {
+    set_folders(Trash::folders().unwrap_or_default());
+}
+
+/// Adds `folder` to the trash folders known, as a search would find it.
+#[cfg(test)]
+pub fn remember_folder(folder: PathBuf) {
+    if TRASH_FOLDERS
+        .read()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .is_none()
+    {
+        refresh_folders();
+    }
+    if let Some(folders) = TRASH_FOLDERS
+        .write()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .as_mut()
+    {
+        folders.insert(folder);
+    }
+}
+
+/// Takes `folders` as the trash folders there are, found elsewhere.
+pub fn set_folders(folders: HashSet<PathBuf>) {
+    *TRASH_FOLDERS
+        .write()
+        .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(folders);
+}
 
 fn is_trash_root(root: &Path) -> bool {
-    if TRASH_FOLDERS.is_empty() {
-        root.join("info").is_dir()
-    } else {
-        TRASH_FOLDERS.contains(root)
-    }
+    let known =
+        |folders: &Option<HashSet<PathBuf>>| folders.as_ref().map(|folders| folders.contains(root));
+    let found = known(
+        &TRASH_FOLDERS
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner),
+    );
+    found.unwrap_or_else(|| {
+        refresh_folders();
+        known(
+            &TRASH_FOLDERS
+                .read()
+                .unwrap_or_else(std::sync::PoisonError::into_inner),
+        )
+        .unwrap_or(false)
+    })
 }
 
 fn trash_files_dir(path: &Path) -> Option<&Path> {
@@ -121,11 +150,14 @@ pub struct Trash;
 
 impl TrashExt for Trash {
     fn is_empty() -> bool {
-        trash::os_limited::is_empty().unwrap_or(true)
+        crate::trashing::is_empty()
     }
 
     fn folders() -> Result<HashSet<PathBuf>, trash::Error> {
-        trash::os_limited::trash_folders()
+        Ok(crate::trashing::bins()
+            .into_iter()
+            .map(|bin| bin.root)
+            .collect())
     }
 
     fn scan(sizes: IconSizes) -> Vec<Item> {
@@ -133,24 +165,12 @@ impl TrashExt for Trash {
         use crate::tab::item_from_trash_entry;
         use std::cmp::Ordering;
 
-        let entries = match trash::os_limited::list() {
-            Ok(entry) => entry,
-            Err(err) => {
-                log::warn!("failed to read trash items: {err}");
-                return Vec::new();
-            }
-        };
-        let mut items: Vec<_> = entries
+        let mut items: Vec<_> = crate::trashing::list()
             .into_iter()
-            .filter_map(|entry| {
-                let metadata = trash::os_limited::metadata(&entry)
-                    .inspect_err(|err| {
-                        log::warn!("failed to get metadata for trash item {entry:?}: {err}")
-                    })
-                    .ok()?;
+            .map(|(entry, metadata)| {
                 let item = item_from_trash_entry(entry, metadata, sizes);
                 crate::tab::fill_image_dimensions(&item);
-                Some(item)
+                item
             })
             .collect();
         items.sort_by(|a, b| match (a.metadata.is_dir(), b.metadata.is_dir()) {
@@ -162,22 +182,10 @@ impl TrashExt for Trash {
     }
 
     fn scan_search<F: Fn(SearchItem) -> bool + Sync>(callback: F, regex: &Regex) {
-        let entries = match trash::os_limited::list() {
-            Ok(entries) => entries,
-            Err(err) => {
-                log::warn!("failed to read trash items: {err}");
-                return;
-            }
-        };
-
-        for entry in entries {
-            if let Ok(metadata) = trash::os_limited::metadata(&entry).inspect_err(|err| {
-                log::warn!("failed to get metadata for trash item {entry:?}: {err}")
-            }) {
-                let name = entry.name.to_string_lossy();
-                if regex.is_match(&name) && !callback(SearchItem::Trash(entry, metadata)) {
-                    break;
-                }
+        for (entry, metadata) in crate::trashing::list() {
+            let name = entry.name.to_string_lossy();
+            if regex.is_match(&name) && !callback(SearchItem::Trash(entry, metadata)) {
+                break;
             }
         }
     }

@@ -214,6 +214,9 @@ pub struct Config {
     /// Deleting for good goes ahead without asking first. Emptying the
     /// trash still asks.
     pub delete_i_am_stupid: bool,
+    /// Ejecting a drive from the app first asks to empty its trash, when
+    /// that holds anything. Off, the drive's trash stays as it is.
+    pub empty_unmount: bool,
 }
 
 impl Config {
@@ -266,6 +269,7 @@ impl Default for Config {
             type_to_search: TypeToSearch::Recursive,
             key_binds: FxOrderMap::default(),
             delete_i_am_stupid: false,
+            empty_unmount: true,
         }
     }
 }
@@ -391,6 +395,16 @@ impl IconSizes {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A config saved before the setting existed asks too
+    #[test]
+    fn emptying_before_ejecting_is_asked_by_default() {
+        assert!(Config::default().empty_unmount);
+        let config: Config = ron::from_str("()").expect("parse");
+        assert!(config.empty_unmount);
+        let config: Config = ron::from_str("(empty_unmount: false)").expect("parse");
+        assert!(!config.empty_unmount);
+    }
 
     #[test]
     fn favorite_with_label_converts_path_to_named() {

@@ -121,6 +121,22 @@ type QuestionNotice = (u32, notify_rust::Notification);
 #[cfg(not(feature = "notify"))]
 type QuestionNotice = ();
 
+/// Whether ejecting a drive looks at its trash first, to ask about
+/// emptying it: the setting on, and a drive the app trashes on, not a
+/// network one.
+fn asks_before_ejecting(empty_unmount: bool, remote: bool) -> bool {
+    empty_unmount && !remote
+}
+
+/// The trash folders there are now, sorted, for the trash watcher.
+fn trash_bins() -> Vec<PathBuf> {
+    let mut bins: Vec<PathBuf> = Trash::folders()
+        .map(|bins| bins.into_iter().collect())
+        .unwrap_or_default();
+    bins.sort();
+    bins
+}
+
 /// Whether operation `id`'s notification on record in `notices` is the
 /// desktop's `notice`: a late answer or close of an older one is not.
 fn notice_on_record(notices: &BTreeMap<u64, NoticeSlot>, id: u64, notice: u32) -> bool {
@@ -396,6 +412,14 @@ pub enum Message {
     DialogCancel,
     DialogComplete,
     Eject,
+    /// The trash of the drive about to be ejected was looked at: whether it
+    /// holds anything.
+    EjectChecked(MounterKey, MounterItem, PathBuf, bool),
+    /// Eject the drive asked about without emptying its trash.
+    EjectWithoutEmptying,
+    /// The trash folders there are now, as found by a worker for the search
+    /// with this number.
+    TrashBins(u64, Vec<PathBuf>),
     FileDialogMessage(DialogMessage),
     DialogPush(DialogPage, Option<widget::Id>),
     DialogUpdate(DialogPage),
@@ -662,6 +686,12 @@ pub enum DialogPage {
         password: Option<String>,
     },
     EmptyTrash,
+    /// Ejecting a drive whose trash holds something: empty it first?
+    EmptyBeforeEject {
+        mounter_key: MounterKey,
+        item: MounterItem,
+        root: PathBuf,
+    },
     FailedOperation(u64),
     /// Operation `id` asks about a path it may not touch; its question is in
     /// [`App::blocked`].
@@ -1029,6 +1059,13 @@ pub struct App {
     mime_app_cache: MimeAppCache,
     modifiers: Modifiers,
     mounter_items: FxHashMap<MounterKey, MounterItems>,
+    /// The trash folders the trash watcher watches: the home trash and those
+    /// of the drives mounted now. Looked at again as drives come and go and
+    /// as operations end, since a delete can make a drive's trash.
+    trash_bins: Vec<PathBuf>,
+    /// The number of the latest search for the trash folders: an answer to
+    /// an older one, overtaken while a drive came or went, is dropped.
+    trash_bins_asked: u64,
     must_save_sort_names: bool,
     network_drive_connecting: Option<(MounterKey, String)>,
     network_drive_input: String,
@@ -1068,6 +1105,9 @@ pub struct App {
     /// running now: each waits for the one before, as a restore needs its
     /// place free first. Undos started one after another keep their own.
     undo_queues: HashMap<u64, VecDeque<Operation>>,
+    /// Drives to eject once the operation emptying their trash, by its id,
+    /// has finished. Cancelled or failed, the drive stays.
+    unmount_after: HashMap<u64, (MounterKey, MounterItem)>,
     scrollable_name: std::borrow::Cow<'static, str>,
     search_id: widget::Id,
     /// The tab whose search just ended, with its last term: its field stays
@@ -2066,11 +2106,66 @@ impl App {
         })
     }
 
+    /// Ejects or unmounts `item`, tracked as a task.
+    fn unmount(&mut self, mounter_key: MounterKey, item: MounterItem) -> Task<Message> {
+        let Some(mounter) = MOUNTERS.get(&mounter_key) else {
+            return Task::none();
+        };
+        let key = self.progress_unmount(&item);
+        mounter
+            .unmount(item)
+            .map(move |outcome| crate::ui::action::app(Message::ProgressEnd(key.clone(), outcome)))
+    }
+
+    /// Ejects `item`, first asking to empty its trash when the setting says
+    /// so and the trash holds anything. The trash is looked at off the UI
+    /// thread: a drive can be slow to answer.
+    fn eject(&mut self, mounter_key: MounterKey, item: MounterItem) -> Task<Message> {
+        let root = item
+            .path()
+            .filter(|_| asks_before_ejecting(self.config.empty_unmount, item.is_remote()));
+        let Some(root) = root else {
+            return self.unmount(mounter_key, item);
+        };
+        Task::future(async move {
+            let at = root.clone();
+            let has_items =
+                tokio::task::spawn_blocking(move || crate::trashing::drive_has_items(&at))
+                    .await
+                    .unwrap_or(false);
+            crate::ui::action::app(Message::EjectChecked(mounter_key, item, root, has_items))
+        })
+    }
+
+    /// Looks for the trash folders again, on a worker: a drive slow to
+    /// answer must not hold up the window. The answer comes as
+    /// [`Message::TrashBins`].
+    fn refresh_trash_bins(&mut self) -> Task<Message> {
+        self.trash_bins_asked += 1;
+        let asked = self.trash_bins_asked;
+        Task::future(async move {
+            match tokio::task::spawn_blocking(trash_bins).await {
+                Ok(bins) => crate::ui::action::app(Message::TrashBins(asked, bins)),
+                Err(err) => {
+                    log::warn!("failed to look for the trash folders: {err}");
+                    crate::ui::action::none()
+                }
+            }
+        })
+    }
+
     fn handle_completed_operations(
         &mut self,
         completed: Vec<(u64, OperationSelection)>,
     ) -> Task<Message> {
         let mut commands = Vec::with_capacity(4 * completed.len());
+        commands.push(self.refresh_trash_bins());
+        // Emptied, or emptied but for what was skipped: the drive goes
+        for (id, _) in &completed {
+            if let Some((mounter_key, item)) = self.unmount_after.remove(id) {
+                commands.push(self.unmount(mounter_key, item));
+            }
+        }
         let mut op_sel = OperationSelection::default();
         for (id, op_sel_pending) in completed {
             commands.push(self.undo_next(id));
@@ -2212,8 +2307,10 @@ impl App {
     }
 
     fn handle_operation_errors(&mut self, errors: Vec<(u64, OperationError)>) -> Task<Message> {
-        let mut tasks = Vec::new();
+        let mut tasks = vec![self.refresh_trash_bins()];
         for (id, err) in errors.into_iter() {
+            // Cancelled, aborted or failed: the drive stays
+            self.unmount_after.remove(&id);
             // An undo part that failed stops the parts after it
             self.undo_queues.remove(&id);
             tasks.push(self.drop_question(id));
@@ -3966,6 +4063,8 @@ impl Application for App {
             mime_app_cache: MimeAppCache::empty(),
             modifiers: Modifiers::empty(),
             mounter_items: FxHashMap::default(),
+            trash_bins: Vec::new(),
+            trash_bins_asked: 0,
             must_save_sort_names: false,
             network_drive_connecting: None,
             network_drive_input: String::new(),
@@ -3985,6 +4084,7 @@ impl Application for App {
             undo_stack: Vec::new(),
             undo_ids: BTreeSet::new(),
             undo_queues: HashMap::new(),
+            unmount_after: HashMap::new(),
             scrollable_name: std::borrow::Cow::Borrowed("File Scrollable"),
             search_id: widget::Id::new("File Search"),
             search_closing: None,
@@ -4013,6 +4113,8 @@ impl Application for App {
             // The cache starts empty; this builds it, and primes the default
             // terminal along with it, on a worker.
             app.update(Message::ReloadMimeAppCache),
+            // The trash watcher starts once the trash folders are found
+            app.refresh_trash_bins(),
         ];
 
         for location in flags.locations {
@@ -4723,6 +4825,16 @@ impl Application for App {
                         DialogPage::EmptyTrash => {
                             tasks.push(self.operation(Operation::EmptyTrash));
                         }
+                        DialogPage::EmptyBeforeEject {
+                            mounter_key,
+                            item,
+                            root,
+                        } => {
+                            // The id the emptying is about to get
+                            self.unmount_after
+                                .insert(self.pending_operation_id, (mounter_key, item));
+                            tasks.push(self.operation(Operation::EmptyDriveTrash { root }));
+                        }
                         // Enter gives the default answer, Skip
                         // Enter keeps waiting
                         DialogPage::Stalled(id) => {
@@ -5179,6 +5291,7 @@ impl Application for App {
 
                 // Insert new items
                 self.mounter_items.insert(mounter_key, mounter_items);
+                commands.push(self.refresh_trash_bins());
 
                 // Update nav bar
                 self.update_nav_model();
@@ -6341,8 +6454,11 @@ impl Application for App {
                     && let Some(items) = tab.items_opt()
                 {
                     for item in items {
+                        // With no record of where it came from it has
+                        // nowhere to go back to
                         if item.selected
                             && let ItemMetadata::Trash { entry, .. } = &item.metadata
+                            && !crate::trashing::origin_unknown(entry)
                         {
                             trash_items.push(entry.clone());
                         }
@@ -7062,14 +7178,9 @@ impl Application for App {
                 return self.update(Message::TabConfig(config));
             }
             Message::NavBarClose(entity) => {
-                if let Some(data) = self.nav_model.data::<MounterData>(entity)
-                    && let Some(mounter) = MOUNTERS.get(&data.0)
-                {
-                    let item = data.1.clone();
-                    let key = self.progress_unmount(&item);
-                    return mounter.unmount(item).map(move |outcome| {
-                        crate::ui::action::app(Message::ProgressEnd(key.clone(), outcome))
-                    });
+                if let Some(data) = self.nav_model.data::<MounterData>(entity) {
+                    let (mounter_key, item) = (data.0, data.1.clone());
+                    return self.eject(mounter_key, item);
                 }
             }
             Message::NavBarDrop(entity) => {
@@ -7360,19 +7471,55 @@ impl Application for App {
                     // Found before `self` is borrowed to track the row.
                     let found = self.selected_paths(None).next().and_then(|p| {
                         self.mounter_items.iter().find_map(|(k, mounter_items)| {
-                            let mounter = MOUNTERS.get(k)?;
                             let item = mounter_items
                                 .iter()
                                 .find(|&item| item.path().is_some_and(|path| path == p))?;
-                            Some((mounter, item.clone()))
+                            Some((*k, item.clone()))
                         })
                     });
-                    if let Some((mounter, item)) = found {
-                        let key = self.progress_unmount(&item);
-                        return mounter.unmount(item).map(move |outcome| {
-                            crate::ui::action::app(Message::ProgressEnd(key.clone(), outcome))
-                        });
+                    if let Some((mounter_key, item)) = found {
+                        return self.eject(mounter_key, item);
                     }
+                }
+            }
+            Message::EjectChecked(mounter_key, item, root, has_items) => {
+                if !has_items {
+                    return self.unmount(mounter_key, item);
+                }
+                return self.push_dialog(
+                    DialogPage::EmptyBeforeEject {
+                        mounter_key,
+                        item,
+                        root,
+                    },
+                    Some(EMPTY_TRASH_BUTTON_ID.clone()),
+                );
+            }
+            Message::TrashBins(asked, bins) => {
+                // Overtaken by a newer search, it may miss what changed since
+                if asked != self.trash_bins_asked {
+                    return Task::none();
+                }
+                crate::trash::set_folders(bins.iter().cloned().collect());
+                // Changed, the watcher follows, and the trash icon and open
+                // trash tabs are brought up to date
+                if bins != self.trash_bins {
+                    self.trash_bins = bins;
+                    return self.update(Message::RescanTrash);
+                }
+            }
+            Message::EjectWithoutEmptying => {
+                if matches!(
+                    self.dialog_pages.front(),
+                    Some(DialogPage::EmptyBeforeEject { .. })
+                ) && let Some((
+                    DialogPage::EmptyBeforeEject {
+                        mounter_key, item, ..
+                    },
+                    task,
+                )) = self.dialog_pages.pop_front()
+                {
+                    return Task::batch([task, self.unmount(mounter_key, item)]);
                 }
             }
             Message::Surface(action) => {
@@ -7611,6 +7758,21 @@ impl Application for App {
 
                 dialog
             }
+            DialogPage::EmptyBeforeEject { item, .. } => widget::dialog()
+                .title(fl!("empty-before-eject-title"))
+                .body(fl!("empty-before-eject-body", name = item.name()))
+                .primary_action(
+                    widget::button::destructive(fl!("empty-trash"))
+                        .on_press(Message::DialogComplete)
+                        .id(EMPTY_TRASH_BUTTON_ID.clone()),
+                )
+                .secondary_action(
+                    widget::button::standard(fl!("do-not-empty"))
+                        .on_press(Message::EjectWithoutEmptying),
+                )
+                .tertiary_action(
+                    widget::button::standard(fl!("cancel")).on_press(Message::DialogCancel),
+                ),
             DialogPage::EmptyTrash => widget::dialog()
                 .title(fl!("empty-trash-title"))
                 .body(fl!("empty-trash-warning"))
@@ -8773,73 +8935,80 @@ impl Application for App {
                     },
                 )
             }),
-            Subscription::run_with(TypeId::of::<TrashWatcherSubscription>(), |_| {
-                stream::channel(
-                    1,
-                    |mut output: futures::channel::mpsc::Sender<Message>| async move {
-                        let watcher_res = new_debouncer(
-                            time::Duration::from_millis(250),
-                            Some(time::Duration::from_millis(250)),
-                            move |event_res: notify_debouncer_full::DebounceEventResult| {
-                                match event_res {
-                                    Ok(events) => {
-                                        // Rescan on any event. We don't need to evaluate each event
-                                        // because as long as the trash changed in any way we need to
-                                        // rescan.
-                                        let should_rescan =
-                                            events.iter().any(|event| !event.kind.is_access());
+            // Keyed by the folders, so a changed set starts a new watcher
+            Subscription::run_with(
+                (
+                    TypeId::of::<TrashWatcherSubscription>(),
+                    self.trash_bins.clone(),
+                ),
+                |(_, trash_bins)| {
+                    let trash_bins = trash_bins.clone();
+                    stream::channel(
+                        1,
+                        |mut output: futures::channel::mpsc::Sender<Message>| async move {
+                            let watcher_res = new_debouncer(
+                                time::Duration::from_millis(250),
+                                Some(time::Duration::from_millis(250)),
+                                move |event_res: notify_debouncer_full::DebounceEventResult| {
+                                    match event_res {
+                                        Ok(events) => {
+                                            // Rescan on any event. We don't need to evaluate each event
+                                            // because as long as the trash changed in any way we need to
+                                            // rescan.
+                                            let should_rescan =
+                                                events.iter().any(|event| !event.kind.is_access());
 
-                                        if should_rescan
-                                            && let Err(e) = futures::executor::block_on(async {
-                                                output.send(Message::RescanTrash).await
-                                            })
-                                        {
+                                            if should_rescan
+                                                && let Err(e) = futures::executor::block_on(async {
+                                                    output.send(Message::RescanTrash).await
+                                                })
+                                            {
+                                                log::warn!(
+                                                    "trash needs to be rescanned but sending message failed: {e:?}"
+                                                );
+                                            }
+                                        }
+                                        Err(e) => {
                                             log::warn!(
-                                                "trash needs to be rescanned but sending message failed: {e:?}"
+                                                "failed to watch trash bin for changes: {e:?}"
                                             );
                                         }
                                     }
-                                    Err(e) => {
-                                        log::warn!("failed to watch trash bin for changes: {e:?}");
+                                },
+                            );
+
+                            match watcher_res {
+                                Ok(mut watcher) => {
+                                    // Watch the "bins" themselves as well as the files folder where
+                                    // trashed items are placed. This allows us to avoid recursively
+                                    // watching the trash which is slow but also properly get events.
+                                    let trash_paths = trash_bins
+                                        .into_iter()
+                                        .flat_map(|path| [path.join("files"), path]);
+                                    for path in trash_paths {
+                                        if let Err(e) = watcher
+                                            .watch(&path, notify::RecursiveMode::NonRecursive)
+                                        {
+                                            log::warn!(
+                                                "failed to add trash bin `{}` to watcher: {e:?}",
+                                                path.display()
+                                            );
+                                        }
                                     }
+
+                                    // Don't drop the watcher
+                                    std::future::pending().await
                                 }
-                            },
-                        );
-
-                        match (watcher_res, Trash::folders()) {
-                            (Ok(mut watcher), Ok(trash_bins)) => {
-                                // Watch the "bins" themselves as well as the files folder where
-                                // trashed items are placed. This allows us to avoid recursively
-                                // watching the trash which is slow but also properly get events.
-                                let trash_paths = trash_bins
-                                    .into_iter()
-                                    .flat_map(|path| [path.join("files"), path]);
-                                for path in trash_paths {
-                                    if let Err(e) =
-                                        watcher.watch(&path, notify::RecursiveMode::NonRecursive)
-                                    {
-                                        log::warn!(
-                                            "failed to add trash bin `{}` to watcher: {e:?}",
-                                            path.display()
-                                        );
-                                    }
+                                Err(e) => {
+                                    log::warn!("failed to create new watcher for trash bin: {e:?}");
                                 }
+                            }
 
-                                // Don't drop the watcher
-                                std::future::pending().await
-                            }
-                            (Err(e), _) => {
-                                log::warn!("failed to create new watcher for trash bin: {e:?}");
-                            }
-                            (_, Err(e)) => {
-                                log::warn!("could not find any valid trash bins to watch: {e:?}");
-                            }
-                        }
-
-                        std::future::pending().await
-                    },
-                )
-            }),
+                            std::future::pending().await
+                        },
+                    )
+                },
+            ),
             Subscription::run_with(TypeId::of::<RecentsWatcherSubscription>(), |_| {
                 stream::channel(
                     1,
@@ -9072,7 +9241,6 @@ fn question_text(blocked: &Blocked) -> (String, String) {
         ),
         Blocked::Delete(_) => (fl!("blocked-delete", name = name), fl!("skip")),
         Blocked::NoTrash(_) => (fl!("blocked-no-trash", name = name), fl!("skip")),
-        Blocked::TrashFull(_) => (fl!("blocked-trash-full", name = name), fl!("skip")),
     }
 }
 
@@ -9314,6 +9482,15 @@ fn search_text_input<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Ejecting asks about the trash only with the setting on, and never
+    /// for a network drive, where nothing is trashed
+    #[test]
+    fn ejecting_asks_about_the_trash_only_when_set_and_local() {
+        assert!(super::asks_before_ejecting(true, false));
+        assert!(!super::asks_before_ejecting(false, false));
+        assert!(!super::asks_before_ejecting(true, true));
+    }
 
     /// Only the notification on record answers or closes: a late word from
     /// an older one, or from one still being shown, changes nothing

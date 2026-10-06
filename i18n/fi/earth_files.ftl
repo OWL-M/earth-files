@@ -43,6 +43,9 @@ create-archive = Luo arkisto
 
 empty-trash = Tyhjennä roskakori
 empty-trash-warning = Roskakorikansion kohteet poistetaan pysyvästi
+empty-before-eject-title = Tyhjennetäänkö roskakori ennen poistamista?
+empty-before-eject-body = Tyhjennä roskakori vapauttaaksesi tilaa kohteessa ”{$name}”. Kaikki roskakorin kohteet poistetaan pysyvästi.
+do-not-empty = Älä tyhjennä
 
 ## Mount Error Dialog
 
@@ -258,6 +261,8 @@ new-folder = Uusi kansio…
 open-in-terminal = Avaa päätteessä
 move-to-trash = Siirrä roskakoriin
 restore-from-trash = Palauta roskakorista
+trash-original-location = Alkuperäinen sijainti: {$location}
+trash-original-unknown = Tuntematon
 remove-from-sidebar = Poista sivupalkista
 removed-from-sidebar = { $name } poistettiin sivupalkista
 
@@ -348,7 +353,6 @@ blocked-too-big = ”{$name}” on liian suuri tälle levylle ({$fs})
 blocked-bad-name = ”{$name}” sisältää merkkejä, joita tälle levylle ({$fs}) ei voi tallentaa
 blocked-delete = Ei oikeutta poistaa kohdetta ”{$name}”
 blocked-no-trash = Kohde ”{$name}” on asemalla, jolla ei ole roskakoria
-blocked-trash-full = Roskakorissa ei ole tilaa kohteelle ”{$name}”
 delete-permanently-as-root = Poista pysyvästi pääkäyttäjänä
 deleted-for-good = {$more ->
     [0] Peruttu, mutta kohde ”{$name}” oli jo poistettu pysyvästi

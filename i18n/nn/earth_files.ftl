@@ -38,7 +38,6 @@ blocked-too-big = «{$name}» er for stor for denne disken ({$fs})
 blocked-bad-name = «{$name}» har teikn som denne disken ({$fs}) ikkje kan lagra
 blocked-delete = Du har ikkje løyve til å slette «{$name}»
 blocked-no-trash = «{$name}» ligg på ein stasjon utan papirkorg
-blocked-trash-full = Det er ikkje plass i papirkorga til «{$name}»
 delete-permanently-as-root = Slett permanent som administrator
 deleted-for-good = {$more ->
     [0] Avbrote, men «{$name}» var allereie sletta permanent
@@ -71,3 +70,8 @@ folder-totals = { $files ->
     [one] { $files } fil, { $size }
    *[other] { $files } filer, { $size }
 }
+trash-original-location = Opphavleg plassering: {$location}
+trash-original-unknown = Ukjend
+empty-before-eject-title = Tømme papirkorga før utløysing?
+empty-before-eject-body = Tøm papirkorga for å frigjere plass på «{$name}». Alle elementa i papirkorga vert sletta for godt.
+do-not-empty = Ikkje tøm

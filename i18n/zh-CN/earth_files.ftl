@@ -63,7 +63,6 @@ blocked-too-big = “{$name}”太大，此驱动器（{$fs}）无法存放
 blocked-bad-name = “{$name}”包含此驱动器（{$fs}）无法存放的字符
 blocked-delete = 你没有删除“{$name}”的权限
 blocked-no-trash = “{$name}”所在的驱动器没有回收站
-blocked-trash-full = 回收站中没有足够空间存放“{$name}”
 delete-permanently-as-root = 以管理员身份永久删除
 deleted-for-good = {$more ->
     [0] 已取消，但“{$name}”已被永久删除
@@ -108,6 +107,9 @@ extract-to-title = 提取到文件夹
 
 empty-trash = 清空回收站
 empty-trash-warning = 回收站中的所有内容会被永久删除
+empty-before-eject-title = 弹出前清空回收站？
+empty-before-eject-body = 清空回收站以释放“{$name}”上的空间。回收站中的所有项目都将被永久删除。
+do-not-empty = 不清空
 
 ## Mount Error Dialog
 
@@ -426,6 +428,8 @@ new-folder = 新建文件夹…
 open-in-terminal = 在终端模拟器中打开
 move-to-trash = 移动到回收站
 restore-from-trash = 从回收站中还原
+trash-original-location = 原始位置：{$location}
+trash-original-unknown = 未知
 remove-from-sidebar = 从侧边栏中移除
 removed-from-sidebar = 已从侧边栏中移除 { $name }
 remove-from-recents = 从最近访问中移除

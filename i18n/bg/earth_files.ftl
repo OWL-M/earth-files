@@ -66,7 +66,6 @@ blocked-too-big = „{$name}“ е твърде голям за това уст�
 blocked-bad-name = „{$name}“ съдържа знаци, които това устройство ({$fs}) не може да съхрани
 blocked-delete = Нямате разрешение да изтриете „{$name}“
 blocked-no-trash = „{$name}“ е на устройство без кошче
-blocked-trash-full = Няма място в кошчето за „{$name}“
 delete-permanently-as-root = Изтриване завинаги като администратор
 deleted-for-good = {$more ->
     [0] Отменена, но „{$name}“ вече е изтрит завинаги
@@ -112,6 +111,9 @@ extract-to-title = Разархивиране в папка
 
 empty-trash = Изпразване на кошчето
 empty-trash-warning = Сигурни ли сте, че искате да изтриете завинаги всички елементи в кошчето?
+empty-before-eject-title = Изпразване на кошчето преди изваждане?
+empty-before-eject-body = Изпразнете кошчето, за да освободите място на „{$name}“. Всички елементи в кошчето ще бъдат изтрити окончателно.
+do-not-empty = Без изпразване
 
 ## Mount Error Dialog
 
@@ -453,6 +455,8 @@ new-folder = Нова папка...
 open-in-terminal = Отваряне в терминала
 move-to-trash = Преместване в кошчето
 restore-from-trash = Възстановяване от кошчето
+trash-original-location = Първоначално местоположение: {$location}
+trash-original-unknown = Неизвестно
 remove-from-sidebar = Премахване от стр. лента
 removed-from-sidebar = { $name } е премахнат от страничната лента
 remove-from-recents = Премахване от скорошни

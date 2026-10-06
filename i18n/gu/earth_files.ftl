@@ -27,7 +27,6 @@ blocked-too-big = "{$name}" આ ડ્રાઇવ ({$fs}) માટે ખૂ�
 blocked-bad-name = "{$name}" માં એવા અક્ષરો છે જે આ ડ્રાઇવ ({$fs}) રાખી શકતી નથી
 blocked-delete = "{$name}" કાઢી નાખવાની તમારી પાસે પરવાનગી નથી
 blocked-no-trash = "{$name}" કચરાપેટી વગરની ડ્રાઇવ પર છે
-blocked-trash-full = "{$name}" માટે કચરાપેટીમાં જગ્યા નથી
 delete-permanently-as-root = વ્યવસ્થાપક તરીકે કાયમ માટે કાઢી નાખો
 deleted-for-good = {$more ->
     [0] રદ કરવામાં આવ્યું, પણ "{$name}" પહેલેથી કાયમ માટે કાઢી નખાયું છે
@@ -60,3 +59,8 @@ folder-totals = { $files ->
     [one] { $files } ફાઇલ, { $size }
    *[other] { $files } ફાઇલો, { $size }
 }
+trash-original-location = મૂળ સ્થાન: {$location}
+trash-original-unknown = અજ્ઞાત
+empty-before-eject-title = બહાર કાઢતા પહેલાં કચરાપેટી ખાલી કરવી છે?
+empty-before-eject-body = “{$name}” પર જગ્યા ખાલી કરવા કચરાપેટી ખાલી કરો. કચરાપેટીની બધી વસ્તુઓ કાયમ માટે કાઢી નાખવામાં આવશે.
+do-not-empty = ખાલી ન કરો

@@ -27,7 +27,6 @@ blocked-too-big = „{$name}“ ძალიან დიდია ამ დი
 blocked-bad-name = „{$name}“ შეიცავს სიმბოლოებს, რომელთა შენახვაც ამ დისკს ({$fs}) არ შეუძლია
 blocked-delete = „{$name}“-ის წასაშლელად ნებართვა არ გაქვთ
 blocked-no-trash = „{$name}“ იმყოფება დისკზე, რომელსაც ნაგავი არ აქვს
-blocked-trash-full = ნაგავში „{$name}“-ისთვის ადგილი არ არის
 delete-permanently-as-root = სამუდამოდ წაშლა ადმინისტრატორად
 deleted-for-good = {$more ->
     [0] გაუქმდა, მაგრამ „{$name}“ უკვე სამუდამოდ წაიშალა
@@ -60,3 +59,8 @@ folder-totals = { $files ->
     [one] { $files } ფაილი, { $size }
    *[other] { $files } ფაილი, { $size }
 }
+trash-original-location = თავდაპირველი მდებარეობა: {$location}
+trash-original-unknown = უცნობია
+empty-before-eject-title = გავასუფთავოთ ნაგავი ამოღებამდე?
+empty-before-eject-body = გაასუფთავეთ ნაგავი „{$name}“-ზე ადგილის გასათავისუფლებლად. ნაგავში არსებული ყველა ელემენტი სამუდამოდ წაიშლება.
+do-not-empty = არ გაასუფთავო

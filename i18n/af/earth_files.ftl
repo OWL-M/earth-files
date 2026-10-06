@@ -71,7 +71,6 @@ blocked-too-big = "{$name}" is te groot vir hierdie skyf ({$fs})
 blocked-bad-name = "{$name}" het karakters wat hierdie skyf ({$fs}) nie kan hou nie
 blocked-delete = Jy het nie toestemming om "{$name}" uit te vee nie
 blocked-no-trash = "{$name}" is op 'n stasie sonder 'n asblik
-blocked-trash-full = Daar is nie plek in die asblik vir "{$name}" nie
 delete-permanently-as-root = Vee permanent uit as administrateur
 deleted-for-good = {$more ->
     [0] Gekanselleer, maar "{$name}" is reeds vir goed uitgevee
@@ -104,3 +103,8 @@ folder-totals = { $files ->
     [one] { $files } lêer, { $size }
    *[other] { $files } lêers, { $size }
 }
+trash-original-location = Oorspronklike ligging: {$location}
+trash-original-unknown = Onbekend
+empty-before-eject-title = Maak die asblik leeg voor uitskiet?
+empty-before-eject-body = Maak die asblik leeg om spasie op “{$name}” vry te maak. Alle items in die asblik sal permanent geskrap word.
+do-not-empty = Moenie leegmaak nie

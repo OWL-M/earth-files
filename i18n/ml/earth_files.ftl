@@ -27,7 +27,6 @@ blocked-too-big = "{$name}" ഈ ഡ്രൈവിന് ({$fs}) വളരെ �
 blocked-bad-name = ഈ ഡ്രൈവിന് ({$fs}) സൂക്ഷിക്കാൻ കഴിയാത്ത അക്ഷരങ്ങൾ "{$name}" എന്നതിലുണ്ട്
 blocked-delete = "{$name}" ഇല്ലാതാക്കാൻ നിങ്ങൾക്ക് അനുമതിയില്ല
 blocked-no-trash = "{$name}" ട്രാഷ് ഇല്ലാത്ത ഡ്രൈവിലാണ്
-blocked-trash-full = "{$name}" ന് ട്രാഷിൽ സ്ഥലമില്ല
 delete-permanently-as-root = അഡ്മിനിസ്ട്രേറ്ററായി എന്നെന്നേക്കുമായി ഇല്ലാതാക്കുക
 deleted-for-good = {$more ->
     [0] റദ്ദാക്കി, പക്ഷേ "{$name}" ഇതിനകം എന്നെന്നേക്കുമായി ഇല്ലാതാക്കി
@@ -60,3 +59,8 @@ folder-totals = { $files ->
     [one] { $files } ഫയൽ, { $size }
    *[other] { $files } ഫയലുകൾ, { $size }
 }
+trash-original-location = യഥാർത്ഥ സ്ഥാനം: {$location}
+trash-original-unknown = അജ്ഞാതം
+empty-before-eject-title = പുറത്തെടുക്കും മുമ്പ് ചവറ്റുകുട്ട ശൂന്യമാക്കണോ?
+empty-before-eject-body = “{$name}”-ൽ ഇടം ഒഴിവാക്കാൻ ചവറ്റുകുട്ട ശൂന്യമാക്കുക. ചവറ്റുകുട്ടയിലെ എല്ലാ ഇനങ്ങളും ശാശ്വതമായി ഇല്ലാതാക്കും.
+do-not-empty = ശൂന്യമാക്കരുത്

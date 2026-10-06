@@ -163,14 +163,14 @@ pub enum Method {
 mod check;
 mod delete;
 
+pub(crate) use delete::remove_tree;
+
 /// What a copy or move does with the trash, for what it replaces: the real
 /// one, or in tests a stand-in that leaves the user's own alone.
 #[derive(Clone, Copy)]
 struct Trash {
-    /// Sends a path there.
-    delete: fn(&Path) -> Result<(), Box<dyn Error + Send + Sync>>,
-    /// The newest entries for the paths, made since the time given.
-    entries: fn(&[PathBuf], i64) -> Vec<trash::TrashItem>,
+    /// Sends a path there, returning its entry.
+    delete: fn(&Path) -> Result<trash::TrashItem, Box<dyn Error + Send + Sync>>,
     /// Brings an entry back to where it was.
     restore: fn(trash::TrashItem) -> Result<(), Box<dyn Error + Send + Sync>>,
     /// Where a path sent there would end up.
@@ -179,8 +179,7 @@ struct Trash {
 
 /// The user's own trash.
 const REAL_TRASH: Trash = Trash {
-    delete: |path| trash::delete(path).map_err(Into::into),
-    entries: super::trashed_entries,
+    delete: |path| crate::trashing::put(path).map_err(Into::into),
     restore: delete::restore_entry,
     place: delete::trash_place,
 };
@@ -198,21 +197,18 @@ const TRASH: Trash = test_trash::TRASH;
 mod test_trash {
     use super::Trash;
     use std::error::Error;
-    use std::path::{Path, PathBuf};
-    use std::sync::Mutex;
+    use std::path::Path;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
-    static ENTRIES: Mutex<Vec<trash::TrashItem>> = Mutex::new(Vec::new());
     static NEXT: AtomicUsize = AtomicUsize::new(0);
 
     pub(super) const TRASH: Trash = Trash {
         delete,
-        entries,
         restore,
         place: |_| super::delete::Place::Here,
     };
 
-    fn delete(path: &Path) -> Result<(), Box<dyn Error + Send + Sync>> {
+    fn delete(path: &Path) -> Result<trash::TrashItem, Box<dyn Error + Send + Sync>> {
         let dir = std::env::temp_dir().join(format!("earth-files-trash-{}", std::process::id()));
         std::fs::create_dir_all(&dir)?;
         let kept = dir.join(NEXT.fetch_add(1, Ordering::Relaxed).to_string());
@@ -220,32 +216,12 @@ mod test_trash {
         let time_deleted = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map_or(0, |since| since.as_secs() as i64);
-        ENTRIES
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .push(trash::TrashItem {
-                id: kept.into(),
-                name: path.file_name().unwrap_or_default().to_owned(),
-                original_parent: path.parent().unwrap_or(path).to_path_buf(),
-                time_deleted,
-            });
-        Ok(())
-    }
-
-    fn entries(paths: &[PathBuf], since: i64) -> Vec<trash::TrashItem> {
-        let entries = ENTRIES
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        paths
-            .iter()
-            .filter_map(|path| {
-                entries
-                    .iter()
-                    .filter(|entry| entry.time_deleted >= since && entry.original_path() == *path)
-                    .max_by_key(|entry| entry.time_deleted)
-                    .cloned()
-            })
-            .collect()
+        Ok(trash::TrashItem {
+            id: kept.into(),
+            name: path.file_name().unwrap_or_default().to_owned(),
+            original_parent: path.parent().unwrap_or(path).to_path_buf(),
+            time_deleted,
+        })
     }
 
     fn restore(item: trash::TrashItem) -> Result<(), Box<dyn Error + Send + Sync>> {
@@ -316,10 +292,6 @@ pub struct Context {
     landed: std::collections::HashMap<PathBuf, PathBuf>,
     /// The trash that what is replaced goes to.
     trash: Trash,
-    /// What this operation sent to the trash, a replaced file or a deleted
-    /// one: found among its entries once the operation stops, for undo and
-    /// for putting back.
-    replaced: Vec<PathBuf>,
     /// What a delete removed for good, which nothing can bring back.
     deleted: Vec<PathBuf>,
     /// How many more went for good than `deleted` names: the rest of a
@@ -331,9 +303,6 @@ pub struct Context {
     /// A folder whose name is taken by a folder goes into it without asking,
     /// as an extraction does; a copy or move asks.
     pub(crate) merge_folders: bool,
-    /// When the operation started, in Unix seconds: the trash entries it
-    /// made are no older.
-    started: i64,
     /// This context's key in `reservations`.
     id: u64,
     /// The room kept by running operations: the app's shared table, or in
@@ -486,7 +455,6 @@ impl Context {
             scope: root::Scope::default(),
             landed: std::collections::HashMap::new(),
             trash: TRASH,
-            replaced: Vec::new(),
             deleted: Vec::new(),
             deleted_more: 0,
             replaced_now: false,
@@ -496,9 +464,6 @@ impl Context {
             reservations: &RESERVED,
             #[cfg(test)]
             reservations: Box::leak(Box::default()),
-            started: std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map_or(0, |since| since.as_secs() as i64),
         }
     }
 
@@ -709,13 +674,13 @@ impl Context {
                 .and_then(|parent| parent.canonicalize().ok())
                 .zip(target.file_name())
                 .map_or(target.clone(), |(parent, name)| parent.join(name));
-            delete(&target).map(|()| target)
+            delete(&target)
         })
         .await
         .map_err(|_| std::io::Error::other("the trash's worker stopped"))?;
         match trashed {
-            Ok(original) => {
-                self.replaced.push(original);
+            Ok(item) => {
+                self.op_sel.trash_items.push(item);
                 self.replaced_now = true;
                 Ok(())
             }
@@ -731,23 +696,9 @@ impl Context {
         }
     }
 
-    /// Finds the trash entries of what was replaced, for undo.
-    async fn resolve_trashed(&mut self) {
-        if self.replaced.is_empty() {
-            return;
-        }
-        let (paths, since) = (std::mem::take(&mut self.replaced), self.started);
-        let entries = self.trash.entries;
-        match compio::runtime::spawn_blocking(move || entries(&paths, since)).await {
-            Ok(items) => self.op_sel.trash_items.extend(items),
-            Err(_) => log::warn!("failed to find what was replaced in the trash"),
-        }
-    }
-
     /// Brings back from the trash what was replaced. Returns the paths that
     /// could not come back.
     async fn untrash(&mut self) -> Vec<PathBuf> {
-        self.resolve_trashed().await;
         let mut not_back = Vec::new();
         for item in std::mem::take(&mut self.op_sel.trash_items) {
             let (path, restore) = (item.original_path(), self.trash.restore);
@@ -860,7 +811,6 @@ impl Context {
             Method::Copy => Vec::new(),
         };
         let result = self.run_pairs(from_to_pairs, method).await;
-        self.resolve_trashed().await;
         // Aborted: stopped where it was, everything done kept, and undoable
         if self.controller.is_aborted() {
             return result.map_err(|_| self.cancelled());

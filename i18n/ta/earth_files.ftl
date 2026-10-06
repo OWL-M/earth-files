@@ -27,7 +27,6 @@ blocked-too-big = "{$name}" இந்த இயக்ககத்துக்க
 blocked-bad-name = இந்த இயக்ககத்தால் ({$fs}) வைத்திருக்க முடியாத எழுத்துகள் "{$name}" இல் உள்ளன
 blocked-delete = "{$name}" ஐ நீக்க உங்களுக்கு அனுமதி இல்லை
 blocked-no-trash = "{$name}" குப்பைத்தொட்டி இல்லாத இயக்ககத்தில் உள்ளது
-blocked-trash-full = "{$name}" க்கு குப்பைத்தொட்டியில் இடமில்லை
 delete-permanently-as-root = நிர்வாகியாக நிரந்தரமாக நீக்கு
 deleted-for-good = {$more ->
     [0] ரத்துசெய்யப்பட்டது, ஆனால் "{$name}" ஏற்கனவே நிரந்தரமாக நீக்கப்பட்டது
@@ -60,3 +59,8 @@ folder-totals = { $files ->
     [one] { $files } கோப்பு, { $size }
    *[other] { $files } கோப்புகள், { $size }
 }
+trash-original-location = அசல் இருப்பிடம்: {$location}
+trash-original-unknown = தெரியவில்லை
+empty-before-eject-title = வெளியேற்றும் முன் குப்பைத்தொட்டியைக் காலியாக்கவா?
+empty-before-eject-body = “{$name}” இல் இடத்தை விடுவிக்க குப்பைத்தொட்டியைக் காலியாக்கவும். குப்பைத்தொட்டியிலுள்ள அனைத்து உருப்படிகளும் நிரந்தரமாக நீக்கப்படும்.
+do-not-empty = காலியாக்க வேண்டாம்

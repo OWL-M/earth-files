@@ -30,6 +30,9 @@ file-type-other = أخرى
 
 empty-trash = أفرغ المهملات
 empty-trash-warning = سيتم حذف العناصر الموجودة في مجلد المهملات نهائيًا
+empty-before-eject-title = إفراغ المهملات قبل الإخراج؟
+empty-before-eject-body = أفرغ المهملات لتحرير مساحة على «{$name}». ستُحذف كل العناصر المهملة نهائيًا.
+do-not-empty = لا تُفرغ
 
 ## New File/Folder Dialog
 
@@ -106,6 +109,8 @@ new-folder = مجلد جديد...
 open-in-terminal = افتح في الطرفية
 move-to-trash = انقل إلى المهملات
 restore-from-trash = استعِد من المهملات
+trash-original-location = الموقع الأصلي: {$location}
+trash-original-unknown = غير معروف
 remove-from-sidebar = أزِل من الشريط الجانبي
 removed-from-sidebar = تمت إزالة { $name } من الشريط الجانبي
 
@@ -192,7 +197,6 @@ blocked-too-big = «{$name}» كبير جدًا على هذا القرص ({$fs})
 blocked-bad-name = «{$name}» يحتوي على أحرف لا يدعمها هذا القرص ({$fs})
 blocked-delete = ليس لديك إذن لحذف «{$name}»
 blocked-no-trash = «{$name}» موجود على محرك أقراص بلا سلة مهملات
-blocked-trash-full = لا توجد مساحة كافية في المهملات لـ«{$name}»
 delete-permanently-as-root = احذف نهائيًا كمدير
 deleted-for-good = {$more ->
     [0] أُلغِيَ، لكن «{$name}» حُذف نهائيًا بالفعل

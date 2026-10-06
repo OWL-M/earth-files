@@ -66,7 +66,6 @@ blocked-too-big = “{$name}” is te groot voor deze schijf ({$fs})
 blocked-bad-name = “{$name}” bevat tekens die deze schijf ({$fs}) niet kan opslaan
 blocked-delete = Je hebt geen toestemming om “{$name}” te verwijderen
 blocked-no-trash = “{$name}” staat op een schijf zonder prullenbak
-blocked-trash-full = Er is geen ruimte in de prullenbak voor “{$name}”
 delete-permanently-as-root = Permanent verwijderen als beheerder
 deleted-for-good = {$more ->
     [0] Geannuleerd, maar “{$name}” was al permanent verwijderd
@@ -112,6 +111,9 @@ extract-to-title = Uitpakken naar map
 
 empty-trash = Prullenbak leegmaken
 empty-trash-warning = Bestanden in de Prullenbak-map worden permanent verwijderd
+empty-before-eject-title = Prullenbak legen voor het uitwerpen?
+empty-before-eject-body = Leeg de prullenbak om ruimte vrij te maken op ‘{$name}’. Alle items in de prullenbak worden definitief verwijderd.
+do-not-empty = Niet legen
 
 ## Mount Error Dialog
 
@@ -436,6 +438,8 @@ new-folder = Nieuwe map…
 open-in-terminal = In terminal openen
 move-to-trash = Naar prullenbak verplaatsen
 restore-from-trash = Uit prullenbak terugzetten
+trash-original-location = Oorspronkelijke locatie: {$location}
+trash-original-unknown = Onbekend
 remove-from-sidebar = Favoriet uit zijbalk verwijderen
 removed-from-sidebar = { $name } uit zijbalk verwijderd
 

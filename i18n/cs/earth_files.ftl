@@ -30,6 +30,9 @@ file-type-other = Ostatní
 
 empty-trash = Vyprázdnit koš
 empty-trash-warning = Položky v koši budou trvale smazány
+empty-before-eject-title = Vyprázdnit koš před vysunutím?
+empty-before-eject-body = Vyprázdněním koše uvolníte místo na „{$name}“. Všechny položky v koši budou trvale smazány.
+do-not-empty = Nevyprazdňovat
 
 ## New File/Folder Dialog
 
@@ -106,6 +109,8 @@ new-folder = Nová složka...
 open-in-terminal = Otevřít v terminálu
 move-to-trash = Přesunout do koše
 restore-from-trash = Obnovit z koše
+trash-original-location = Původní umístění: {$location}
+trash-original-unknown = Neznámé
 remove-from-sidebar = Odstranit z postranního panelu
 removed-from-sidebar = { $name } odstraněno z postranního panelu
 
@@ -198,7 +203,6 @@ blocked-too-big = Položka „{$name}“ je pro tento disk ({$fs}) příliš vel
 blocked-bad-name = Položka „{$name}“ obsahuje znaky, které tento disk ({$fs}) uložit neumí
 blocked-delete = Nemáte oprávnění smazat položku „{$name}“
 blocked-no-trash = Položka „{$name}“ je na jednotce bez koše
-blocked-trash-full = V koši není místo pro položku „{$name}“
 delete-permanently-as-root = Smazat trvale jako správce
 deleted-for-good = {$more ->
     [0] Zrušeno, ale položka „{$name}“ už byla trvale smazána

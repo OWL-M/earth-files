@@ -73,7 +73,6 @@ blocked-too-big = Položka „{$name}“ je pre tento disk ({$fs}) príliš veľ
 blocked-bad-name = Položka „{$name}“ obsahuje znaky, ktoré tento disk ({$fs}) nedokáže uložiť
 blocked-delete = Nemáte oprávnenie odstrániť položku „{$name}“
 blocked-no-trash = Položka „{$name}“ je na jednotke bez koša
-blocked-trash-full = V koši nie je miesto pre položku „{$name}“
 delete-permanently-as-root = Trvalo odstrániť ako správca
 deleted-for-good = {$more ->
     [0] Zrušené, ale položka „{$name}“ už bola natrvalo odstránená
@@ -122,6 +121,9 @@ extract-to-title = Extrahovať do priečinka
 
 empty-trash = Vyprázdniť kôš
 empty-trash-warning = Naozaj chcete trvalo odstrániť všetky položky v koši?
+empty-before-eject-title = Vyprázdniť kôš pred vysunutím?
+empty-before-eject-body = Vyprázdnením koša uvoľníte miesto na „{$name}“. Všetky položky v koši budú natrvalo odstránené.
+do-not-empty = Nevyprázdňovať
 
 ## Mount Error Dialog
 
@@ -498,6 +500,8 @@ new-folder = Nový priečinok...
 open-in-terminal = Otvoriť v termináli
 move-to-trash = Presunúť do koša
 restore-from-trash = Obnoviť z koša
+trash-original-location = Pôvodné umiestnenie: {$location}
+trash-original-unknown = Neznáme
 remove-from-sidebar = Odstrániť z bočného panela
 removed-from-sidebar = { $name } odstránené z bočného panela
 remove-from-recents = Odstrániť z nedávnych

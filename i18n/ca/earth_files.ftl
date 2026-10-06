@@ -66,7 +66,6 @@ blocked-too-big = «{$name}» és massa gran per a aquesta unitat ({$fs})
 blocked-bad-name = «{$name}» té caràcters que aquesta unitat ({$fs}) no pot contenir
 blocked-delete = No tens permís per suprimir «{$name}»
 blocked-no-trash = «{$name}» és en una unitat sense paperera
-blocked-trash-full = No hi ha espai a la paperera per a «{$name}»
 delete-permanently-as-root = Suprimeix permanentment com a administrador
 deleted-for-good = {$more ->
     [0] Cancel·lat, però «{$name}» ja s'ha suprimit definitivament
@@ -109,6 +108,9 @@ extract-password-required = Cal una contrasenya
 
 empty-trash = Buida la paperera
 empty-trash-warning = Els elements dins la Paperera s'eliminaran permanentment
+empty-before-eject-title = Voleu buidar la paperera abans d'expulsar?
+empty-before-eject-body = Buideu la paperera per alliberar espai a «{$name}». Tots els elements de la paperera se suprimiran definitivament.
+do-not-empty = No la buidis
 
 ## Mount Error Dialog
 
@@ -386,6 +388,8 @@ new-folder = Nova carpeta...
 open-in-terminal = Obre al terminal
 move-to-trash = Mou a la paperera
 restore-from-trash = Restaura de la paperera
+trash-original-location = Ubicació original: {$location}
+trash-original-unknown = Desconeguda
 remove-from-sidebar = Elimina de la barra lateral
 removed-from-sidebar = S'ha eliminat { $name } de la barra lateral
 

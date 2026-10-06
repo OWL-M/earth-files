@@ -27,7 +27,6 @@ blocked-too-big = "{$name}" quá lớn đối với ổ đĩa này ({$fs})
 blocked-bad-name = "{$name}" có ký tự mà ổ đĩa này ({$fs}) không thể chứa
 blocked-delete = Bạn không có quyền xóa "{$name}"
 blocked-no-trash = "{$name}" nằm trên ổ đĩa không có thùng rác
-blocked-trash-full = Không đủ chỗ trong thùng rác cho "{$name}"
 delete-permanently-as-root = Xóa vĩnh viễn với quyền quản trị
 deleted-for-good = {$more ->
     [0] Đã hủy, nhưng "{$name}" đã bị xóa vĩnh viễn
@@ -58,3 +57,8 @@ replace-folder-warning = Bạn muốn hợp nhất chúng, hay thay thế thư m
 folder-totals = { $files ->
    *[other] { $files } tệp, { $size }
 }
+trash-original-location = Vị trí gốc: {$location}
+trash-original-unknown = Không rõ
+empty-before-eject-title = Dọn sạch thùng rác trước khi đẩy ra?
+empty-before-eject-body = Dọn sạch thùng rác để giải phóng dung lượng trên “{$name}”. Mọi mục trong thùng rác sẽ bị xóa vĩnh viễn.
+do-not-empty = Không dọn

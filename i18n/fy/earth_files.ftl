@@ -37,7 +37,6 @@ blocked-too-big = “{$name}” is te grut foar dit stasjon ({$fs})
 blocked-bad-name = “{$name}” befettet tekens dy't dit stasjon ({$fs}) net bewarje kin
 blocked-delete = Jo hawwe gjin tastimming om “{$name}” fuort te smiten
 blocked-no-trash = “{$name}” stiet op in skiif sûnder jiskefet
-blocked-trash-full = Der is gjin romte yn it jiskefet foar “{$name}”
 delete-permanently-as-root = Foar altyd fuortsmite as behearder
 deleted-for-good = {$more ->
     [0] Annulearre, mar “{$name}” wie al foar altyd fuortsmiten
@@ -70,3 +69,8 @@ folder-totals = { $files ->
     [one] { $files } bestân, { $size }
    *[other] { $files } bestannen, { $size }
 }
+trash-original-location = Oarspronklike lokaasje: {$location}
+trash-original-unknown = Unbekend
+empty-before-eject-title = Jiskefet leegje foar it útwerpen?
+empty-before-eject-body = Leegje it jiskefet om romte frij te meitsjen op “{$name}”. Alle items yn it jiskefet wurde foargoed fuortsmiten.
+do-not-empty = Net leegje

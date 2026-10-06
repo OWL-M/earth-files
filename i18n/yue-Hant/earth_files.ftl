@@ -27,7 +27,6 @@ blocked-too-big = 「{$name}」太大，呢個磁碟機（{$fs}）放唔落
 blocked-bad-name = 「{$name}」有啲字元呢個磁碟機（{$fs}）存唔到
 blocked-delete = 你冇權限刪除「{$name}」
 blocked-no-trash = 「{$name}」喺冇垃圾桶嘅磁碟機上
-blocked-trash-full = 垃圾桶冇位放「{$name}」
 delete-permanently-as-root = 以管理員身分永久刪除
 deleted-for-good = {$more ->
     [0] 已經取消，但係「{$name}」早已永久刪除咗
@@ -58,3 +57,8 @@ replace-folder-warning = 你想合併佢哋，定係取代嗰度已有嘅資料�
 folder-totals = { $files ->
    *[other] { $files } 個檔案，{ $size }
 }
+trash-original-location = 原本位置：{$location}
+trash-original-unknown = 不明
+empty-before-eject-title = 退出之前清空垃圾桶？
+empty-before-eject-body = 清空垃圾桶以騰出「{$name}」上嘅空間。垃圾桶入面所有項目都會被永久刪除。
+do-not-empty = 唔好清空

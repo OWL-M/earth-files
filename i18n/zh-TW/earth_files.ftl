@@ -37,6 +37,9 @@ create-archive = 建立壓縮檔案
 
 empty-trash = 清空垃圾桶
 empty-trash-warning = 垃圾桶中的項目將被永久刪除
+empty-before-eject-title = 退出前清空垃圾桶？
+empty-before-eject-body = 清空垃圾桶以釋放「{$name}」上的空間。垃圾桶中的所有項目都將被永久刪除。
+do-not-empty = 不要清空
 
 ## New File/Folder Dialog
 
@@ -223,6 +226,8 @@ new-folder = 新增資料夾...
 open-in-terminal = 在終端機中開啟
 move-to-trash = 丟入垃圾桶
 restore-from-trash = 從垃圾桶還原
+trash-original-location = 原始位置：{$location}
+trash-original-unknown = 未知
 remove-from-sidebar = 從側邊欄移除
 removed-from-sidebar = 已從側邊欄移除 { $name }
 
@@ -347,7 +352,6 @@ blocked-too-big = 「{$name}」太大，此磁碟機（{$fs}）無法存放
 blocked-bad-name = 「{$name}」包含此磁碟機（{$fs}）無法存放的字元
 blocked-delete = 您沒有刪除「{$name}」的權限
 blocked-no-trash = 「{$name}」所在的磁碟機沒有垃圾桶
-blocked-trash-full = 垃圾桶中沒有足夠空間存放「{$name}」
 delete-permanently-as-root = 以管理員身分永久刪除
 deleted-for-good = {$more ->
     [0] 已取消，但「{$name}」已被永久刪除

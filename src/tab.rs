@@ -695,6 +695,35 @@ pub enum FsKind {
     Gvfs,
 }
 
+/// Whether a filesystem type is local, remote, or GVFS's FUSE bridge.
+pub fn fs_type_kind(fs_type: &str) -> FsKind {
+    match fs_type {
+        // SMB/CIFS variants
+        "cifs" | "smb" | "smb2" | "smbfs" => FsKind::Remote,
+
+        // NFS variants
+        "nfs" | "nfs4" => FsKind::Remote,
+
+        // FUSE-based remote filesystems
+        "fuse.rclone" | "fuse.sshfs" | "fuse.davfs2" | "fuse.ceph" | "fuse.glusterfs"
+        | "fuse.s3fs" | "fuse.goofys" | "fuse.gcsfuse" | "fuse.afp" | "fuse.afpfs" => {
+            FsKind::Remote
+        }
+
+        // Other network protocols
+        "afs" | "coda" | "ncpfs" | "davfs" | "davfs2" | "shfs" => FsKind::Remote,
+
+        // Cluster/distributed filesystems
+        "ceph" | "glusterfs" | "lustre" | "gfs" | "gfs2" | "ocfs2" => FsKind::Remote,
+
+        // GVFS (GNOME Virtual File System)
+        "fuse.gvfsd-fuse" => FsKind::Gvfs,
+
+        // Everything else is local
+        _ => FsKind::Local,
+    }
+}
+
 /// Device numbers of the mounted filesystems and their kind, read from
 /// `/proc/self/mountinfo` and refreshed after [`FS_KINDS_TTL`] so mounts made
 /// after startup are classified too.
@@ -728,34 +757,7 @@ fn read_fs_kinds() -> FxHashMap<u64, FsKind> {
                         let dev = libc::makedev(major, minor);
                         // Network and distributed filesystem types
                         // Based on common remote filesystem types found in /proc/mounts
-                        let kind = match mount_info.fs_type.as_str() {
-                            // SMB/CIFS variants
-                            "cifs" | "smb" | "smb2" | "smbfs" => FsKind::Remote,
-
-                            // NFS variants
-                            "nfs" | "nfs4" => FsKind::Remote,
-
-                            // FUSE-based remote filesystems
-                            "fuse.rclone" | "fuse.sshfs" | "fuse.davfs2" | "fuse.ceph"
-                            | "fuse.glusterfs" | "fuse.s3fs" | "fuse.goofys" | "fuse.gcsfuse"
-                            | "fuse.afp" | "fuse.afpfs" => FsKind::Remote,
-
-                            // Other network protocols
-                            "afs" | "coda" | "ncpfs" | "davfs" | "davfs2" | "shfs" => {
-                                FsKind::Remote
-                            }
-
-                            // Cluster/distributed filesystems
-                            "ceph" | "glusterfs" | "lustre" | "gfs" | "gfs2" | "ocfs2" => {
-                                FsKind::Remote
-                            }
-
-                            // GVFS (GNOME Virtual File System)
-                            "fuse.gvfsd-fuse" => FsKind::Gvfs,
-
-                            // Everything else is local
-                            _ => FsKind::Local,
-                        };
+                        let kind = fs_type_kind(&mount_info.fs_type);
                         Some((dev, kind))
                     }));
                 }
@@ -1277,12 +1279,20 @@ pub fn item_from_trash_entry(
     metadata: TrashItemMetadata,
     sizes: IconSizes,
 ) -> Item {
-    let original_path = entry.original_path();
     let name = entry.name.to_string_lossy().into_owned();
     let display_name = Item::display_name(&name);
 
     let trash_path = crate::trash::trash_item_path(&entry);
     let location = trash_path.clone().map(Location::Path);
+    // With no record of where it came from, the type is read from its name
+    // in the trash, which is all there is
+    let original_path = if crate::trashing::origin_unknown(&entry) {
+        trash_path
+            .clone()
+            .unwrap_or_else(|| PathBuf::from(&entry.name))
+    } else {
+        entry.original_path()
+    };
 
     let (mime, icon_handle_grid, icon_handle_list, icon_handle_list_condensed) = match metadata.size
     {
@@ -1336,24 +1346,14 @@ fn item_from_trash_child(
     metadata: fs::Metadata,
     sizes: IconSizes,
 ) -> Option<Item> {
-    let Some(original_path) = crate::trash::original_path_for_trash_child(&path) else {
-        log::warn!(
-            "failed to resolve original path for trash item {}, skipping entry",
-            path.display()
-        );
-        return None;
-    };
-    let Some(original_parent) = original_path.parent() else {
-        log::warn!(
-            "trash item {} has no original parent, skipping entry",
-            path.display()
-        );
-        return None;
-    };
+    // Inside an entry with no record of where it came from, nothing has one
+    let original_parent = crate::trash::original_path_for_trash_child(&path)
+        .and_then(|original| original.parent().map(Path::to_path_buf))
+        .unwrap_or_default();
     let entry = trash::TrashItem {
         id: path.as_os_str().to_os_string(),
         name: std::ffi::OsString::from(&name),
-        original_parent: original_parent.to_path_buf(),
+        original_parent,
         time_deleted: 0,
     };
     let size = if metadata.is_dir() {
@@ -3100,6 +3100,19 @@ impl Item {
             details = details.push(widget::text::body(fl!(
                 "item-size",
                 size = format_size(size)
+            )));
+        }
+
+        // Where a trashed item came from, which is all a restore goes by
+        if let ItemMetadata::Trash { entry, .. } = &self.metadata {
+            let location = if crate::trashing::origin_unknown(entry) {
+                fl!("trash-original-unknown")
+            } else {
+                entry.original_parent.display().to_string()
+            };
+            details = details.push(widget::selectable_text::body(fl!(
+                "trash-original-location",
+                location = location
             )));
         }
 
@@ -8133,6 +8146,11 @@ impl Tab {
                             Ok(time) => self.format_time(time).to_string(),
                             Err(_) => String::new(),
                         },
+                        // Nothing says when, for what is inside a trashed
+                        // folder or has no `.trashinfo`
+                        ItemMetadata::Trash { entry, .. } if entry.time_deleted == 0 => {
+                            String::new()
+                        }
                         ItemMetadata::Trash { entry, .. } => FormatTime::from_secs(
                             entry.time_deleted,
                             &self.date_time_formatter,
@@ -9855,6 +9873,29 @@ mod tests {
         assert_eq!(input.folders, [Some(root.join("files/folder"))]);
 
         assert_eq!(trash_total(&input)?, TrashSize::Known(7 + 5 + 6));
+        Ok(())
+    }
+
+    /// Inside a trashed folder with no `.trashinfo`, what it holds is still
+    /// listed, with nowhere known to put it back
+    #[test]
+    fn inside_an_entry_of_unknown_origin_items_are_listed() -> io::Result<()> {
+        let fs = empty_fs()?;
+        let inner = fs.path().join("inner.txt");
+        std::fs::write(&inner, "x")?;
+        let metadata = std::fs::symlink_metadata(&inner)?;
+        let item = super::item_from_trash_child(
+            inner.clone(),
+            "inner.txt".to_owned(),
+            metadata,
+            IconSizes::default(),
+        )
+        .expect("listed");
+        let super::ItemMetadata::Trash { entry, .. } = &item.metadata else {
+            panic!("a trash item");
+        };
+        assert!(crate::trashing::origin_unknown(entry));
+        assert_eq!(item.location_opt, Some(Location::Path(inner)));
         Ok(())
     }
 

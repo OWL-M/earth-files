@@ -68,7 +68,6 @@ blocked-too-big = "{$name}" es demasiado grande para esta unidad ({$fs})
 blocked-bad-name = "{$name}" tiene caracteres que esta unidad ({$fs}) no puede contener
 blocked-delete = No tienes permiso para eliminar "{$name}"
 blocked-no-trash = "{$name}" está en una unidad sin papelera
-blocked-trash-full = No hay espacio en la papelera para "{$name}"
 delete-permanently-as-root = Eliminar permanentemente como administrador
 deleted-for-good = {$more ->
     [0] Se canceló, pero "{$name}" ya se había eliminado de forma permanente
@@ -114,6 +113,9 @@ extract-to-title = Extraer a una carpeta
 
 empty-trash = Vaciar la papelera
 empty-trash-warning = ¿Está seguro de que quiere eliminar permanentemente todos los archivos de la papelera?
+empty-before-eject-title = ¿Vaciar la papelera antes de expulsar?
+empty-before-eject-body = Vacíe la papelera para liberar espacio en «{$name}». Todos los elementos de la papelera se eliminarán de forma permanente.
+do-not-empty = No vaciar
 
 ## Mount Error Dialog
 
@@ -442,6 +444,8 @@ new-folder = Nueva carpeta...
 open-in-terminal = Abrir en la consola
 move-to-trash = Mover a la papelera
 restore-from-trash = Restaurar de la papelera
+trash-original-location = Ubicación original: {$location}
+trash-original-unknown = Desconocida
 remove-from-sidebar = Quitar de la barra lateral
 removed-from-sidebar = Se quitó { $name } de la barra lateral
 remove-from-recents = Quitar de recientes

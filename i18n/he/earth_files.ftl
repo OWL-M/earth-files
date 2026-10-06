@@ -29,7 +29,6 @@ blocked-too-big = "{$name}" גדול מדי עבור הכונן הזה ({$fs})
 blocked-bad-name = "{$name}" מכיל תווים שהכונן הזה ({$fs}) אינו יכול להכיל
 blocked-delete = אין לך הרשאה למחוק את "{$name}"
 blocked-no-trash = "{$name}" נמצא בכונן ללא פח אשפה
-blocked-trash-full = אין מקום בפח האשפה עבור "{$name}"
 delete-permanently-as-root = מחיקה לצמיתות כמנהל
 deleted-for-good = {$more ->
     [0] בוטל, אך "{$name}" כבר נמחק לצמיתות
@@ -65,3 +64,8 @@ folder-totals = { $files ->
     [two] שני קבצים, { $size }
    *[other] { $files } קבצים, { $size }
 }
+trash-original-location = מיקום מקורי: {$location}
+trash-original-unknown = לא ידוע
+empty-before-eject-title = לרוקן את האשפה לפני השליפה?
+empty-before-eject-body = יש לרוקן את האשפה כדי לפנות מקום ב־„{$name}”. כל הפריטים באשפה יימחקו לצמיתות.
+do-not-empty = לא לרוקן

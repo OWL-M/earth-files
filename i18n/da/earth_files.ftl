@@ -66,7 +66,6 @@ blocked-too-big = “{$name}” er for stor til dette drev ({$fs})
 blocked-bad-name = “{$name}” har tegn, som dette drev ({$fs}) ikke kan indeholde
 blocked-delete = Du har ikke tilladelse til at slette “{$name}”
 blocked-no-trash = “{$name}” ligger på et drev uden papirkurv
-blocked-trash-full = Der er ikke plads i papirkurven til “{$name}”
 delete-permanently-as-root = Slet permanent som administrator
 deleted-for-good = {$more ->
     [0] Annulleret, men “{$name}” var allerede slettet permanent
@@ -105,6 +104,9 @@ create-archive = Opret arkiv
 
 empty-trash = Tøm papirkurv
 empty-trash-warning = Emner i Papirkurv-mappen vil blive slettet permanent
+empty-before-eject-title = Tøm papirkurven før udskubning?
+empty-before-eject-body = Tøm papirkurven for at frigøre plads på “{$name}”. Alle elementer i papirkurven slettes permanent.
+do-not-empty = Tøm ikke
 
 ## Mount Error Dialog
 
@@ -331,6 +333,8 @@ new-folder = Ny mappe...
 open-in-terminal = Åbn i terminal
 move-to-trash = Flyt til skraldespand
 restore-from-trash = Genopret fra skraldespand
+trash-original-location = Oprindelig placering: {$location}
+trash-original-unknown = Ukendt
 remove-from-sidebar = Fjern fra sidebjælke
 removed-from-sidebar = { $name } fjernet fra sidebjælken
 

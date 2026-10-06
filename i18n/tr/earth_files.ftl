@@ -63,7 +63,6 @@ blocked-too-big = "{$name}" bu sürücü ({$fs}) için çok büyük
 blocked-bad-name = "{$name}" bu sürücünün ({$fs}) tutamadığı karakterler içeriyor
 blocked-delete = "{$name}" öğesini silme izniniz yok
 blocked-no-trash = "{$name}", çöp kutusu olmayan bir sürücüde
-blocked-trash-full = Çöpte "{$name}" için yer yok
 delete-permanently-as-root = Yönetici olarak kalıcı olarak sil
 deleted-for-good = {$more ->
     [0] İptal edildi, ancak "{$name}" zaten kalıcı olarak silindi
@@ -102,6 +101,9 @@ create-archive = Arşiv oluştur
 
 empty-trash = Çöpü boşalt
 empty-trash-warning = Çöp Kutusu klasöründeki öğeler kalıcı olarak silinecektir
+empty-before-eject-title = Çıkarmadan önce çöp boşaltılsın mı?
+empty-before-eject-body = “{$name}” üzerinde yer açmak için çöpü boşaltın. Çöpteki tüm ögeler kalıcı olarak silinecek.
+do-not-empty = Boşaltma
 
 ## Mount Error Dialog
 
@@ -343,6 +345,8 @@ new-folder = Yeni klasör...
 open-in-terminal = Uçbirimde aç
 move-to-trash = Çöpe taşı
 restore-from-trash = Çöpten geri yükle
+trash-original-location = Özgün konum: {$location}
+trash-original-unknown = Bilinmiyor
 remove-from-sidebar = Kenar çubuğundan kaldır
 removed-from-sidebar = { $name } kenar çubuğundan kaldırıldı
 

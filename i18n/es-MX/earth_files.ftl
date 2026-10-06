@@ -27,7 +27,6 @@ blocked-too-big = "{$name}" es demasiado grande para esta unidad ({$fs})
 blocked-bad-name = "{$name}" tiene caracteres que esta unidad ({$fs}) no puede contener
 blocked-delete = No tienes permiso para eliminar "{$name}"
 blocked-no-trash = "{$name}" está en una unidad sin papelera
-blocked-trash-full = No hay espacio en la papelera para "{$name}"
 delete-permanently-as-root = Eliminar de forma permanente como administrador
 deleted-for-good = {$more ->
     [0] Se canceló, pero "{$name}" ya se había eliminado de forma permanente
@@ -60,3 +59,8 @@ folder-totals = { $files ->
     [one] { $files } archivo, { $size }
    *[other] { $files } archivos, { $size }
 }
+trash-original-location = Ubicación original: {$location}
+trash-original-unknown = Desconocida
+empty-before-eject-title = ¿Vaciar la papelera antes de expulsar?
+empty-before-eject-body = Vacía la papelera para liberar espacio en “{$name}”. Todos los elementos de la papelera se eliminarán de forma permanente.
+do-not-empty = No vaciar

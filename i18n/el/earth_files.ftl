@@ -67,7 +67,6 @@ blocked-too-big = Το «{$name}» είναι πολύ μεγάλο για αυ�
 blocked-bad-name = Το «{$name}» περιέχει χαρακτήρες που αυτή η μονάδα ({$fs}) δεν μπορεί να αποθηκεύσει
 blocked-delete = Δεν έχετε άδεια διαγραφής του «{$name}»
 blocked-no-trash = Το «{$name}» βρίσκεται σε μονάδα χωρίς απορρίμματα
-blocked-trash-full = Δεν υπάρχει χώρος στα απορρίμματα για το «{$name}»
 delete-permanently-as-root = Οριστική διαγραφή ως διαχειριστής
 deleted-for-good = {$more ->
     [0] Ακυρώθηκε, αλλά το «{$name}» είχε ήδη διαγραφεί οριστικά
@@ -354,6 +353,8 @@ sort-largest-to-smallest = Από τα μεγαλύτερα στα μικρότ�
 sort-type-a-z = Τύπος Α-Ω
 sort-type-z-a = Τύπος Ω-Α
 restore-from-trash = Ανάκτηση από τα απορρίμματα
+trash-original-location = Αρχική τοποθεσία: {$location}
+trash-original-unknown = Άγνωστη
 moved =
     Έγινε μετακίνηση { $items } { $items ->
         [one] στοιχείου
@@ -376,6 +377,9 @@ favorite-path-error-description =
 
     Θέλετε να το αφαιρέσετε από την πλαϊνή στήλη;
 empty-trash-warning = Τα στοιχεία του φακέλου «Απορρίμματα» θα διαγραφούν οριστικά
+empty-before-eject-title = Άδειασμα κάδου πριν την εξαγωγή;
+empty-before-eject-body = Αδειάστε τον κάδο για να ελευθερωθεί χώρος στο «{$name}». Όλα τα στοιχεία του κάδου θα διαγραφούν οριστικά.
+do-not-empty = Να μην αδειάσει
 empty-trash-title = Άδειασμα απορριμμάτων;
 type-to-search = Πληκτρολόγηση για αναζήτηση
 notification-in-progress = Βρίσκονται σε εξέλιξη διεργασίες αρχείων

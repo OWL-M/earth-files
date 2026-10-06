@@ -188,12 +188,9 @@ pub enum Blocked {
     /// An item to delete, or to remove from the trash, that this user may
     /// not remove from its folder. Root deletes it for good.
     Delete(PathBuf),
-    /// An item to trash on a drive with no trash of its own: a network or
-    /// FUSE drive.
+    /// An item to trash on a drive with no trash of its own that can be used
+    /// or made: nothing is ever copied into another drive's trash.
     NoTrash(PathBuf),
-    /// An item to trash that would be copied into the home trash, on
-    /// another drive without room for it.
-    TrashFull(PathBuf),
 }
 
 impl Blocked {
@@ -205,8 +202,7 @@ impl Blocked {
             | Self::Remove(path)
             | Self::Destination(path)
             | Self::Delete(path)
-            | Self::NoTrash(path)
-            | Self::TrashFull(path) => path,
+            | Self::NoTrash(path) => path,
             Self::Link { path, .. }
             | Self::Failed { path, .. }
             | Self::TooBig { path, .. }
@@ -229,8 +225,7 @@ impl Blocked {
             | Self::TooBig { .. }
             | Self::BadName { .. }
             | Self::Failed { .. }
-            | Self::NoTrash(_)
-            | Self::TrashFull(_) => false,
+            | Self::NoTrash(_) => false,
         }
     }
 
@@ -246,7 +241,6 @@ impl Blocked {
                 | Self::Destination(_)
                 | Self::Delete(_)
                 | Self::NoTrash(_)
-                | Self::TrashFull(_)
         )
     }
 }
@@ -647,12 +641,25 @@ async fn copy_or_move(
 /// The `.trashinfo` comes second, when there is one.
 pub(crate) fn in_trash(item: &trash::TrashItem) -> (PathBuf, Option<PathBuf>) {
     let id = PathBuf::from(&item.id);
-    if id.extension().is_some_and(|ext| ext == "trashinfo")
+    if is_trashinfo(&id)
         && let (Some(trash), Some(name)) = (id.parent().and_then(Path::parent), id.file_stem())
     {
         return (trash.join("files").join(name), Some(id));
     }
     (id, None)
+}
+
+/// Whether the id `id` names a `.trashinfo` in a trash's `info/`, rather
+/// than a trashed item that only has such a name: at the top of a trash's
+/// `files/` with no record of its own, or inside a trashed folder. The
+/// second is told by the trash folders found, not by folder names: a trash
+/// may well sit somewhere under a folder called `files`.
+fn is_trashinfo(id: &Path) -> bool {
+    id.extension().is_some_and(|ext| ext == "trashinfo")
+        && id
+            .parent()
+            .is_some_and(|info| info.file_name().is_some_and(|name| name == "info"))
+        && !crate::trash::is_trash_path(id)
 }
 
 /// Brings trashed items back to where they were, as a move out of the
@@ -783,6 +790,30 @@ async fn restore(
     })
     .await
     .map_err(wrap_compio_spawn_error)?
+}
+
+/// Empties `bins`: every item for good, as [`purge`] does, then the records
+/// left there without an item.
+async fn empty(
+    bins: Vec<crate::trashing::Bin>,
+    msg_tx: &Arc<TokioMutex<Sender<Message>>>,
+    controller: Controller,
+) -> Result<OperationSelection, OperationError> {
+    let (listed, bins) = compio::runtime::spawn_blocking(move || {
+        let items: Vec<_> = bins
+            .iter()
+            .flat_map(crate::trashing::list_bin)
+            .map(|(item, _)| item)
+            .collect();
+        (items, bins)
+    })
+    .await
+    .map_err(wrap_compio_spawn_error)?;
+    let result = purge(listed, msg_tx, controller).await?;
+    compio::runtime::spawn_blocking(move || crate::trashing::remove_stray_records(&bins))
+        .await
+        .map_err(wrap_compio_spawn_error)?;
+    Ok(result)
 }
 
 /// Removes items from the trash for good, asking about what this user may
@@ -926,28 +957,6 @@ pub async fn sync_to_disk(
     .buffer_unordered(16)
     .collect::<()>()
     .await;
-}
-
-/// The newest trash entry for each of `paths`, deleted no earlier than
-/// `since` (Unix seconds).
-fn trashed_entries(paths: &[PathBuf], since: i64) -> Vec<trash::TrashItem> {
-    let entries = match trash::os_limited::list() {
-        Ok(entries) => entries,
-        Err(err) => {
-            log::warn!("failed to list trash after deleting: {err}");
-            return Vec::new();
-        }
-    };
-    paths
-        .iter()
-        .filter_map(|path| {
-            entries
-                .iter()
-                .filter(|entry| entry.time_deleted >= since && entry.original_path() == *path)
-                .max_by_key(|entry| entry.time_deleted)
-                .cloned()
-        })
-        .collect()
 }
 
 /// The created paths of `result`, with any path that sits inside another one
@@ -1435,6 +1444,10 @@ pub enum Operation {
     },
     /// Empty the trash
     EmptyTrash,
+    /// Empty the trash on the drive mounted at `root`, before it is ejected
+    EmptyDriveTrash {
+        root: PathBuf,
+    },
     /// Uncompress files
     Extract {
         paths: Box<[PathBuf]>,
@@ -1629,7 +1642,9 @@ impl Operation {
             Self::DeleteTrash { items } => {
                 fl!("deleting", items = items.len(), progress = progress())
             }
-            Self::EmptyTrash => fl!("emptying-trash", progress = progress()),
+            Self::EmptyTrash | Self::EmptyDriveTrash { .. } => {
+                fl!("emptying-trash", progress = progress())
+            }
             Self::Extract { paths, to, .. } => fl!(
                 "extracting",
                 items = paths.len(),
@@ -1700,7 +1715,7 @@ impl Operation {
                 to = fl!("trash")
             ),
             Self::DeleteTrash { items } => fl!("deleted", items = items.len()),
-            Self::EmptyTrash => fl!("emptied-trash"),
+            Self::EmptyTrash | Self::EmptyDriveTrash { .. } => fl!("emptied-trash"),
             Self::Extract { paths, to, .. } => fl!(
                 "extracted",
                 items = paths.len(),
@@ -1754,6 +1769,7 @@ impl Operation {
             | Self::Delete { .. }
             | Self::DeleteTrash { .. }
             | Self::EmptyTrash
+            | Self::EmptyDriveTrash { .. }
             | Self::Extract { .. }
             | Self::Move { .. }
             | Self::PermanentlyDelete { .. }
@@ -2055,11 +2071,17 @@ impl Operation {
             Self::Delete { paths } => delete(paths, false, msg_tx, controller.clone()).await,
             Self::DeleteTrash { items } => purge(items, msg_tx, controller.clone()).await,
             Self::EmptyTrash => {
-                let items = compio::runtime::spawn_blocking(trash::os_limited::list)
+                let bins = compio::runtime::spawn_blocking(crate::trashing::bins)
                     .await
-                    .map_err(wrap_compio_spawn_error)?
-                    .map_err(|e| OperationError::from_err(e, &controller))?;
-                purge(items, msg_tx, controller.clone()).await
+                    .map_err(wrap_compio_spawn_error)?;
+                empty(bins, msg_tx, controller.clone()).await
+            }
+            Self::EmptyDriveTrash { root } => {
+                let bins =
+                    compio::runtime::spawn_blocking(move || crate::trashing::drive_bins(&root))
+                        .await
+                        .map_err(wrap_compio_spawn_error)?;
+                empty(bins, msg_tx, controller.clone()).await
             }
             Self::Extract {
                 paths,

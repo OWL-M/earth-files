@@ -43,6 +43,9 @@ create-archive = संग्रह बनाएँ
 
 empty-trash = रद्दी साफ़ करें
 empty-trash-warning = रद्दी फ़ोल्डर में मौजूद आइटम स्थायी रूप से हटा दिए जाएंगे
+empty-before-eject-title = निकालने से पहले रद्दी खाली करें?
+empty-before-eject-body = “{$name}” पर जगह खाली करने के लिए रद्दी खाली करें। रद्दी की सभी वस्तुएँ स्थायी रूप से हटा दी जाएँगी।
+do-not-empty = खाली न करें
 
 ## New File/Folder Dialog
 
@@ -249,6 +252,8 @@ new-folder = नया फ़ोल्डर...
 open-in-terminal = टर्मिनल में खोलें
 move-to-trash = कचरे में भेजें
 restore-from-trash = कचरे से पुनर्स्थापित करें
+trash-original-location = मूल स्थान: {$location}
+trash-original-unknown = अज्ञात
 remove-from-sidebar = साइडबार से निकालें
 removed-from-sidebar = { $name } को साइडबार से निकाला गया
 
@@ -363,7 +368,6 @@ blocked-too-big = "{$name}" इस ड्राइव ({$fs}) के लिए �
 blocked-bad-name = "{$name}" में ऐसे अक्षर हैं जिन्हें यह ड्राइव ({$fs}) नहीं रख सकती
 blocked-delete = आपके पास "{$name}" को हटाने की अनुमति नहीं है
 blocked-no-trash = "{$name}" ऐसी ड्राइव पर है जिसमें कचरा नहीं है
-blocked-trash-full = कचरे में "{$name}" के लिए जगह नहीं है
 delete-permanently-as-root = व्यवस्थापक के रूप में स्थायी रूप से हटाएँ
 deleted-for-good = {$more ->
     [0] रद्द किया गया, लेकिन "{$name}" पहले ही स्थायी रूप से हटाया जा चुका है

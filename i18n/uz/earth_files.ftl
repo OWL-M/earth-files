@@ -27,7 +27,6 @@ blocked-too-big = “{$name}” bu disk ({$fs}) uchun juda katta
 blocked-bad-name = “{$name}” nomida bu disk ({$fs}) saqlay olmaydigan belgilar bor
 blocked-delete = “{$name}”ni o‘chirishga ruxsatingiz yo‘q
 blocked-no-trash = “{$name}” axlat qutisi bo‘lmagan diskda joylashgan
-blocked-trash-full = Axlat qutisida “{$name}” uchun joy yo‘q
 delete-permanently-as-root = Administrator sifatida butunlay o‘chirish
 deleted-for-good = {$more ->
     [0] Bekor qilindi, lekin “{$name}” allaqachon butunlay o‘chirilgan
@@ -60,3 +59,8 @@ folder-totals = { $files ->
     [one] { $files } ta fayl, { $size }
    *[other] { $files } ta fayl, { $size }
 }
+trash-original-location = Asl joylashuv: {$location}
+trash-original-unknown = Nomaʼlum
+empty-before-eject-title = Chiqarishdan oldin chiqindilar qutisi tozalansinmi?
+empty-before-eject-body = “{$name}” da joy bo‘shatish uchun chiqindilar qutisini tozalang. Chiqindilar qutisidagi barcha elementlar butunlay o‘chiriladi.
+do-not-empty = Tozalamaslik

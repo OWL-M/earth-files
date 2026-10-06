@@ -29,7 +29,6 @@ blocked-too-big = "{$name}" estas tro granda por ĉi tiu disko ({$fs})
 blocked-bad-name = "{$name}" havas signojn, kiujn ĉi tiu disko ({$fs}) ne povas enhavi
 blocked-delete = Vi ne havas permeson forigi "{$name}"
 blocked-no-trash = "{$name}" estas sur disko sen rubujo
-blocked-trash-full = Ne estas spaco en la rubujo por "{$name}"
 delete-permanently-as-root = Forigi porĉiame kiel administranto
 deleted-for-good = {$more ->
     [0] Nuligita, sed "{$name}" jam estis porĉiame forigita
@@ -62,3 +61,8 @@ folder-totals = { $files ->
     [one] { $files } dosiero, { $size }
    *[other] { $files } dosieroj, { $size }
 }
+trash-original-location = Originala loko: {$location}
+trash-original-unknown = Nekonata
+empty-before-eject-title = Ĉu malplenigi la rubujon antaŭ elĵeto?
+empty-before-eject-body = Malplenigu la rubujon por liberigi spacon sur “{$name}”. Ĉiuj eroj en la rubujo estos porĉiame forigitaj.
+do-not-empty = Ne malplenigi

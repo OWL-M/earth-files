@@ -67,7 +67,6 @@ blocked-too-big = „{$name}” este prea mare pentru această unitate ({$fs})
 blocked-bad-name = „{$name}” conține caractere pe care această unitate ({$fs}) nu le poate stoca
 blocked-delete = Nu ai permisiunea de a șterge „{$name}”
 blocked-no-trash = „{$name}” se află pe o unitate fără coș de gunoi
-blocked-trash-full = Nu este loc în coșul de gunoi pentru „{$name}”
 delete-permanently-as-root = Șterge definitiv ca administrator
 deleted-for-good = {$more ->
     [0] Anulat, dar „{$name}” a fost deja șters definitiv
@@ -116,6 +115,9 @@ extract-to-title = Extrage în dosar
 
 empty-trash = Golește coșul
 empty-trash-warning = Sigur dorești să ștergi definitiv toate elementele din coș?
+empty-before-eject-title = Goliți coșul de gunoi înainte de scoatere?
+empty-before-eject-body = Goliți coșul de gunoi pentru a elibera spațiu pe „{$name}”. Toate elementele din coș vor fi șterse definitiv.
+do-not-empty = Nu goli
 
 ## Dialog Eroare Montare
 
@@ -425,6 +427,8 @@ new-folder = Dosar nou...
 open-in-terminal = Deschide în terminal
 move-to-trash = Mută în coș
 restore-from-trash = Recuperează din coș
+trash-original-location = Locația originală: {$location}
+trash-original-unknown = Necunoscută
 remove-from-sidebar = Elimină din bara laterală
 removed-from-sidebar = { $name } a fost eliminat din bara laterală
 

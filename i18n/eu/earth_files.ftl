@@ -27,7 +27,6 @@ blocked-too-big = "{$name}" handiegia da unitate honentzat ({$fs})
 blocked-bad-name = "{$name}" elementuak unitate honek ({$fs}) gorde ezin dituen karaktereak ditu
 blocked-delete = Ez duzu "{$name}" ezabatzeko baimenik
 blocked-no-trash = "{$name}" zakarontzirik gabeko unitate batean dago
-blocked-trash-full = Ez dago lekurik zakarontzian hau gordetzeko: "{$name}"
 delete-permanently-as-root = Ezabatu betiko administratzaile gisa
 deleted-for-good = {$more ->
     [0] Bertan behera utzi da, baina "{$name}" jada betiko ezabatu da
@@ -60,3 +59,8 @@ folder-totals = { $files ->
     [one] { $files } fitxategi, { $size }
    *[other] { $files } fitxategi, { $size }
 }
+trash-original-location = Jatorrizko kokalekua: {$location}
+trash-original-unknown = Ezezaguna
+empty-before-eject-title = Zakarrontzia hustu egotzi aurretik?
+empty-before-eject-body = Hustu zakarrontzia «{$name}» unitatean lekua askatzeko. Zakarrontziko elementu guztiak betiko ezabatuko dira.
+do-not-empty = Ez hustu

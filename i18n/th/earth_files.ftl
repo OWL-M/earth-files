@@ -63,7 +63,6 @@ blocked-too-big = "{$name}" ใหญ่เกินไปสำหรับไ�
 blocked-bad-name = "{$name}" มีอักขระที่ไดร์ฟนี้ ({$fs}) ไม่รองรับ
 blocked-delete = คุณไม่มีสิทธิ์ลบ "{$name}"
 blocked-no-trash = "{$name}" อยู่ในไดรฟ์ที่ไม่มีถังขยะ
-blocked-trash-full = ไม่มีที่ว่างในถังขยะสำหรับ "{$name}"
 delete-permanently-as-root = ลบถาวรในฐานะผู้ดูแลระบบ
 deleted-for-good = {$more ->
     [0] ยกเลิกแล้ว แต่ "{$name}" ถูกลบถาวรไปแล้ว
@@ -101,6 +100,9 @@ create-archive = สร้างไฟล์บีบอัด
 
 empty-trash = ล้างถังขยะ
 empty-trash-warning = คุณแน่ใจหรือไม่ว่าคุณต้องการจะลบภายในถังขยะถาวร
+empty-before-eject-title = ล้างถังขยะก่อนดีดออกหรือไม่?
+empty-before-eject-body = ล้างถังขยะเพื่อเพิ่มพื้นที่ว่างบน “{$name}” รายการทั้งหมดในถังขยะจะถูกลบอย่างถาวร
+do-not-empty = ไม่ล้าง
 
 ## Mount Error Dialog
 
@@ -330,6 +332,8 @@ new-folder = สร้างแฟ้ม...
 open-in-terminal = เปิดในเทอร์มินัล
 move-to-trash = ย้ายไปถังขยะ
 restore-from-trash = เรียกคืนจากถังขยะ
+trash-original-location = ตำแหน่งเดิม: {$location}
+trash-original-unknown = ไม่ทราบ
 remove-from-sidebar = นำออกจากแถบด้านข้าง
 removed-from-sidebar = นำ { $name } ออกจากแถบด้านข้างแล้ว
 

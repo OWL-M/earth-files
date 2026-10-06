@@ -58,6 +58,9 @@ favorite-path-error-description =
     vekirina wê tune be.
     Tu dixwazî wê ji benda kêlekê rakî?
 empty-trash-warning = Hêmanên di jêbirdankê de wê bi mayînde werin jêbirin
+empty-before-eject-title = Berî derxistinê çopê vala bike?
+empty-before-eject-body = Ji bo li ser “{$name}” cih vala bikî çopê vala bike. Hemû hêmanên di çopê de dê bi temamî bên jêbirin.
+do-not-empty = Vala neke
 other-apps = Bernameyên din
 set-permissions = Maf hatine sazkirin ji bo "{ $name }" bo { $mode }
 quit = Biqedîne
@@ -178,6 +181,8 @@ sort-largest-to-smallest = Mezintir bo biçûktir
 sort-type-a-z = Cûre A-Z
 sort-type-z-a = Cûre Z-A
 restore-from-trash = Ji jêbirdankê vegerîne
+trash-original-location = Cihê orîjînal: {$location}
+trash-original-unknown = Nenas
 cut = Jê bike
 moved =
     { $items } { $items ->
@@ -253,7 +258,6 @@ blocked-too-big = "{$name}" ji bo vî ajokerî ({$fs}) pir mezin e
 blocked-bad-name = Di "{$name}" de tîpên ku ev ajoker ({$fs}) nikare bihewîne hene
 blocked-delete = Mafê te yê jêbirina "{$name}" tune
 blocked-no-trash = "{$name}" li ser ajokerekî bê jêbirdank e
-blocked-trash-full = Di jêbirdankê de ji bo "{$name}" cih tune
 delete-permanently-as-root = Wekî rêveber bi mayînde jê bibe
 deleted-for-good = {$more ->
     [0] Têkbirî, lê "{$name}" berê bi mayînde hat jêbirin

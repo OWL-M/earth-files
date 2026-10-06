@@ -59,7 +59,6 @@ blocked-too-big = « {$name} » es tròp grand per aqueste disc ({$fs})
 blocked-bad-name = « {$name} » conten de caractèrs qu'aqueste disc ({$fs}) pòt pas conténer
 blocked-delete = Avètz pas l'autorizacion de suprimir « {$name} »
 blocked-no-trash = « {$name} » es sus un disc sens escobilha
-blocked-trash-full = I a pas pro d'espaci dins l'escobilha per « {$name} »
 delete-permanently-as-root = Suprimir definitivament coma administrator
 deleted-for-good = {$more ->
     [0] Anullat, mas « {$name} » èra ja estat suprimit definitivament
@@ -92,3 +91,8 @@ folder-totals = { $files ->
     [one] { $files } fichièr, { $size }
    *[other] { $files } fichièrs, { $size }
 }
+trash-original-location = Emplaçament d'origina : {$location}
+trash-original-unknown = Desconegut
+empty-before-eject-title = Voidar l'escobilhièr abans d'ejectar ?
+empty-before-eject-body = Voidatz l'escobilhièr per liberar d'espaci sus « {$name} ». Totes los elements de l'escobilhièr seràn suprimits definitivament.
+do-not-empty = Voidar pas

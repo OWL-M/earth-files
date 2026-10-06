@@ -63,7 +63,6 @@ blocked-too-big = Tá "{$name}" rómhór don tiomántán seo ({$fs})
 blocked-bad-name = Tá carachtair in "{$name}" nach féidir leis an tiomántán seo ({$fs}) a choinneáil
 blocked-delete = Níl cead agat "{$name}" a scriosadh
 blocked-no-trash = Tá "{$name}" ar thiomántán gan bruscar
-blocked-trash-full = Níl spás sa bhruscar do "{$name}"
 delete-permanently-as-root = Scrios go buan mar riarthóir
 deleted-for-good = {$more ->
     [0] Cealaithe, ach scriosadh "{$name}" go buan cheana féin
@@ -109,6 +108,9 @@ extract-to-title = Asbhain go fillteán
 
 empty-trash = Folmhaigh an bruscar
 empty-trash-warning = Scriosfar míreanna sa bhfillteán Bruscair go buan
+empty-before-eject-title = An bruscar a fholmhú roimh dhíchur?
+empty-before-eject-body = Folmhaigh an bruscar chun spás a shaoradh ar “{$name}”. Scriosfar gach mír sa bhruscar go buan.
+do-not-empty = Ná folmhaigh
 
 ## Mount Error Dialog
 
@@ -403,6 +405,8 @@ new-folder = Fillteán nua...
 open-in-terminal = Oscail sa teirminéal
 move-to-trash = Bog go dtí an bruscar
 restore-from-trash = Athchóirigh ón mbruscar
+trash-original-location = Suíomh bunaidh: {$location}
+trash-original-unknown = Anaithnid
 remove-from-sidebar = Bain ón mbarra taoibh
 removed-from-sidebar = Baineadh { $name } ón mbarra taoibh
 
