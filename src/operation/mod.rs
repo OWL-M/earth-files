@@ -645,7 +645,7 @@ async fn copy_or_move(
 /// Where the trash keeps `item`: beside its `.trashinfo`, in the trash's
 /// `files` folder, or, for an entry inside a trashed folder, at its id.
 /// The `.trashinfo` comes second, when there is one.
-fn in_trash(item: &trash::TrashItem) -> (PathBuf, Option<PathBuf>) {
+pub(crate) fn in_trash(item: &trash::TrashItem) -> (PathBuf, Option<PathBuf>) {
     let id = PathBuf::from(&item.id);
     if id.extension().is_some_and(|ext| ext == "trashinfo")
         && let (Some(trash), Some(name)) = (id.parent().and_then(Path::parent), id.file_stem())
@@ -709,6 +709,10 @@ async fn restore(
             } else {
                 pairs.push((from.clone(), to.clone()));
             }
+        }
+        // Cancelled while the last rename ran: as if before it
+        if stopped.is_none() && controller.is_cancelled() {
+            stopped = Some(ControllerState::Cancelled);
         }
         let result = if let Some(state) = stopped {
             // Cancelled: what came back goes into the trash again. Aborted:
@@ -1235,7 +1239,7 @@ fn numbered_path(base: &Path, n: usize) -> PathBuf {
 /// looking first, which leaves a small window but still never overwrites the
 /// file we can see. The check is on the link itself, so a dangling symlink at
 /// the destination counts as occupied.
-fn rename_no_replace(from: &Path, to: &Path) -> io::Result<()> {
+pub(crate) fn rename_no_replace(from: &Path, to: &Path) -> io::Result<()> {
     use std::ffi::CString;
     use std::os::unix::ffi::OsStrExt;
 

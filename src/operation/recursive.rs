@@ -181,7 +181,7 @@ struct Trash {
 const REAL_TRASH: Trash = Trash {
     delete: |path| trash::delete(path).map_err(Into::into),
     entries: super::trashed_entries,
-    restore: |item| trash::os_limited::restore_all([item]).map_err(Into::into),
+    restore: delete::restore_entry,
     place: delete::trash_place,
 };
 
@@ -896,8 +896,14 @@ impl Context {
         // Putting back is not the operation: it must not stop because the
         // operation was cancelled, as a copy back across drives would
         let cancelled = std::mem::take(&mut self.controller);
+        // Nor does it replace anything, or ask: an original whose place is
+        // taken again stays where it landed
+        let decided = std::mem::take(&mut self.decided);
+        let replace = self.replace_result_opt.replace(ReplaceResult::Skip(true));
         let not_back = self.roll_back_steps(renamed).await;
         self.controller = cancelled;
+        self.decided = decided;
+        self.replace_result_opt = replace;
         not_back
     }
 
@@ -972,11 +978,30 @@ impl Context {
                     })
                     .await;
                 match renamed {
-                    // Across filesystems: copied back, then removed
+                    // Across filesystems: copied back, a link as a link, then
+                    // removed
                     Err(err) if err.raw_os_error() == Some(libc::EXDEV) => {
                         let (to, from) = (step.to.clone(), step.from.clone());
                         self.with_helper(move |helper| {
-                            helper.copy(&to, &from, |_| true)?;
+                            // Looked up as root: this user may not see it
+                            let link = match (to.parent(), to.file_name()) {
+                                (Some(dir), Some(name)) => helper
+                                    .list(dir)?
+                                    .into_iter()
+                                    .find(|entry| entry.name == name)
+                                    .and_then(|entry| entry.target),
+                                _ => None,
+                            };
+                            match link {
+                                Some(target) => helper.call(&Request::Symlink {
+                                    target,
+                                    to: from,
+                                    from: to.clone(),
+                                })?,
+                                None => {
+                                    helper.copy(&to, &from, |_| true)?;
+                                }
+                            }
                             helper.call(&Request::Remove(to))
                         })
                         .await?;
@@ -996,7 +1021,8 @@ impl Context {
     }
 
     /// Brings back an original that a cleanup step removed, from where it
-    /// landed.
+    /// landed. Never over something now in its place: then it fails, and
+    /// the original stays where it landed.
     async fn restore(&mut self, step: &Done) -> Result<(), Box<dyn Error>> {
         if step.is_dir {
             return match compio::fs::create_dir(&step.from).await {
@@ -1004,9 +1030,18 @@ impl Context {
                 _ => Ok(()),
             };
         }
-        match compio::fs::rename(&step.to, &step.from).await {
+        let renamed = compio::runtime::spawn_blocking({
+            let (to, from) = (step.to.clone(), step.from.clone());
+            move || super::rename_no_replace(&to, &from)
+        })
+        .await
+        .map_err(super::wrap_compio_spawn_error)?;
+        match renamed {
             Err(err) if err.raw_os_error() == Some(libc::EXDEV) => {}
             result => return result.map_err(Into::into),
+        }
+        if compio::fs::symlink_metadata(&step.from).await.is_ok() {
+            return Err(std::io::Error::from(std::io::ErrorKind::AlreadyExists).into());
         }
         // Across filesystems: copied back, a link as a link, then removed
         let meta = compio::fs::symlink_metadata(&step.to).await?;
@@ -1037,7 +1072,14 @@ impl Context {
                 current_bytes: 0,
                 total_bytes: None,
             };
-            if let Err(err) = back.copy(self, progress).await {
+            // Copied whole, or not at all: a place taken meanwhile is skipped,
+            // not replaced, and counts as not put back
+            let copied = match back.copy(self, progress).await {
+                Ok(true) if !back.skipped.normal.get() => Ok(()),
+                Ok(_) => Err(std::io::Error::from(std::io::ErrorKind::AlreadyExists).into()),
+                Err(err) => Err(err),
+            };
+            if let Err(err) = copied {
                 // Nothing half-written where the original was: the whole
                 // file is still at `to`, and stays
                 if back.created_to.get() {
@@ -2912,6 +2954,85 @@ mod tests {
 
         assert_eq!(not_back, vec![from]);
         assert_eq!(fs::read(&to).expect("kept"), b"F");
+    }
+
+    /// An original whose place is taken again is never written over when
+    /// putting back: the moved file stays where it landed, on the same
+    /// drive and across drives, and nothing is asked
+    #[test(compio::test)]
+    async fn putting_back_never_replaces_what_is_there_now() {
+        let here = tempfile::tempdir().expect("tempdir");
+        let there = tempfile::tempdir_in("/dev/shm").ok();
+        for dest in [
+            Some(here.path()),
+            there.as_ref().map(tempfile::TempDir::path),
+        ]
+        .into_iter()
+        .flatten()
+        {
+            let from = here.path().join("f.txt");
+            let to = dest.join("moved.txt");
+            fs::write(&to, b"moved").expect("write");
+            // Made again where the original was, after the move took it
+            fs::write(&from, b"new").expect("write");
+            let step = |is_cleanup, created| Done {
+                from: from.clone(),
+                to: to.clone(),
+                is_cleanup,
+                is_dir: false,
+                created,
+                root: false,
+            };
+
+            let mut ctx = Context::new(Controller::default()).on_replace(|_op, _count| {
+                panic!("putting back asks nothing");
+            });
+            ctx.done = vec![step(false, true), step(true, false)];
+            let not_back = ctx.roll_back(&[]).await;
+
+            assert_eq!(not_back, vec![from.clone()]);
+            assert_eq!(fs::read(&from).expect("new"), b"new");
+            assert_eq!(fs::read(&to).expect("kept"), b"moved");
+            fs::remove_file(&from).expect("clean up");
+        }
+    }
+
+    fake_root!(root_links_back, true);
+
+    /// A link moved as root to another drive comes back as a link
+    #[test(compio::test)]
+    async fn a_link_comes_back_as_a_link_across_drives_as_root() {
+        let Ok(there) = tempfile::tempdir_in("/dev/shm") else {
+            return;
+        };
+        let here = tempfile::tempdir().expect("tempdir");
+        let from = here.path().join("link");
+        let to = there.path().join("link");
+        std::os::unix::fs::symlink("target/elsewhere", &to).expect("link");
+
+        let mut ctx = Context::new(Controller::default());
+        ctx.start_helper = root_links_back::start;
+        ctx.scope = crate::operation::root::Scope {
+            sources: vec![from.clone()],
+            destinations: vec![there.path().to_path_buf()],
+        };
+        ctx.ensure_helper().await.expect("helper");
+        ctx.done = vec![Done {
+            from: from.clone(),
+            to: to.clone(),
+            is_cleanup: true,
+            is_dir: false,
+            created: false,
+            root: true,
+        }];
+        let not_back = ctx.roll_back(&[]).await;
+
+        assert!(not_back.is_empty(), "{not_back:?}");
+        assert_eq!(
+            fs::read_link(&from).expect("a link again"),
+            Path::new("target/elsewhere")
+        );
+        assert!(fs::symlink_metadata(&to).is_err());
     }
 
     fake_root!(root_replaces, true);

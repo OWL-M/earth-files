@@ -147,6 +147,72 @@ fn remove_tree(path: &Path) -> io::Result<()> {
     }
 }
 
+/// Brings a trash entry back to where it was: renamed, or across drives
+/// copied and then removed from the trash. Never over something now in its
+/// place, and nothing is made there first: the trash crate's own restore
+/// makes an empty file, then cannot rename across drives.
+pub(super) fn restore_entry(item: trash::TrashItem) -> Result<(), Box<dyn Error + Send + Sync>> {
+    let (kept, info) = crate::operation::in_trash(&item);
+    let to = item.original_path();
+    if let Some(parent) = to.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    match crate::operation::rename_no_replace(&kept, &to) {
+        Ok(()) => {}
+        Err(err) if err.raw_os_error() == Some(libc::EXDEV) => {
+            if fs::symlink_metadata(&to).is_ok() {
+                return Err(io::Error::from(io::ErrorKind::AlreadyExists).into());
+            }
+            if let Err(err) = copy_tree(&kept, &to) {
+                // Half a copy is not the original: the trash still has it.
+                // Taken meanwhile, `to` is someone else's, and stays
+                if err.kind() != io::ErrorKind::AlreadyExists {
+                    let _ = remove_tree(&to);
+                }
+                return Err(err.into());
+            }
+            remove_tree(&kept)?;
+        }
+        Err(err) => return Err(err.into()),
+    }
+    if let Some(info) = info {
+        fs::remove_file(info)?;
+    }
+    Ok(())
+}
+
+/// Copies `from` to a new `to`, a folder with all it holds and a link as a
+/// link, keeping modes and modification times. Refuses a `to` that exists.
+fn copy_tree(from: &Path, to: &Path) -> io::Result<()> {
+    use std::os::unix::fs::OpenOptionsExt;
+
+    let meta = fs::symlink_metadata(from)?;
+    if meta.is_symlink() {
+        return std::os::unix::fs::symlink(fs::read_link(from)?, to);
+    }
+    if meta.is_dir() {
+        fs::create_dir(to)?;
+        for entry in fs::read_dir(from)? {
+            let entry = entry?;
+            copy_tree(&entry.path(), &to.join(entry.file_name()))?;
+        }
+        fs::set_permissions(to, meta.permissions())?;
+        return Ok(());
+    }
+    let mut source = fs::File::open(from)?;
+    let mut dest = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(to)?;
+    io::copy(&mut source, &mut dest)?;
+    dest.set_permissions(meta.permissions())?;
+    if let Ok(modified) = meta.modified() {
+        dest.set_times(fs::FileTimes::new().set_modified(modified))?;
+    }
+    dest.sync_all()
+}
+
 /// Deletes `path` for good through the helper, as root: a folder by
 /// listing it and removing what it holds first.
 fn remove_tree_as_root(helper: &mut Helper, path: &Path) -> io::Result<()> {
@@ -756,6 +822,46 @@ mod tests {
             delete_with(ctx, vec![a.clone()], false, |_| BlockedAnswer::Skip(false)).await;
         result.expect("done");
         assert!(a.exists());
+    }
+
+    /// A trash entry on another drive comes back whole, its listing gone;
+    /// one whose place is taken stays in the trash, nothing made over it
+    #[test]
+    fn a_trash_entry_comes_back_across_drives() {
+        let Ok(trash) = tempfile::tempdir_in("/dev/shm") else {
+            return;
+        };
+        let home = tempfile::tempdir().expect("tempdir");
+        let kept = trash.path().join("files/d");
+        fs::create_dir_all(kept.join("sub")).expect("mkdir");
+        fs::write(kept.join("sub/f"), b"F").expect("write");
+        std::os::unix::fs::symlink("sub/f", kept.join("l")).expect("link");
+        fs::create_dir(trash.path().join("info")).expect("mkdir");
+        let info = trash.path().join("info/d.trashinfo");
+        fs::write(&info, b"[Trash Info]").expect("write");
+        let item = |parent: &Path| trash::TrashItem {
+            id: info.clone().into(),
+            name: "d".into(),
+            original_parent: parent.to_path_buf(),
+            time_deleted: 1,
+        };
+
+        // Taken: it stays in the trash
+        let taken = home.path().join("taken");
+        fs::create_dir_all(taken.join("d")).expect("mkdir");
+        super::restore_entry(item(&taken)).expect_err("its place is taken");
+        assert!(kept.exists() && info.exists());
+        assert!(fs::read_dir(taken.join("d")).expect("d").next().is_none());
+
+        // Free, in a folder gone since: made again, and it comes back
+        let gone = home.path().join("gone/deeper");
+        super::restore_entry(item(&gone)).expect("restored");
+        assert_eq!(fs::read(gone.join("d/sub/f")).expect("f"), b"F");
+        assert_eq!(
+            fs::read_link(gone.join("d/l")).expect("a link"),
+            Path::new("sub/f")
+        );
+        assert!(!kept.exists() && !info.exists());
     }
 
     /// The controller the next test's trash cancels, as the user would

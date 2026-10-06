@@ -173,6 +173,13 @@ impl Helper {
                     }
                     return Ok(bytes);
                 }
+                // Failed for its own reason before it saw the stop: the stop
+                // is answered on its own too, and that answer is read here,
+                // not taken by the next request as its own
+                Reply::Failed(errno) if stopping && errno != libc::ECANCELED => {
+                    let _ = self.expect_done();
+                    return Err(io::Error::from_raw_os_error(errno));
+                }
                 reply => return Err(unexpected(&reply)),
             }
         }
@@ -253,6 +260,36 @@ mod tests {
         assert_eq!(err.kind(), io::ErrorKind::PermissionDenied);
         drop(helper);
         let _ = seen;
+    }
+
+    /// A copy that fails for its own reason as the stop goes out: the
+    /// stop's own answer is read with it, so the next request gets its own
+    #[test]
+    fn a_failure_racing_a_stop_keeps_the_answers_in_step() {
+        let mut replies = Vec::new();
+        for reply in [
+            Reply::Progress(8),
+            Reply::Failed(libc::EIO),
+            // The stop's, sent after the failure
+            Reply::Done,
+            // The next request's
+            Reply::Failed(libc::EACCES),
+        ] {
+            proto::write_reply(&mut replies, &reply).expect("reply");
+        }
+        let mut helper = Helper {
+            child: None,
+            to: Some(Box::new(Vec::new())),
+            from: Box::new(io::Cursor::new(replies)),
+        };
+        let err = helper
+            .copy(Path::new("/a"), Path::new("/b"), |_| false)
+            .expect_err("failed");
+        assert_eq!(err.raw_os_error(), Some(libc::EIO));
+        let err = helper
+            .call(&Request::Remove(PathBuf::from("/c")))
+            .expect_err("the next request's own answer");
+        assert_eq!(err.raw_os_error(), Some(libc::EACCES));
     }
 
     /// A copy told to stop at its first report stops, leaves nothing, and
