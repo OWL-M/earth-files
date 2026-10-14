@@ -391,7 +391,6 @@ view = Visa
 grid-view = Rutnätsvy
 list-view = Listvy
 show-hidden-files = Visa dolda filer
-show-type-column = Visa typkolumn
 list-directories-first = Lista mappar först
 gallery-preview = Galleri förhandsvisning
 menu-settings = Inställningar...

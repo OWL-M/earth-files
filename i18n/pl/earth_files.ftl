@@ -500,7 +500,6 @@ view = Widok
 grid-view = Widok siatki
 list-view = Widok listy
 show-hidden-files = Pokaż ukryte pliki
-show-type-column = Pokaż kolumnę typu
 list-directories-first = Najpierw wyświetlaj katalogi
 gallery-preview = Podgąd galerii
 menu-settings = Ustawienia…

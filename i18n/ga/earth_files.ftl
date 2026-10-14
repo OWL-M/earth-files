@@ -444,7 +444,6 @@ view = Amharc
 grid-view = Amharc greille
 list-view = Amharc liosta
 show-hidden-files = Taispeáin comhaid fholaithe
-show-type-column = Taispeáin colún cineáil
 list-directories-first = Liostaigh eolairí ar dtús
 gallery-preview = Réamhamharc gailearaí
 menu-settings = Socruithe...

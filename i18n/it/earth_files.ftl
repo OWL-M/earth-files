@@ -474,7 +474,6 @@ view = Visualizza
 grid-view = Visualizzazione a griglia
 list-view = Visualizzazione a elenco
 show-hidden-files = Mostra file nascosti
-show-type-column = Mostra colonna tipo
 list-directories-first = Mostra prima le cartelle
 gallery-preview = Anteprima immagine
 menu-settings = Impostazioni...

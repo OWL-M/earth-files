@@ -497,7 +497,6 @@ view = Изглед
 grid-view = Изглед като решетка
 list-view = Изглед като списък
 show-hidden-files = Показване на скритите файлове
-show-type-column = Показване на колоната за вид
 list-directories-first = Изброяване първо на папките
 gallery-preview = Изглед като галерия
 menu-settings = Настройки...

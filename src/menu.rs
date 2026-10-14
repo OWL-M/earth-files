@@ -712,12 +712,6 @@ pub fn menu_bar<'a>(
                             Action::ToggleShowHidden,
                         ),
                         menu::Item::CheckBox(
-                            fl!("show-type-column"),
-                            None,
-                            tab_opt.is_some_and(|tab| tab.config.show_type_column),
-                            Action::ToggleShowTypeColumn,
-                        ),
-                        menu::Item::CheckBox(
                             fl!("list-directories-first"),
                             None,
                             tab_opt.is_some_and(|tab| tab.config.folders_first),

@@ -384,7 +384,6 @@ view = Görünüm
 grid-view = Tablo görünümü
 list-view = Liste görünümü
 show-hidden-files = Gizli dosyaları göster
-show-type-column = Tür sütununu göster
 list-directories-first = Önce dizinleri listele
 gallery-preview = Galeri ön izlemesi
 menu-settings = Ayarlar...

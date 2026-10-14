@@ -434,6 +434,17 @@ pub fn body<'a>(
         .font(crate::ui::font::default())
 }
 
+/// Ellipsized text with the Caption typography preset.
+pub fn caption<'a>(
+    content: impl Into<Cow<'a, str>>,
+    mode: Mode,
+) -> Ellipsize<'a, crate::ui::Theme, crate::ui::Renderer> {
+    Ellipsize::new(content, mode)
+        .size(12.0)
+        .line_height(LineHeight::Absolute(17.0.into()))
+        .font(crate::ui::font::default())
+}
+
 /// Ellipsized text with the Heading typography preset.
 pub fn heading<'a>(
     content: impl Into<Cow<'a, str>>,

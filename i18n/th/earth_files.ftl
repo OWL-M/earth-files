@@ -371,7 +371,6 @@ view = มุมมอง
 grid-view = มุมมองแบบตาราง
 list-view = มุมมองแบบรายการ
 show-hidden-files = แสดงไฟล์ที่ซ่อนอยู่
-show-type-column = แสดงคอลัมน์ชนิด
 list-directories-first = แสดงแฟ้มก่อนเสมอ
 gallery-preview = ตัวอย่างแบบแกลเลอรี่
 menu-settings = การตั้งค่า...

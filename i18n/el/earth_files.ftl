@@ -328,7 +328,6 @@ new-folder = Νέος φάκελος...
 match-desktop = Συμφωνία με την επιφάνεια εργασίας
 edit-history = Ιστορικό επεξεργασιών
 show-hidden-files = Εμφάνιση κρυφών αρχείων
-show-type-column = Εμφάνιση στήλης τύπου
 progress-failed = { $percent }%, απέτυχε
 item-accessed = Ημερομηνία πρόσβασης: { $accessed }
 extract-to-title = Αποσυμπίεση σε φάκελο

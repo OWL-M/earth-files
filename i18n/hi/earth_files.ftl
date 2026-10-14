@@ -291,7 +291,6 @@ view = दृश्य
 grid-view = ग्रिड दृश्य
 list-view = सूची दृश्य
 show-hidden-files = छिपी हुई फाइलें दिखाएँ
-show-type-column = प्रकार कॉलम दिखाएँ
 list-directories-first = सबसे पहले डाइरेक्ट्री दिखाएँ
 menu-settings = सेटिंग्स..।
 menu-about = { earth-files } के बारे में...

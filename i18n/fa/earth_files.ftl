@@ -423,7 +423,6 @@ view = نمایش
 grid-view = نمایش شبکه‌ای
 list-view = نمایش فهرستی
 show-hidden-files = نمایش فایل‌های مخفی
-show-type-column = نمایش ستون نوع
 list-directories-first = نمایش پوشه‌ها در ابتدا
 gallery-preview = پیش‌نمایش گالری
 menu-settings = تنظیمات...

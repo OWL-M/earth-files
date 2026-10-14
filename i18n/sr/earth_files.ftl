@@ -307,7 +307,6 @@ domain = Домен
 edit-history = Историјат уређивања
 sort = Поређај
 show-hidden-files = Прикажи скривене датотеке
-show-type-column = Прикажи колону врсте
 progress-failed = { $percent }%, није успело
 item-accessed = Приступљено: { $accessed }
 extract-to-title = Распакуј у фасциклу

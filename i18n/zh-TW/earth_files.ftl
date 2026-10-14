@@ -262,7 +262,6 @@ view = 檢視
 grid-view = 網格檢視
 list-view = 列表檢視
 show-hidden-files = 顯示隱藏檔案
-show-type-column = 顯示類型欄
 list-directories-first = 目錄優先列出
 menu-settings = 設定...
 menu-about = 關於 { earth-files }...

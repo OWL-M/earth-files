@@ -254,7 +254,6 @@ pub enum Action {
     Undo,
     ToggleFoldersFirst,
     ToggleShowHidden,
-    ToggleShowTypeColumn,
     ToggleSort(HeadingOptions),
     WindowClose,
     WindowNew,
@@ -331,7 +330,6 @@ impl Action {
             Self::TabViewList => Message::TabView(entity_opt, tab::View::List),
             Self::ToggleFoldersFirst => Message::ToggleFoldersFirst,
             Self::ToggleShowHidden => Message::ToggleShowHidden,
-            Self::ToggleShowTypeColumn => Message::ToggleShowTypeColumn,
             Self::Undo => Message::Undo,
             Self::ToggleSort(sort) => {
                 Message::TabMessage(entity_opt, tab::Message::ToggleSort(*sort))
@@ -619,7 +617,6 @@ pub enum Message {
     /// Widen the search to subfolders, or narrow it back to this folder.
     SetSearchRecursive(bool),
     ToggleShowHidden,
-    ToggleShowTypeColumn,
     ToggleAuthPasswordVisible,
     Undo,
     UndoTrash(widget::ToastId, Arc<[PathBuf]>),
@@ -6628,11 +6625,6 @@ impl Application for App {
             }
             Message::ToggleAuthPasswordVisible => {
                 self.auth_password_visible = !self.auth_password_visible;
-            }
-            Message::ToggleShowTypeColumn => {
-                let mut config = self.config.tab;
-                config.show_type_column = !config.show_type_column;
-                return self.update(Message::TabConfig(config));
             }
             Message::TabMessage(entity_opt, tab_message) => {
                 let entity = entity_opt.unwrap_or_else(|| self.tab_model.active());

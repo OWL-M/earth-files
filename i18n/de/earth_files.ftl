@@ -455,7 +455,6 @@ view = Ansicht
 grid-view = Rasteransicht
 list-view = Listenansicht
 show-hidden-files = Versteckte Dateien anzeigen
-show-type-column = Typ-Spalte anzeigen
 list-directories-first = Verzeichnisse zuerst auflisten
 gallery-preview = Galerie-Vorschau
 menu-settings = Einstellungen ...

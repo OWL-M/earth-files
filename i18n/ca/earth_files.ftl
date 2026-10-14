@@ -427,7 +427,6 @@ view = Visualització
 grid-view = Vista de graella
 list-view = Vista de llista
 show-hidden-files = Mostra els fitxers ocults
-show-type-column = Mostra la columna de tipus
 list-directories-first = Mostra els directoris primer
 gallery-preview = Vista prèvia en galeria
 menu-settings = Configuració...

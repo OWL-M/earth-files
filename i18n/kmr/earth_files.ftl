@@ -159,7 +159,6 @@ match-desktop = Bi sermaseyê re li hev bîne
 name-no-slashes = Nav nabe ku "/" tê de hebe
 edit-history = Dîrokê biguhêrînê
 show-hidden-files = Pelên veşartî nîşan bide
-show-type-column = Stûna cûreyê nîşan bide
 progress-failed = { $percent }%, têk çû
 extract-to-title = Derxîne bo peldankê
 open-with-title = Tu çawa dixwazî "{ $name }" vekî?

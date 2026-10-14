@@ -203,7 +203,6 @@ view = Вид
 grid-view = Перегляд таблицею
 list-view = Перегляд списком
 show-hidden-files = Показати приховані файли
-show-type-column = Показати стовпець типу
 list-directories-first = Теки спочатку
 menu-settings = Налаштування...
 menu-about = Про { earth-files }...

@@ -466,7 +466,6 @@ view = Vizualizare
 grid-view = Vizualizare grilă
 list-view = Vizualizare listă
 show-hidden-files = Afișează fișiere ascunse
-show-type-column = Afișează coloana tip
 list-directories-first = Listează directoarele primele
 gallery-preview = Previzualizare galerie
 menu-settings = Setări...

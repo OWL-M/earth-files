@@ -472,7 +472,6 @@ view = View
 grid-view = Grid view
 list-view = List view
 show-hidden-files = Show hidden files
-show-type-column = Show type column
 list-directories-first = List directories first
 gallery-preview = Gallery preview
 menu-settings = Settings...

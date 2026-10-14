@@ -3,7 +3,7 @@ use crate::ui::Element;
 use crate::ui::iced::advanced::text;
 use crate::ui::iced::futures::{self, SinkExt};
 use crate::ui::iced::keyboard::Modifiers;
-use crate::ui::iced::widget::{rule, stack};
+use crate::ui::iced::widget::stack;
 use crate::ui::iced::{
     Alignment, Color, ContentFit, Length, Point, Rectangle, Size, Subscription, padding, stream,
     window,
@@ -942,7 +942,7 @@ pub fn refresh_icons(items: &mut [Item], sizes: IconSizes) -> IconWarmup {
         // worker fills the cache: the refresh would keep its placeholders and
         // the second question would answer "nothing missing", so no report
         // would ever come back to swap them out.
-        let sizes_wanted = [sizes.grid(), sizes.list(), sizes.list_condensed()];
+        let sizes_wanted = [sizes.grid(), sizes.list()];
         if item.metadata.is_dir() {
             let Some(path) = item.path_opt() else {
                 continue;
@@ -952,15 +952,12 @@ pub fn refresh_icons(items: &mut [Item], sizes: IconSizes) -> IconWarmup {
             if found.iter().any(Option::is_none) {
                 folders.insert(name);
             }
-            let [grid, list, condensed] = found;
+            let [grid, list] = found;
             if let Some(handle) = grid {
                 item.icon_handle_grid = handle;
             }
             if let Some(handle) = list {
                 item.icon_handle_list = handle;
-            }
-            if let Some(handle) = condensed {
-                item.icon_handle_list_condensed = handle;
             }
         } else {
             // One look per size answers both questions, so the cache cannot
@@ -974,15 +971,12 @@ pub fn refresh_icons(items: &mut [Item], sizes: IconSizes) -> IconWarmup {
             {
                 mimes.insert(item.mime.clone());
             }
-            let [grid, list, condensed] = found;
+            let [grid, list] = found;
             if let crate::mime_icon::CachedIcon::Found(handle) = grid {
                 item.icon_handle_grid = handle;
             }
             if let crate::mime_icon::CachedIcon::Found(handle) = list {
                 item.icon_handle_list = handle;
-            }
-            if let crate::mime_icon::CachedIcon::Found(handle) = condensed {
-                item.icon_handle_list_condensed = handle;
             }
         }
     }
@@ -995,7 +989,7 @@ pub fn refresh_icons(items: &mut [Item], sizes: IconSizes) -> IconWarmup {
 /// Resolve everything in `warmup` into the icon caches. Each lookup searches
 /// the icon theme on disk, so this belongs on a worker.
 pub fn warm_icons(warmup: &IconWarmup, sizes: IconSizes) {
-    let all = [sizes.grid(), sizes.list(), sizes.list_condensed()];
+    let all = [sizes.grid(), sizes.list()];
     crate::mime_icon::warm_mime_icons(&warmup.mimes, &all);
     for name in &warmup.folders {
         for size in all {
@@ -1014,19 +1008,13 @@ pub(crate) fn file_icons(
     path: &Path,
     mime: &Mime,
     sizes: IconSizes,
-) -> (
-    bool,
-    widget::icon::Handle,
-    widget::icon::Handle,
-    widget::icon::Handle,
-) {
+) -> (bool, widget::icon::Handle, widget::icon::Handle) {
     let is_desktop = *mime == Mime::APPLICATION_X_DESKTOP;
     match is_desktop.then(|| get_desktop_file_icon(path)).flatten() {
         Some(icon_name) => (
             true,
             desktop_icon_handle(&icon_name, sizes.grid()),
             desktop_icon_handle(&icon_name, sizes.list()),
-            desktop_icon_handle(&icon_name, sizes.list_condensed()),
         ),
         // Only what is already cached. Resolving an icon searches the icon
         // theme on disk and costs tens of milliseconds, and a directory of a
@@ -1037,7 +1025,6 @@ pub(crate) fn file_icons(
             is_desktop,
             cached_or_placeholder(mime, sizes.grid()),
             cached_or_placeholder(mime, sizes.list()),
-            cached_or_placeholder(mime, sizes.list_condensed()),
         ),
     }
 }
@@ -1075,22 +1062,20 @@ pub fn item_from_gvfs_info(path: PathBuf, file_info: gio::FileInfo, sizes: IconS
 
     let size_opt = (!is_dir).then_some(file_info.size() as u64);
 
-    let (is_desktop, mime, icon_handle_grid, icon_handle_list, icon_handle_list_condensed) =
-        if is_dir {
-            (
-                false,
-                Mime::INODE_DIRECTORY,
-                folder_icon_or_placeholder(&path, sizes.grid()),
-                folder_icon_or_placeholder(&path, sizes.list()),
-                folder_icon_or_placeholder(&path, sizes.list_condensed()),
-            )
-        } else {
-            // ALWAYS assume we're remote for mime guessing here, since gvfs reading can be expensive
-            // @todo - expose this as a config option?
-            let mime = mime_for_path(&path, true);
-            let (is_desktop, grid, list, condensed) = file_icons(&path, &mime, sizes);
-            (is_desktop, mime, grid, list, condensed)
-        };
+    let (is_desktop, mime, icon_handle_grid, icon_handle_list) = if is_dir {
+        (
+            false,
+            Mime::INODE_DIRECTORY,
+            folder_icon_or_placeholder(&path, sizes.grid()),
+            folder_icon_or_placeholder(&path, sizes.list()),
+        )
+    } else {
+        // ALWAYS assume we're remote for mime guessing here, since gvfs reading can be expensive
+        // @todo - expose this as a config option?
+        let mime = mime_for_path(&path, true);
+        let (is_desktop, grid, list) = file_icons(&path, &mime, sizes);
+        (is_desktop, mime, grid, list)
+    };
 
     // Children are counted in the background by the tab's subscription
     let children_opt = None;
@@ -1129,7 +1114,6 @@ pub fn item_from_gvfs_info(path: PathBuf, file_info: gio::FileInfo, sizes: IconS
         type_checked: true,
         icon_handle_grid,
         icon_handle_list,
-        icon_handle_list_condensed,
         thumbnail_opt: if remote {
             Some(ItemThumbnail::NotImage)
         } else {
@@ -1211,20 +1195,18 @@ fn item_from_entry_typed(
     // names first. A remote file is always typed by name, as it was before.
     let by_name = typing == Typing::NameFirst && !remote && !metadata.is_dir();
 
-    let (is_desktop, mime, icon_handle_grid, icon_handle_list, icon_handle_list_condensed) =
-        if metadata.is_dir() {
-            (
-                false,
-                Mime::INODE_DIRECTORY,
-                folder_icon_or_placeholder(&path, sizes.grid()),
-                folder_icon_or_placeholder(&path, sizes.list()),
-                folder_icon_or_placeholder(&path, sizes.list_condensed()),
-            )
-        } else {
-            let mime = mime_for_path(&path, remote || by_name);
-            let (is_desktop, grid, list, condensed) = file_icons(&path, &mime, sizes);
-            (is_desktop, mime, grid, list, condensed)
-        };
+    let (is_desktop, mime, icon_handle_grid, icon_handle_list) = if metadata.is_dir() {
+        (
+            false,
+            Mime::INODE_DIRECTORY,
+            folder_icon_or_placeholder(&path, sizes.grid()),
+            folder_icon_or_placeholder(&path, sizes.list()),
+        )
+    } else {
+        let mime = mime_for_path(&path, remote || by_name);
+        let (is_desktop, grid, list) = file_icons(&path, &mime, sizes);
+        (is_desktop, mime, grid, list)
+    };
 
     // Children are counted in the background by the tab's subscription
     let children_opt = None;
@@ -1253,7 +1235,6 @@ fn item_from_entry_typed(
         type_checked: !by_name,
         icon_handle_grid,
         icon_handle_list,
-        icon_handle_list_condensed,
         thumbnail_opt: remote.then_some(ItemThumbnail::NotImage),
         button_id: widget::Id::unique(),
         pos_opt: Cell::new(None),
@@ -1287,21 +1268,19 @@ pub fn item_from_trash_entry(
         entry.original_path()
     };
 
-    let (mime, icon_handle_grid, icon_handle_list, icon_handle_list_condensed) = match metadata.size
-    {
+    let (mime, icon_handle_grid, icon_handle_list) = match metadata.size {
         trash::TrashItemSize::Entries(_) => (
             Mime::INODE_DIRECTORY,
             folder_icon_or_placeholder(&original_path, sizes.grid()),
             folder_icon_or_placeholder(&original_path, sizes.list()),
-            folder_icon_or_placeholder(&original_path, sizes.list_condensed()),
         ),
         trash::TrashItemSize::Bytes(_) => {
             // This passes remote = true so it does not read from the original path
             let mime = mime_for_path(&original_path, true);
             // The launcher icon is read from the copy inside the trash
             let icon_path = trash_path.as_deref().unwrap_or(&original_path);
-            let (_, grid, list, condensed) = file_icons(icon_path, &mime, sizes);
-            (mime, grid, list, condensed)
+            let (_, grid, list) = file_icons(icon_path, &mime, sizes);
+            (mime, grid, list)
         }
     };
 
@@ -1319,7 +1298,6 @@ pub fn item_from_trash_entry(
         type_checked: true,
         icon_handle_grid,
         icon_handle_list,
-        icon_handle_list_condensed,
         thumbnail_opt: Some(ItemThumbnail::NotImage),
         button_id: widget::Id::unique(),
         pos_opt: Cell::new(None),
@@ -2329,9 +2307,6 @@ pub enum Message {
     TabComplete(PathBuf, Vec<(String, PathBuf)>),
     Thumbnail(PathBuf, ItemThumbnail),
     ToggleSort(HeadingOptions),
-    ColumnResizeStart(ColumnDivider),
-    ColumnResizeDrag(f32),
-    ColumnResizeEnd,
     WindowDrag,
     WindowToggleMaximize,
     ZoomIn,
@@ -2879,7 +2854,6 @@ pub struct Item {
     pub details_epoch: u64,
     pub icon_handle_grid: widget::icon::Handle,
     pub icon_handle_list: widget::icon::Handle,
-    pub icon_handle_list_condensed: widget::icon::Handle,
     pub thumbnail_opt: Option<ItemThumbnail>,
     pub button_id: widget::Id,
     pub pos_opt: Cell<Option<(usize, usize)>>,
@@ -2935,7 +2909,6 @@ impl Item {
         }
         self.icon_handle_grid = retyped.icon_handle_grid;
         self.icon_handle_list = retyped.icon_handle_list;
-        self.icon_handle_list_condensed = retyped.icon_handle_list_condensed;
         // Thumbnails wait for a checked type, so there is none yet; cleared
         // anyway so one could never outlive the type it was made for
         self.thumbnail_opt = None;
@@ -3339,8 +3312,7 @@ impl Item {
         };
         if let Some(handle) = handle {
             self.icon_handle_grid.clone_from(&handle);
-            self.icon_handle_list.clone_from(&handle);
-            self.icon_handle_list_condensed = handle;
+            self.icon_handle_list = handle;
         }
         self.thumbnail_opt = Some(thumbnail);
     }
@@ -3394,66 +3366,181 @@ pub enum View {
     Grid,
     List,
 }
-/// Room the fixed list-view columns must leave for everything left of them:
-/// outer padding, the icon, the gaps and the name text.
-pub const NAME_MIN: f32 = 300.0;
-/// Narrowest a fixed column can be dragged or shrunk to.
-pub const COLUMN_MIN: f32 = 48.0;
-/// How far a divider's grab zone extends into the column on its left, on top
-/// of the gap between cells.
-const DIVIDER_GRAB: f32 = 6.0;
+/// View width under which the list's sort bar shows its icons without their
+/// labels.
+pub const SORT_LABELS_MIN: f32 = 600.0;
 
-/// A draggable boundary between two list-view columns. Dragging it transfers
-/// width between its two neighbours, so the boundary follows the pointer.
-/// The last column ends at the frame edge, which cannot move.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum ColumnDivider {
-    NameModified,
-    ModifiedSize,
-    /// Only while the Type column is shown
-    SizeType,
+/// Height of the list's sort bar.
+const SORT_BAR_HEIGHT: f32 = 44.0;
+
+/// The width `content` takes in the default font family at `size`, shaped
+/// the way a label draws it.
+fn label_width(content: &str, size: f32, font: crate::ui::font::Font) -> f32 {
+    use crate::ui::iced::advanced::graphics::text::Paragraph as GraphicsParagraph;
+    use crate::ui::iced::advanced::text::{LineHeight, Paragraph as _, Shaping, Text, Wrapping};
+
+    GraphicsParagraph::with_text(Text {
+        content,
+        bounds: Size::INFINITE,
+        size: size.into(),
+        line_height: LineHeight::default(),
+        font,
+        align_x: text::Alignment::Left,
+        align_y: crate::ui::iced::alignment::Vertical::Center,
+        shaping: Shaping::Advanced,
+        wrapping: Wrapping::default(),
+    })
+    .min_bounds()
+    .width
 }
 
-/// Requested widths of the fixed list-view columns, in pixels. Kept per tab
-/// for the session; not saved. Name takes whatever is left.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct ColumnWidths {
-    pub modified: f32,
-    pub size: f32,
-    pub type_: f32,
-}
-
-impl ColumnWidths {
-    fn fixed_total(&self, show_type: bool) -> f32 {
-        self.modified + self.size + if show_type { self.type_ } else { 0.0 }
+/// Width of a list row's right column, which holds what the list is sorted
+/// by (the date when sorted by name).
+fn right_column_width(sort: HeadingOptions) -> f32 {
+    match sort {
+        HeadingOptions::Size => 110.0,
+        HeadingOptions::Type => 140.0,
+        HeadingOptions::Name | HeadingOptions::Modified | HeadingOptions::TrashedOn => 200.0,
     }
 }
 
-/// The requested widths fitted into the current view width: what is laid out.
-#[derive(Clone, Copy, Debug)]
-struct ListGeometry {
-    /// Effective widths, each at least [`COLUMN_MIN`]
-    widths: ColumnWidths,
-    show_type: bool,
-    /// View width minus the effective fixed widths, at least [`NAME_MIN`]
-    name_room: f32,
+/// The least width a list row's name is given. Under it the right column is
+/// dropped and its detail leads the second line instead.
+const LIST_NAME_MIN: f32 = 160.0;
+
+/// Whether a list row `width` wide (the view's width) has room for its right
+/// column next to the icon and at least [`LIST_NAME_MIN`] for the name.
+fn right_column_fits(width: f32, icon_size: u16, sort: HeadingOptions) -> bool {
+    let Spacing {
+        space_s, space_xs, ..
+    } = spacing();
+    // The list's side padding, the row button's padding, and the gaps after
+    // the icon and after the name
+    let around = 2.0 * f32::from(space_s) + 4.0 * f32::from(space_xs);
+    width - around - f32::from(icon_size) - right_column_width(sort) >= LIST_NAME_MIN
 }
 
-/// A divider drag in progress, with the effective widths when it started.
-#[derive(Clone, Copy, Debug)]
-struct ColumnResize {
-    divider: ColumnDivider,
-    start: ColumnWidths,
-    start_name_room: f32,
+/// A row's second line with what its right column would have held put first,
+/// for a row too narrow for the right column.
+fn line_with_right(right: &str, line: &str) -> String {
+    [right, line]
+        .into_iter()
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join(" · ")
 }
 
-impl Default for ColumnWidths {
-    fn default() -> Self {
-        Self {
-            modified: 200.0,
-            size: 100.0,
-            type_: 120.0,
+/// What a list row shows besides its name: its second line and its right
+/// column. The right column holds the detail the list is sorted by, the date
+/// when sorted by name or date; the second line the other two, in the order
+/// type, size, date, leaving out any that is not known.
+fn list_details(sort: HeadingOptions, type_: &str, size: &str, date: &str) -> (String, String) {
+    let right = match sort {
+        HeadingOptions::Type => 0,
+        HeadingOptions::Size => 1,
+        HeadingOptions::Name | HeadingOptions::Modified | HeadingOptions::TrashedOn => 2,
+    };
+    let parts = [type_, size, date];
+    let line = parts
+        .iter()
+        .enumerate()
+        .filter(|&(i, part)| i != right && !part.is_empty())
+        .map(|(_, part)| *part)
+        .collect::<Vec<_>>()
+        .join(" · ");
+    (line, parts[right].to_owned())
+}
+
+/// The order a sort gives, in words, as the sort menu says it.
+fn sort_order_words(sort: HeadingOptions, ascending: bool) -> String {
+    match (sort, ascending) {
+        (HeadingOptions::Name | HeadingOptions::Type, true) => fl!("sort-a-z"),
+        (HeadingOptions::Name | HeadingOptions::Type, false) => fl!("sort-z-a"),
+        (HeadingOptions::Modified | HeadingOptions::TrashedOn, true) => fl!("sort-oldest-first"),
+        (HeadingOptions::Modified | HeadingOptions::TrashedOn, false) => {
+            fl!("sort-newest-first")
         }
+        (HeadingOptions::Size, true) => fl!("sort-smallest-to-largest"),
+        (HeadingOptions::Size, false) => fl!("sort-largest-to-smallest"),
+    }
+}
+
+/// The sort bar's icon for `sort`, or its reverse button's for `None`.
+/// Bundled and symbolic, so they take the colour of the button they sit in.
+fn sort_icon(sort: Option<HeadingOptions>) -> widget::icon::Handle {
+    static NAME: &[u8] = include_bytes!("../res/icons/symbolic/sort-name-symbolic.svg");
+    static MODIFIED: &[u8] = include_bytes!("../res/icons/symbolic/sort-modified-symbolic.svg");
+    static SIZE: &[u8] = include_bytes!("../res/icons/symbolic/sort-size-symbolic.svg");
+    static TYPE: &[u8] = include_bytes!("../res/icons/symbolic/sort-type-symbolic.svg");
+    static REVERSE: &[u8] = include_bytes!("../res/icons/symbolic/sort-reverse-symbolic.svg");
+    let bytes = match sort {
+        Some(HeadingOptions::Name) => NAME,
+        Some(HeadingOptions::Modified | HeadingOptions::TrashedOn) => MODIFIED,
+        Some(HeadingOptions::Size) => SIZE,
+        Some(HeadingOptions::Type) => TYPE,
+        None => REVERSE,
+    };
+    let mut handle = widget::icon::from_svg_bytes(bytes);
+    handle.symbolic = true;
+    handle
+}
+
+/// A sort bar button: the active one filled with the component colour and
+/// its icon in the accent colour; the others dimmed text until hovered.
+fn sort_button_style(active: bool) -> Button {
+    fn appearance(theme: &theme::Theme, active: bool, lit: bool) -> widget::button::Style {
+        let cosmic = theme.cosmic();
+        let mut style = widget::button::Style::new();
+        style.border_radius = cosmic.radius_s().to_radius();
+        let on = cosmic.background(theme.transparent).on;
+        if active {
+            style.background = Some(cosmic.bg_component_color().to_color().into());
+            style.text_color = Some(cosmic.on_bg_component_color().to_color());
+            style.icon_color = Some(cosmic.accent_text_color().to_color());
+        } else {
+            if lit {
+                style.background = Some(cosmic.bg_component_color().to_color().into());
+            }
+            let mut text = on;
+            if !lit {
+                text.alpha *= 0.75;
+            }
+            style.text_color = Some(text.to_color());
+            style.icon_color = Some(text.to_color());
+        }
+        style
+    }
+    Button::Custom {
+        active: Box::new(move |_, theme| appearance(theme, active, false)),
+        disabled: Box::new(move |theme| appearance(theme, active, false)),
+        hovered: Box::new(move |_, theme| appearance(theme, active, true)),
+        pressed: Box::new(move |_, theme| appearance(theme, active, true)),
+    }
+}
+
+/// Dimmed text: a list row's second line and right column.
+fn dim_text_style(theme: &theme::Theme) -> widget::text::Style {
+    let mut color = theme.cosmic().background(theme.transparent).on;
+    color.alpha *= 0.75;
+    widget::text::Style {
+        color: Some(color.to_color()),
+        ..Default::default()
+    }
+}
+
+/// The faint fill of every other list row, so the eye keeps to a row
+/// across a wide window.
+fn stripe_style(theme: &theme::Theme) -> widget::container::Style {
+    let cosmic = theme.cosmic();
+    let mut color = cosmic.background(theme.transparent).on;
+    color.alpha = if cosmic.is_dark { 0.025 } else { 0.03 };
+    widget::container::Style {
+        background: Some(color.to_color().into()),
+        border: crate::ui::iced::Border {
+            radius: cosmic.radius_s().to_radius(),
+            ..Default::default()
+        },
+        ..Default::default()
     }
 }
 
@@ -3654,8 +3741,6 @@ pub struct Tab {
     dnd_ancestor: Option<usize>,
     window_id: Option<window::Id>,
     large_image_manager: LargeImageManager,
-    column_widths: ColumnWidths,
-    column_resize: Option<ColumnResize>,
     /// The request number of the network resolution this tab is waiting on,
     /// if any.
     ///
@@ -4065,8 +4150,6 @@ impl Tab {
             dnd_ancestor: None,
             window_id,
             large_image_manager: LargeImageManager::new(),
-            column_widths: ColumnWidths::default(),
-            column_resize: None,
         }
     }
 
@@ -4930,49 +5013,17 @@ impl Tab {
         }
     }
 
-    /// The list-view column geometry for the current view width, or `None`
-    /// when the view is too narrow and the list uses its condensed layout.
-    ///
-    /// The requested widths are shrunk from the right, down to [`COLUMN_MIN`]
-    /// each, until Name has [`NAME_MIN`] of room. Only the effective widths
-    /// shrink, so widening the window restores what was requested.
-    fn list_geometry(&self) -> Option<ListGeometry> {
-        self.list_geometry_at(self.size_opt.get()?.width)
-    }
-
-    /// [`Self::list_geometry`] for a view `width` wide.
-    fn list_geometry_at(&self, width: f32) -> Option<ListGeometry> {
-        let show_type = self.config.show_type_column;
-        let mut widths = self.column_widths;
-        let mut room = width - widths.fixed_total(show_type);
-        let mut shrink = |column: &mut f32| {
-            if room < NAME_MIN {
-                let shrunk = (*column - (NAME_MIN - room)).max(COLUMN_MIN);
-                room += *column - shrunk;
-                *column = shrunk;
-            }
-        };
-        if show_type {
-            shrink(&mut widths.type_);
-        }
-        shrink(&mut widths.size);
-        shrink(&mut widths.modified);
-        (room >= NAME_MIN).then_some(ListGeometry {
-            widths,
-            show_type,
-            name_room: room,
-        })
-    }
-
-    /// Whether the list can follow a drawer slide by moving its fixed
-    /// columns alone: list view, not a search, at least one row shown (an
-    /// empty list centres its empty-state message, which would re-centre
-    /// with a jump when a column slide ends), and the same effective widths
-    /// now and once the drawer has taken (or given back) `extent`, so that
-    /// only Name changes. `size_opt` is the width of the last layout, so
-    /// this assumes no tab switch or resize since; if one happened in the
-    /// same update, at worst one slide runs on the wrong path and the
-    /// relayout at its end corrects it. See `crate::ui::shell::panel_slide`.
+    /// Whether the list can follow a drawer slide by moving its right column
+    /// and the sort bar's order button alone: list view, not a search, at
+    /// least one row shown (an empty list centres its empty-state message,
+    /// which would re-centre with a jump when a column slide ends), and the
+    /// sort bar laid out the same way and the rows' right column shown now
+    /// and once the drawer has taken (or given back) `extent`, so that only
+    /// the names' room changes.
+    /// `size_opt` is the width of the last layout, so this assumes no tab
+    /// switch or resize since; if one happened in the same update, at worst
+    /// one slide runs on the wrong path and the relayout at its end corrects
+    /// it. See `crate::ui::shell::panel_slide`.
     #[must_use]
     pub fn column_slide_fits(&self, extent: f32, opening: bool) -> bool {
         if self.config.view != View::List || self.is_search() {
@@ -4993,10 +5044,16 @@ impl Tab {
         } else {
             width + extent
         };
-        match (self.list_geometry_at(width), self.list_geometry_at(then)) {
-            (Some(now), Some(then)) => now.widths == then.widths,
-            _ => false,
-        }
+        then > 0.0
+            && self.sort_labels_fit(width) == self.sort_labels_fit(then)
+            && self.shows_right_column(width)
+            && self.shows_right_column(then)
+    }
+
+    /// Whether list rows in a view `width` wide have their right column.
+    fn shows_right_column(&self, width: f32) -> bool {
+        let (sort_name, _, _) = self.sort_options();
+        right_column_fits(width, self.config.icon_sizes.list(), sort_name)
     }
 
     /// Whether the tab is showing search results, for the row shape (a
@@ -6899,8 +6956,7 @@ impl Tab {
                             };
                             if let Some(handle) = handle_opt {
                                 item.icon_handle_grid.clone_from(&handle);
-                                item.icon_handle_list.clone_from(&handle);
-                                item.icon_handle_list_condensed = handle;
+                                item.icon_handle_list = handle;
                             }
                             item.thumbnail_opt = Some(thumbnail);
                             break;
@@ -6919,59 +6975,6 @@ impl Tab {
                     display_size,
                     generation,
                 );
-            }
-            Message::ColumnResizeStart(divider) => {
-                if let Some(geometry) = self.list_geometry() {
-                    self.column_resize = Some(ColumnResize {
-                        divider,
-                        start: geometry.widths,
-                        start_name_room: geometry.name_room,
-                    });
-                }
-            }
-            Message::ColumnResizeDrag(delta_x) => {
-                let Some(resize) = self.column_resize else {
-                    return commands;
-                };
-                if resize.divider == ColumnDivider::SizeType && !self.config.show_type_column {
-                    self.column_resize = None;
-                    return commands;
-                }
-                // The divider trades width between its two neighbours, clamped so
-                // neither goes below its minimum. Everything else stays put, so
-                // the divider follows the pointer.
-                let (left_start, left_min, right_start) = match resize.divider {
-                    ColumnDivider::NameModified => {
-                        (resize.start_name_room, NAME_MIN, resize.start.modified)
-                    }
-                    ColumnDivider::ModifiedSize => {
-                        (resize.start.modified, COLUMN_MIN, resize.start.size)
-                    }
-                    ColumnDivider::SizeType => (resize.start.size, COLUMN_MIN, resize.start.type_),
-                };
-                let lo = left_min - left_start;
-                let hi = right_start - COLUMN_MIN;
-                if lo > hi {
-                    return commands;
-                }
-                let delta_x = delta_x.round().clamp(lo, hi);
-                let widths = &mut self.column_widths;
-                match resize.divider {
-                    ColumnDivider::NameModified => {
-                        widths.modified = resize.start.modified - delta_x;
-                    }
-                    ColumnDivider::ModifiedSize => {
-                        widths.modified = resize.start.modified + delta_x;
-                        widths.size = resize.start.size - delta_x;
-                    }
-                    ColumnDivider::SizeType => {
-                        widths.size = resize.start.size + delta_x;
-                        widths.type_ = resize.start.type_ - delta_x;
-                    }
-                }
-            }
-            Message::ColumnResizeEnd => {
-                self.column_resize = None;
             }
             Message::ToggleSort(heading_option) => {
                 if let Some(sort_key) = self.location.sort_key() {
@@ -7890,142 +7893,199 @@ impl Tab {
         }
     }
 
-    /// The top of the tab: the list's column headings and the rule under
-    /// them, in list view when there is room for them; nothing otherwise.
+    /// The top of the tab in list view: the sort bar, or for a search the
+    /// count of its results and their order. Nothing in grid view.
     pub fn location_view(&self, column_slide: Option<&ColumnSlide>) -> Element<'_, Message> {
+        let Spacing { space_s, .. } = spacing();
+        if self.config.view != View::List {
+            return widget::Column::new().into();
+        }
+        let bar = if self.is_search() {
+            self.search_bar()
+        } else {
+            self.sort_bar(column_slide)
+        };
+        widget::container(bar)
+            .padding([0, space_s])
+            .height(Length::Fixed(SORT_BAR_HEIGHT))
+            .align_y(Alignment::Center)
+            .into()
+    }
+
+    /// The sorts the bar offers, each with its name.
+    fn sort_choices(&self) -> [(HeadingOptions, String); 4] {
+        let modified = if self.location.is_trash() {
+            (HeadingOptions::TrashedOn, fl!("trashed-on"))
+        } else {
+            (HeadingOptions::Modified, fl!("modified"))
+        };
+        [
+            (HeadingOptions::Name, fl!("name")),
+            modified,
+            (HeadingOptions::Size, fl!("size")),
+            (HeadingOptions::Type, fl!("type-heading")),
+        ]
+    }
+
+    /// Whether the sort bar has room for its labels in a view `width` wide:
+    /// never under [`SORT_LABELS_MIN`], and never when the labels, measured
+    /// in this language, would push the order button out of the bar.
+    fn sort_labels_fit(&self, width: f32) -> bool {
+        width >= SORT_LABELS_MIN && width >= self.sort_bar_labelled_width()
+    }
+
+    /// The width the sort bar takes with its labels shown, padding included.
+    /// Every label is measured semibold, as the active one is drawn, and the
+    /// order as its longest wording, so the answer does not change with the
+    /// sort.
+    fn sort_bar_labelled_width(&self) -> f32 {
+        let Spacing {
+            space_xxxs,
+            space_xs,
+            space_s,
+            ..
+        } = spacing();
+        let (space_xxxs, space_xs, space_s) = (
+            f32::from(space_xxxs),
+            f32::from(space_xs),
+            f32::from(space_s),
+        );
+        let choices = self.sort_choices();
+        let buttons: f32 = choices
+            .iter()
+            .map(|(_, label)| {
+                2.0 * space_xs + 16.0 + 6.0 + label_width(label, 14.0, crate::ui::font::semibold())
+            })
+            .sum::<f32>()
+            + space_xxxs * (choices.len() - 1) as f32;
+        let words = [
+            HeadingOptions::Name,
+            HeadingOptions::Modified,
+            HeadingOptions::Size,
+        ]
+        .into_iter()
+        .flat_map(|sort| [true, false].map(|ascending| sort_order_words(sort, ascending)))
+        .map(|words| label_width(&words, 12.0, crate::ui::font::default()))
+        .fold(0.0_f32, f32::max);
+        let order = 2.0 * space_xs + words + 6.0 + 14.0;
+        // The bar's own padding, and a gap between the buttons and the order
+        2.0 * space_s + buttons + space_s + order
+    }
+
+    /// The four sorts as buttons, each an icon and its name (the icon alone
+    /// in a narrow view, the name then in a tooltip), the active one filled;
+    /// and at the right end the order in words, which reverses it.
+    fn sort_bar(&self, column_slide: Option<&ColumnSlide>) -> Element<'_, Message> {
         let Spacing {
             space_xxxs,
             space_xxs,
-            space_s,
-            space_m,
+            space_xs,
             ..
         } = spacing();
-
-        let geometry = self.list_geometry();
-        let condensed = geometry.is_none();
-        // With no geometry the header is not shown; any widths do for the build
-        let geometry = geometry.unwrap_or(ListGeometry {
-            widths: self.column_widths,
-            show_type: self.config.show_type_column,
-            name_room: 0.0,
-        });
-
         let (sort_name, sort_direction, _) = self.sort_options();
-        let heading =
-            |label: String, width: Length, option: HeadingOptions| -> Element<'_, Message> {
-                let mut content = widget::Row::with_capacity(2)
-                    .align_y(Alignment::Center)
-                    .spacing(space_xxxs.to_pixels())
-                    .width(width)
-                    .height(Length::Fill);
-                content = content.push(widget::text::heading(label));
-                match (sort_name == option, sort_direction) {
-                    (true, true) => {
-                        content =
-                            content.push(widget::icon::from_name("pan-down-symbolic").size(16));
-                    }
-                    (true, false) => {
-                        content = content.push(widget::icon::from_name("pan-up-symbolic").size(16));
-                    }
-                    _ => {}
+        let labels = self
+            .size_opt
+            .get()
+            .is_none_or(|size| self.sort_labels_fit(size.width));
+        let choices = self.sort_choices();
+
+        let mut buttons = widget::Row::with_capacity(choices.len())
+            .spacing(space_xxxs.to_pixels())
+            .align_y(Alignment::Center);
+        for (option, label) in choices {
+            let active = sort_name == option;
+            let mut content = widget::Row::with_capacity(2)
+                .spacing(6)
+                .align_y(Alignment::Center)
+                .push(widget::icon::icon(sort_icon(Some(option))).size(16));
+            if labels {
+                let mut text = widget::text::body(label.clone());
+                if active {
+                    text = text.font(crate::ui::font::semibold());
                 }
-                // A pointer cursor marks the heading as clickable; no hover effect
-                mouse_area::MouseArea::new(content)
-                    .interaction(crate::ui::iced_core::mouse::Interaction::Pointer)
-                    .on_press(move |_| Message::ToggleSort(option))
-                    .into()
-            };
-        // Each divider occupies the gap between two cells plus `DIVIDER_GRAB`
-        // of the heading on its left, which is made that much narrower. The
-        // fixed widths right of any boundary therefore add up exactly as in
-        // the rows, which is what keeps headings over their cells.
-        let divider = |divider: ColumnDivider| -> Element<'_, Message> {
-            mouse_area::MouseArea::new(
-                widget::space::horizontal()
-                    .width(Length::Fixed(f32::from(space_xxs) + DIVIDER_GRAB))
-                    .height(Length::Fill),
-            )
-            .interaction(crate::ui::iced_core::mouse::Interaction::ResizingHorizontally)
-            .on_press(move |_| Message::ColumnResizeStart(divider))
-            .on_drag_delta(|delta| Message::ColumnResizeDrag(delta.x))
-            .on_drag_end(|_| Message::ColumnResizeEnd)
-            .on_release(|_| Message::ColumnResizeEnd)
-            .into()
-        };
-
-        let (modified_label, modified_option) = if self.location.is_trash() {
-            (fl!("trashed-on"), HeadingOptions::TrashedOn)
-        } else {
-            (fl!("modified"), HeadingOptions::Modified)
-        };
-        let widths = geometry.widths;
-        let name_heading = heading(fl!("name"), Length::Fill, HeadingOptions::Name);
-        let mut columns = vec![
-            divider(ColumnDivider::NameModified),
-            heading(
-                modified_label,
-                Length::Fixed(widths.modified - DIVIDER_GRAB),
-                modified_option,
-            ),
-            divider(ColumnDivider::ModifiedSize),
-        ];
-        if geometry.show_type {
-            columns.push(heading(
-                fl!("size"),
-                Length::Fixed(widths.size - DIVIDER_GRAB),
-                HeadingOptions::Size,
-            ));
-            columns.push(divider(ColumnDivider::SizeType));
-            columns.push(heading(
-                fl!("type-heading"),
-                Length::Fixed(widths.type_),
-                HeadingOptions::Type,
-            ));
-        } else {
-            columns.push(heading(
-                fl!("size"),
-                Length::Fixed(widths.size),
-                HeadingOptions::Size,
-            ));
-        }
-        // While the drawer slides, Name is held at its narrow width (its
-        // width with the drawer in the layout) and the rest slides over the
-        // gap as one texture, like the rows below; see
-        // `crate::ui::shell::panel_slide`.
-        let headings: Vec<Element<'_, Message>> = if let Some(slide) = column_slide {
-            vec![
-                name_heading,
-                space::horizontal()
-                    .width(Length::Fixed(slide.extent))
-                    .into(),
-                cached(
-                    TextureCache::new(),
-                    widget::Row::with_children(columns)
-                        .align_y(Alignment::Center)
-                        .height(Length::Fill),
+                content = content.push(text);
+            }
+            let button = widget::button::custom(content)
+                .padding([space_xxxs + 2, if labels { space_xs } else { space_xxs }])
+                .class(sort_button_style(active))
+                .on_press(Message::ToggleSort(option));
+            buttons = buttons.push(if labels {
+                Element::from(button)
+            } else {
+                widget::tooltip(
+                    button,
+                    widget::text::body(label),
+                    widget::tooltip::Position::Bottom,
                 )
-                .translate(slide.offset.clone())
-                .into(),
-            ]
-        } else {
-            let mut headings = vec![name_heading];
-            headings.extend(columns);
-            headings
-        };
-        let heading_row = widget::Row::with_children(headings)
-            .align_y(Alignment::Center)
-            .height(Length::Fixed((space_m + 4).into()))
-            .padding([0, space_xxs]);
-
-        let heading_rule = widget::container(rule::horizontal(1))
-            .padding([0, theme::active().cosmic().corner_radii.radius_xs[0] as u16]);
-
-        let mut column = widget::Column::with_capacity(2).padding([0, space_s]);
-        if self.config.view == View::List && !condensed {
-            column = column.push(heading_row);
-            column = column.push(heading_rule);
+                .into()
+            });
         }
-        column.into()
+
+        // Clicking the active sort again reverses it, as this does
+        let order: Element<'_, Message> = widget::button::custom(
+            widget::Row::with_capacity(2)
+                .spacing(6)
+                .align_y(Alignment::Center)
+                .push(widget::text::caption(sort_order_words(
+                    sort_name,
+                    sort_direction,
+                )))
+                .push(widget::icon::icon(sort_icon(None)).size(14)),
+        )
+        .padding([space_xxxs + 2, space_xs])
+        .class(sort_button_style(false))
+        .on_press(Message::ToggleSort(sort_name))
+        .into();
+
+        let mut row = widget::Row::with_capacity(4)
+            .align_y(Alignment::Center)
+            .push(buttons)
+            .push(space::horizontal());
+        // While the drawer slides, the order button slides over the gap with
+        // the rows' right column; see `crate::ui::shell::panel_slide`.
+        row = match column_slide {
+            Some(slide) => row
+                .push(space::horizontal().width(Length::Fixed(slide.extent)))
+                .push(cached(TextureCache::new(), order).translate(slide.offset.clone())),
+            None => row.push(order),
+        };
+        row.into()
+    }
+
+    /// A search's bar: how many results it has found, and their order, which
+    /// is always newest first, so there is nothing to choose.
+    fn search_bar(&self) -> Element<'_, Message> {
+        let Spacing {
+            space_xxs,
+            space_xs,
+            ..
+        } = spacing();
+        let show_hidden = self.config.show_hidden;
+        let count = self.items_opt().map_or(0, |items| {
+            items
+                .iter()
+                .filter(|item| !item.hidden || show_hidden)
+                .count()
+        });
+        let (sort_name, sort_direction, _) = self.sort_options();
+        widget::Row::with_capacity(4)
+            .align_y(Alignment::Center)
+            .spacing(space_xxs.to_pixels())
+            .push(
+                widget::icon::from_name("system-search-symbolic")
+                    .size(16)
+                    .icon(),
+            )
+            .push(widget::text::body(fl!("item-count", count = count)))
+            .push(space::horizontal())
+            .push(
+                widget::container(
+                    widget::text::caption(sort_order_words(sort_name, sort_direction))
+                        .class(theme::Text::Custom(dim_text_style)),
+                )
+                .padding([0, space_xs]),
+            )
+            .into()
     }
 
     pub fn empty_view(&self, has_hidden: bool) -> Element<'_, Message> {
@@ -8277,9 +8337,44 @@ impl Tab {
         (mouse_area.into(), true)
     }
 
+    /// Where a search result lives, under its name: its folder, relative to
+    /// the folder the search started in.
+    fn search_folder_text(&self, item: &Item) -> String {
+        // A trashed item's path is in the trash's own storage, the same for
+        // every result, so say where it was trashed from
+        if let ItemMetadata::Trash { entry, .. } = &item.metadata {
+            return if crate::trashing::origin_unknown(entry) {
+                fl!("trash-original-unknown")
+            } else {
+                entry.original_parent.display().to_string()
+            };
+        }
+        let Some(path) = item.path_opt() else {
+            return String::new();
+        };
+        let folder = path.parent().unwrap_or(path);
+        let root = match &self.location {
+            Location::Search(SearchLocation::Path(root), ..) => Some(root.as_path()),
+            _ => None,
+        };
+        match root.and_then(|root| folder.strip_prefix(root).ok()) {
+            Some(relative) if relative.as_os_str().is_empty() => {
+                root.and_then(Path::file_name).map_or_else(
+                    || folder.display().to_string(),
+                    |name| name.to_string_lossy().into_owned(),
+                )
+            }
+            Some(relative) => relative.display().to_string(),
+            None => folder.display().to_string(),
+        }
+    }
+
     pub fn list_view(&self, column_slide: Option<&ColumnSlide>) -> (Element<'_, Message>, bool) {
         let Spacing {
-            space_s, space_xxs, ..
+            space_s,
+            space_xxs,
+            space_xs,
+            ..
         } = spacing();
 
         let TabConfig {
@@ -8289,26 +8384,18 @@ impl Tab {
         } = self.config;
 
         let size = self.size_opt.get().unwrap_or_else(|| Size::new(0.0, 0.0));
-        let geometry = self.list_geometry();
-        let condensed = geometry.is_none();
-        let show_type_column = self.config.show_type_column;
-        // Only read in the non-condensed layouts
-        let widths = geometry.map(|g| g.widths).unwrap_or(self.column_widths);
-        let modified_width = widths.modified;
-        let size_width = widths.size;
-        let type_width = if show_type_column { widths.type_ } else { 0.0 };
         let is_search = self.is_search();
-        let icon_size = if condensed || is_search {
-            icon_sizes.list_condensed()
-        } else {
-            icon_sizes.list()
-        };
-        let row_height = icon_size + 2 * space_xxs;
+        let (sort_name, _, _) = self.sort_options();
+        let right_width = right_column_width(sort_name);
+        let icon_size = icon_sizes.list();
+        // Too narrow for the right column, its detail leads the second line
+        let right_shown = self.shows_right_column(size.width);
+        // Two lines of text: a body line (21px) over a caption line (17px)
+        const TEXT_HEIGHT: u16 = 38;
+        let row_height = icon_size.max(TEXT_HEIGHT) + 2 * space_xxs;
 
         let mut column = widget::Column::with_capacity(3);
         let mut y: f32 = 0.0;
-
-        let rule_padding = theme::active().cosmic().corner_radii.radius_xs[0] as u16;
 
         let visible_rect = self.visible_rect(self.size_opt.get().unwrap_or_default());
 
@@ -8321,12 +8408,6 @@ impl Tab {
                     item.rect_opt.set(None);
                     hidden += 1;
                     continue;
-                }
-
-                if count > 0 {
-                    column = column
-                        .push(widget::container(rule::horizontal(1)).padding([0, rule_padding]));
-                    y += 1.0;
                 }
 
                 item.pos_opt.set(Some((count, 0)));
@@ -8402,150 +8483,120 @@ impl Tab {
                         }
                     };
 
-                    let type_cell = || -> Element<'_, Message> {
-                        widget::text::body(
-                            crate::file_category::FileCategory::of(
-                                item.metadata.is_dir(),
-                                &item.mime,
-                            )
-                            .to_string(),
-                        )
-                        .width(Length::Fixed(type_width))
-                        .into()
-                    };
+                    let type_text =
+                        crate::file_category::FileCategory::of(item.metadata.is_dir(), &item.mime)
+                            .to_string();
 
-                    let row = if condensed {
-                        widget::Row::with_children([
-                            widget::icon::icon(item.icon_handle_list_condensed.clone())
-                                .content_fit(ContentFit::Contain)
-                                .size(icon_size)
-                                .into(),
-                            widget::Column::with_children([
-                                Item::list_display_name(item.display_name.clone()).into(),
-                                widget::text::caption(format!("{modified_text} - {size_text}"))
-                                    .into(),
-                            ])
-                            .into(),
-                        ])
-                        .height(Length::Fixed(f32::from(row_height)))
-                        .align_y(Alignment::Center)
-                        .spacing(space_xxs.to_pixels())
-                    } else if is_search {
-                        let mut cells: Vec<Element<'_, Message>> = vec![
-                            widget::icon::icon(item.icon_handle_list_condensed.clone())
-                                .content_fit(ContentFit::Contain)
-                                .size(icon_size)
-                                .into(),
-                            widget::Column::with_children([
-                                Item::list_display_name(item.display_name.clone()).into(),
-                                widget::text::caption(match item.path_opt() {
-                                    Some(path) => path.display().to_string(),
-                                    None => String::new(),
-                                })
-                                .into(),
-                            ])
-                            .width(Length::Fill)
-                            .into(),
-                            widget::text::body(modified_text.clone())
-                                .width(Length::Fixed(modified_width))
-                                .into(),
-                            widget::text::body(size_text.clone())
-                                .width(Length::Fixed(size_width))
-                                .into(),
-                        ];
-                        if show_type_column {
-                            cells.push(type_cell());
-                        }
-                        widget::Row::with_children(cells)
-                            .height(Length::Fixed(f32::from(row_height)))
-                            .align_y(Alignment::Center)
-                            .spacing(space_xxs.to_pixels())
+                    let (mut second_line, right_text) = if is_search {
+                        (self.search_folder_text(item), modified_text)
                     } else {
-                        let mut cells: Vec<Element<'_, Message>> = vec![
-                            widget::icon::icon(item.icon_handle_list.clone())
-                                .content_fit(ContentFit::Contain)
-                                .size(icon_size)
-                                .into(),
-                            Item::list_display_name(item.display_name.clone())
-                                .width(Length::Fill)
-                                .into(),
-                        ];
-                        let mut columns: Vec<Element<'_, Message>> = vec![
-                            widget::text::body(modified_text.clone())
-                                .width(Length::Fixed(modified_width))
-                                .into(),
-                            widget::text::body(size_text.clone())
-                                .width(Length::Fixed(size_width))
-                                .into(),
-                        ];
-                        if show_type_column {
-                            columns.push(type_cell());
-                        }
+                        list_details(sort_name, &type_text, &size_text, &modified_text)
+                    };
+                    if !right_shown {
+                        second_line = line_with_right(&right_text, &second_line);
+                    }
+
+                    let mut name = Item::list_display_name(item.display_name.clone());
+                    if sort_name == HeadingOptions::Name && !is_search {
+                        name = name.font(crate::ui::font::semibold());
+                    }
+                    // A selected or cut row's button sets the text colour
+                    // (on the accent fill, or dimmed), so its details take
+                    // that colour instead of their own
+                    let own_colours = !item.selected && !item.cut;
+                    let dim = if own_colours {
+                        theme::Text::Custom(dim_text_style)
+                    } else {
+                        theme::Text::Default
+                    };
+                    let text = widget::Column::with_capacity(2)
+                        .width(Length::Fill)
+                        .push(name)
+                        .push(
+                            widget::ellipsize::caption(
+                                second_line,
+                                widget::EllipsizeMode::Middle(1),
+                            )
+                            .class(dim),
+                        );
+
+                    // The right column is dim like the details under the
+                    // name, whatever the list is sorted by
+                    let right: Element<'_, Message> = widget::text::body(right_text)
+                        .width(Length::Fixed(right_width))
+                        .align_x(text::Alignment::Right)
+                        .wrapping(text::Wrapping::None)
+                        .class(dim)
+                        .into();
+
+                    let mut cells: Vec<Element<'_, Message>> = vec![
+                        widget::icon::icon(item.icon_handle_list.clone())
+                            .content_fit(ContentFit::Contain)
+                            .size(icon_size)
+                            .into(),
+                        text.into(),
+                    ];
+                    if right_shown {
                         if let Some(slide) = column_slide {
-                            // Name is held at its narrow width (its width
-                            // with the drawer in the layout) and the columns
-                            // slide over the gap as one texture, never over
-                            // the name. The spacer brings one more row gap
-                            // with it, so it is one gap short of `extent`.
+                            // The name is held at its narrow width (its width with
+                            // the drawer in the layout) and the right column
+                            // slides over the gap as one texture, never over the
+                            // name. The spacer brings one more row gap with it,
+                            // so it is one gap short of `extent`.
                             debug_assert!(
-                                slide.extent >= f32::from(space_xxs),
+                                slide.extent >= f32::from(space_xs),
                                 "a drawer narrower than a gap"
                             );
                             cells.push(
                                 space::horizontal()
-                                    .width(Length::Fixed(slide.extent - f32::from(space_xxs)))
+                                    .width(Length::Fixed(slide.extent - f32::from(space_xs)))
                                     .into(),
                             );
                             cells.push(
-                                cached(
-                                    TextureCache::new(),
-                                    widget::Row::with_children(columns)
-                                        .align_y(Alignment::Center)
-                                        .spacing(space_xxs.to_pixels()),
-                                )
-                                .translate(slide.offset.clone())
-                                .into(),
+                                cached(TextureCache::new(), right)
+                                    .translate(slide.offset.clone())
+                                    .into(),
                             );
                         } else {
-                            cells.extend(columns);
+                            cells.push(right);
                         }
-                        widget::Row::with_children(cells)
-                            .height(Length::Fixed(f32::from(row_height)))
-                            .align_y(Alignment::Center)
-                            .spacing(space_xxs.to_pixels())
+                    }
+                    let row = widget::Row::with_children(cells)
+                        .height(Length::Fixed(f32::from(row_height)))
+                        .align_y(Alignment::Center)
+                        .spacing(space_xs.to_pixels());
+
+                    let mouse_area = crate::mouse_area::MouseArea::new(
+                        widget::button::custom(row)
+                            .width(Length::Fill)
+                            .id(item.button_id.clone())
+                            .padding([0, space_xs])
+                            .class(button_style(
+                                item.selected,
+                                item.highlighted,
+                                item.cut,
+                                true,
+                                false,
+                            )),
+                    )
+                    .on_press(move |_| Message::Click(Some(i)))
+                    .on_drag(move |_| Message::DragFiles(i))
+                    .on_double_click(move |_| Message::DoubleClick(Some(i)))
+                    .on_release(move |_| Message::ClickRelease(Some(i)))
+                    .on_middle_press(move |_| Message::MiddleClick(i))
+                    .on_enter(move || Message::HighlightActivate(i))
+                    .on_exit(move || Message::HighlightDeactivate(i))
+                    .on_right_press_no_capture()
+                    .on_right_press(move |point_opt| Message::RightClick(point_opt, Some(i)));
+
+                    // Every other row is striped; hover and selection paint
+                    // over the stripe
+                    let row: Element<'_, Message> = if count % 2 == 1 {
+                        widget::container(mouse_area).style(stripe_style).into()
+                    } else {
+                        mouse_area.into()
                     };
-
-                    let button =
-                        |row| {
-                            let mouse_area = crate::mouse_area::MouseArea::new(
-                                widget::button::custom(row)
-                                    .width(Length::Fill)
-                                    .id(item.button_id.clone())
-                                    .padding([0, space_xxs])
-                                    .class(button_style(
-                                        item.selected,
-                                        item.highlighted,
-                                        item.cut,
-                                        true,
-                                        true,
-                                    )),
-                            )
-                            .on_press(move |_| Message::Click(Some(i)))
-                            .on_drag(move |_| Message::DragFiles(i))
-                            .on_double_click(move |_| Message::DoubleClick(Some(i)))
-                            .on_release(move |_| Message::ClickRelease(Some(i)))
-                            .on_middle_press(move |_| Message::MiddleClick(i))
-                            .on_enter(move || Message::HighlightActivate(i))
-                            .on_exit(move || Message::HighlightDeactivate(i));
-
-                            mouse_area.on_right_press_no_capture().on_right_press(
-                                move |point_opt| Message::RightClick(point_opt, Some(i)),
-                            )
-                        };
-
-                    let button_row: Element<_> = button(row).into();
-
-                    button_row
+                    row
                 } else {
                     widget::Column::with_capacity(0)
                         .width(Length::Fill)
@@ -8567,9 +8618,15 @@ impl Tab {
             self.content_height_opt
                 .set(Some(y + self.bottom_reserve.get()));
         }
-        // Pad the content to the bottom of the view so the whole view is scrollable
+        // Pad the content to the bottom of the view so the whole view is
+        // scrollable; the sort bar sits above it
         {
-            let top_deduct = (if condensed || is_search { 6 } else { 9 }) * space_xxs;
+            #[allow(
+                clippy::cast_possible_truncation,
+                clippy::cast_sign_loss,
+                reason = "a small, positive constant"
+            )]
+            let top_deduct = 6 * space_xxs + SORT_BAR_HEIGHT as u16;
 
             self.item_view_size_opt
                 .set(self.size_opt.get().map(|s| Size {
@@ -13947,8 +14004,102 @@ mod tests {
     }
 
     #[test]
-    fn the_columns_follow_a_slide_only_if_they_keep_their_widths() -> io::Result<()> {
-        use super::View;
+    fn a_narrow_row_puts_its_right_column_first_on_its_second_line() {
+        use super::{HeadingOptions, LIST_NAME_MIN, line_with_right, right_column_fits};
+
+        let wide = 2000.0;
+        assert!(right_column_fits(wide, 32, HeadingOptions::Name));
+        assert!(!right_column_fits(LIST_NAME_MIN, 32, HeadingOptions::Name));
+        // A bigger icon takes the room sooner; a size column is narrower
+        // than a date column, so it stays longer
+        let least = |icon, sort| {
+            (0..2000)
+                .map(|w| w as f32)
+                .find(|&w| right_column_fits(w, icon, sort))
+                .unwrap()
+        };
+        assert_eq!(
+            least(64, HeadingOptions::Name),
+            least(32, HeadingOptions::Name) + 32.0
+        );
+        assert!(least(32, HeadingOptions::Size) < least(32, HeadingOptions::Name));
+
+        assert_eq!(
+            line_with_right("Today 11:03", "Spreadsheet · 48 KB"),
+            "Today 11:03 · Spreadsheet · 48 KB"
+        );
+        assert_eq!(line_with_right("", "Folder"), "Folder");
+        assert_eq!(line_with_right("Today", ""), "Today");
+    }
+
+    #[test]
+    fn the_sort_bar_keeps_its_labels_only_where_they_fit() {
+        use super::SORT_LABELS_MIN;
+
+        let tab = Tab::new(
+            Location::Path("/".into()),
+            TabConfig::default(),
+            ThumbCfg::default(),
+            None,
+            std::borrow::Cow::Borrowed("Undefined"),
+            None,
+        );
+        let wanted = tab.sort_bar_labelled_width();
+        assert!(wanted > 0.0, "the labels are measured");
+        let least = wanted.max(SORT_LABELS_MIN);
+        assert!(tab.sort_labels_fit(least));
+        assert!(!tab.sort_labels_fit(least - 1.0));
+        assert!(!tab.sort_labels_fit(SORT_LABELS_MIN - 1.0));
+    }
+
+    #[test]
+    fn a_trash_search_result_says_where_it_was_trashed_from() {
+        use crate::tab::{SearchLocation, SearchOptions};
+        use std::time::Instant;
+
+        let trashed = |original_parent: &str| {
+            super::item_from_trash_entry(
+                trash::TrashItem {
+                    id: "/t/info/a.txt.trashinfo".into(),
+                    name: "a.txt".into(),
+                    original_parent: original_parent.into(),
+                    time_deleted: 0,
+                },
+                trash::TrashItemMetadata {
+                    size: trash::TrashItemSize::Bytes(1),
+                },
+                IconSizes::default(),
+            )
+        };
+        let tab = Tab::new(
+            Location::Search(
+                SearchLocation::Trash,
+                "a".to_owned(),
+                SearchOptions {
+                    show_hidden: false,
+                    recursive: false,
+                },
+                Instant::now(),
+            ),
+            TabConfig::default(),
+            ThumbCfg::default(),
+            None,
+            std::borrow::Cow::Borrowed("Undefined"),
+            None,
+        );
+        assert_eq!(
+            tab.search_folder_text(&trashed("/home/u/Documents")),
+            "/home/u/Documents"
+        );
+        assert_eq!(
+            tab.search_folder_text(&trashed("")),
+            crate::fl!("trash-original-unknown")
+        );
+    }
+
+    #[test]
+    fn the_right_column_follows_a_slide_only_if_the_sort_bar_keeps_its_shape() -> io::Result<()> {
+        use super::{SORT_LABELS_MIN, View};
         use crate::ui::iced::Size;
 
         let dir = tempfile::tempdir()?;
@@ -13964,47 +14115,56 @@ mod tests {
             None,
         );
         tab.set_items(items);
-        // Defaults: no Type column, so the fixed columns take 200 + 100.
+        let width = |tab: &Tab, w: f32| tab.size_opt.set(Some(Size::new(w, 800.0)));
 
-        tab.size_opt.set(Some(Size::new(1400.0, 800.0)));
+        width(&tab, 1400.0);
         assert!(
             tab.column_slide_fits(400.0, true),
-            "1400 → 1000: room to spare"
+            "1400 → 1000: labels both sides"
         );
-
-        tab.size_opt.set(Some(Size::new(1000.0, 800.0)));
+        width(&tab, 1000.0);
         assert!(tab.column_slide_fits(400.0, false), "1000 → 1400: closing");
 
-        tab.size_opt.set(Some(Size::new(900.0, 800.0)));
+        width(&tab, SORT_LABELS_MIN + 200.0);
         assert!(
             !tab.column_slide_fits(400.0, true),
-            "900 → 500: the columns shrink"
+            "the sort bar drops its labels on the way"
         );
-
-        tab.size_opt.set(Some(Size::new(700.0, 800.0)));
+        // The narrowest view whose rows keep their right column
+        let right_min = (0..2000)
+            .map(|w| w as f32)
+            .find(|&w| tab.shows_right_column(w))
+            .expect("some width has room for the right column");
+        assert!(right_min < SORT_LABELS_MIN - 10.0, "room for the next case");
+        width(&tab, SORT_LABELS_MIN - 1.0);
         assert!(
-            !tab.column_slide_fits(400.0, true),
-            "700 → 300: the list condenses"
+            tab.column_slide_fits(SORT_LABELS_MIN - 1.0 - right_min, true),
+            "icons alone on both sides, right column on both"
         );
-
-        tab.size_opt.set(Some(Size::new(1400.0, 800.0)));
-        tab.config.view = View::Grid;
+        width(&tab, right_min + 50.0);
         assert!(
-            !tab.column_slide_fits(400.0, true),
-            "1400 → 1000: grid view reflows"
+            !tab.column_slide_fits(100.0, true),
+            "the right column goes on the way"
         );
-        tab.config.view = View::List;
+        width(&tab, right_min - 50.0);
+        assert!(
+            !tab.column_slide_fits(10.0, true),
+            "no right column to slide"
+        );
 
-        // The exact boundary: room is exactly NAME_MIN once the drawer has
-        // opened, so the columns still keep their widths.
-        tab.size_opt.set(Some(Size::new(1000.0, 800.0)));
+        // The exact boundary keeps the labels.
+        width(&tab, SORT_LABELS_MIN + 400.0);
         assert!(
             tab.column_slide_fits(400.0, true),
-            "1000 → 600: room is exactly NAME_MIN"
+            "down to exactly SORT_LABELS_MIN"
         );
 
-        // A search's Name fills the row instead of shrinking with the fixed
-        // columns, so it never follows.
+        width(&tab, 1400.0);
+        tab.config.view = View::Grid;
+        assert!(!tab.column_slide_fits(400.0, true), "grid view reflows");
+        tab.config.view = View::List;
+
+        // A search's rows are not slid.
         {
             use crate::tab::{SearchLocation, SearchOptions};
             use std::time::Instant;
@@ -14018,34 +14178,13 @@ mod tests {
                 },
                 Instant::now(),
             );
-            tab.size_opt.set(Some(Size::new(1400.0, 800.0)));
             assert!(
                 !tab.column_slide_fits(400.0, true),
-                "1400 → 1000: a search never follows"
+                "a search never follows"
             );
             tab.location = Location::Path(dir.path().into());
         }
 
-        // The Type column can itself be the one that shrinks.
-        tab.config.show_type_column = true;
-        tab.size_opt.set(Some(Size::new(1400.0, 800.0)));
-        assert!(
-            tab.column_slide_fits(400.0, true),
-            "1400 → 1000: type column, room to spare"
-        );
-        tab.size_opt.set(Some(Size::new(650.0, 800.0)));
-        assert!(
-            !tab.column_slide_fits(400.0, true),
-            "650 → 250: the list condenses"
-        );
-        tab.size_opt.set(Some(Size::new(1100.0, 800.0)));
-        assert!(
-            !tab.column_slide_fits(400.0, true),
-            "1100 → 700: the type column shrinks"
-        );
-        tab.config.show_type_column = false;
-
-        // No layout yet: nothing to compare against.
         tab.size_opt.set(None);
         assert!(
             !tab.column_slide_fits(400.0, true),
@@ -14055,12 +14194,68 @@ mod tests {
         // No rows shown: the empty-state message would re-centre with a
         // jump when the slide settled instead.
         tab.set_items(Vec::new());
-        tab.size_opt.set(Some(Size::new(1400.0, 800.0)));
+        width(&tab, 1400.0);
         assert!(
             !tab.column_slide_fits(400.0, true),
-            "1400 → 1000: no items, nothing to keep in place"
+            "no items, nothing to keep in place"
         );
 
         Ok(())
+    }
+
+    /// The right column holds what the list is sorted by, the date when
+    /// sorted by name; the second line the other two, skipping unknown ones.
+    #[test]
+    fn a_row_shows_the_sorted_detail_on_the_right() {
+        use super::{HeadingOptions as H, list_details};
+
+        let row = |sort| list_details(sort, "Document", "48.2 KB", "Today 11:03");
+        assert_eq!(
+            row(H::Name),
+            ("Document · 48.2 KB".into(), "Today 11:03".into())
+        );
+        assert_eq!(
+            row(H::Modified),
+            ("Document · 48.2 KB".into(), "Today 11:03".into())
+        );
+        assert_eq!(
+            row(H::TrashedOn),
+            ("Document · 48.2 KB".into(), "Today 11:03".into())
+        );
+        assert_eq!(
+            row(H::Size),
+            ("Document · Today 11:03".into(), "48.2 KB".into())
+        );
+        assert_eq!(
+            row(H::Type),
+            ("48.2 KB · Today 11:03".into(), "Document".into())
+        );
+
+        // A folder whose items are not counted yet has no size to show
+        assert_eq!(
+            list_details(H::Name, "Folder", "", "Yesterday"),
+            ("Folder".into(), "Yesterday".into())
+        );
+    }
+
+    /// The order button says the order as the sort menu does.
+    #[test]
+    fn the_order_is_said_in_the_sort_menu_s_words() {
+        use super::{HeadingOptions as H, sort_order_words};
+
+        assert_eq!(sort_order_words(H::Name, true), crate::fl!("sort-a-z"));
+        assert_eq!(sort_order_words(H::Type, false), crate::fl!("sort-z-a"));
+        assert_eq!(
+            sort_order_words(H::Modified, false),
+            crate::fl!("sort-newest-first")
+        );
+        assert_eq!(
+            sort_order_words(H::TrashedOn, true),
+            crate::fl!("sort-oldest-first")
+        );
+        assert_eq!(
+            sort_order_words(H::Size, false),
+            crate::fl!("sort-largest-to-smallest")
+        );
     }
 }

@@ -380,7 +380,6 @@ rename = Gi nytt navn…
 grid-view = Rutevisning
 list-view = Rutenettvisning
 show-hidden-files = Vis skjulte filer
-show-type-column = Vis typekolonne
 list-directories-first = List mapper først
 gallery-preview = Galleriforhåndsvisning
 menu-about = Om { earth-files }...

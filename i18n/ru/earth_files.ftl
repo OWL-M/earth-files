@@ -267,7 +267,6 @@ view = Вид
 grid-view = Сетка
 list-view = Список
 show-hidden-files = Показывать скрытые файлы
-show-type-column = Показывать столбец типа
 list-directories-first = Показывать сначала папки
 menu-settings = Параметры...
 menu-about = О приложении { earth-files }...

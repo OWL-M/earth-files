@@ -363,7 +363,6 @@ view = Көрініс
 grid-view = Тор көрінісі
 list-view = Тізім көрінісі
 show-hidden-files = Жасырын файлдарды көрсету
-show-type-column = Түрі бағанын көрсету
 list-directories-first = Алдымен бумаларды тізімдеу
 gallery-preview = Галереяны алдын ала қарау
 menu-settings = Баптаулар...

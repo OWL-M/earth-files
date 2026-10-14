@@ -253,7 +253,7 @@ async fn network_scan(uri: &str, sizes: IconSizes) -> Result<Vec<tab::Item>, Str
                 DirSize::NotDirectory
             };
 
-            let (mime, icon_handle_grid, icon_handle_list, icon_handle_list_condensed) = {
+            let (mime, icon_handle_grid, icon_handle_list) = {
                 let file_icon = |size| {
                     info.icon()
                         .as_ref()
@@ -278,12 +278,7 @@ async fn network_scan(uri: &str, sizes: IconSizes) -> Result<Vec<tab::Item>, Str
                         .and_then(|t| Mime::from_media_type(&t).ok())
                 }
                 .unwrap_or(Mime::INODE_DIRECTORY);
-                (
-                    mime,
-                    file_icon(sizes.grid()),
-                    file_icon(sizes.list()),
-                    file_icon(sizes.list_condensed()),
-                )
+                (mime, file_icon(sizes.grid()), file_icon(sizes.list()))
             };
 
             // Check if item is hidden
@@ -305,7 +300,6 @@ async fn network_scan(uri: &str, sizes: IconSizes) -> Result<Vec<tab::Item>, Str
                 type_checked: true,
                 icon_handle_grid,
                 icon_handle_list,
-                icon_handle_list_condensed,
                 thumbnail_opt: Some(ItemThumbnail::NotImage),
                 button_id: widget::Id::unique(),
                 pos_opt: Cell::new(None),

@@ -212,7 +212,6 @@ view = Ver
 grid-view = Visualização em grelha
 list-view = Visualização em lista
 show-hidden-files = Mostrar ficheiros ocultos
-show-type-column = Mostrar coluna de tipo
 list-directories-first = Listar primeiro os diretórios
 menu-settings = Definições...
 menu-about = Acerca do { earth-files }...

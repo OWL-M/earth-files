@@ -246,7 +246,6 @@ delete-permanently = Kkes i lebda
 grid-view = Askan s iẓiki
 list-view = Askan s tebdart
 show-hidden-files = Sken ifuyla uffiren
-show-type-column = Sken tagejdit n wanaw
 gallery-preview = Taskant n temidelt
 menu-about = Ɣef { earth-files }…
 sort = Asmizzwer

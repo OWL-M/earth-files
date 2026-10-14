@@ -407,7 +407,6 @@ copy-path = Copiar ruta
 grid-view = Vista de grella
 list-view = Vista de lista
 show-hidden-files = Amosar ficheiros ocultos
-show-type-column = Amosar a columna de tipo
 list-directories-first = Listar primeiro os directorios
 gallery-preview = Vista previa da galería
 menu-about = Sobre { earth-files }...

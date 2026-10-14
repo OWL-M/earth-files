@@ -324,7 +324,6 @@ restored = { trash } 에서 { $items }개의 항목을 복구했습니다
 sort-z-a = Z-A
 sort = 정렬
 show-hidden-files = 숨긴 파일 표시
-show-type-column = 형식 열 표시
 extracting = "{ $from }"에서 "{ $to }"(으)로 { $items }개의 항목을 압축 해제 중 ({ $progress })...
 permanently-deleted = { $items }개의 항목을 영구적으로 제거했습니다
 renaming = "{ $from }" 에서 "{ $to }" 로 이름 변경 중

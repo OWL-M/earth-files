@@ -145,7 +145,6 @@ view = Zobrazení
 grid-view = Zobrazit jako mřížku
 list-view = Zobrazit jako seznam
 show-hidden-files = Zobrazit skryté soubory
-show-type-column = Zobrazit sloupec typu
 list-directories-first = Řadit nejprve složky
 menu-settings = Nastavení...
 menu-about = O aplikaci { earth-files }...

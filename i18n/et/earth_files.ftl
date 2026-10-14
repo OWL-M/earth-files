@@ -221,7 +221,6 @@ rename = Muuda nime...
 grid-view = Ruudustikuvaade
 list-view = Loendivaade
 show-hidden-files = Näita peidetud faile
-show-type-column = Näita tüübi veergu
 list-directories-first = Lisa kaustad loendi algusesse
 gallery-preview = Galerii eelvaade
 earth-files = Earth Files

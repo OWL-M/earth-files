@@ -47,7 +47,6 @@ pub struct Retyped {
     pub display_name: Option<String>,
     pub icon_handle_grid: widget::icon::Handle,
     pub icon_handle_list: widget::icon::Handle,
-    pub icon_handle_list_condensed: widget::icon::Handle,
 }
 
 /// Results sent at once, at most. On a warm cache a folder's files are read
@@ -73,7 +72,7 @@ pub fn check(file: &Unchecked, sizes: IconSizes) -> Checked {
         None
     };
     let retyped = (mime != file.mime).then(|| {
-        let (is_desktop, grid, list, condensed) = crate::tab::file_icons(&file.path, &mime, sizes);
+        let (is_desktop, grid, list) = crate::tab::file_icons(&file.path, &mime, sizes);
         let was_desktop = file.mime == Mime::APPLICATION_X_DESKTOP;
         Retyped {
             // Not looked up in gvfs either, for the same reason: content
@@ -88,7 +87,6 @@ pub fn check(file: &Unchecked, sizes: IconSizes) -> Checked {
             mime,
             icon_handle_grid: grid,
             icon_handle_list: list,
-            icon_handle_list_condensed: condensed,
         }
     });
     Checked {

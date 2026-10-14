@@ -474,7 +474,6 @@ view = Nézet
 grid-view = Rácsnézet
 list-view = Listanézet
 show-hidden-files = Rejtett fájlok megjelenítése
-show-type-column = Típus oszlop megjelenítése
 list-directories-first = Könyvtárak listázása először
 gallery-preview = Galéria-előnézet
 menu-settings = Beállítások…

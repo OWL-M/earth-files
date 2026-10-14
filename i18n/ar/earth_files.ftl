@@ -145,7 +145,6 @@ view = عرض
 grid-view = عرض الشبكة
 list-view = عرض اللائحة
 show-hidden-files = أظهر الملفات المخفية
-show-type-column = أظهر عمود النوع
 list-directories-first = اسرد المجلدات اولاً
 menu-settings = الإعدادات...
 menu-about = عن { earth-files }...

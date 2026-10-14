@@ -19,7 +19,6 @@ pub mod store;
 
 // Default icon sizes
 pub const ICON_SIZE_LIST: u16 = 32;
-pub const ICON_SIZE_LIST_CONDENSED: u16 = 48;
 pub const ICON_SIZE_GRID: u16 = 64;
 pub const ICON_SCALE_MAX: u16 = 5;
 
@@ -232,7 +231,6 @@ impl Config {
             folders_first: self.dialog.folders_first,
             icon_sizes: self.dialog.icon_sizes,
             show_hidden: self.dialog.show_hidden,
-            show_type_column: false,
             max_search_results: DEFAULT_MAX_SEARCH_RESULTS,
             search_recursive: self.tab.search_recursive,
             single_click: false,
@@ -334,8 +332,6 @@ pub struct TabConfig {
     pub icon_sizes: IconSizes,
     /// Show hidden files and folders
     pub show_hidden: bool,
-    /// Show the Type column in list view
-    pub show_type_column: bool,
     /// Maximum number of search results kept
     pub max_search_results: NonZeroU16,
     /// Whether a search descends into subfolders. Off by default: a search
@@ -353,7 +349,6 @@ impl Default for TabConfig {
             folders_first: true,
             icon_sizes: IconSizes::default(),
             show_hidden: false,
-            show_type_column: false,
             max_search_results: DEFAULT_MAX_SEARCH_RESULTS,
             search_recursive: false,
             single_click: false,
@@ -381,10 +376,6 @@ impl Default for IconSizes {
 impl IconSizes {
     pub fn list(&self) -> u16 {
         percent!(self.list, ICON_SIZE_LIST) as _
-    }
-
-    pub fn list_condensed(&self) -> u16 {
-        percent!(self.list, ICON_SIZE_LIST_CONDENSED) as _
     }
 
     pub fn grid(&self) -> u16 {

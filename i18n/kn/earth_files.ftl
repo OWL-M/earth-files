@@ -369,7 +369,6 @@ view = ದೃಶ್ಯ
 grid-view = ಗ್ರೀಡ್ ವೀಕ್ಷಣೆ
 list-view = ಪಟ್ಟಿಯ ವೀಕ್ಷಣೆ
 show-hidden-files = ಮರೆಮಾಡಿದ ಫೈಲ್‌ಗಳನ್ನು ತೋರಿಸಿ
-show-type-column = ಪ್ರಕಾರದ ಕಾಲಮ್ ತೋರಿಸಿ
 list-directories-first = ಡೈರೆಕ್ಟರಿಗಳನ್ನು ಮೊದಲು ತೋರಿಸಿ
 menu-settings = ಸೆಟ್ಟಿಂಗ್‌ಗಳು...
 menu-about = { earth-files } ಬಗ್ಗೆ...

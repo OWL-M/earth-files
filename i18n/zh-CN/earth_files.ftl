@@ -469,7 +469,6 @@ view = 视图
 grid-view = 表格视图
 list-view = 列表视图
 show-hidden-files = 显示隐藏文件
-show-type-column = 显示类型列
 list-directories-first = 优先列出目录
 gallery-preview = 图库预览
 menu-settings = 设置…

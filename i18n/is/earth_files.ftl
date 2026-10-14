@@ -334,7 +334,6 @@ view = Skoða
 grid-view = Reitayfirlit
 list-view = Listayfirlit
 show-hidden-files = Sýna faldar skrár
-show-type-column = Sýna gerðardálk
 list-directories-first = Hafa möppur fremst
 gallery-preview = Forskoðun myndasafns
 menu-settings = Stillingar...

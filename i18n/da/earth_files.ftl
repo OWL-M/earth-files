@@ -372,7 +372,6 @@ view = Vis
 grid-view = Gitter-visning
 list-view = Liste-visning
 show-hidden-files = Vis skjulte filer
-show-type-column = Vis typekolonne
 list-directories-first = List mapper først
 gallery-preview = Galleri-forhåndsvisning
 menu-settings = Indstillinger...

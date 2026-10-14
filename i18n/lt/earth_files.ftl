@@ -381,7 +381,6 @@ view = Rodymas
 grid-view = Tinklelio išdėstymas
 list-view = Sąrašo išdėstymas
 show-hidden-files = Rodyti paslėptus failus
-show-type-column = Rodyti tipo stulpelį
 list-directories-first = Pirmiau pateikti aplankus
 gallery-preview = Galerijos peržiūra
 menu-settings = Nuostatai...
