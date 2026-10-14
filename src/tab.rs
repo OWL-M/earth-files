@@ -2944,6 +2944,12 @@ impl Item {
             .wrapping(text::Wrapping::WordOrGlyph)
     }
 
+    /// Whether the item is drawn faded: one that would be hidden, shown
+    /// because hidden files are, unless it is selected.
+    fn faded(&self) -> bool {
+        self.hidden && !self.selected
+    }
+
     pub fn path_opt(&self) -> Option<&PathBuf> {
         self.location_opt.as_ref()?.path_opt()
     }
@@ -3526,6 +3532,29 @@ fn dim_text_style(theme: &theme::Theme) -> widget::text::Style {
         color: Some(color.to_color()),
         ..Default::default()
     }
+}
+
+/// How strongly a hidden file shown in the listing is drawn: its icon's
+/// opacity, and the share of the usual opacity its text keeps.
+const FADED_OPACITY: f32 = 0.5;
+
+/// A hidden file's name, fainter than any other name.
+fn faded_text_style(theme: &theme::Theme) -> widget::text::Style {
+    let mut color = theme.cosmic().background(theme.transparent).on;
+    color.alpha *= FADED_OPACITY;
+    widget::text::Style {
+        color: Some(color.to_color()),
+        ..Default::default()
+    }
+}
+
+/// A hidden file's details, as much fainter than other details.
+fn faded_dim_text_style(theme: &theme::Theme) -> widget::text::Style {
+    let mut style = dim_text_style(theme);
+    if let Some(color) = &mut style.color {
+        color.a *= FADED_OPACITY;
+    }
+    style
 }
 
 /// The faint fill of every other list row, so the eye keeps to a row
@@ -8199,11 +8228,18 @@ impl Tab {
 
                 // Only build elements if visible (for performance)
                 if item_rect.intersects(&visible_rect) {
+                    let faded = item.faded();
+                    let mut name = Item::grid_display_name(&item.display_name);
+                    // A cut name takes the button's dimmed colour
+                    if faded && !item.cut {
+                        name = name.class(theme::Text::Custom(faded_text_style));
+                    }
                     let buttons: Vec<Element<Message>> = vec![
                         widget::button::custom(
                             widget::icon::icon(item.icon_handle_grid.clone())
                                 .content_fit(ContentFit::Contain)
-                                .size(icon_sizes.grid()),
+                                .size(icon_sizes.grid())
+                                .opacity(if faded { FADED_OPACITY } else { 1.0 }),
                         )
                         .padding(space_xxxs)
                         .class(button_style(
@@ -8215,7 +8251,7 @@ impl Tab {
                         ))
                         .into(),
                         widget::tooltip(
-                            widget::button::custom(Item::grid_display_name(&item.display_name))
+                            widget::button::custom(name)
                                 .id(item.button_id.clone())
                                 .padding([0, space_xxxs])
                                 .class(button_style(
@@ -8504,10 +8540,16 @@ impl Tab {
                     // (on the accent fill, or dimmed), so its details take
                     // that colour instead of their own
                     let own_colours = !item.selected && !item.cut;
-                    let dim = if own_colours {
-                        theme::Text::Custom(dim_text_style)
-                    } else {
+                    let faded = item.faded();
+                    if faded && own_colours {
+                        name = name.class(theme::Text::Custom(faded_text_style));
+                    }
+                    let dim = if !own_colours {
                         theme::Text::Default
+                    } else if faded {
+                        theme::Text::Custom(faded_dim_text_style)
+                    } else {
+                        theme::Text::Custom(dim_text_style)
                     };
                     let text = widget::Column::with_capacity(2)
                         .width(Length::Fill)
@@ -8533,6 +8575,7 @@ impl Tab {
                         widget::icon::icon(item.icon_handle_list.clone())
                             .content_fit(ContentFit::Contain)
                             .size(icon_size)
+                            .opacity(if faded { FADED_OPACITY } else { 1.0 })
                             .into(),
                         text.into(),
                     ];
@@ -14030,6 +14073,35 @@ mod tests {
         );
         assert_eq!(line_with_right("", "Folder"), "Folder");
         assert_eq!(line_with_right("Today", ""), "Today");
+    }
+
+    /// A file that would be hidden, a dotfile or one named in `.hidden`, is
+    /// drawn faded when hidden files are shown, and looks like any other once
+    /// selected.
+    #[test]
+    fn a_shown_hidden_file_is_faded_until_selected() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        for name in [".bashrc", "snap", "notes.md"] {
+            fs::write(dir.path().join(name), b"").expect("write");
+        }
+        fs::write(dir.path().join(".hidden"), b"snap\n").expect("write");
+        let mut items = scan_path(&dir.path().to_path_buf(), IconSizes::default());
+        let faded = |items: &[super::Item], name: &str| {
+            items
+                .iter()
+                .find(|item| item.name == name)
+                .expect("listed")
+                .faded()
+        };
+        assert!(faded(&items, ".bashrc"));
+        assert!(faded(&items, "snap"));
+        assert!(!faded(&items, "notes.md"));
+
+        for item in &mut items {
+            item.selected = item.name == ".bashrc";
+        }
+        assert!(!faded(&items, ".bashrc"));
+        assert!(faded(&items, "snap"));
     }
 
     #[test]
