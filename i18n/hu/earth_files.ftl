@@ -438,6 +438,13 @@ trash-original-unknown = Ismeretlen
 remove-from-sidebar = Eltávolítás az oldalsávról
 removed-from-sidebar = { $name } eltávolítva az oldalsávról
 remove-from-recents = Eltávolítás a legutóbbiak közül
+rename-items = { item-count } átnevezése…
+dimmed-nothing-to-paste = Nincs mit beilleszteni
+dimmed-folder-terminal = Terminálban csak mappa nyitható meg
+dimmed-folder-sidebar = Az oldalsávhoz csak mappa adható
+dimmed-files-and-folders = Fájlok és mappák nem nyithatók meg együtt
+dimmed-origin-unknown = Nincs feljegyezve, honnan származik
+dimmed-trash-empty = A Kuka üres
 
 ## Desktop
 

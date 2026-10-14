@@ -453,6 +453,13 @@ remove-from-sidebar = Remover da barra lateral
 removed-from-sidebar = { $name } removido da barra lateral
 change-sidebar-label = Alterar legenda da barra lateral
 remove-from-recents = Remover dos itens recentes
+rename-items = Renomear { item-count }...
+dimmed-nothing-to-paste = Nada para colar
+dimmed-folder-terminal = Só uma pasta abre no terminal
+dimmed-folder-sidebar = Só uma pasta vai para a barra lateral
+dimmed-files-and-folders = Arquivos e pastas não abrem juntos
+dimmed-origin-unknown = Não está registrado de onde veio
+dimmed-trash-empty = A lixeira está vazia
 
 ## Desktop
 

@@ -456,6 +456,13 @@ removed-from-recents =
     } de { recents }
 reload-folder = Recargar la carpeta
 remove-from-recents = Quitar de recientes
+rename-items = Cambiar nombre de { item-count }...
+dimmed-nothing-to-paste = No hay nada que pegar
+dimmed-folder-terminal = Solo una carpeta se abre en una terminal
+dimmed-folder-sidebar = Solo una carpeta va en la barra lateral
+dimmed-files-and-folders = Los archivos y las carpetas no se abren juntos
+dimmed-origin-unknown = No consta de dónde procede
+dimmed-trash-empty = La papelera está vacía
 calculating = Calculando...
 type = Tipo: { $mime }
 items = Elementos: { $items }

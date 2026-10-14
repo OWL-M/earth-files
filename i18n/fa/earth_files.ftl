@@ -387,6 +387,13 @@ trash-original-unknown = نامشخص
 remove-from-sidebar = حذف از نوار کناری
 removed-from-sidebar = { $name } از نوار کناری حذف شد
 remove-from-recents = حذف از موارد اخیر
+rename-items = تغییر نام { item-count }...
+dimmed-nothing-to-paste = چیزی برای جایگذاری نیست
+dimmed-folder-terminal = فقط پوشه در ترمینال باز می‌شود
+dimmed-folder-sidebar = فقط پوشه به نوار کناری افزوده می‌شود
+dimmed-files-and-folders = پرونده‌ها و پوشه‌ها با هم باز نمی‌شوند
+dimmed-origin-unknown = محل اصلی آن ثبت نشده است
+dimmed-trash-empty = زباله‌دان خالی است
 
 ## Desktop
 

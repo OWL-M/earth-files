@@ -63,6 +63,7 @@ use crate::operation::{
     OperationError, OperationErrorType, OperationSelection, ReplaceResult,
 };
 use crate::progress;
+use crate::service_menu::{self, ServiceEntry, ServiceItem, ServiceMenus};
 use crate::spawn_detached::spawn_detached;
 use crate::tab::{
     self, HeadingOptions, ItemMetadata, Location, SORT_OPTION_FALLBACK, SearchLocation, Tab,
@@ -232,6 +233,17 @@ pub enum Action {
     OpenTerminal,
     OpenWith,
     RunContextAction(usize),
+    /// Opens the selection with application `n` of the context menu's Open
+    /// row; the last number is the menu's `menu::choice_fingerprint`.
+    OpenWithApp(u16, u64),
+    /// Makes application `n` of the Open row the default for the
+    /// selection's type; then the fingerprint.
+    SetDefaultApp(u16, u64),
+    /// Runs another program's action: service menu entry `n`, its action
+    /// `m`; then the fingerprint.
+    RunServiceAction(u16, u16, u64),
+    /// Pins a variant as a split row's usual action; `None` unpins.
+    PinVariant(crate::menu::SplitRow, Option<crate::menu::MenuVariant>),
     Paste,
     PermanentlyDelete,
     Preview,
@@ -307,6 +319,16 @@ impl Action {
             Self::RunContextAction(action) => {
                 Message::TabMessage(entity_opt, tab::Message::RunContextAction(*action))
             }
+            Self::OpenWithApp(app, generation) => {
+                Message::OpenWithApp(entity_opt, *app, *generation)
+            }
+            Self::SetDefaultApp(app, generation) => {
+                Message::SetDefaultApp(entity_opt, *app, *generation)
+            }
+            Self::RunServiceAction(entry, action, generation) => {
+                Message::RunServiceAction(entity_opt, *entry, *action, *generation)
+            }
+            Self::PinVariant(row, variant) => Message::PinVariant(*row, *variant),
             Self::Paste => Message::Paste(entity_opt),
             Self::PermanentlyDelete => Message::PermanentlyDelete(entity_opt),
             Self::Preview => Message::Preview,
@@ -564,6 +586,14 @@ pub enum Message {
     /// The result of looking at a path the user is typing towards.
     NameChecked(NameCheck),
     ReloadMimeAppCache,
+    /// Reads the service menus again, on a worker.
+    ReloadServiceMenus,
+    /// The service menus read, and the folders to watch for them.
+    ServiceMenusLoaded(ServiceMenus, Vec<PathBuf>),
+    OpenWithApp(Option<Entity>, u16, u64),
+    SetDefaultApp(Option<Entity>, u16, u64),
+    RunServiceAction(Option<Entity>, u16, u16, u64),
+    PinVariant(crate::menu::SplitRow, Option<crate::menu::MenuVariant>),
     /// A freshly built mime app cache, ready to replace the one in use, and
     /// the number of the rebuild that produced it.
     MimeAppCacheReloaded(u64, MimeAppCacheWrapper),
@@ -1051,6 +1081,10 @@ pub struct App {
     batch_rename_revision: u64,
     key_binds: HashMap<KeyBind, Action>,
     mime_app_cache: MimeAppCache,
+    /// Other programs' file actions, from their Dolphin service menus.
+    service_menus: ServiceMenus,
+    /// The folders watched for service menus coming and going.
+    service_menu_folders: Vec<PathBuf>,
     modifiers: Modifiers,
     mounter_items: FxHashMap<MounterKey, MounterItems>,
     /// The trash folders the trash watcher watches: the home trash and those
@@ -2747,6 +2781,130 @@ impl App {
         Task::none()
     }
 
+    /// The applications that open every selected item of `tab`, for its
+    /// context menu's Open row, and the selection's type when it is all of
+    /// one. None when a folder is selected.
+    fn selection_apps(&self, tab: &Tab) -> (Vec<Arc<MimeApp>>, Option<Mime>) {
+        let Some(items) = tab.items_opt() else {
+            return (Vec::new(), None);
+        };
+        let mut types: Vec<&Mime> = Vec::new();
+        for item in items.iter().filter(|item| item.selected) {
+            if item.metadata.is_dir() {
+                return (Vec::new(), None);
+            }
+            if !types.contains(&&item.mime) {
+                types.push(&item.mime);
+            }
+        }
+        let Some((first, rest)) = types.split_first() else {
+            return (Vec::new(), None);
+        };
+        let mut apps: Vec<Arc<MimeApp>> = self
+            .mime_app_cache
+            .get_apps_for_mime(first, false)
+            .into_iter()
+            .map(|(app, _)| app)
+            .collect();
+        for mime in rest {
+            let ids: Vec<String> = self
+                .mime_app_cache
+                .get_apps_for_mime(mime, false)
+                .into_iter()
+                .map(|(app, _)| app.id.clone())
+                .collect();
+            apps.retain(|app| ids.contains(&app.id));
+        }
+        (apps, rest.is_empty().then(|| (*first).clone()))
+    }
+
+    /// Other programs' actions for the selection of `tab`.
+    fn selection_services(&self, tab: &Tab) -> Vec<ServiceEntry> {
+        let Some(items) = tab.items_opt() else {
+            return Vec::new();
+        };
+        // Each kind once: the menu is made on every frame, and a whole
+        // folder can be selected
+        let mut count = 0;
+        let mut targets: Vec<service_menu::Target> = Vec::new();
+        for item in items.iter().filter(|item| item.selected) {
+            count += 1;
+            let target = service_menu::Target {
+                mime: &item.mime,
+                is_dir: item.metadata.is_dir(),
+            };
+            if !targets
+                .iter()
+                .any(|t| t.mime == target.mime && t.is_dir == target.is_dir)
+            {
+                targets.push(target);
+            }
+        }
+        let scheme = match &tab.location {
+            Location::Trash | Location::Search(tab::SearchLocation::Trash, ..) => "trash".into(),
+            Location::Network(uri, ..) => url::Url::parse(uri)
+                .map(|url| url.scheme().to_owned())
+                .unwrap_or_default(),
+            _ => "file".to_owned(),
+        };
+        self.service_menus.entries(
+            &scheme,
+            count,
+            &targets,
+            crate::mime_icon::is_mime_subclass_of,
+        )
+    }
+
+    /// The fingerprint of the numbered choices the context menu of the tab
+    /// `entity_opt` would show now (see `menu::choice_fingerprint`), with
+    /// the selection's type when `with_type`.
+    fn menu_fingerprint(&self, entity_opt: Option<Entity>, with_type: bool) -> Option<u64> {
+        let entity = entity_opt.unwrap_or_else(|| self.tab_model.active());
+        let tab = self.tab_model.data::<Tab>(entity)?;
+        let (apps, mime) = self.selection_apps(tab);
+        Some(crate::menu::choice_fingerprint(
+            apps.iter().map(|app| app.id.as_str()),
+            mime.as_ref().filter(|_| with_type),
+            &self.selection_services(tab),
+        ))
+    }
+
+    /// What `tab`'s context menu shows besides the tab's own state.
+    fn menu_sources(&self, tab: &Tab) -> crate::menu::Sources<'_> {
+        let (apps, mime) = self.selection_apps(tab);
+        let services = self.selection_services(tab);
+        let fingerprint = crate::menu::choice_fingerprint(
+            apps.iter().map(|app| app.id.as_str()),
+            None,
+            &services,
+        );
+        let default_fingerprint = crate::menu::choice_fingerprint(
+            apps.iter().map(|app| app.id.as_str()),
+            mime.as_ref(),
+            &services,
+        );
+        let apps: Vec<crate::menu::MenuApp> = apps
+            .iter()
+            .map(|app| crate::menu::MenuApp {
+                name: app.name.clone(),
+                icon: app.icon(),
+                is_default: mime
+                    .as_ref()
+                    .is_some_and(|mime| self.mime_app_cache.is_default(app, mime)),
+            })
+            .collect();
+        crate::menu::Sources {
+            clipboard_paste_available: self.clipboard_has_content(),
+            context_actions: &self.config.context_actions,
+            apps: apps.into(),
+            apps_pinnable: mime.is_some(),
+            services: services.into(),
+            pins: &self.config.menu_pins,
+            fingerprint,
+            default_fingerprint,
+        }
+    }
+
     fn selected_paths(
         &self,
         entity_opt: Option<Entity>,
@@ -4074,6 +4232,8 @@ impl Application for App {
             // entry on the system is not work to do before the first frame.
             // Anything that needs it waits through `defer_until_mime_apps`.
             mime_app_cache: MimeAppCache::empty(),
+            service_menus: ServiceMenus::default(),
+            service_menu_folders: Vec::new(),
             modifiers: Modifiers::empty(),
             mounter_items: FxHashMap::default(),
             trash_bins: Vec::new(),
@@ -4126,6 +4286,7 @@ impl Application for App {
             // The cache starts empty; this builds it, and primes the default
             // terminal along with it, on a worker.
             app.update(Message::ReloadMimeAppCache),
+            app.update(Message::ReloadServiceMenus),
             // The trash watcher starts once the trash folders are found
             app.refresh_trash_bins(),
         ];
@@ -6297,6 +6458,135 @@ impl Application for App {
                         ))
                     });
                 }
+            }
+            Message::ReloadServiceMenus => {
+                return Task::future(async move {
+                    match tokio::task::spawn_blocking(|| {
+                        let dirs = crate::xdg_dirs::BASE_DIRS
+                            .as_ref()
+                            .map(service_menu::data_dirs)
+                            .unwrap_or_default();
+                        (
+                            ServiceMenus::load(&dirs, &xdg_kit::desktop_entry::Locales::from_env()),
+                            service_menu::watched_folders(&dirs),
+                        )
+                    })
+                    .await
+                    {
+                        Ok((menus, folders)) => {
+                            crate::ui::action::app(Message::ServiceMenusLoaded(menus, folders))
+                        }
+                        Err(err) => {
+                            log::warn!("failed to read the service menus: {err}");
+                            crate::ui::action::none()
+                        }
+                    }
+                });
+            }
+            Message::ServiceMenusLoaded(menus, folders) => {
+                self.service_menus = menus;
+                self.service_menu_folders = folders;
+            }
+            Message::OpenWithApp(entity_opt, _, fingerprint)
+            | Message::RunServiceAction(entity_opt, _, _, fingerprint)
+                if Some(fingerprint) != self.menu_fingerprint(entity_opt, false) =>
+            {
+                log::info!("{entity_opt:?}: a choice in a menu whose lists have since changed");
+            }
+            // Setting a default also needs the type to be the one shown
+            Message::SetDefaultApp(entity_opt, _, fingerprint)
+                if Some(fingerprint) != self.menu_fingerprint(entity_opt, true) =>
+            {
+                log::info!("{entity_opt:?}: a choice in a menu whose lists have since changed");
+            }
+            Message::OpenWithApp(entity_opt, index, _) => {
+                let entity = entity_opt.unwrap_or_else(|| self.tab_model.active());
+                let Some(tab) = self.tab_model.data::<Tab>(entity) else {
+                    return Task::none();
+                };
+                let (apps, _) = self.selection_apps(tab);
+                let paths: Vec<PathBuf> = self.selected_paths(Some(entity)).collect();
+                if let Some(app) = apps.get(usize::from(index)) {
+                    let targets: Vec<Target> = paths.iter().cloned().map(Target::Path).collect();
+                    let commands = app
+                        .commands(&targets, &self.mime_app_cache.launch_options())
+                        .unwrap_or_default();
+                    if commands.is_empty() {
+                        log::warn!("failed to open with {:?}: failed to get command", app.id);
+                    }
+                    for mut command in commands {
+                        if let Err(err) = spawn_detached(&mut command) {
+                            log::warn!("failed to open with {:?}: {err}", app.id);
+                        }
+                    }
+                    if self.config.show_recents {
+                        for path in paths {
+                            crate::recents::record(
+                                path,
+                                Self::APP_ID.to_string(),
+                                "earth-files".to_string(),
+                            );
+                        }
+                    }
+                }
+            }
+            Message::SetDefaultApp(entity_opt, index, _) => {
+                let entity = entity_opt.unwrap_or_else(|| self.tab_model.active());
+                let Some(tab) = self.tab_model.data::<Tab>(entity) else {
+                    return Task::none();
+                };
+                let (apps, mime) = self.selection_apps(tab);
+                if let (Some(app), Some(mime)) = (apps.get(usize::from(index)), mime)
+                    && let Some(ack) = MimeAppCache::queue_default(mime, app.id.clone())
+                {
+                    return Task::future(async move {
+                        match tokio::task::spawn_blocking(move || {
+                            MimeAppCache::await_association(ack)
+                        })
+                        .await
+                        {
+                            Ok(true) => crate::ui::action::app(Message::ReloadMimeAppCache),
+                            Ok(false) => crate::ui::action::none(),
+                            Err(err) => {
+                                log::warn!("failed to set the default application: {err}");
+                                crate::ui::action::none()
+                            }
+                        }
+                    });
+                }
+            }
+            Message::RunServiceAction(entity_opt, entry, index, _) => {
+                let entity = entity_opt.unwrap_or_else(|| self.tab_model.active());
+                let Some(tab) = self.tab_model.data::<Tab>(entity) else {
+                    return Task::none();
+                };
+                let entries = self.selection_services(tab);
+                let action = match entries.get(usize::from(entry)) {
+                    Some(ServiceEntry::Program { items, .. }) => {
+                        match items.get(usize::from(index)) {
+                            Some(ServiceItem::Action(action)) => Some(action),
+                            _ => None,
+                        }
+                    }
+                    Some(ServiceEntry::Action(action)) => Some(action),
+                    None => None,
+                };
+                if let Some(action) = action {
+                    let paths: Vec<PathBuf> = self.selected_paths(Some(entity)).collect();
+                    action.run(&paths);
+                }
+            }
+            Message::PinVariant(row, variant) => {
+                let mut pins = self.config.menu_pins.clone();
+                match variant {
+                    Some(variant) => {
+                        pins.insert(row, variant);
+                    }
+                    None => {
+                        pins.remove(&row);
+                    }
+                }
+                config_set!(menu_pins, pins);
             }
             Message::ReloadMimeAppCache => {
                 // Rebuilt on a worker and swapped in when it is ready. Building
@@ -8749,8 +9039,7 @@ impl Application for App {
                 .view(
                     &self.key_binds,
                     &self.modifiers,
-                    self.clipboard_has_content(),
-                    &self.config.context_actions,
+                    self.menu_sources(tab),
                     self.core.drawer_slide.column_slide(),
                     bottom_reserve,
                 )
@@ -8815,6 +9104,8 @@ impl Application for App {
     fn subscription(&self) -> Subscription<Self::Message> {
         struct WatcherSubscription;
         struct TrashWatcherSubscription;
+        #[cfg(feature = "desktop")]
+        struct ServiceMenuSubscription;
         struct RecentsWatcherSubscription;
 
         let mut subscriptions = vec![
@@ -8941,6 +9232,34 @@ impl Application for App {
                     },
                 )
             }),
+            // Keyed by the folders, so a changed set starts a new watcher
+            #[cfg(feature = "desktop")]
+            Subscription::run_with(
+                (
+                    TypeId::of::<ServiceMenuSubscription>(),
+                    self.service_menu_folders.clone(),
+                ),
+                |(_, folders)| {
+                    let folders = folders.clone();
+                    stream::channel(
+                        1,
+                        move |mut output: futures::channel::mpsc::Sender<Message>| async move {
+                            let dirs = crate::xdg_dirs::BASE_DIRS
+                                .as_ref()
+                                .map(service_menu::data_dirs)
+                                .unwrap_or_default();
+                            service_menu::watch(dirs, folders, move || {
+                                futures::executor::block_on(async {
+                                    _ = output.send(Message::ReloadServiceMenus).await;
+                                })
+                            })
+                            .await;
+
+                            std::future::pending().await
+                        },
+                    )
+                },
+            ),
             // Keyed by the folders, so a changed set starts a new watcher
             Subscription::run_with(
                 (

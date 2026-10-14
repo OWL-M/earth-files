@@ -441,6 +441,13 @@ type-to-search-enter-path = ディレクトリーまたはファイルのパス�
 delete-permanently = 完全に削除する
 eject = 取り出し
 remove-from-recents = 最近の項目から削除
+rename-items = { item-count }の名前を変更...
+dimmed-nothing-to-paste = 貼り付けるものがありません
+dimmed-folder-terminal = 端末で開けるのはフォルダーだけです
+dimmed-folder-sidebar = サイドバーに追加できるのはフォルダーだけです
+dimmed-files-and-folders = ファイルとフォルダーは一緒に開けません
+dimmed-origin-unknown = 元の場所が記録されていません
+dimmed-trash-empty = ゴミ箱は空です
 reload-folder = フォルダーを再読み込み
 gallery-preview = ギャラリープレビュー
 

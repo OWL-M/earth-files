@@ -505,6 +505,13 @@ trash-original-unknown = Neznáme
 remove-from-sidebar = Odstrániť z bočného panela
 removed-from-sidebar = { $name } odstránené z bočného panela
 remove-from-recents = Odstrániť z nedávnych
+rename-items = Premenovať { item-count }...
+dimmed-nothing-to-paste = Nie je čo prilepiť
+dimmed-folder-terminal = V termináli sa dá otvoriť len priečinok
+dimmed-folder-sidebar = Do bočného panela sa dá pridať len priečinok
+dimmed-files-and-folders = Súbory a priečinky sa nedajú otvoriť spolu
+dimmed-origin-unknown = Nie je zaznamenané, odkiaľ pochádza
+dimmed-trash-empty = Kôš je prázdny
 
 ## Desktop
 

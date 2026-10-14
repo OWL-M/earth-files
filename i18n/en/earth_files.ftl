@@ -442,6 +442,13 @@ remove-from-sidebar = Remove from sidebar
 removed-from-sidebar = Removed { $name } from sidebar
 change-sidebar-label = Change sidebar label
 remove-from-recents = Remove from recents
+rename-items = Rename { item-count }...
+dimmed-nothing-to-paste = Nothing to paste
+dimmed-folder-terminal = Only a folder opens in a terminal
+dimmed-folder-sidebar = Only a folder goes in the sidebar
+dimmed-files-and-folders = Files and folders do not open together
+dimmed-origin-unknown = Where it came from is not recorded
+dimmed-trash-empty = The trash is empty
 
 # Menu
 

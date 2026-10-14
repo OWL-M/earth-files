@@ -61,6 +61,8 @@
 
 pub mod action;
 
+pub mod aim;
+
 pub use action::MenuAction as Action;
 
 mod flex;

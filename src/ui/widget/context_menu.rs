@@ -140,6 +140,9 @@ impl<Message: Clone + 'static> ContextMenu<'_, Message> {
                     // close existing popups
                     state.menu_states.clear();
                     state.active_root.clear();
+                    // Nothing waited for in the last menu is for this one
+                    state.pending = None;
+                    state.last_cursor = None;
 
                     shell.publish(surface_action(destroy_popup(id)));
                     state.view_cursor = view_cursor;
@@ -482,12 +485,14 @@ impl<Message: 'static + Clone> Widget<Message, crate::ui::Theme, crate::ui::Rend
             state.open
         });
         let mut was_open = false;
-        // Any key that is not a bare modifier closes the menu: the menu has no
-        // keyboard navigation, and a shortcut pressed while it is open acts on
-        // the window behind it, so the menu must not stay up over the result
+        // Any key that is not a bare modifier closes the menu, except those the
+        // menu moves through its rows with: a shortcut pressed while it is open
+        // acts on the window behind it, so the menu must not stay up over the
+        // result
         let key_closes = matches!(
             event,
-            Event::Keyboard(keyboard::Event::KeyPressed { key, .. }) if !is_modifier_key(key)
+            Event::Keyboard(keyboard::Event::KeyPressed { key, .. })
+                if !is_modifier_key(key) && !is_menu_key(key)
         );
         if open
             && (key_closes
@@ -502,6 +507,9 @@ impl<Message: 'static + Clone> Widget<Message, crate::ui::Theme, crate::ui::Rend
                 was_open = true;
                 state.menu_states.clear();
                 state.active_root.clear();
+                // Nothing waited for in the last menu is for this one
+                state.pending = None;
+                state.last_cursor = None;
                 state.open = false;
 
                 if matches!(windowing_system(), Some(WindowingSystem::Wayland))
@@ -603,6 +611,9 @@ impl<Message: 'static + Clone> Widget<Message, crate::ui::Theme, crate::ui::Rend
                     was_open = true;
                     state.menu_states.clear();
                     state.active_root.clear();
+                    // Nothing waited for in the last menu is for this one
+                    state.pending = None;
+                    state.last_cursor = None;
                     state.open = false;
 
                     if matches!(windowing_system(), Some(WindowingSystem::Wayland))
@@ -731,6 +742,17 @@ impl<'a, Message: Clone + 'static> From<ContextMenu<'a, Message>>
     fn from(widget: ContextMenu<'a, Message>) -> Self {
         Self::new(widget)
     }
+}
+
+/// The keys a menu moves through its rows with.
+fn is_menu_key(key: &keyboard::Key) -> bool {
+    use keyboard::key::Named;
+    matches!(
+        key,
+        keyboard::Key::Named(
+            Named::ArrowUp | Named::ArrowDown | Named::ArrowLeft | Named::ArrowRight | Named::Enter
+        )
+    )
 }
 
 fn is_modifier_key(key: &keyboard::Key) -> bool {
@@ -1158,5 +1180,87 @@ mod tests {
         let first = 1 + size.height as u32 / 4;
         let second = 1 + size.height as u32 * 3 / 4;
         assert_eq!(at(first), at(second));
+    }
+
+    /// A click on a row of a popup menu runs it: the press reaches the row's
+    /// button. The menu first chooses the row under the pointer for the
+    /// press, and must not mark the press as taken while doing so, or the
+    /// button ignores it and the release does nothing.
+    #[test]
+    fn a_click_on_a_popup_menu_row_runs_it() {
+        use crate::ui::widget::menu::Item;
+
+        #[derive(Clone, Copy, PartialEq, Eq)]
+        struct Act;
+        impl crate::ui::widget::menu::action::MenuAction for Act {
+            type Message = Msg;
+            fn message(&self) -> Msg {
+                Msg::Selected
+            }
+        }
+
+        let mut roots = vec![menu::Tree::with_children(
+            crate::ui::Element::from(crate::ui::widget::Row::new()),
+            menu::items(
+                &std::collections::HashMap::new(),
+                vec![Item::Button("Open".to_owned(), None, Act)],
+            ),
+        )];
+        roots.iter_mut().for_each(menu::Tree::set_index);
+
+        let mut renderer = iced_texture_cache::testing::headless_tiny_skia();
+        let tree = MenuBarState::default();
+        tree.inner.with_data_mut(|d| {
+            d.open = true;
+            menu_roots_diff(&roots, &mut d.tree);
+        });
+        let bounds = iced::Rectangle::new(INSIDE, Size::new(1.0, 1.0));
+        let mut menu = popup_menu(
+            roots,
+            tree,
+            ItemWidth::Uniform(200),
+            bounds,
+            window::Id::unique(),
+            None,
+        );
+        let mut messages = Vec::new();
+        init_root_menu(
+            &mut menu,
+            &renderer,
+            &mut iced_core::Shell::new(&mut messages),
+            INSIDE,
+            WINDOW,
+            Vector::new(0., 0.),
+            bounds,
+            -bounds.height,
+        );
+        let size = menu
+            .layout(
+                &renderer,
+                iced_core::layout::Limits::NONE.min_width(1.).min_height(1.),
+            )
+            .size();
+        let surface = Size::new(size.width.ceil() + 2.0, size.height.ceil() + 2.0);
+        let middle = Point::new(surface.width / 2.0, surface.height / 2.0);
+
+        let mut ui = UserInterface::build(
+            crate::ui::widget::container(menu).center(Length::Fill),
+            surface,
+            Cache::default(),
+            &mut renderer,
+        );
+        let mut messages = Vec::new();
+        let _ = ui.update(
+            &[
+                Event::Mouse(mouse::Event::CursorMoved { position: middle }),
+                Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)),
+                Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)),
+            ],
+            mouse::Cursor::Available(middle),
+            &mut renderer,
+            &mut clipboard::Null,
+            &mut messages,
+        );
+        assert_eq!(messages, [Msg::Selected]);
     }
 }

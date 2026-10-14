@@ -450,6 +450,13 @@ trash-original-unknown = Desconocida
 remove-from-sidebar = Quitar de la barra lateral
 removed-from-sidebar = Se quitó { $name } de la barra lateral
 remove-from-recents = Quitar de recientes
+rename-items = Renombrar { item-count }...
+dimmed-nothing-to-paste = No hay nada que pegar
+dimmed-folder-terminal = Solo una carpeta se abre en la consola
+dimmed-folder-sidebar = Solo una carpeta va en la barra lateral
+dimmed-files-and-folders = Los archivos y las carpetas no se abren juntos
+dimmed-origin-unknown = No consta de dónde procede
+dimmed-trash-empty = La papelera está vacía
 
 ## Desktop
 

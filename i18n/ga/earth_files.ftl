@@ -494,6 +494,13 @@ removed-from-recents =
     } ó { recents }
 eject = Díchuir
 remove-from-recents = Bain as na cinn is déanaí
+rename-items = Athainmnigh { item-count }...
+dimmed-nothing-to-paste = Níl aon rud le greamú
+dimmed-folder-terminal = Ní osclaítear ach fillteán sa teirminéal
+dimmed-folder-sidebar = Ní chuirtear ach fillteán leis an mbarra taoibh
+dimmed-files-and-folders = Ní osclaítear comhaid agus fillteáin le chéile
+dimmed-origin-unknown = Níl a bhunáit taifeadta
+dimmed-trash-empty = Tá an bruscar folamh
 reload-folder = Athlódáil an fillteán
 empty-trash-title = Folmhaigh an bruscar?
 type-to-search-select = Roghnaíonn an chéad chomhad nó fillteán comhoiriúnach

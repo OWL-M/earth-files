@@ -433,6 +433,13 @@ trash-original-unknown = 未知
 remove-from-sidebar = 从侧边栏中移除
 removed-from-sidebar = 已从侧边栏中移除 { $name }
 remove-from-recents = 从最近访问中移除
+rename-items = 重命名 { item-count }…
+dimmed-nothing-to-paste = 没有可粘贴的内容
+dimmed-folder-terminal = 只有文件夹可以在终端模拟器中打开
+dimmed-folder-sidebar = 只有文件夹可以加入侧边栏
+dimmed-files-and-folders = 文件和文件夹不能一起打开
+dimmed-origin-unknown = 没有记录它来自哪里
+dimmed-trash-empty = 回收站是空的
 
 ## Desktop
 

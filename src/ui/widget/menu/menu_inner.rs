@@ -9,12 +9,14 @@
 use std::borrow::Cow;
 use std::sync::Arc;
 
-use super::menu_bar::MenuBarState;
+use super::aim::{AIM_TIME, ChildOpen, Opening, aims_at, next_selectable};
+use super::menu_bar::{MenuBarState, MenuBarStateInner, Pending, PendingKind};
 use super::menu_tree::MenuTree;
 use crate::ui::shell::runner::{WindowingSystem, windowing_system};
 use crate::ui::theme::menu_bar::StyleSheet;
+use std::time::Instant;
 
-use crate::ui::convert::{ToPadding, ToRadius};
+use crate::ui::convert::{ToColor, ToPadding, ToRadius};
 use iced::{Alignment, window};
 use iced_core::layout::{Limits, Node};
 use iced_core::mouse::{self, Cursor};
@@ -318,6 +320,40 @@ pub(crate) struct MenuState {
     laid_out: Option<(usize, usize)>,
 }
 impl MenuState {
+    /// Scrolls the menu so row `index` is inside a viewport `height` tall,
+    /// as little as it takes; `overlay_offset` takes the menu to the
+    /// viewport's space. Whether it moved.
+    fn scroll_into_view(&mut self, index: usize, height: f32, overlay_offset: Vector) -> bool {
+        let bounds = self.menu_bounds.children_bounds + overlay_offset;
+        let top = bounds.y + self.menu_bounds.child_positions[index];
+        let bottom = top + self.menu_bounds.child_sizes[index].height;
+        let mut offset = self.scroll_offset;
+        if bottom + offset > height {
+            offset = height - bottom;
+        }
+        if top + offset < 0.0 {
+            offset = -top;
+        }
+        // The same bounds the wheel keeps to
+        let max_offset = (0.0 - bounds.y).max(0.0);
+        let min_offset = (height - (bounds.y + bounds.height)).min(0.0);
+        let offset = offset.clamp(min_offset, max_offset);
+        let moved = offset != self.scroll_offset;
+        self.scroll_offset = offset;
+        moved
+    }
+
+    /// The bounds of row `index`, in overlay space.
+    fn row_bounds(&self, index: usize) -> Rectangle {
+        Rectangle::new(
+            Point::new(
+                0.0,
+                self.menu_bounds.child_positions[index] + self.scroll_offset,
+            ),
+            self.menu_bounds.child_sizes[index],
+        ) + (self.menu_bounds.children_bounds.position() - Point::ORIGIN)
+    }
+
     pub(super) fn layout<Message>(
         &mut self,
         overlay_offset: Vector,
@@ -593,6 +629,50 @@ impl<'b, Message: Clone + 'static> Menu<'b, Message> {
             Cow::Borrowed(_) => panic!(),
             Cow::Owned(o) => o.as_mut_slice(),
         };
+        // A press is for the row under the pointer, so that row is chosen
+        // first: during the wait for the pointer to reach an open child the
+        // row chosen is still the old one, and a press on a split row's
+        // arrow opens its variants at once
+        let mut pressed_root = None;
+        if !self.is_overlay
+            && matches!(
+                event,
+                Mouse(ButtonPressed(Left)) | Touch(FingerPressed { .. })
+            )
+            && view_cursor.is_over(viewport)
+        {
+            // In a shell of its own: choosing the row takes the event, and a
+            // button ignores a press that is taken, so the row would never
+            // run. What it asks for besides is passed on.
+            let mut messages = Vec::new();
+            let mut own = Shell::new(&mut messages);
+            pressed_root = process_overlay_events(
+                self,
+                renderer,
+                viewport_size,
+                overlay_offset,
+                view_cursor,
+                overlay_cursor,
+                self.cross_offset as f32,
+                &mut own,
+                false,
+            );
+            let (layout_invalid, widgets_invalid, redraw) = (
+                own.is_layout_invalid(),
+                own.are_widgets_invalid(),
+                own.redraw_request(),
+            );
+            for message in messages {
+                shell.publish(message);
+            }
+            if layout_invalid {
+                shell.invalidate_layout();
+            }
+            if widgets_invalid {
+                shell.invalidate_widgets();
+            }
+            shell.request_redraw_at(redraw);
+        }
         process_menu_events(
             self,
             event,
@@ -615,6 +695,14 @@ impl<'b, Message: Clone + 'static> Menu<'b, Message> {
         );
 
         match event {
+            event::Event::Window(window::Event::RedrawRequested(now)) => {
+                return process_pending(self, *now, renderer, viewport_size, overlay_offset, shell);
+            }
+
+            event::Event::Keyboard(iced_core::keyboard::Event::KeyPressed { key, .. }) => {
+                return process_key(self, key, renderer, viewport_size, overlay_offset, shell);
+            }
+
             Mouse(WheelScrolled { delta }) => process_scroll_events(
                 self,
                 shell,
@@ -629,6 +717,7 @@ impl<'b, Message: Clone + 'static> Menu<'b, Message> {
                     data.pressed = true;
                     data.view_cursor = view_cursor;
                 });
+                return pressed_root;
             }
 
             Mouse(CursorMoved { position }) | Touch(FingerMoved { position, .. }) => {
@@ -646,6 +735,7 @@ impl<'b, Message: Clone + 'static> Menu<'b, Message> {
                     overlay_cursor,
                     self.cross_offset as f32,
                     shell,
+                    true,
                 );
 
                 if view_cursor.is_over(viewport) {
@@ -672,6 +762,27 @@ impl<'b, Message: Clone + 'static> Menu<'b, Message> {
                         && state.opening_fingers.contains(id)
                     {
                         return;
+                    }
+
+                    // A press on a split row's arrow is for its child, and
+                    // a reason only shows something: neither closes the menu
+                    let depth_index = if self.is_overlay {
+                        state.menu_states.len().saturating_sub(1)
+                    } else {
+                        self.depth
+                    };
+                    if state.active_root.len() > depth_index
+                        && let Some(ms) = state.menu_states.get(depth_index)
+                        && let Some(index) = ms.index
+                    {
+                        let rows = rows_at(&self.menu_roots, &state.active_root, depth_index);
+                        if rows.iter().all(|row| row.passive)
+                            || rows[index]
+                                .child_open
+                                .takes_click(ms.row_bounds(index), overlay_cursor)
+                        {
+                            return;
+                        }
                     }
 
                     // process close condition
@@ -796,8 +907,10 @@ impl<'b, Message: Clone + 'static> Menu<'b, Message> {
                             }
                         });
 
-                        // react only to the last menu
-                        let view_cursor = if self.depth == state.active_root.len() - 1
+                        // react only to the last menu; a popup draws only its own
+                        // menu, which the pointer is over even with a child open
+                        let view_cursor = if !self.is_overlay
+                            || self.depth == state.active_root.len() - 1
                             || i == state.menu_states.len() - 1
                         {
                             view_cursor
@@ -841,14 +954,14 @@ impl<'b, Message: Clone + 'static> Menu<'b, Message> {
                                     .children()
                                     .nth(active.saturating_sub(start_index))
                             {
-                                let i = active.saturating_sub(start_index);
+                                let row = active.saturating_sub(start_index);
                                 let mut rad = styling.menu_border_radius;
                                 let rad_0 = theme.cosmic().radius_0();
                                 if start_index != end_index {
-                                    if 0 == i {
+                                    if 0 == row {
                                         rad[2] = rad_0[0];
                                         rad[3] = rad_0[1];
-                                    } else if i == end_index - start_index {
+                                    } else if row == end_index - start_index {
                                         rad[0] = rad_0[2];
                                         rad[1] = rad_0[3];
                                     } else {
@@ -869,6 +982,33 @@ impl<'b, Message: Clone + 'static> Menu<'b, Message> {
                                 };
 
                                 r.fill_quad(path_quad, styling.path);
+
+                                // A split row's arrow stays tinted while its
+                                // variants are open
+                                let child_open = state.menu_states.len() > self.depth + i + 1;
+                                if let (true, Some(row)) = (child_open, menu_roots.get(active))
+                                    && let ChildOpen::Arrow(width) = row.child_open
+                                {
+                                    let row_bounds = active_layout.bounds();
+                                    let mut tint = theme.cosmic().accent_color();
+                                    tint.alpha = 0.15;
+                                    r.fill_quad(
+                                        renderer::Quad {
+                                            bounds: Rectangle {
+                                                x: row_bounds.x + row_bounds.width - width,
+                                                width,
+                                                ..row_bounds
+                                            },
+                                            border: Border {
+                                                radius: theme.cosmic().radius_s().to_radius(),
+                                                ..Default::default()
+                                            },
+                                            shadow: Shadow::default(),
+                                            snap: true,
+                                        },
+                                        iced::Background::Color(tint.to_color()),
+                                    );
+                                }
                             }
                             if start_index < menu_roots.len() {
                                 // draw item
@@ -1188,6 +1328,150 @@ where
     }
 }
 
+/// Where `child`, a popup, sits in its parent menu's space: beside the row
+/// it opened from, on the side menus open towards.
+fn beside(child: &MenuState, direction: Direction) -> Rectangle {
+    let row = child.menu_bounds.parent_bounds;
+    let size = child.menu_bounds.children_bounds.size();
+    let x = match direction {
+        Direction::Positive => row.x + row.width,
+        Direction::Negative => row.x - size.width,
+    };
+    Rectangle::new(Point::new(x, row.y), size)
+}
+
+/// The rows of the menu at `depth`, following `active_root` down from the
+/// menu's root.
+fn rows_at<'a, Message>(
+    menu_roots: &'a [MenuTree<Message>],
+    active_root: &[usize],
+    depth: usize,
+) -> &'a Vec<MenuTree<Message>> {
+    active_root[..=depth]
+        .iter()
+        .skip(1)
+        .fold(&menu_roots[active_root[0]].children, |mt, next| {
+            &mt[*next].children
+        })
+}
+
+/// The state of the child opened from row `index` of the last menu in
+/// `state`, placed beside that row.
+#[allow(clippy::too_many_arguments)]
+fn child_menu_state<Message: Clone>(
+    menu: &Menu<'_, Message>,
+    state: &mut MenuBarStateInner,
+    menu_depth: usize,
+    index: usize,
+    renderer: &crate::ui::Renderer,
+    viewport_size: Size,
+    overlay_offset: Vector,
+    cross_offset: f32,
+) -> MenuState {
+    let active_root = if menu.is_overlay {
+        state.active_root.clone()
+    } else {
+        state.active_root[..=menu.depth].to_vec()
+    };
+    let item = &rows_at(&menu.menu_roots, &active_root, active_root.len() - 1)[index];
+    let parent = &state.menu_states[menu_depth];
+    let item_bounds = parent.row_bounds(index);
+    let aod = Aod {
+        horizontal: true,
+        vertical: true,
+        horizontal_overlap: false,
+        vertical_overlap: true,
+        horizontal_direction: state.horizontal_direction,
+        vertical_direction: state.vertical_direction,
+        horizontal_offset: cross_offset,
+        vertical_offset: 0.0,
+    };
+    let tree = &mut state.tree.children[active_root[0]].children;
+    MenuState {
+        index: None,
+        scroll_offset: 0.0,
+        menu_bounds: MenuBounds::new(
+            item,
+            renderer,
+            menu.item_width,
+            menu.item_height,
+            viewport_size,
+            overlay_offset,
+            &aod,
+            menu.bounds_expand,
+            item_bounds,
+            tree,
+            menu.is_overlay,
+        ),
+        laid_out: None,
+    }
+}
+
+/// Closes every menu of the chain `menu` belongs to.
+fn close_all<Message: Clone>(
+    menu: &Menu<'_, Message>,
+    state: &mut MenuBarStateInner,
+    shell: &mut Shell<'_, Message>,
+) {
+    if matches!(windowing_system(), Some(WindowingSystem::Wayland))
+        && let Some(handler) = menu.on_surface_action.as_ref()
+    {
+        let mut root = menu.window_id;
+        let mut depth = menu.depth;
+        while let Some(parent) = state.popup_id.iter().find(|(_, v)| **v == root) {
+            // parent of root popup is the window, so we stop.
+            if depth == 0 {
+                break;
+            }
+            root = *parent.0;
+            depth = depth.saturating_sub(1);
+        }
+        shell.publish((handler)(crate::ui::surface::Action::DestroyPopup {
+            id: root,
+            animate: false,
+        }));
+    }
+    state.reset();
+}
+
+/// Closes `menu`, a child popup, handing the keys back to its parent.
+fn close_own<Message: Clone>(
+    menu: &Menu<'_, Message>,
+    state: &mut MenuBarStateInner,
+    shell: &mut Shell<'_, Message>,
+) {
+    if let Some(parent) = state
+        .popup_id
+        .iter()
+        .find(|(_, child)| **child == menu.window_id)
+        .map(|(parent, _)| *parent)
+    {
+        state.popup_id.remove(&parent);
+        shell.publish((menu.on_surface_action.as_ref().unwrap())(
+            crate::ui::surface::action::destroy_popup(menu.window_id),
+        ));
+    }
+    state.active_root.truncate(menu.depth);
+    state.menu_states.truncate(menu.depth);
+}
+
+/// Closes the child popup of the menu at `menu.depth`, if one is open.
+fn close_child<Message: Clone>(
+    menu: &Menu<'_, Message>,
+    state: &mut MenuBarStateInner,
+    shell: &mut Shell<'_, Message>,
+) {
+    if matches!(windowing_system(), Some(WindowingSystem::Wayland))
+        && let Some(id) = state.popup_id.remove(&menu.window_id)
+    {
+        shell.publish((menu.on_surface_action.as_ref().unwrap())(
+            crate::ui::surface::action::destroy_popup(id),
+        ));
+    }
+    state.active_root.truncate(menu.depth + 1);
+    state.menu_states.truncate(menu.depth + 1);
+}
+
 fn pad_rectangle(rect: Rectangle, padding: Padding) -> Rectangle {
     Rectangle {
         x: rect.x - padding.left,
@@ -1375,7 +1659,17 @@ fn process_menu_events<Message: std::clone::Clone>(
             return;
         }
 
-        let Some(hover) = state.menu_states.last_mut() else {
+        // A popup's own menu gets its events, even with a child open beside
+        // it: a split row's left part is pressed with its variants showing
+        let depth = if menu.is_overlay {
+            state.menu_states.len().saturating_sub(1)
+        } else {
+            menu.depth
+        };
+        if state.active_root.len() <= depth {
+            return;
+        }
+        let Some(hover) = state.menu_states.get_mut(depth) else {
             return;
         };
 
@@ -1383,7 +1677,7 @@ fn process_menu_events<Message: std::clone::Clone>(
             return;
         };
 
-        let mt = state.active_root.iter().skip(1).fold(
+        let mt = state.active_root[..=depth].iter().skip(1).fold(
             // then use menu states for each open menu
             &mut menu_roots[state.active_root[0]],
             |mt, next_active_root| &mut mt.children[*next_active_root],
@@ -1426,6 +1720,7 @@ fn process_overlay_events<Message>(
     overlay_cursor: Point,
     cross_offset: f32,
     shell: &mut Shell<'_, Message>,
+    aim: bool,
 ) -> Option<(usize, MenuState)>
 where
     Message: std::clone::Clone,
@@ -1495,12 +1790,31 @@ where
 
         // * update active item
         let menu_states_len = state.menu_states.len();
-
-        let Some(last_menu_state) = state.menu_states.get_mut(if menu.is_overlay {
+        let depth_index = if menu.is_overlay {
             menu_states_len.saturating_sub(1)
         } else {
             menu.depth
-        }) else {
+        };
+        // The open child of this menu, which the pointer may be heading for,
+        // where it sits beside its row: a popup's own bounds are in its own
+        // space, not this menu's
+        let child_bounds = (!menu.is_overlay)
+            .then(|| state.menu_states.get(depth_index + 1))
+            .flatten()
+            .map(|child| beside(child, state.horizontal_direction));
+        // Where the pointer was over this same menu: each popup has its own
+        // space
+        let last_cursor = state
+            .last_cursor
+            .replace((menu.depth, overlay_cursor))
+            .filter(|(depth, _)| *depth == menu.depth)
+            .map(|(_, point)| point);
+        // A move over a child menu settles the aim of the menus above it
+        if state.pending.is_some_and(|p| p.depth < menu.depth) {
+            state.pending = None;
+        }
+
+        let Some(last_menu_state) = state.menu_states.get_mut(depth_index) else {
             if menu.is_overlay {
                 // no menus left
                 // keep state.open when the cursor is still inside the menu bar
@@ -1545,13 +1859,7 @@ where
         if state.pressed {
             return new_menu_root;
         }
-        let roots = active_root.iter().skip(1).fold(
-            &menu.menu_roots[active_root[0]].children,
-            |mt, next_active_root| &mt[*next_active_root].children,
-        );
-        let tree = &mut state.tree.children[active_root[0]].children;
-
-        let active_menu: &Vec<MenuTree<Message>> = roots;
+        let active_menu = rows_at(&menu.menu_roots, active_root, active_root.len() - 1);
         let new_index = match menu.item_height {
             ItemHeight::Uniform(u) => (height_diff / f32::from(u)).floor() as usize,
             ItemHeight::Static(_) | ItemHeight::Dynamic(_) => {
@@ -1566,6 +1874,27 @@ where
                 )
             }
         };
+        let now = Instant::now();
+        let entered = last_menu_state.index != Some(new_index);
+
+        // Heading for the open child across other rows: the child stays
+        // until the pointer rests on one of them
+        if aim
+            && entered
+            && last_menu_state.index.is_some()
+            && let (Some(child), Some(from)) = (child_bounds, last_cursor)
+            && aims_at(from, overlay_cursor, child)
+        {
+            let at = now + AIM_TIME;
+            state.pending = Some(Pending {
+                depth: menu.depth,
+                at,
+                kind: PendingKind::Switch,
+            });
+            shell.request_redraw_at(at);
+            shell.capture_event();
+            return new_menu_root;
+        }
 
         let remove = last_menu_state
             .index
@@ -1585,64 +1914,312 @@ where
 
         if old_index != Some(new_index) {
             shell.request_redraw();
+            state.pending = None;
         }
 
-        // get new active item
-        // * add new menu if the new item is a menu
-        if !item.children.is_empty() && old_index.is_none_or(|i| i != new_index) {
-            let item_position = Point::new(
-                0.0,
-                last_menu_bounds.child_positions[new_index] + last_menu_state.scroll_offset,
-            );
-            let item_size = last_menu_bounds.child_sizes[new_index];
-
-            // overlay space item bounds
-            let item_bounds = Rectangle::new(item_position, item_size)
-                + (last_menu_bounds.children_bounds.position() - Point::ORIGIN);
-
-            let aod = Aod {
-                horizontal: true,
-                vertical: true,
-                horizontal_overlap: false,
-                vertical_overlap: true,
-                horizontal_direction: state.horizontal_direction,
-                vertical_direction: state.vertical_direction,
-                horizontal_offset: cross_offset,
-                vertical_offset: 0.0,
-            };
-            let ms = MenuState {
-                index: None,
-                scroll_offset: 0.0,
-                menu_bounds: MenuBounds::new(
-                    item,
+        let open = !remove && child_bounds.is_some();
+        let opening = if item.children.is_empty() {
+            Opening::Not
+        } else {
+            item.child_open.opening(
+                state.menu_states[depth_index].row_bounds(new_index),
+                overlay_cursor,
+                entered,
+                open,
+            )
+        };
+        match opening {
+            // * add new menu if the new item is a menu
+            Opening::Now => {
+                let ms = child_menu_state(
+                    menu,
+                    state,
+                    depth_index,
+                    new_index,
                     renderer,
-                    menu.item_width,
-                    menu.item_height,
                     viewport_size,
                     overlay_offset,
-                    &aod,
-                    menu.bounds_expand,
-                    item_bounds,
-                    tree,
-                    menu.is_overlay,
-                ),
-                laid_out: None,
-            };
-
-            new_menu_root = Some((new_index, ms.clone()));
-            if menu.is_overlay {
-                state.active_root.push(new_index);
-            } else {
-                state.menu_states.truncate(menu.depth + 1);
+                    cross_offset,
+                );
+                new_menu_root = Some((new_index, ms.clone()));
+                if menu.is_overlay {
+                    state.active_root.push(new_index);
+                } else {
+                    state.menu_states.truncate(menu.depth + 1);
+                }
+                state.menu_states.push(ms);
             }
-            state.menu_states.push(ms);
-        } else if !menu.is_overlay && remove {
-            state.menu_states.truncate(menu.depth + 1);
+            Opening::After(delay) => {
+                let at = now + delay;
+                state.pending = Some(Pending {
+                    depth: menu.depth,
+                    at,
+                    kind: PendingKind::Open(new_index),
+                });
+                shell.request_redraw_at(at);
+                if !menu.is_overlay && remove {
+                    state.menu_states.truncate(menu.depth + 1);
+                }
+            }
+            Opening::Not => {
+                if !menu.is_overlay && remove {
+                    state.menu_states.truncate(menu.depth + 1);
+                }
+            }
         }
 
         shell.capture_event();
         new_menu_root
     })
+}
+
+/// Does what the menu at `menu.depth` waited for, once its time has come:
+/// opens a row's child, or lets the row under the pointer take over from an
+/// open child it was not heading for after all.
+fn process_pending<Message: Clone>(
+    menu: &mut Menu<'_, Message>,
+    now: Instant,
+    renderer: &crate::ui::Renderer,
+    viewport_size: Size,
+    overlay_offset: Vector,
+    shell: &mut Shell<'_, Message>,
+) -> Option<(usize, MenuState)> {
+    let due = menu.tree.inner.with_data_mut(|state| match state.pending {
+        Some(pending) if pending.depth == menu.depth => {
+            if now >= pending.at {
+                state.pending = None;
+                Some(pending.kind)
+            } else {
+                shell.request_redraw_at(pending.at);
+                None
+            }
+        }
+        _ => None,
+    })?;
+    match due {
+        PendingKind::Open(index) => menu.tree.inner.with_data_mut(|state| {
+            let depth_index = menu.depth;
+            let still_there = state.menu_states.get(depth_index)?.index == Some(index);
+            if !still_there || state.menu_states.len() > depth_index + 1 {
+                return None;
+            }
+            let ms = child_menu_state(
+                menu,
+                state,
+                depth_index,
+                index,
+                renderer,
+                viewport_size,
+                overlay_offset,
+                menu.cross_offset as f32,
+            );
+            state.menu_states.push(ms.clone());
+            shell.request_redraw();
+            Some((index, ms))
+        }),
+        PendingKind::Switch => {
+            let cursor = menu
+                .tree
+                .inner
+                .with_data(|state| state.last_cursor)
+                .filter(|(depth, _)| *depth == menu.depth)
+                .map(|(_, point)| point)?;
+            process_overlay_events(
+                menu,
+                renderer,
+                viewport_size,
+                overlay_offset,
+                Cursor::Available(cursor + overlay_offset),
+                cursor,
+                menu.cross_offset as f32,
+                shell,
+                false,
+            )
+        }
+    }
+}
+
+/// The keyboard in the menu that has it, the deepest one open: Up and Down
+/// move between rows the keys stop on, Right opens a row's child and Left
+/// closes this menu if it is a child, Enter chooses the row and Escape
+/// closes every menu. Any other key closes them too and goes on to the
+/// window, as before the menus had keys. A reason's popup gives the keys
+/// back to its menu by closing.
+fn process_key<Message: Clone>(
+    menu: &mut Menu<'_, Message>,
+    key: &iced_core::keyboard::Key,
+    renderer: &crate::ui::Renderer,
+    viewport_size: Size,
+    overlay_offset: Vector,
+    shell: &mut Shell<'_, Message>,
+) -> Option<(usize, MenuState)> {
+    use iced_core::keyboard::Key;
+    use iced_core::keyboard::key::Named;
+
+    let Key::Named(named) = key else {
+        menu.tree
+            .inner
+            .with_data_mut(|state| close_all(menu, state, shell));
+        return None;
+    };
+    if matches!(
+        named,
+        Named::Shift | Named::Control | Named::Alt | Named::Super | Named::Meta
+    ) {
+        return None;
+    }
+    let mut depth = menu.depth;
+    let mut new_root = None;
+    let mut press = None;
+    menu.tree.inner.with_data_mut(|state| {
+        if !state.open || state.active_root.len() <= depth || state.menu_states.len() <= depth {
+            return;
+        }
+        // The reason's popup has the keys while it shows, as every popup
+        // takes them: it closes, and the key is for the menu it belongs to
+        let forwarded = depth > 0
+            && rows_at(&menu.menu_roots, &state.active_root, depth)
+                .iter()
+                .all(|row| row.passive);
+        if forwarded {
+            close_own(menu, state, shell);
+            depth -= 1;
+        }
+        let rows = rows_at(&menu.menu_roots, &state.active_root, depth);
+        let index = state.menu_states[depth].index;
+        // What Enter does on the chosen row: run its left part, or open its
+        // child when the row has nothing else to run
+        let row = index.map(|i| &rows[i]);
+        let opens = row.is_some_and(|row| {
+            !row.children.is_empty()
+                && match row.child_open {
+                    ChildOpen::Arrow(_) => *named == Named::ArrowRight || !row.pressable,
+                    ChildOpen::Row => true,
+                    ChildOpen::Rest(_) => false,
+                }
+        });
+        match named {
+            // From the reason's popup the menu cannot be scrolled to show
+            // another row, so these only close the reason, as Right and
+            // Left do
+            Named::ArrowDown | Named::ArrowUp if forwarded => {}
+            Named::ArrowDown | Named::ArrowUp => {
+                let selectable: Vec<bool> = rows.iter().map(|row| row.selectable).collect();
+                let next = next_selectable(&selectable, index, *named == Named::ArrowDown);
+                if next != index {
+                    close_child(menu, state, shell);
+                    state.menu_states[depth].index = next;
+                    // A menu taller than its surface scrolls, so the row
+                    // chosen is one that can be seen
+                    if let Some(next) = next
+                        && state.menu_states[depth].scroll_into_view(
+                            next,
+                            viewport_size.height,
+                            overlay_offset,
+                        )
+                    {
+                        shell.invalidate_layout();
+                    }
+                    state.pending = None;
+                    shell.request_redraw();
+                }
+            }
+            // A child is opened by the popup of its parent menu, so not
+            // from the reason's popup
+            Named::ArrowRight | Named::Enter if opens && !forwarded => {
+                let index = index.unwrap_or_default();
+                if state.menu_states.len() > depth + 1 {
+                    return;
+                }
+                let mut ms = child_menu_state(
+                    menu,
+                    state,
+                    depth,
+                    index,
+                    renderer,
+                    viewport_size,
+                    overlay_offset,
+                    menu.cross_offset as f32,
+                );
+                let child_rows = &rows[index].children;
+                let selectable: Vec<bool> = child_rows.iter().map(|row| row.selectable).collect();
+                ms.index = next_selectable(&selectable, None, true);
+                state.menu_states.push(ms.clone());
+                state.pending = None;
+                new_root = Some((index, ms));
+            }
+            Named::ArrowRight => {}
+            Named::ArrowLeft | Named::Escape if depth > 0 && !forwarded => {
+                close_own(menu, state, shell);
+            }
+            Named::ArrowLeft => {}
+            Named::Enter => {
+                press = index.filter(|i| rows[*i].pressable);
+            }
+            Named::Escape => close_all(menu, state, shell),
+            _ => {
+                close_all(menu, state, shell);
+                return;
+            }
+        }
+        shell.capture_event();
+    });
+    if let Some(index) = press {
+        press_row(menu, depth, index, renderer, overlay_offset, shell);
+        menu.tree
+            .inner
+            .with_data_mut(|state| close_all(menu, state, shell));
+    }
+    new_root
+}
+
+/// Presses and releases the left part of row `index` of the menu at
+/// `depth`, as a click there would: its button sends its message.
+fn press_row<Message: Clone>(
+    menu: &mut Menu<'_, Message>,
+    depth: usize,
+    index: usize,
+    renderer: &crate::ui::Renderer,
+    overlay_offset: Vector,
+    shell: &mut Shell<'_, Message>,
+) {
+    use iced_core::mouse::{Button, Event as MouseEvent};
+
+    let menu_roots = match &mut menu.menu_roots {
+        Cow::Borrowed(_) => return,
+        Cow::Owned(o) => o.as_mut_slice(),
+    };
+    menu.tree.inner.with_data_mut(|state| {
+        let row = state.active_root[..=depth]
+            .iter()
+            .skip(1)
+            .fold(&mut menu_roots[state.active_root[0]], |mt, next| {
+                &mut mt.children[*next]
+            });
+        let row = &mut row.children[index];
+        let tree = &mut state.tree.children[state.active_root[0]].children[row.index];
+        let node =
+            state.menu_states[depth].layout_single(overlay_offset, index, renderer, row, tree);
+        let layout = Layout::new(&node);
+        let bounds = layout.bounds();
+        let cursor = Cursor::Available(Point::new(bounds.x + 24.0, bounds.center_y()));
+        let mut clipboard = iced_core::clipboard::Null;
+        for event in [
+            MouseEvent::ButtonPressed(Button::Left),
+            MouseEvent::ButtonReleased(Button::Left),
+        ] {
+            row.item.update(
+                tree,
+                &event::Event::Mouse(event),
+                layout,
+                cursor,
+                renderer,
+                &mut clipboard,
+                shell,
+                &Rectangle::default(),
+            );
+        }
+    });
 }
 
 fn process_scroll_events<Message>(
@@ -1823,4 +2400,88 @@ fn search_bound(
         index = left;
     }
     index
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A child popup opened from the row at `row`, of `size`: its own
+    /// bounds start at its own origin, as a popup's do.
+    fn child(row: Rectangle, size: Size) -> MenuState {
+        MenuState {
+            index: None,
+            scroll_offset: 0.0,
+            menu_bounds: MenuBounds {
+                child_positions: vec![0.0],
+                child_sizes: vec![size],
+                children_bounds: Rectangle::new(Point::ORIGIN, size),
+                parent_bounds: row,
+                check_bounds: Rectangle::new(Point::ORIGIN, size),
+                offset_bounds: Rectangle::default(),
+            },
+            laid_out: None,
+        }
+    }
+
+    /// A row chosen with the keys in a menu taller than its viewport is
+    /// scrolled into view, and only as far as it takes.
+    #[test]
+    fn a_row_chosen_with_the_keys_is_scrolled_into_view() {
+        let rows = 10;
+        let row = Size::new(360.0, 36.0);
+        let mut menu = MenuState {
+            index: None,
+            scroll_offset: 0.0,
+            menu_bounds: MenuBounds {
+                child_positions: (0..rows).map(|i| i as f32 * row.height).collect(),
+                child_sizes: vec![row; rows],
+                children_bounds: Rectangle::new(
+                    Point::ORIGIN,
+                    Size::new(row.width, rows as f32 * row.height),
+                ),
+                parent_bounds: Rectangle::default(),
+                check_bounds: Rectangle::default(),
+                offset_bounds: Rectangle::default(),
+            },
+            laid_out: None,
+        };
+        let height = 200.0;
+        assert!(
+            !menu.scroll_into_view(2, height, Vector::ZERO),
+            "already in view"
+        );
+        assert!(menu.scroll_into_view(8, height, Vector::ZERO));
+        // Row 8 ends at 324; its bottom is now the viewport's
+        assert_eq!(menu.scroll_offset, height - 324.0);
+        assert!(
+            !menu.scroll_into_view(7, height, Vector::ZERO),
+            "still in view"
+        );
+        assert!(menu.scroll_into_view(0, height, Vector::ZERO));
+        assert_eq!(menu.scroll_offset, 0.0);
+        assert!(menu.scroll_into_view(9, height, Vector::ZERO));
+        assert_eq!(
+            menu.scroll_offset,
+            height - 360.0,
+            "the last row at the bottom"
+        );
+    }
+
+    /// The pointer leaving a split row's arrow for its variants, beside the
+    /// menu, is heading for them: the child is placed in the parent's space,
+    /// not at the origin of its own.
+    #[test]
+    fn a_child_popup_sits_beside_its_row_for_the_aim() {
+        let row = Rectangle::new(Point::new(0.0, 100.0), Size::new(360.0, 36.0));
+        let size = Size::new(280.0, 300.0);
+        let right = beside(&child(row, size), Direction::Positive);
+        assert_eq!(right, Rectangle::new(Point::new(360.0, 100.0), size));
+        let left = beside(&child(row, size), Direction::Negative);
+        assert_eq!(left, Rectangle::new(Point::new(-280.0, 100.0), size));
+
+        let on_arrow = Point::new(340.0, 118.0);
+        assert!(aims_at(on_arrow, Point::new(350.0, 140.0), right));
+        assert!(!aims_at(on_arrow, Point::new(300.0, 140.0), right));
+    }
 }

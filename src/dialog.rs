@@ -495,7 +495,8 @@ enum Message {
     None,
     Cancel,
     Choice(usize, usize),
-    Config(Config),
+    /// Boxed: the config is large, and every message would be as large.
+    Config(Box<Config>),
     DialogCancel,
     DialogComplete,
     DialogUpdate(DialogPage),
@@ -1565,9 +1566,9 @@ impl Application for App {
                 }
             }
             Message::Config(config) => {
-                if config != self.flags.config {
+                if *config != self.flags.config {
                     log::info!("update config");
-                    self.flags.config = config;
+                    self.flags.config = *config;
                     return self.update_config();
                 }
             }
@@ -2350,8 +2351,7 @@ impl Application for App {
                 .view(
                     &self.key_binds,
                     &self.modifiers,
-                    false,
-                    &[],
+                    crate::menu::Sources::plain(false, &[]),
                     self.core.drawer_slide.column_slide(),
                     None,
                 )
@@ -2396,7 +2396,7 @@ impl Application for App {
             self.flags
                 .config_handler
                 .subscription::<Config>()
-                .map(Message::Config),
+                .map(|config| Message::Config(Box::new(config))),
             Subscription::run_with(TypeId::of::<WatcherSubscription>(), |_| {
                 stream::channel(100, {
                     |mut output: futures::channel::mpsc::Sender<_>| async move {

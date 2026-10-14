@@ -26,6 +26,12 @@ new-file = Nova datoteka
 new-folder = Nova fascikla
 move-to-trash = Premesti u otpad
 restore-from-trash = Vrati iz otpada
+dimmed-nothing-to-paste = Nema šta da se nalepi
+dimmed-folder-terminal = Samo se fascikla otvara u terminalu
+dimmed-folder-sidebar = Samo se fascikla dodaje u bočnu traku
+dimmed-files-and-folders = Datoteke i fascikle se ne otvaraju zajedno
+dimmed-origin-unknown = Nije zabeleženo odakle potiče
+dimmed-trash-empty = Otpad je prazan
 trash-original-location = Izvorna lokacija: {$location}
 trash-original-unknown = Nepoznato
 

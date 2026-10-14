@@ -25,6 +25,12 @@ new-file = Нова датотека
 new-folder = Нова фасцикла
 move-to-trash = Премести у отпад
 restore-from-trash = Врати из отпада
+dimmed-nothing-to-paste = Нема шта да се налепи
+dimmed-folder-terminal = Само се фасцикла отвара у терминалу
+dimmed-folder-sidebar = Само се фасцикла додаје у бочну траку
+dimmed-files-and-folders = Датотеке и фасцикле се не отварају заједно
+dimmed-origin-unknown = Није забележено одакле потиче
+dimmed-trash-empty = Отпад је празан
 trash-original-location = Изворна локација: {$location}
 trash-original-unknown = Непознато
 

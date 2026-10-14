@@ -43,9 +43,7 @@ use trash::{TrashItem, TrashItemMetadata, TrashItemSize};
 use xdg_kit::desktop_entry::{DesktopEntry, Locales};
 
 use crate::app::{Action, PreviewItem, PreviewKind};
-use crate::config::{
-    ContextActionPreset, ICON_SCALE_MAX, ICON_SIZE_GRID, IconSizes, TabConfig, ThumbCfg,
-};
+use crate::config::{ICON_SCALE_MAX, ICON_SIZE_GRID, IconSizes, TabConfig, ThumbCfg};
 use crate::dialog::DialogKind;
 use crate::large_image::{
     LargeImageManager, decode_large_image, exceeds_memory_limit, should_use_dedicated_worker,
@@ -3382,22 +3380,7 @@ const SORT_BAR_HEIGHT: f32 = 44.0;
 /// The width `content` takes in the default font family at `size`, shaped
 /// the way a label draws it.
 fn label_width(content: &str, size: f32, font: crate::ui::font::Font) -> f32 {
-    use crate::ui::iced::advanced::graphics::text::Paragraph as GraphicsParagraph;
-    use crate::ui::iced::advanced::text::{LineHeight, Paragraph as _, Shaping, Text, Wrapping};
-
-    GraphicsParagraph::with_text(Text {
-        content,
-        bounds: Size::INFINITE,
-        size: size.into(),
-        line_height: LineHeight::default(),
-        font,
-        align_x: text::Alignment::Left,
-        align_y: crate::ui::iced::alignment::Vertical::Center,
-        shaping: Shaping::Advanced,
-        wrapping: Wrapping::default(),
-    })
-    .min_bounds()
-    .width
+    crate::ui::font::text_width(content, size, font)
 }
 
 /// Width of a list row's right column, which holds what the list is sorted
@@ -3458,7 +3441,7 @@ fn list_details(sort: HeadingOptions, type_: &str, size: &str, date: &str) -> (S
 }
 
 /// The order a sort gives, in words, as the sort menu says it.
-fn sort_order_words(sort: HeadingOptions, ascending: bool) -> String {
+pub fn sort_order_words(sort: HeadingOptions, ascending: bool) -> String {
     match (sort, ascending) {
         (HeadingOptions::Name | HeadingOptions::Type, true) => fl!("sort-a-z"),
         (HeadingOptions::Name | HeadingOptions::Type, false) => fl!("sort-z-a"),
@@ -8703,8 +8686,7 @@ impl Tab {
         key_binds: &'a HashMap<KeyBind, Action>,
         modifiers: &'a Modifiers,
         size: Size,
-        clipboard_paste_available: bool,
-        context_actions: &'a [ContextActionPreset],
+        sources: menu::Sources<'a>,
         column_slide: Option<&ColumnSlide>,
     ) -> Element<'a, Message> {
         // Update cached size
@@ -8746,15 +8728,11 @@ impl Tab {
         // Wrap the scrollable, not its content, so the popup anchors in window coordinates
         let mut context_menu = widget::context_menu(
             items_area,
-            Some(menu::context_menu(
-                self,
-                key_binds,
-                modifiers,
-                clipboard_paste_available,
-                context_actions,
-            )),
+            Some(menu::context_menu(self, key_binds, &sources)),
         )
-        .item_width(crate::ui::widget::menu::ItemWidth::Uniform(360))
+        // Static, so a child popup can be narrower than the menu: a split
+        // row's variants, a program's actions, a dimmed row's reason
+        .item_width(crate::ui::widget::menu::ItemWidth::Static(360))
         .on_surface_action(Message::Surface);
         if let Some(window_id) = self.window_id {
             context_menu = context_menu.window_id(window_id);
@@ -9055,8 +9033,7 @@ impl Tab {
         &'a self,
         key_binds: &'a HashMap<KeyBind, Action>,
         modifiers: &'a Modifiers,
-        clipboard_paste_available: bool,
-        context_actions: &'a [ContextActionPreset],
+        sources: menu::Sources<'a>,
         column_slide: Option<ColumnSlide>,
         bottom_reserve: Option<&'a Cell<f32>>,
     ) -> Element<'a, Message> {
@@ -9070,8 +9047,7 @@ impl Tab {
                     key_binds,
                     modifiers,
                     size,
-                    clipboard_paste_available,
-                    context_actions,
+                    sources.clone(),
                     column_slide.as_ref(),
                 ),
                 Id::from(format!(

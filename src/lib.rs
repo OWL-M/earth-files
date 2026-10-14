@@ -40,6 +40,7 @@ pub mod operation;
 pub mod portal;
 pub mod progress;
 pub mod recents;
+mod service_menu;
 mod spawn_detached;
 pub mod tab;
 mod thumbnail_cacher;

@@ -438,6 +438,13 @@ trash-original-unknown = Sconosciuta
 remove-from-sidebar = Rimuovi dalla barra laterale
 removed-from-sidebar = { $name } rimosso dalla barra laterale
 remove-from-recents = Rimuovi da recenti
+rename-items = Rinomina { item-count }...
+dimmed-nothing-to-paste = Niente da incollare
+dimmed-folder-terminal = Solo una cartella si apre nel terminale
+dimmed-folder-sidebar = Solo una cartella va nella barra laterale
+dimmed-files-and-folders = File e cartelle non si aprono insieme
+dimmed-origin-unknown = Non è registrato da dove proviene
+dimmed-trash-empty = Il cestino è vuoto
 
 ## Desktop
 

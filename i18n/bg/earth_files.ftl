@@ -461,6 +461,13 @@ trash-original-unknown = Неизвестно
 remove-from-sidebar = Премахване от стр. лента
 removed-from-sidebar = { $name } е премахнат от страничната лента
 remove-from-recents = Премахване от скорошни
+rename-items = Преименуване на { item-count }...
+dimmed-nothing-to-paste = Няма нищо за поставяне
+dimmed-folder-terminal = В терминала се отваря само папка
+dimmed-folder-sidebar = Към страничната лента се добавя само папка
+dimmed-files-and-folders = Файлове и папки не се отварят заедно
+dimmed-origin-unknown = Не е записано откъде е
+dimmed-trash-empty = Кошчето е празно
 
 ## Desktop
 

@@ -178,6 +178,9 @@ pub struct Config {
     pub app_theme: AppTheme,
     pub dialog: DialogConfig,
     pub context_actions: Vec<ContextActionPreset>,
+    /// The variant pinned as each split row's usual action in the context
+    /// menu.
+    pub menu_pins: crate::menu::MenuPins,
     pub density: Density,
     /// Header-bar size, kept separate from interface density: the header bar
     /// reads `header_size` while everything else reads `density`, and a
@@ -245,6 +248,7 @@ impl Default for Config {
             app_theme: AppTheme::System,
             dialog: DialogConfig::default(),
             context_actions: Vec::new(),
+            menu_pins: crate::menu::MenuPins::new(),
             density: Density::Standard,
             header_size: Density::Standard,
             thumb_cfg: ThumbCfg::default(),

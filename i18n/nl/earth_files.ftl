@@ -514,6 +514,13 @@ removed-from-recents =
        *[other] items
     } uit { recents } verwijderd
 remove-from-recents = Uit recente verwijderen
+rename-items = { item-count } hernoemen…
+dimmed-nothing-to-paste = Niets om te plakken
+dimmed-folder-terminal = Alleen een map kan in de terminal worden geopend
+dimmed-folder-sidebar = Alleen een map kan aan de zijbalk worden toegevoegd
+dimmed-files-and-folders = Bestanden en mappen worden niet samen geopend
+dimmed-origin-unknown = Niet vastgelegd waar het vandaan kwam
+dimmed-trash-empty = De prullenbak is leeg
 type-to-search-select = Dit selecteert het eerst overeenkomende bestand of map
 comment = Bestandsbeheerder
 copy-to-title = Kopieerbestemming aanwijzen

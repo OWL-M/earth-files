@@ -464,6 +464,13 @@ trash-original-unknown = Nieznane
 remove-from-sidebar = Usuń z bocznego panelu
 removed-from-sidebar = Usunięto { $name } z bocznego panelu
 remove-from-recents = Usuń z poprzednich
+rename-items = Zmień nazwę: { item-count }…
+dimmed-nothing-to-paste = Nie ma czego wkleić
+dimmed-folder-terminal = W terminalu otwiera się tylko katalog
+dimmed-folder-sidebar = Do bocznego panelu można dodać tylko katalog
+dimmed-files-and-folders = Pliki i katalogi nie otwierają się razem
+dimmed-origin-unknown = Nie zapisano, skąd pochodzi
+dimmed-trash-empty = Kosz jest pusty
 
 ## Desktop
 

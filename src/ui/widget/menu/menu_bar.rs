@@ -76,7 +76,31 @@ pub(crate) struct MenuBarStateInner {
     pub(crate) vertical_direction: Direction,
     /// List of all menu states
     pub(crate) menu_states: Vec<MenuState>,
+    /// Something a menu waits for the pointer to rest before doing.
+    pub(crate) pending: Option<Pending>,
+    /// Where the pointer was at its last move, with the depth of the menu
+    /// it was over and in that menu's space, for telling whether it is
+    /// heading for a child.
+    pub(crate) last_cursor: Option<(usize, Point)>,
 }
+
+/// Something the menu at `depth` does if the pointer rests until `at`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct Pending {
+    pub(crate) depth: usize,
+    pub(crate) at: std::time::Instant,
+    pub(crate) kind: PendingKind,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum PendingKind {
+    /// Open the child of this row, still the one under the pointer.
+    Open(usize),
+    /// The pointer was heading for the open child but stopped on another
+    /// row: that row takes over.
+    Switch,
+}
+
 impl MenuBarStateInner {
     /// get the list of indices hovered for the menu
     pub(super) fn get_trimmed_indices(&self, index: usize) -> impl Iterator<Item = usize> + '_ {
@@ -93,6 +117,8 @@ impl MenuBarStateInner {
         self.menu_states.clear();
         self.opening_press_held = false;
         self.opening_fingers.clear();
+        self.pending = None;
+        self.last_cursor = None;
     }
 }
 impl Default for MenuBarStateInner {
@@ -111,6 +137,8 @@ impl Default for MenuBarStateInner {
             bar_pressed: false,
             opening_press_held: false,
             opening_fingers: HashSet::new(),
+            pending: None,
+            last_cursor: None,
         }
     }
 }
@@ -419,6 +447,9 @@ where
                     // close existing popups
                     state.menu_states.clear();
                     state.active_root.clear();
+                    // Nothing waited for in the last menu is for this one
+                    state.pending = None;
+                    state.last_cursor = None;
                     shell.publish(surface_action(destroy_popup(id)));
                     state.view_cursor = view_cursor;
                 }
@@ -688,6 +719,9 @@ where
                         let was_open = state.open;
                         state.menu_states.clear();
                         state.active_root.clear();
+                        // Nothing waited for in the last menu is for this one
+                        state.pending = None;
+                        state.last_cursor = None;
                         state.open = false;
                         let surface_action = self.on_surface_action.as_ref().unwrap();
                         // Nothing replaces it, so it may collapse on its way

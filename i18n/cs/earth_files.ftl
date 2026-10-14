@@ -451,6 +451,13 @@ removed-from-recents =
        *[other] položek
     } z { recents }
 remove-from-recents = Odstranit z nedávných
+rename-items = Přejmenovat { item-count }...
+dimmed-nothing-to-paste = Není co vložit
+dimmed-folder-terminal = V terminálu lze otevřít jen složku
+dimmed-folder-sidebar = Do postranního panelu lze přidat jen složku
+dimmed-files-and-folders = Soubory a složky nelze otevřít společně
+dimmed-origin-unknown = Není zaznamenáno, odkud pochází
+dimmed-trash-empty = Koš je prázdný
 renaming = Přejmenování „{ $from }“ na „{ $to }“
 renamed = Přejmenováno „{ $from }“ na „{ $to }“
 renaming-many = Přejmenovává se { item-count }

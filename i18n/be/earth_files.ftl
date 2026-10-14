@@ -536,6 +536,13 @@ removed-from-recents =
        *[other] элементаў
     } з { recents }
 remove-from-recents = Выдаліць з нядаўніх
+rename-items = Перайменаваць { item-count }...
+dimmed-nothing-to-paste = Няма чаго ўставіць
+dimmed-folder-terminal = У кансолі адкрываецца толькі папка
+dimmed-folder-sidebar = На бакавую панэль дадаецца толькі папка
+dimmed-files-and-folders = Файлы і папкі не адкрываюцца разам
+dimmed-origin-unknown = Невядома, адкуль гэта
+dimmed-trash-empty = Сметніца пустая
 
 close = Закрыць
 

@@ -272,6 +272,13 @@ read-only = Μόνο ανάγνωση
 browse-store = Περιήγηση στο { $store }
 enter-server-address = Εισαγάγετε τη διεύθυνση διακομιστή
 remove-from-recents = Αφαίρεση από τα πρόσφατα
+rename-items = Μετονομασία { item-count }...
+dimmed-nothing-to-paste = Τίποτα για επικόλληση
+dimmed-folder-terminal = Μόνο ένας φάκελος ανοίγει σε τερματικό
+dimmed-folder-sidebar = Μόνο ένας φάκελος μπαίνει στην πλαϊνή στήλη
+dimmed-files-and-folders = Αρχεία και φάκελοι δεν ανοίγουν μαζί
+dimmed-origin-unknown = Δεν έχει καταγραφεί από πού προήλθε
+dimmed-trash-empty = Τα απορρίμματα είναι άδεια
 apply-to-all = Εφαρμογή σε όλα
 moving =
     Μετακίνηση { $items } { $items ->

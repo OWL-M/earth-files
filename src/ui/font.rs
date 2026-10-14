@@ -112,6 +112,29 @@ pub fn mono() -> Font {
     font(families().monospace)
 }
 
+/// The width `content` takes in `font` at `size`, shaped the way a label
+/// draws it.
+pub fn text_width(content: &str, size: f32, font: Font) -> f32 {
+    use crate::ui::iced::advanced::graphics::text::Paragraph as GraphicsParagraph;
+    use crate::ui::iced::advanced::text::{
+        Alignment, LineHeight, Paragraph as _, Shaping, Text, Wrapping,
+    };
+
+    GraphicsParagraph::with_text(Text {
+        content,
+        bounds: iced::Size::INFINITE,
+        size: size.into(),
+        line_height: LineHeight::default(),
+        font,
+        align_x: Alignment::Left,
+        align_y: iced::alignment::Vertical::Center,
+        shaping: Shaping::Advanced,
+        wrapping: Wrapping::default(),
+    })
+    .min_bounds()
+    .width
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
