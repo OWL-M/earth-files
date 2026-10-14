@@ -4335,6 +4335,7 @@ impl Tab {
     }
 
     pub fn set_items(&mut self, mut items: Vec<Item>) {
+        let marks = self.selection_marks();
         self.new_listing();
         let highlighted = self
             .items_opt
@@ -4351,6 +4352,7 @@ impl Tab {
             }
         }
         self.items_opt = Some(items);
+        self.restore_selection_marks(marks);
         if let Some(i) = highlighted
             .zip(self.items_opt.as_mut())
             .and_then(|(h, items)| items.get_mut(h))
@@ -4407,10 +4409,79 @@ impl Tab {
                 item.selected = true;
             }
         }
+        self.settle_anchor();
+    }
+
+    /// Focuses item `i` and makes it where a shift selection starts, or
+    /// forgets both when `None`. For a selection that has just been made
+    /// anew, of that one item or of nothing.
+    fn anchor_selection(&mut self, i: Option<usize>) {
+        self.select_focus = i;
+        self.select_range = i.map(|i| (i, i));
+    }
+
+    /// After a selection made all at once (everything, or a rectangle): the
+    /// anchor stays where it is when that item is still selected, else
+    /// moves to the first selected item as shown. Nothing selected, no
+    /// anchor.
+    fn settle_anchor(&mut self) {
+        let selected = |i: usize| {
+            self.items_opt
+                .as_ref()
+                .and_then(|items| items.get(i))
+                .is_some_and(|item| item.selected)
+        };
+        if self
+            .select_range
+            .is_some_and(|(anchor, _)| selected(anchor))
+        {
+            return;
+        }
+        let first = self
+            .column_sort()
+            .and_then(|sorted| sorted.into_iter().find(|(_, item)| item.selected))
+            .map(|(i, _)| i);
+        self.select_range = first.map(|i| (i, i));
+        if first.is_none() {
+            self.select_focus = None;
+        }
+    }
+
+    /// The items at the focus and at the two ends of the shift range, by
+    /// location, to find them again once the listing has changed under
+    /// them: positions in a listing say nothing about another one.
+    fn selection_marks(&self) -> [Option<Location>; 3] {
+        let location = |i: Option<usize>| {
+            self.items_opt
+                .as_ref()
+                .and_then(|items| items.get(i?))
+                .and_then(|item| item.location_opt.clone())
+        };
+        [
+            location(self.select_focus),
+            location(self.select_range.map(|(anchor, _)| anchor)),
+            location(self.select_range.map(|(_, end)| end)),
+        ]
+    }
+
+    /// Puts the focus and the shift range back on the items
+    /// [`Self::selection_marks`] named. One that is gone is forgotten; a
+    /// range whose anchor is gone goes with it.
+    fn restore_selection_marks(&mut self, [focus, anchor, end]: [Option<Location>; 3]) {
+        let find = |location: Option<Location>| {
+            let location = location?;
+            self.items_opt
+                .as_ref()?
+                .iter()
+                .position(|item| item.location_opt.as_ref() == Some(&location))
+        };
+        let (focus, anchor, end) = (find(focus), find(anchor), find(end));
+        self.select_focus = focus;
+        self.select_range = anchor.map(|anchor| (anchor, end.unwrap_or(anchor)));
     }
 
     pub fn select_none(&mut self) -> bool {
-        self.select_focus = None;
+        self.anchor_selection(None);
         let mut had_selection = false;
         if let Some(ref mut items) = self.items_opt {
             for item in items.iter_mut() {
@@ -4492,20 +4563,29 @@ impl Tab {
     }
 
     pub fn select_name(&mut self, name: &str) {
-        self.select_focus = None;
+        let mut found = None;
         if let Some(ref mut items) = self.items_opt {
             for (i, item) in items.iter_mut().enumerate() {
                 item.selected = item.name == name;
                 if item.selected {
-                    self.select_focus = Some(i);
+                    found = Some(i);
                 }
             }
         }
+        self.anchor_selection(found);
     }
 
     /// Selects the first item whose name starts with the given prefix (case-insensitive).
-    /// Returns true if an item was selected.
+    /// Returns true if an item was selected. The item found is where a shift
+    /// selection starts.
     pub fn select_by_prefix(&mut self, prefix: &str) -> bool {
+        let found = self.select_by_prefix_only(prefix);
+        self.anchor_selection(self.select_focus);
+        found
+    }
+
+    /// [`Self::select_by_prefix`], leaving the shift range alone.
+    fn select_by_prefix_only(&mut self, prefix: &str) -> bool {
         self.search_select = SearchSelect::Off;
         let prefix_lower = prefix.to_lowercase();
         let focus = self.select_focus.take();
@@ -4615,7 +4695,7 @@ impl Tab {
     }
 
     pub fn select_paths(&mut self, paths: Vec<PathBuf>) {
-        self.select_focus = None;
+        let mut found = None;
         if let Some(ref mut items) = self.items_opt {
             for (i, item) in items.iter_mut().enumerate() {
                 item.selected = false;
@@ -4623,19 +4703,23 @@ impl Tab {
                     && paths.contains(path)
                 {
                     item.selected = true;
-                    self.select_focus = Some(i);
+                    found = Some(i);
                 }
             }
         }
+        self.anchor_selection(found);
     }
 
     fn select_position(&mut self, row: usize, col: usize, mod_shift: bool) -> bool {
         let mut start = (row, col);
         let mut end = (row, col);
         if mod_shift {
-            if self.select_focus.is_none() || self.select_range.is_none() {
-                // Set select range to initial state if necessary
-                self.select_range = self.select_focus.map(|i| (i, i));
+            let len = self.items_opt.as_ref().map_or(0, Vec::len);
+            // A starting point in this listing is kept, focused or not (a
+            // rectangle leaves one without focus); with none, the focused
+            // item starts the range
+            if self.select_range.is_none_or(|(anchor, _)| anchor >= len) {
+                self.select_range = self.select_focus.filter(|&i| i < len).map(|i| (i, i));
             }
 
             if let Some(pos) = self.select_range_start_pos_opt() {
@@ -4666,11 +4750,13 @@ impl Tab {
                 if pos == (row, col) {
                     // Update focus if this is what we wanted to select
                     self.select_focus = Some(i);
-                    self.select_range = if mod_shift {
-                        self.select_range.map(|r| (r.0, i))
+                    // With no starting point yet, the item reached is one
+                    let anchor = if mod_shift {
+                        self.select_range.map_or(i, |(anchor, _)| anchor)
                     } else {
-                        Some((i, i))
+                        i
                     };
+                    self.select_range = Some((anchor, i));
                     found = true;
                 }
                 item.selected = true;
@@ -5261,7 +5347,12 @@ impl Tab {
             self.scroll_opt = None;
         }
         self.pending_scroll = None;
-        self.select_focus = None;
+        // Positions in the old listing, and clicks still being handled on it,
+        // mean nothing in the new one
+        self.anchor_selection(None);
+        self.clicked = None;
+        self.narrow_on_release = None;
+        self.last_right_click = None;
         self.search_context = None;
         self.search_select = if matches!(self.location, Location::Search(..)) {
             SearchSelect::Waiting
@@ -5389,6 +5480,10 @@ impl Tab {
                             item.selected = false;
                         }
                     }
+                    if !items.iter().any(|item| item.selected) {
+                        // The last one toggled off
+                        self.anchor_selection(None);
+                    }
                 }
             }
             Message::DragHoverElapsed(generation) => {
@@ -5427,6 +5522,8 @@ impl Tab {
             Message::DragEnd => {
                 self.clicked = None;
                 self.watch_drag = true;
+                // A rectangle may have changed the selection under the anchor
+                self.settle_anchor();
             }
             Message::DoubleClick(click_i_opt) => {
                 // In single-click mode the first release already opened this
@@ -5461,61 +5558,25 @@ impl Tab {
 
                 if mod_shift {
                     if let Some(click_i) = click_i_opt {
-                        self.select_range = self
+                        // A sorted tab's items can't be linearly selected: the
+                        // range runs between the two items as shown, not
+                        // between their places in `items_opt`
+                        let indices: Vec<usize> = self
+                            .column_sort()
+                            .map(|sorted| sorted.into_iter().map(|(i, _)| i).collect())
+                            .unwrap_or_default();
+                        // The anchor, where it is shown; with none, or one
+                        // not in this listing, the range is the clicked item
+                        // alone and starts there from now on
+                        let anchor = self
                             .select_range
-                            .map_or(Some((click_i, click_i)), |r| Some((r.0, click_i)));
-                        if let Some(range) = self.select_range {
-                            let range_min = range.0.min(range.1);
-                            let range_max = range.0.max(range.1);
-                            // A sorted tab's items can't be linearly selected
-                            // Let's say we have:
-                            // index | file
-                            // 0     | file0
-                            // 1     | file1
-                            // 2     | file2
-                            // This is both the default sort and internal ordering
-                            // When sorted it may be displayed as:
-                            // 1     | file1
-                            // 0     | file0
-                            // 2     | file2
-                            // However, the internal ordering is still the same thus
-                            // linearly selecting items doesn't work. Shift selecting
-                            // file0 and file2 would select indices 0 to 2 when it should
-                            // select indices 0 AND 2 from items_opt
-                            let indices: Vec<_> = self
-                                .column_sort()
-                                .map(|sorted| sorted.into_iter().map(|(i, _)| i).collect())
-                                .unwrap_or_else(|| {
-                                    let len = self
-                                        .items_opt
-                                        .as_deref()
-                                        .map(<[Item]>::len)
-                                        .unwrap_or_default();
-                                    (0..len).collect()
-                                });
-
-                            // Find the true indices for the min and max element w.r.t.
-                            // a sorted tab.
-                            let min = indices
-                                .iter()
-                                .copied()
-                                .position(|offset| offset == range_min)
-                                .unwrap_or_default();
-                            // We can't skip `min_real` elements here because the index of
-                            // `max` may actually be before `min` in a sorted tab
-                            let max = indices
-                                .iter()
-                                .copied()
-                                .position(|offset| offset == range_max)
-                                .unwrap_or(indices.len());
-                            let min_real = min.min(max);
-                            let max_real = max.max(min);
-
-                            let in_range: Vec<usize> = indices
-                                .into_iter()
-                                .skip(min_real)
-                                .take(max_real - min_real + 1)
-                                .collect();
+                            .map(|(anchor, _)| anchor)
+                            .filter(|&anchor| indices.contains(&anchor))
+                            .unwrap_or(click_i);
+                        let shown = |i: usize| indices.iter().position(|&shown| shown == i);
+                        if let (Some(from), Some(to)) = (shown(anchor), shown(click_i)) {
+                            let in_range = &indices[from.min(to)..=from.max(to)];
+                            self.select_range = Some((anchor, click_i));
                             if let Some(ref mut items) = self.items_opt {
                                 // Plain shift-click reselects: whatever the
                                 // previous, wider range covered is dropped, so
@@ -5527,7 +5588,7 @@ impl Tab {
                                         item.selected = false;
                                     }
                                 }
-                                for index in in_range {
+                                for &index in in_range {
                                     if let Some(item) = items.get_mut(index) {
                                         if item.hidden {
                                             if self.config.show_hidden {
@@ -5583,6 +5644,11 @@ impl Tab {
                                 item.selected = false;
                             }
                         }
+                    }
+                    if click_i_opt.is_none() && !dont_unset {
+                        // The background: nothing is selected, so nothing
+                        // anchors a shift selection either
+                        self.anchor_selection(None);
                     }
                 }
             }
@@ -5640,6 +5706,7 @@ impl Tab {
                     for item in items.iter_mut() {
                         item.selected = false;
                     }
+                    self.anchor_selection(None);
                 }
             }
             Message::Surface(action) => {
@@ -6463,6 +6530,7 @@ impl Tab {
                     for (i, item) in items.iter_mut().enumerate() {
                         item.selected = Some(i) == click_i_opt;
                     }
+                    self.anchor_selection(click_i_opt);
                 }
                 self.last_right_click = click_i_opt;
             }
@@ -6474,7 +6542,7 @@ impl Tab {
                         for (i, item) in items.iter_mut().enumerate() {
                             item.selected = i == click_i;
                         }
-                        self.select_range = Some((click_i, click_i));
+                        self.anchor_selection(Some(click_i));
                     }
                     if let Some(clicked_item) =
                         self.items_opt.as_ref().and_then(|items| items.get(click_i))
@@ -6591,6 +6659,8 @@ impl Tab {
             }
             Message::SearchReady(finished) => {
                 let follow_top = self.search_selection_is_own();
+                // Results are inserted by date, moving the items after them
+                let marks = self.selection_marks();
                 let max_results = usize::from(self.config.max_search_results.get());
                 let sizes = self.config.icon_sizes;
                 if let Some(context) = &mut self.search_context {
@@ -6643,6 +6713,7 @@ impl Tab {
                         log::warn!("search ready but items array is empty");
                     }
                 }
+                self.restore_selection_marks(marks);
                 self.follow_search_top(follow_top);
                 if finished {
                     self.search_context = None;
@@ -9840,6 +9911,380 @@ mod tests {
         eq_path_item, filter_dirs, read_dir_sorted, simple_fs, tab_click_new,
     };
     use crate::config::{IconSizes, TabConfig, ThumbCfg};
+
+    /// A tab listing the folder `path` as it is now.
+    fn listing_of(path: &std::path::Path) -> Tab {
+        let mut tab = Tab::new(
+            Location::Path(path.to_owned()),
+            TabConfig::default(),
+            ThumbCfg::default(),
+            None,
+            std::borrow::Cow::Borrowed("Undefined"),
+            None,
+        );
+        tab.set_items(scan_path(&path.to_path_buf(), IconSizes::default()));
+        tab
+    }
+
+    /// A folder of empty files named `names`, and a tab listing it.
+    fn files_tab(names: &[&str]) -> io::Result<(TempDir, Tab)> {
+        let fs = empty_fs()?;
+        for name in names {
+            fs::write(fs.path().join(name), b"")?;
+        }
+        let tab = listing_of(fs.path());
+        Ok((fs, tab))
+    }
+
+    /// The names of the selected items, as shown.
+    fn selected_names(tab: &Tab) -> Vec<String> {
+        tab.column_sort()
+            .into_iter()
+            .flatten()
+            .filter(|(_, item)| item.selected)
+            .map(|(_, item)| item.name.clone())
+            .collect()
+    }
+
+    /// Where the item named `name` is in the tab's items.
+    fn index_of(tab: &Tab, name: &str) -> usize {
+        tab.items_opt
+            .as_deref()
+            .and_then(|items| items.iter().position(|item| item.name == name))
+            .unwrap_or_else(|| panic!("no item named {name}"))
+    }
+
+    /// A press and release on the item named `name`.
+    fn click(tab: &mut Tab, name: &str, modifiers: Modifiers) {
+        let i = index_of(tab, name);
+        tab.update(Message::Click(Some(i)), modifiers);
+        tab.update(Message::ClickRelease(Some(i)), modifiers);
+    }
+
+    fn shift_click(tab: &mut Tab, name: &str) {
+        click(tab, name, Modifiers::SHIFT);
+    }
+
+    /// Lays the items out one per row, in the order shown, as a list view
+    /// does, for the keyboard and the rectangle selection.
+    fn lay_out(tab: &Tab) {
+        use crate::ui::iced::{Point, Rectangle, Size};
+        for (row, (_, item)) in tab.column_sort().into_iter().flatten().enumerate() {
+            item.pos_opt.set(Some((row, 0)));
+            #[allow(clippy::cast_precision_loss, reason = "a handful of rows")]
+            let top = row as f32 * 20.0;
+            item.rect_opt.set(Some(Rectangle::new(
+                Point::new(0.0, top),
+                Size::new(100.0, 20.0),
+            )));
+        }
+    }
+
+    /// Shift with the arrows starts where a shift-click would: at the
+    /// anchor, focused or not, and the first one sets the anchor.
+    #[test]
+    fn shift_with_the_arrows_starts_at_the_anchor() -> io::Result<()> {
+        use crate::ui::iced::{Point, Rectangle, Size};
+
+        let (fs, mut tab) = files_tab(&["a", "b", "c", "d", "e"])?;
+        lay_out(&tab);
+
+        // A rectangle anchors without focusing
+        let rect = Rectangle::new(Point::new(10.0, 25.0), Size::new(10.0, 20.0));
+        tab.update(Message::Drag(Some(rect)), Modifiers::empty());
+        tab.update(Message::DragEnd, Modifiers::empty());
+        assert_eq!(selected_names(&tab), ["b", "c"]);
+        tab.update(Message::ItemDown, Modifiers::SHIFT);
+        assert_eq!(selected_names(&tab), ["b", "c", "d"], "after a rectangle");
+
+        // A rescan takes the focused end away and keeps the anchor
+        click(&mut tab, "b", Modifiers::empty());
+        shift_click(&mut tab, "d");
+        fs::remove_file(fs.path().join("d"))?;
+        tab.set_items(scan_path(&fs.path().to_path_buf(), IconSizes::default()));
+        lay_out(&tab);
+        assert_eq!(tab.select_focus, None);
+        tab.update(Message::ItemDown, Modifiers::SHIFT);
+        assert_eq!(
+            selected_names(&tab),
+            ["b", "c", "e"],
+            "after the focused end went"
+        );
+
+        // From nothing, the first shift arrow sets the anchor a shift-click
+        // goes on from
+        tab.select_none();
+        tab.update(Message::ItemDown, Modifiers::SHIFT);
+        assert_eq!(selected_names(&tab), ["a"]);
+        shift_click(&mut tab, "c");
+        assert_eq!(
+            selected_names(&tab),
+            ["a", "b", "c"],
+            "from the first arrow"
+        );
+        Ok(())
+    }
+
+    /// A shift range runs between two items as shown, shrinks as well as
+    /// grows, and with Ctrl adds to what was selected.
+    #[test]
+    fn shift_ranges_follow_the_order_shown() -> io::Result<()> {
+        let (_fs, mut tab) = files_tab(&["a", "b", "c", "d", "e"])?;
+
+        click(&mut tab, "a", Modifiers::empty());
+        shift_click(&mut tab, "d");
+        assert_eq!(selected_names(&tab), ["a", "b", "c", "d"]);
+        shift_click(&mut tab, "b");
+        assert_eq!(selected_names(&tab), ["a", "b"], "shrunk");
+
+        click(&mut tab, "a", Modifiers::empty());
+        click(&mut tab, "d", Modifiers::CTRL);
+        click(&mut tab, "e", Modifiers::CTRL | Modifiers::SHIFT);
+        assert_eq!(selected_names(&tab), ["a", "d", "e"], "added with Ctrl");
+
+        tab.sort_direction = false;
+        click(&mut tab, "d", Modifiers::empty());
+        shift_click(&mut tab, "b");
+        assert_eq!(selected_names(&tab), ["d", "c", "b"], "reversed");
+        Ok(())
+    }
+
+    /// Clearing the selection, however it is done, leaves nothing for a
+    /// shift-click to start from: it selects only what it clicks.
+    #[test]
+    fn a_shift_click_after_the_selection_is_cleared_selects_only_its_item() -> io::Result<()> {
+        let (_fs, mut tab) = files_tab(&["a", "b", "c", "d"])?;
+
+        click(&mut tab, "a", Modifiers::empty());
+        tab.select_none();
+        shift_click(&mut tab, "d");
+        assert_eq!(selected_names(&tab), ["d"], "after Escape");
+
+        click(&mut tab, "b", Modifiers::empty());
+        tab.update(Message::Click(None), Modifiers::empty());
+        shift_click(&mut tab, "d");
+        assert_eq!(
+            selected_names(&tab),
+            ["d"],
+            "after a click on the background"
+        );
+
+        tab.select_none();
+        click(&mut tab, "b", Modifiers::CTRL);
+        click(&mut tab, "b", Modifiers::CTRL);
+        assert!(selected_names(&tab).is_empty());
+        shift_click(&mut tab, "d");
+        assert_eq!(
+            selected_names(&tab),
+            ["d"],
+            "after Ctrl took the last one off"
+        );
+
+        click(&mut tab, "a", Modifiers::empty());
+        tab.update(Message::RightClickBackground, Modifiers::empty());
+        shift_click(&mut tab, "c");
+        assert_eq!(
+            selected_names(&tab),
+            ["c"],
+            "after a right click on the background"
+        );
+        Ok(())
+    }
+
+    /// Going back to a folder selects the one left, and a shift selection
+    /// starts there, whatever was clicked in the folder left.
+    #[test]
+    fn a_shift_selection_starts_at_the_folder_returned_from() -> io::Result<()> {
+        let fs = empty_fs()?;
+        for folder in ["k", "m"] {
+            fs::create_dir(fs.path().join(folder))?;
+            fs::write(fs.path().join(folder).join("inside"), b"")?;
+        }
+        for name in ["a", "b", "c"] {
+            fs::write(fs.path().join(name), b"")?;
+        }
+        let parent = fs.path().to_owned();
+        let child = parent.join("m");
+        let mut tab = listing_of(&parent);
+
+        // Into `m`, where the first item is clicked, and back
+        tab.change_location(&Location::Path(child.clone()), None);
+        tab.set_items(scan_path(&child, IconSizes::default()));
+        click(&mut tab, "inside", Modifiers::empty());
+        tab.change_location(&Location::Path(parent.clone()), None);
+        tab.set_items(scan_path(&parent, IconSizes::default()));
+        tab.select_paths(vec![child.clone()]);
+        assert_eq!(selected_names(&tab), ["m"]);
+
+        shift_click(&mut tab, "b");
+        assert_eq!(selected_names(&tab), ["m", "a", "b"]);
+
+        // The keyboard starts there too
+        tab.select_paths(vec![child]);
+        lay_out(&tab);
+        tab.update(Message::ItemDown, Modifiers::SHIFT);
+        assert_eq!(selected_names(&tab), ["m", "a"]);
+        Ok(())
+    }
+
+    /// A place clicked in a longer listing is not a place in a shorter one:
+    /// a shift-click there must not run to the end.
+    #[test]
+    fn an_anchor_from_another_listing_does_not_stretch_a_shift_click() -> io::Result<()> {
+        let (_long, mut tab) = files_tab(&["a", "b", "c", "d", "e", "f"])?;
+        click(&mut tab, "f", Modifiers::empty());
+
+        let short = empty_fs()?;
+        for name in ["x", "y"] {
+            fs::write(short.path().join(name), b"")?;
+        }
+        tab.change_location(&Location::Path(short.path().to_owned()), None);
+        tab.set_items(scan_path(&short.path().to_path_buf(), IconSizes::default()));
+        shift_click(&mut tab, "x");
+        assert_eq!(selected_names(&tab), ["x"]);
+        Ok(())
+    }
+
+    /// Type-to-select, a right click and a rectangle each start the next
+    /// shift selection at what they selected.
+    #[test]
+    fn other_ways_of_selecting_anchor_the_next_shift_click() -> io::Result<()> {
+        use crate::ui::iced::{Point, Rectangle, Size};
+
+        let (_fs, mut tab) = files_tab(&["a", "b", "c", "d", "e"])?;
+
+        click(&mut tab, "a", Modifiers::empty());
+        assert!(tab.select_by_prefix("c"));
+        shift_click(&mut tab, "e");
+        assert_eq!(selected_names(&tab), ["c", "d", "e"], "after typing");
+
+        click(&mut tab, "a", Modifiers::empty());
+        let c = index_of(&tab, "c");
+        tab.update(Message::RightClick(None, Some(c)), Modifiers::empty());
+        shift_click(&mut tab, "e");
+        assert_eq!(selected_names(&tab), ["c", "d", "e"], "after a right click");
+
+        click(&mut tab, "a", Modifiers::empty());
+        lay_out(&tab);
+        // Over the second and third rows
+        let rect = Rectangle::new(Point::new(10.0, 25.0), Size::new(10.0, 20.0));
+        tab.update(Message::Drag(Some(rect)), Modifiers::empty());
+        tab.update(Message::DragEnd, Modifiers::empty());
+        assert_eq!(selected_names(&tab), ["b", "c"]);
+        shift_click(&mut tab, "e");
+        assert_eq!(
+            selected_names(&tab),
+            ["b", "c", "d", "e"],
+            "after a rectangle"
+        );
+
+        // Select all keeps an anchor that is still selected
+        click(&mut tab, "b", Modifiers::empty());
+        tab.update(Message::SelectAll, Modifiers::empty());
+        shift_click(&mut tab, "d");
+        assert_eq!(selected_names(&tab), ["b", "c", "d"], "after select all");
+        Ok(())
+    }
+
+    /// A rescan that lists a new file before the anchor keeps the anchor
+    /// and the focus on the same files.
+    #[test]
+    fn a_rescan_keeps_the_anchor_on_its_file() -> io::Result<()> {
+        let (fs, mut tab) = files_tab(&["b", "c", "d", "e"])?;
+        click(&mut tab, "c", Modifiers::empty());
+
+        fs::write(fs.path().join("a"), b"")?;
+        tab.set_items(scan_path(&fs.path().to_path_buf(), IconSizes::default()));
+        let focus = tab.select_focus.expect("the focus stays");
+        assert_eq!(tab.items_opt.as_deref().expect("listed")[focus].name, "c");
+
+        shift_click(&mut tab, "e");
+        assert_eq!(selected_names(&tab), ["c", "d", "e"]);
+
+        // A file that is gone takes its anchor with it
+        click(&mut tab, "c", Modifiers::empty());
+        fs::remove_file(fs.path().join("c"))?;
+        tab.set_items(scan_path(&fs.path().to_path_buf(), IconSizes::default()));
+        shift_click(&mut tab, "e");
+        assert_eq!(selected_names(&tab), ["e"]);
+        Ok(())
+    }
+
+    /// Newer search results go in before older ones; the anchor stays on
+    /// its result, and goes when the cap pushes that result out.
+    #[test]
+    fn search_results_arriving_keep_the_anchor_on_its_result() -> io::Result<()> {
+        use crate::tab::{SearchContext, SearchItem, SearchLocation, SearchOptions};
+        use std::sync::{Arc, RwLock, atomic};
+        use std::time::{Duration, SystemTime};
+
+        let fs = empty_fs()?;
+        let now = SystemTime::now();
+        for (name, age) in [("old", 30), ("mid", 20), ("new", 10)] {
+            let path = fs.path().join(name);
+            fs::write(&path, b"x")?;
+            fs::File::options()
+                .write(true)
+                .open(&path)?
+                .set_modified(now - Duration::from_secs(age))?;
+        }
+        let mut tab = listing_of(fs.path());
+        tab.change_location(
+            &Location::Search(
+                SearchLocation::Path(fs.path().to_owned()),
+                "o".to_string(),
+                SearchOptions {
+                    show_hidden: false,
+                    recursive: false,
+                },
+                std::time::Instant::now(),
+            ),
+            None,
+        );
+        tab.set_items(Vec::new());
+        let (results_tx, results_rx) = tokio::sync::mpsc::channel(8);
+        tab.search_context = Some(SearchContext {
+            results_rx,
+            ready: Arc::new(atomic::AtomicBool::new(true)),
+            last_modified_opt: Arc::new(RwLock::new(None)),
+        });
+        let send = |name: &str| -> io::Result<()> {
+            let path = fs.path().join(name);
+            let metadata = fs::metadata(&path)?;
+            results_tx
+                .try_send(SearchItem::Path(path, name.to_string(), metadata))
+                .expect("room in the channel");
+            Ok(())
+        };
+
+        send("old")?;
+        send("mid")?;
+        tab.update(Message::SearchReady(false), Modifiers::empty());
+        click(&mut tab, "mid", Modifiers::empty());
+
+        send("new")?;
+        tab.search_context
+            .as_ref()
+            .expect("still searching")
+            .ready
+            .store(true, atomic::Ordering::SeqCst);
+        tab.update(Message::SearchReady(false), Modifiers::empty());
+        shift_click(&mut tab, "old");
+        assert_eq!(selected_names(&tab), ["mid", "old"]);
+
+        // With room for two, the oldest goes, and its anchor with it
+        click(&mut tab, "old", Modifiers::empty());
+        tab.config.max_search_results = std::num::NonZeroU16::new(2).expect("nonzero");
+        tab.search_context
+            .as_ref()
+            .expect("still searching")
+            .ready
+            .store(true, atomic::Ordering::SeqCst);
+        tab.update(Message::SearchReady(false), Modifiers::empty());
+        shift_click(&mut tab, "mid");
+        assert_eq!(selected_names(&tab), ["mid"]);
+        Ok(())
+    }
 
     #[test]
     fn the_action_follows_the_location_and_its_items() -> io::Result<()> {
