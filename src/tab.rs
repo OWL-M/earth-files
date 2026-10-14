@@ -1,3 +1,4 @@
+use crate::mime_app::Mime;
 use crate::ui::Element;
 use crate::ui::iced::advanced::text;
 use crate::ui::iced::futures::{self, SinkExt};
@@ -13,15 +14,12 @@ use crate::ui::widget::menu::action::MenuAction;
 use crate::ui::widget::menu::key_bind::KeyBind;
 use crate::ui::widget::scrollable::{self, AbsoluteOffset, Viewport};
 use crate::ui::widget::{self, Id, space};
-#[cfg(feature = "desktop")]
-use freedesktop_desktop_entry::{DesktopEntry, get_languages_from_env};
 use i18n_embed::LanguageLoader;
 use icu::datetime::input::DateTime;
 use icu::datetime::options::TimePrecision;
 use icu::datetime::{DateTimeFormatter, DateTimeFormatterPreferences, fieldsets};
 use image::{DynamicImage, ImageReader};
 use jiff_icu::ConvertFrom;
-use mime_guess::{Mime, mime};
 use rustc_hash::FxHashMap;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -41,6 +39,8 @@ use std::time::{Duration, Instant, SystemTime};
 use tempfile::NamedTempFile;
 use tokio::sync::mpsc;
 use trash::{TrashItem, TrashItemMetadata, TrashItemSize};
+#[cfg(feature = "desktop")]
+use xdg_kit::desktop_entry::{DesktopEntry, Locales};
 
 use crate::app::{Action, PreviewItem, PreviewKind};
 use crate::config::{
@@ -780,16 +780,15 @@ fn get_desktop_file_display_name(path: &Path) -> Option<String> {
 
 #[cfg(feature = "desktop")]
 fn get_desktop_file_display_name(path: &Path) -> Option<String> {
-    let locales = get_languages_from_env();
-    let entry = match DesktopEntry::from_path(path, Some(&locales)) {
+    let entry = match DesktopEntry::read(path) {
         Ok(ok) => ok,
         Err(err) => {
-            log::warn!("failed to parse {}: {}", path.display(), err);
+            log::warn!("failed to read {}: {}", path.display(), err);
             return None;
         }
     };
 
-    entry.name(&locales).map(|s| s.into_owned())
+    entry.name(&Locales::from_env())
 }
 
 #[cfg(not(feature = "desktop"))]
@@ -799,15 +798,15 @@ fn get_desktop_file_icon(path: &Path) -> Option<String> {
 
 #[cfg(feature = "desktop")]
 fn get_desktop_file_icon(path: &Path) -> Option<String> {
-    let entry = match DesktopEntry::from_path::<&str>(path, None) {
+    let entry = match DesktopEntry::read(path) {
         Ok(ok) => ok,
         Err(err) => {
-            log::warn!("failed to parse {}: {}", path.display(), err);
+            log::warn!("failed to read {}: {}", path.display(), err);
             return None;
         }
     };
 
-    entry.icon().map(str::to_string)
+    entry.icon(&Locales::from_env())
 }
 
 /// Creates an icon handle from a desktop file's Icon field value.
@@ -826,18 +825,15 @@ fn desktop_icon_handle(icon: &str, size: u16) -> widget::icon::Handle {
 
 #[cfg(feature = "desktop")]
 pub fn parse_desktop_file(path: &Path) -> (Option<String>, Option<String>) {
-    let locales = get_languages_from_env();
-    let entry = match DesktopEntry::from_path(path, Some(&locales)) {
+    let entry = match DesktopEntry::read(path) {
         Ok(ok) => ok,
         Err(err) => {
-            log::warn!("failed to parse {}: {}", path.display(), err);
+            log::warn!("failed to read {}: {}", path.display(), err);
             return (None, None);
         }
     };
-    (
-        entry.name(&locales).map(|s| s.into_owned()),
-        entry.icon().map(str::to_string),
-    )
+    let locales = Locales::from_env();
+    (entry.name(&locales), entry.icon(&locales))
 }
 
 pub(crate) fn display_name_for_file(
@@ -903,16 +899,13 @@ fn gvfs_dir_is_remote(dir: &Path) -> bool {
     remote
 }
 
-/// The mime every directory item carries.
-pub static DIRECTORY_MIME: LazyLock<Mime> = LazyLock::new(|| "inode/directory".parse().unwrap());
-
 /// Icons for a file item, using the launcher's own icon when `path` is a
 /// desktop entry. Returns whether it was one, so callers can also take the
 /// display name from the entry.
 /// File types and folder names whose icons still need resolving
 #[derive(Clone, Debug, Default)]
 pub struct IconWarmup {
-    mimes: Vec<mime::Mime>,
+    mimes: Vec<Mime>,
     folders: Vec<&'static str>,
 }
 
@@ -936,7 +929,7 @@ pub fn refresh_icons(items: &mut [Item], sizes: IconSizes) -> IconWarmup {
     let mut mimes = std::collections::HashSet::new();
     let mut folders = std::collections::HashSet::new();
     for item in items {
-        if item.mime == "application/x-desktop"
+        if item.mime == Mime::APPLICATION_X_DESKTOP
             || matches!(
                 item.thumbnail_opt,
                 Some(ItemThumbnail::Image(..) | ItemThumbnail::Svg(..))
@@ -1027,7 +1020,7 @@ pub(crate) fn file_icons(
     widget::icon::Handle,
     widget::icon::Handle,
 ) {
-    let is_desktop = *mime == "application/x-desktop";
+    let is_desktop = *mime == Mime::APPLICATION_X_DESKTOP;
     match is_desktop.then(|| get_desktop_file_icon(path)).flatten() {
         Some(icon_name) => (
             true,
@@ -1058,7 +1051,7 @@ pub(crate) fn file_icons(
 /// scan keeps an empty cache and shows no size. A name-first scan skips it
 /// too; there the content check fills the cache (`Item::take_check`).
 pub fn fill_image_dimensions(item: &Item) {
-    if item.mime.type_() != mime::IMAGE {
+    if !item.mime.is_media("image") {
         return;
     }
     // For a trashed item this is the copy inside the trash, not the path it
@@ -1086,7 +1079,7 @@ pub fn item_from_gvfs_info(path: PathBuf, file_info: gio::FileInfo, sizes: IconS
         if is_dir {
             (
                 false,
-                DIRECTORY_MIME.clone(),
+                Mime::INODE_DIRECTORY,
                 folder_icon_or_placeholder(&path, sizes.grid()),
                 folder_icon_or_placeholder(&path, sizes.list()),
                 folder_icon_or_placeholder(&path, sizes.list_condensed()),
@@ -1094,7 +1087,7 @@ pub fn item_from_gvfs_info(path: PathBuf, file_info: gio::FileInfo, sizes: IconS
         } else {
             // ALWAYS assume we're remote for mime guessing here, since gvfs reading can be expensive
             // @todo - expose this as a config option?
-            let mime = mime_for_path(&path, None, true);
+            let mime = mime_for_path(&path, true);
             let (is_desktop, grid, list, condensed) = file_icons(&path, &mime, sizes);
             (is_desktop, mime, grid, list, condensed)
         };
@@ -1127,7 +1120,7 @@ pub fn item_from_gvfs_info(path: PathBuf, file_info: gio::FileInfo, sizes: IconS
         details: MetadataState::Pending,
         details_epoch: 0,
         image_dimensions: OnceCell::from(
-            (!remote && mime.type_() == mime::IMAGE)
+            (!remote && mime.is_media("image"))
                 .then(|| image::image_dimensions(&path).ok())
                 .flatten(),
         ),
@@ -1222,13 +1215,13 @@ fn item_from_entry_typed(
         if metadata.is_dir() {
             (
                 false,
-                DIRECTORY_MIME.clone(),
+                Mime::INODE_DIRECTORY,
                 folder_icon_or_placeholder(&path, sizes.grid()),
                 folder_icon_or_placeholder(&path, sizes.list()),
                 folder_icon_or_placeholder(&path, sizes.list_condensed()),
             )
         } else {
-            let mime = mime_for_path(&path, Some(&metadata), remote || by_name);
+            let mime = mime_for_path(&path, remote || by_name);
             let (is_desktop, grid, list, condensed) = file_icons(&path, &mime, sizes);
             (is_desktop, mime, grid, list, condensed)
         };
@@ -1297,14 +1290,14 @@ pub fn item_from_trash_entry(
     let (mime, icon_handle_grid, icon_handle_list, icon_handle_list_condensed) = match metadata.size
     {
         trash::TrashItemSize::Entries(_) => (
-            DIRECTORY_MIME.clone(),
+            Mime::INODE_DIRECTORY,
             folder_icon_or_placeholder(&original_path, sizes.grid()),
             folder_icon_or_placeholder(&original_path, sizes.list()),
             folder_icon_or_placeholder(&original_path, sizes.list_condensed()),
         ),
         trash::TrashItemSize::Bytes(_) => {
             // This passes remote = true so it does not read from the original path
-            let mime = mime_for_path(&original_path, None, true);
+            let mime = mime_for_path(&original_path, true);
             // The launcher icon is read from the copy inside the trash
             let icon_path = trash_path.as_deref().unwrap_or(&original_path);
             let (_, grid, list, condensed) = file_icons(icon_path, &mime, sizes);
@@ -2494,7 +2487,7 @@ impl ItemThumbnail {
     pub fn new(
         path: &Path,
         metadata: ItemMetadata,
-        mime: mime::Mime,
+        mime: Mime,
         mut thumbnail_size: u32,
         max_mem: u64,
         jobs: usize,
@@ -2518,7 +2511,7 @@ impl ItemThumbnail {
                     );
                 }
                 CachedThumbnail::Failed => {
-                    if mime.type_() != mime::IMAGE {
+                    if !mime.is_media("image") {
                         return Self::NotImage;
                     }
                 }
@@ -2553,7 +2546,7 @@ impl ItemThumbnail {
 
         let mut tried_supported_file = false;
         // First try built-in image thumbnailer
-        if mime.type_() == mime::IMAGE && check_size("image", max_size_mb * 1000 * 1000) {
+        if mime.is_media("image") && check_size("image", max_size_mb * 1000 * 1000) {
             // Check if image dimensions would exceed available memory budget
             // The GPU tiling system can handle large images, but we still need to decode them first
             let dimensions_ok = match image::image_dimensions(path) {
@@ -2667,8 +2660,12 @@ impl ItemThumbnail {
         tried_supported_file = tried_supported_file || !thumbnailer(&mime).is_empty();
 
         // Try internal thumbnailers that don't get cached.
-        if mime.type_() == mime::IMAGE
-            && mime.subtype() == mime::SVG
+        if mime.is_media("image")
+            && mime
+                .subtype()
+                .split('+')
+                .next()
+                .is_some_and(|subtype| subtype.eq_ignore_ascii_case("svg"))
             && check_size("svg", 8 * 1000 * 1000)
         {
             tried_supported_file = true;
@@ -2681,7 +2678,7 @@ impl ItemThumbnail {
                     log::warn!("failed to read {}: {}", path.display(), err);
                 }
             }
-        } else if mime.type_() == mime::TEXT && check_size("text", TEXT_PREVIEW_MAX_FILE_BYTES) {
+        } else if mime.is_media("text") && check_size("text", TEXT_PREVIEW_MAX_FILE_BYTES) {
             tried_supported_file = true;
             if size > 0 {
                 // Reuse size from metadata above; cap allocation and read
@@ -2735,7 +2732,7 @@ impl ItemThumbnail {
 
     fn generate_thumbnail_external(
         path: &Path,
-        mime: &mime::Mime,
+        mime: &Mime,
         thumbnail_size: u32,
         thumbnail_dir: Option<&Path>,
     ) -> Option<(Self, NamedTempFile)> {
@@ -2979,7 +2976,7 @@ impl Item {
     }
 
     pub fn can_gallery(&self) -> bool {
-        self.mime.type_() == mime::IMAGE || self.mime.type_() == mime::TEXT
+        self.mime.is_media("image") || self.mime.is_media("text")
     }
 
     /// The full [`Metadata`] for this item, if it is known. Never touches the
@@ -3086,7 +3083,9 @@ impl Item {
                         Element::from(
                             widget::dropdown(
                                 names,
-                                mime_apps.iter().position(|(x, _)| x.is_default(&self.mime)),
+                                mime_apps
+                                    .iter()
+                                    .position(|(x, _)| mime_app_cache.is_default(x, &self.mime)),
                                 move |index| index,
                             )
                             .icons(Cow::Owned(icons)),
@@ -8771,7 +8770,9 @@ impl Tab {
                         Element::from(
                             widget::dropdown(
                                 names,
-                                mime_apps.iter().position(|(x, _)| x.is_default(&mime)),
+                                mime_apps
+                                    .iter()
+                                    .position(|(x, _)| mime_app_cache.is_default(x, &mime)),
                                 move |index| (index, mime_closure.clone()),
                             )
                             .icons(Cow::Owned(icons)),
@@ -9133,7 +9134,7 @@ impl Tab {
                     let max_size = u64::from(self.thumb_config.max_size_mb.get());
 
                     // Determine effective memory budget based on image size
-                    let (effective_max_mb, effective_jobs) = if mime.type_() == mime::IMAGE {
+                    let (effective_max_mb, effective_jobs) = if mime.is_media("image") {
                         match item.image_dimensions.get().copied().flatten() {
                             Some((width, height)) => {
                                 let (_use_dedicated, eff_mb, eff_jobs) =
@@ -9150,7 +9151,7 @@ impl Tab {
                     struct Wrapper {
                         path: PathBuf,
                         metadata: ItemMetadata,
-                        mime: mime::Mime,
+                        mime: Mime,
                         effective_max_mb: u64,
                         effective_jobs: usize,
                         max_size: u64,
@@ -9823,10 +9824,10 @@ mod tests {
     use std::path::PathBuf;
     use std::{fs, io};
 
+    use crate::mime_app::Mime;
     use crate::ui::iced::mouse::ScrollDelta;
     use crate::ui::iced_runtime::keyboard::Modifiers;
     use log::{debug, trace};
-    use mime_guess::mime;
     use tempfile::TempDir;
     use test_log::test;
 
@@ -10554,7 +10555,7 @@ mod tests {
         let photo = by_name("photo");
         assert_eq!(
             photo.mime,
-            mime::APPLICATION_OCTET_STREAM,
+            Mime::APPLICATION_OCTET_STREAM,
             "the name says nothing about the type"
         );
         assert!(!photo.type_checked, "a file typed by name is not checked");
@@ -10563,7 +10564,11 @@ mod tests {
             "no file is opened for its size"
         );
         let named = by_name("named.jpg");
-        assert_eq!(named.mime, mime::IMAGE_JPEG, "the name gives the type");
+        assert_eq!(
+            named.mime,
+            Mime::from_static("image/jpeg"),
+            "the name gives the type"
+        );
         assert!(!named.type_checked, "but it is still to be checked");
         assert!(
             named.image_dimensions.get().is_none(),
@@ -10587,7 +10592,7 @@ mod tests {
             .iter()
             .find(|item| item.name == "photo")
             .expect("the scan should list it");
-        assert_eq!(photo.mime, mime::IMAGE_JPEG);
+        assert_eq!(photo.mime, Mime::from_static("image/jpeg"));
         assert!(photo.type_checked);
         Ok(())
     }
@@ -10642,7 +10647,7 @@ mod tests {
         );
         let photo = find_photo(&tab);
         assert!(photo.type_checked);
-        assert_eq!(photo.mime, mime::IMAGE_JPEG);
+        assert_eq!(photo.mime, Mime::from_static("image/jpeg"));
         assert_eq!(
             photo.image_dimensions.get().copied().flatten(),
             Some((4, 2))
@@ -10725,7 +10730,7 @@ mod tests {
                 .find(|item| item.name == "photo")
                 .expect("listed");
             photo.type_checked = true;
-            photo.mime = mime::TEXT_PLAIN;
+            photo.mime = Mime::TEXT_PLAIN;
         }
 
         tab.update(
@@ -10738,7 +10743,7 @@ mod tests {
             .iter()
             .find(|item| item.name == "photo")
             .expect("listed");
-        assert_eq!(photo.mime, mime::TEXT_PLAIN, "the refresh was overwritten");
+        assert_eq!(photo.mime, Mime::TEXT_PLAIN, "the refresh was overwritten");
         assert!(
             photo.image_dimensions.get().is_none(),
             "the check's answer was applied"
@@ -11000,11 +11005,28 @@ mod tests {
 
         assert!(tab.only_switches_search(&search("")));
         tab.switch_search(&search(""));
-        assert_eq!(listing, tab.listing(), "opening the search started a new listing");
-        assert_eq!(NUM_DIRS, counted(&tab), "opening the search lost the counts");
+        assert_eq!(
+            listing,
+            tab.listing(),
+            "opening the search started a new listing"
+        );
+        assert_eq!(
+            NUM_DIRS,
+            counted(&tab),
+            "opening the search lost the counts"
+        );
         assert_eq!(1, selected(&tab), "the top of the search is selected");
-        assert!(tab.items_opt().into_iter().flatten().all(|item| !item.highlighted));
-        assert!(tab.location_ancestors.iter().all(|(_, name)| name.starts_with("looked ")));
+        assert!(
+            tab.items_opt()
+                .into_iter()
+                .flatten()
+                .all(|item| !item.highlighted)
+        );
+        assert!(
+            tab.location_ancestors
+                .iter()
+                .all(|(_, name)| name.starts_with("looked "))
+        );
         assert!(tab.location_title.contains("looked "));
 
         // A search with a term, or the same search again, lists anew
@@ -11014,8 +11036,16 @@ mod tests {
         let closed = Location::Path(path.clone());
         assert!(tab.only_switches_search(&closed));
         tab.switch_search(&closed);
-        assert_eq!(listing, tab.listing(), "closing the search started a new listing");
-        assert_eq!(NUM_DIRS, counted(&tab), "closing the search lost the counts");
+        assert_eq!(
+            listing,
+            tab.listing(),
+            "closing the search started a new listing"
+        );
+        assert_eq!(
+            NUM_DIRS,
+            counted(&tab),
+            "closing the search lost the counts"
+        );
         assert_eq!(0, selected(&tab));
         assert!(tab.location_title.starts_with("looked "));
         Ok(())
@@ -11108,7 +11138,10 @@ mod tests {
         let first = tab.start_scan();
         assert!(tab.is_latest_scan(first));
         let second = tab.start_scan();
-        assert!(!tab.is_latest_scan(first), "an earlier read replaced a later one");
+        assert!(
+            !tab.is_latest_scan(first),
+            "an earlier read replaced a later one"
+        );
         assert!(tab.is_latest_scan(second));
         Ok(())
     }
@@ -11186,7 +11219,9 @@ mod tests {
         }
 
         tab.change_location_keeping_listing(&search(""));
-        let items = tab.items_opt().expect("reading the search again blanked the listing");
+        let items = tab
+            .items_opt()
+            .expect("reading the search again blanked the listing");
         assert_eq!(NUM_DIRS, items.len());
         assert!(items.iter().all(|item| !item.selected && !item.highlighted));
 
@@ -13394,7 +13429,7 @@ mod tests {
         let thumb = ItemThumbnail::new(
             &path,
             item_metadata,
-            mime::TEXT_PLAIN,
+            Mime::TEXT_PLAIN,
             128,
             100 * 1024 * 1024,
             1,
@@ -13420,7 +13455,7 @@ mod tests {
         let thumb = ItemThumbnail::new(
             &path,
             item_metadata,
-            mime::TEXT_PLAIN,
+            Mime::TEXT_PLAIN,
             128,
             100 * 1024 * 1024,
             1,
@@ -13447,7 +13482,7 @@ mod tests {
         let thumb = ItemThumbnail::new(
             &path,
             item_metadata,
-            mime::TEXT_PLAIN,
+            Mime::TEXT_PLAIN,
             128,
             100 * 1024 * 1024,
             1,

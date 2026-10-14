@@ -46,9 +46,9 @@ pub fn extract(
     password: &Option<String>,
     controller: &Controller,
 ) -> Result<(Vec<PathBuf>, HashSet<PathBuf>), OperationError> {
-    let mime = mime_for_path(path, None, false);
+    let mime = mime_for_path(path, false);
     let password = password.as_deref();
-    match mime.essence_str() {
+    match mime.as_str() {
         "application/gzip" | "application/x-compressed-tar" => {
             OpReader::new(path, controller.clone())
                 .map(io::BufReader::new)

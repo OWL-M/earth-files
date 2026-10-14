@@ -1,6 +1,7 @@
 // Copyright 2023 System76 <info@system76.com>
 // SPDX-License-Identifier: GPL-3.0-only
 
+use crate::mime_app::Mime;
 use crate::ui::Element;
 use crate::ui::app::Task;
 use crate::ui::iced::futures::{self, SinkExt};
@@ -17,7 +18,6 @@ use crate::ui::widget::menu::{Action as MenuAction, KeyBind};
 use crate::ui::widget::scrollable;
 use crate::ui::widget::scrollable::AbsoluteOffset;
 use crate::ui::widget::{self, segmented_button};
-use mime_guess::{Mime, mime};
 use notify_debouncer_full::notify::{self, RecommendedWatcher};
 use notify_debouncer_full::{DebouncedEvent, Debouncer, RecommendedCache, new_debouncer};
 use rustc_hash::{FxHashMap, FxHashSet};
@@ -27,6 +27,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{self, Instant};
 use std::{env, fmt, fs};
+use xdg_kit::mime_apps::TypePattern;
 
 use crate::app::{
     Action, ContextPage, Message as AppMessage, PreviewItem, PreviewKind, REPLACE_BUTTON_ID,
@@ -138,7 +139,7 @@ impl AsRef<str> for DialogFilter {
 /// The selected [`DialogFilter`], parsed once and ready to test items against.
 struct ItemFilter {
     globs: Vec<glob::Pattern>,
-    mimes: Vec<Mime>,
+    mimes: Vec<TypePattern>,
 }
 
 impl ItemFilter {
@@ -146,13 +147,13 @@ impl ItemFilter {
         // Directories are always shown
         item.metadata.is_dir()
             // Check for mime type match (first because it is faster)
-            || self.mimes.iter().any(|filter_mime| {
-                if filter_mime.subtype() == mime::STAR {
-                    filter_mime.type_() == item.mime.type_()
-                } else {
+            || self.mimes.iter().any(|filter_mime| match filter_mime {
+                TypePattern::Exact(filter_mime) => {
                     *filter_mime == item.mime
                         || mime_icon::is_mime_subclass_of(&item.mime, filter_mime)
                 }
+                TypePattern::Media(media) => item.mime.is_media(media.as_str()),
+                TypePattern::Any => true,
             })
             // Check for glob match (last because it is slower)
             || self.globs.iter().any(|glob| glob.matches(&item.name))
@@ -816,9 +817,15 @@ impl App {
                     Ok(glob) => globs.push(glob),
                     Err(err) => log::warn!("failed to parse glob {value:?}: {err}"),
                 },
-                DialogFilterPattern::Mime(value) => match value.parse::<Mime>() {
-                    Ok(parsed) => mimes.push(parsed),
-                    Err(err) => log::warn!("failed to parse mime {value:?}: {err}"),
+                // A type's parameters (`; charset=...`) do not narrow it down;
+                // wildcards (`image/*`) take none
+                DialogFilterPattern::Mime(value) => match Mime::from_media_type(value)
+                    .ok()
+                    .map(TypePattern::Exact)
+                    .or_else(|| TypePattern::parse(value.trim()))
+                {
+                    Some(parsed) => mimes.push(parsed),
+                    None => log::warn!("failed to parse mime {value:?}"),
                 },
             }
         }

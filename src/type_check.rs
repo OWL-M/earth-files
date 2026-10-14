@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Once;
 use std::time::{Duration, Instant};
 
-use mime_guess::{Mime, mime};
+use crate::mime_app::Mime;
 use tokio::sync::mpsc;
 
 use crate::config::IconSizes;
@@ -66,26 +66,22 @@ const BATCH_WAIT: Duration = Duration::from_millis(100);
 pub fn check(file: &Unchecked, sizes: IconSizes) -> Checked {
     // As the scan does: a broken link has no target to describe, so it is
     // described by the link itself
-    let metadata = std::fs::metadata(&file.path)
-        .or_else(|_| std::fs::symlink_metadata(&file.path))
-        .ok();
-    let mime = crate::mime_icon::mime_for_path(&file.path, metadata.as_ref(), false);
-    let dims = if mime.type_() == mime::IMAGE {
+    let mime = crate::mime_icon::mime_for_path(&file.path, false);
+    let dims = if mime.is_media("image") {
         image_size(&file.path)
     } else {
         None
     };
     let retyped = (mime != file.mime).then(|| {
         let (is_desktop, grid, list, condensed) = crate::tab::file_icons(&file.path, &mime, sizes);
-        let was_desktop = file.mime == "application/x-desktop";
+        let was_desktop = file.mime == Mime::APPLICATION_X_DESKTOP;
         Retyped {
-            // Not looked up in gvfs either, for the same reason: xdg-mime
-            // never turns a file into or out of a desktop entry by content
-            // alone. A `.desktop` name wins over content on its own (a
-            // unique file-name match returns before content is sniffed at
-            // all), and content sniffed as `application/x-desktop` is
-            // downgraded to `text/plain` whenever the file name is known --
-            // which it always is here.
+            // Not looked up in gvfs either, for the same reason: content
+            // alone never turns a file into or out of a desktop entry. A
+            // `.desktop` name wins over content on its own (a name whose
+            // patterns all agree settles the type before content is read),
+            // and with the name known, as it always is here, content that
+            // is a desktop entry counts as `text/plain`.
             display_name: (is_desktop != was_desktop).then(|| {
                 crate::tab::display_name_for_file(&file.path, &file.name, false, is_desktop)
             }),
@@ -221,7 +217,7 @@ mod tests {
                 .map(|name| name.to_string_lossy().into_owned())
                 .unwrap_or_default(),
             path,
-            mime: mime::APPLICATION_OCTET_STREAM,
+            mime: Mime::APPLICATION_OCTET_STREAM,
         }
     }
 
@@ -262,7 +258,7 @@ mod tests {
         let path = dir.path().join("notes.txt");
         std::fs::write(&path, b"plain text")?;
         let file = Unchecked {
-            mime: crate::mime_icon::mime_for_path(&path, None, true),
+            mime: crate::mime_icon::mime_for_path(&path, true),
             ..unchecked(path)
         };
         assert!(check(&file, IconSizes::default()).retyped.is_none());
@@ -282,7 +278,7 @@ mod tests {
         let checked = check(&unchecked(path), IconSizes::default());
         assert_eq!(checked.dims, Some((4, 2)));
         let retyped = checked.retyped.expect("the content is a JPEG");
-        assert_eq!(retyped.mime, mime::IMAGE_JPEG);
+        assert_eq!(retyped.mime, Mime::from_static("image/jpeg"));
         assert!(
             retyped.display_name.is_none(),
             "not a desktop entry either way"

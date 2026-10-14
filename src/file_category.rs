@@ -5,7 +5,7 @@
 
 use crate::fl;
 use crate::localize::LANGUAGE_SORTER;
-use mime_guess::Mime;
+use crate::mime_app::Mime;
 use std::cmp::Ordering;
 use std::fmt;
 
@@ -25,8 +25,8 @@ pub enum FileCategory {
     Other,
 }
 
-// These lists cover both shared-mime-info and mime_guess spellings, since
-// `mime_for_path`'s xdg-mime lookup can fall back to mime_guess.
+// These lists hold the types as shared-mime-info names them, which is what
+// `mime_for_path` reports, and also some aliases and other spellings of them.
 const ARCHIVES: &[&str] = &[
     "application/zip",
     "application/x-tar",
@@ -76,14 +76,14 @@ impl FileCategory {
         if is_dir {
             return Self::Folder;
         }
-        match mime.type_().as_str() {
+        match mime.media() {
             "image" => return Self::Image,
             "video" => return Self::Video,
             "audio" => return Self::Audio,
             "text" => return Self::Text,
             _ => {}
         }
-        let essence = mime.essence_str();
+        let essence = mime.as_str();
         if ARCHIVES.contains(&essence) {
             Self::Archive
         } else if DOCUMENTS.contains(&essence)
@@ -131,14 +131,14 @@ pub fn compare_by_type(
 ) -> Ordering {
     FileCategory::of(a_is_dir, a_mime)
         .cmp(&FileCategory::of(b_is_dir, b_mime))
-        .then_with(|| a_mime.essence_str().cmp(b_mime.essence_str()))
+        .then_with(|| a_mime.cmp(b_mime))
         .then_with(|| LANGUAGE_SORTER.compare(a_name, b_name))
 }
 
 #[cfg(test)]
 mod tests {
     use super::{FileCategory, compare_by_type};
-    use mime_guess::Mime;
+    use crate::mime_app::Mime;
     use std::cmp::Ordering;
 
     fn mime(s: &str) -> Mime {

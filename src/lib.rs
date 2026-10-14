@@ -48,6 +48,7 @@ pub(crate) mod trash;
 pub(crate) mod trashing;
 pub mod type_check;
 pub mod ui;
+mod xdg_dirs;
 mod zoom;
 
 pub(crate) type FxOrderMap<K, V> = ordermap::OrderMap<K, V, rustc_hash::FxBuildHasher>;

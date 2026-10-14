@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
+use crate::mime_app::Mime;
 use crate::ui::Element;
 use crate::ui::iced::keyboard::Modifiers;
 use crate::ui::shell::Core;
@@ -8,7 +9,6 @@ use crate::ui::widget::menu::key_bind::KeyBind;
 use crate::ui::widget::menu::{self, ItemHeight, ItemWidth, MenuBar};
 use crate::ui::widget::{self, responsive_menu_bar};
 use i18n_embed::LanguageLoader;
-use mime_guess::Mime;
 use std::collections::HashMap;
 
 use crate::app::{Action, Message};
@@ -230,7 +230,12 @@ pub fn context_menu(
 
                 children.push(menu::Item::Divider);
                 let supported_archive_types = crate::archive::SUPPORTED_ARCHIVE_TYPES;
-                selected_types.retain(|t| supported_archive_types.iter().copied().all(|m| *t != m));
+                selected_types.retain(|t| {
+                    supported_archive_types
+                        .iter()
+                        .copied()
+                        .all(|m| t.as_str() != m)
+                });
                 if selected_types.is_empty() {
                     children.push(menu_item(fl!("extract-here"), Action::ExtractHere));
                     children.push(menu_item(fl!("extract-as-folder"), Action::ExtractAsFolder));

@@ -15,6 +15,7 @@ use tokio::sync::mpsc;
 use super::{Mounter, MounterAuth, MounterItem, MounterItems, MounterMessage, Outcome};
 use crate::config::IconSizes;
 use crate::err_str;
+use crate::mime_app::Mime;
 use crate::tab::{self, ChecksumState, DirSize, ItemMetadata, ItemThumbnail, Location};
 
 /// What `Cmd::DirInfo` answers: content type, display name and local path
@@ -274,9 +275,9 @@ async fn network_scan(uri: &str, sizes: IconSizes) -> Result<Vec<tab::Item>, Str
                     None
                 } else {
                     info.content_type()
-                        .and_then(|t| t.parse::<mime_guess::Mime>().ok())
+                        .and_then(|t| Mime::from_media_type(&t).ok())
                 }
-                .unwrap_or_else(|| tab::DIRECTORY_MIME.clone());
+                .unwrap_or(Mime::INODE_DIRECTORY);
                 (
                     mime,
                     file_icon(sizes.grid()),

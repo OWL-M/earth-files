@@ -5,48 +5,54 @@
 
 use std::path::PathBuf;
 
-use freedesktop_desktop_entry::DesktopEntry;
+use xdg_kit::desktop_entry::{DesktopEntry, Locales};
 
 /// One `[Desktop Action ...]` group.
 #[derive(Clone, Debug, PartialEq)]
 pub struct DesktopAction {
+    /// What the entry's `Actions` key calls it.
+    pub id: String,
     pub name: String,
-    pub exec: String,
 }
 
 /// The parts of a desktop entry this app acts on.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct DesktopEntryData {
+    /// The file, read again to run an action.
+    pub path: PathBuf,
     pub name: String,
     pub desktop_actions: Vec<DesktopAction>,
 }
 
-/// Parse a `.desktop` file, keeping only the fields this app uses.
+/// Read a `.desktop` file, keeping only the fields this app uses. An action
+/// without a name or a command line is left out.
 pub fn load_desktop_file(locales: &[String], path: PathBuf) -> Option<DesktopEntryData> {
-    let entry = DesktopEntry::from_path(path, Some(locales)).ok()?;
+    let entry = DesktopEntry::read(&path).ok()?;
+    let locales = Locales::new(locales);
 
-    let name = entry
-        .name(locales)
-        .map_or_else(|| entry.appid.to_string(), |name| name.to_string());
+    let name = entry.name(&locales).unwrap_or_else(|| {
+        // The desktop file ID's last part, as the entry is known when unnamed
+        let file_name = path.file_name().unwrap_or_default().to_string_lossy();
+        file_name
+            .strip_suffix(".desktop")
+            .unwrap_or(&file_name)
+            .to_owned()
+    });
 
     let desktop_actions = entry
         .actions()
-        .map(|actions| {
-            actions
-                .into_iter()
-                .filter_map(|action| {
-                    let name = entry.action_entry_localized(action, "Name", locales)?;
-                    let exec = entry.action_entry(action, "Exec")?;
-                    Some(DesktopAction {
-                        name: name.to_string(),
-                        exec: exec.to_string(),
-                    })
-                })
-                .collect()
+        .into_iter()
+        .filter(|action| action.exec().is_some())
+        .filter_map(|action| {
+            Some(DesktopAction {
+                name: action.name(&locales)?,
+                id: action.id().to_owned(),
+            })
         })
-        .unwrap_or_default();
+        .collect();
 
     Some(DesktopEntryData {
+        path,
         name,
         desktop_actions,
     })
@@ -119,8 +125,8 @@ mod tests {
         assert_eq!(
             data.desktop_actions[0],
             DesktopAction {
+                id: "Foo".to_string(),
                 name: "Do The Thing".to_string(),
-                exec: "example --thing".to_string(),
             }
         );
     }
@@ -139,12 +145,12 @@ mod tests {
             data.desktop_actions,
             vec![
                 DesktopAction {
+                    id: "First".to_string(),
                     name: "First Action".to_string(),
-                    exec: "example --first".to_string(),
                 },
                 DesktopAction {
+                    id: "Second".to_string(),
                     name: "Second Action".to_string(),
-                    exec: "example --second".to_string(),
                 },
             ]
         );

@@ -25,7 +25,6 @@ use crate::ui::widget::scrollable::AbsoluteOffset;
 use crate::ui::widget::segmented_button::{self, Entity, ReorderEvent};
 use crate::ui::widget::{self, icon, settings};
 use crate::ui::{Element, surface};
-use mime_guess::Mime;
 use notify_debouncer_full::notify::{self, RecommendedWatcher};
 use notify_debouncer_full::{DebouncedEvent, Debouncer, RecommendedCache, new_debouncer};
 use rustc_hash::{FxHashMap, FxHashSet};
@@ -43,6 +42,7 @@ use std::time::{self, Duration, Instant};
 use std::{env, fmt, process};
 use tokio::sync::mpsc;
 use trash::TrashItem;
+use xdg_kit::desktop_entry::Target;
 
 use crate::action_card::{ActionCard, Shown};
 use crate::clipboard::{
@@ -54,7 +54,7 @@ use crate::dialog::{Dialog, DialogKind, DialogMessage, DialogResult, DialogSetti
 use crate::exit_gate::{ExitGate, Step};
 use crate::key_bind::key_binds;
 use crate::localize::LANGUAGE_SORTER;
-use crate::mime_app::{self, MimeApp, MimeAppCache, MimeAppMatch};
+use crate::mime_app::{self, Mime, MimeApp, MimeAppCache, MimeAppMatch};
 use crate::mounter::{
     MOUNTERS, MounterAuth, MounterItem, MounterItems, MounterKey, MounterMessage, Outcome,
 };
@@ -542,8 +542,6 @@ pub enum Message {
     /// A batch rename preview with its destination conflicts filled in, and
     /// the revision of the names it describes.
     BatchRenamePreview(u64, batch_rename::Preview),
-    /// The default terminal, worked out on a worker at startup.
-    DefaultTerminal(Option<String>),
     /// Open these paths with the applications the mime cache names. Exists so
     /// that opening can wait for that cache to be built.
     OpenFiles(Vec<PathBuf>),
@@ -562,9 +560,6 @@ pub enum Message {
     /// What a worker found a sidebar entry's type to be, for the loading page
     /// with this request number.
     OpenWithResolved(u64, PathBuf, Result<Mime, String>),
-    /// The same, for a terminal the user has already asked to open: take the
-    /// answer and then open it.
-    DefaultTerminalThenOpen(Option<String>, Box<[PathBuf]>),
     /// Open a terminal in each of these folders, resolved from the selection
     /// when the user asked rather than when the cache was ready.
     OpenTerminalIn(Box<[PathBuf]>),
@@ -731,7 +726,7 @@ pub enum DialogPage {
     },
     OpenWith {
         path: PathBuf,
-        mime: mime_guess::Mime,
+        mime: Mime,
         selected: usize,
         store_opt: Option<Arc<MimeApp>>,
         search_app_name: String,
@@ -1354,7 +1349,7 @@ impl App {
                     if cancelled.load(Ordering::Relaxed) {
                         return None;
                     }
-                    resolved.push((mime_icon::mime_for_path(&path, None, false), path));
+                    resolved.push((mime_icon::mime_for_path(&path, false), path));
                 }
                 Some(resolved)
             })
@@ -1388,7 +1383,12 @@ impl App {
         let mut all_archives = true;
         let supported_archive_types = crate::archive::SUPPORTED_ARCHIVE_TYPES;
         for (mime, path) in resolved {
-            if all_archives && !supported_archive_types.iter().copied().any(|t| mime == t) {
+            if all_archives
+                && !supported_archive_types
+                    .iter()
+                    .copied()
+                    .any(|t| mime.as_str() == t)
+            {
                 all_archives = false;
             }
             all_paths.push(path.clone());
@@ -1404,7 +1404,7 @@ impl App {
             log::debug!("Attempting to launch app\n\tfor: {mime}\n\twith: {paths:?}");
 
             // First launch apps that can be launched directly
-            if mime == "application/x-desktop" {
+            if mime == Mime::APPLICATION_X_DESKTOP {
                 #[cfg(feature = "desktop")]
                 {
                     // A desktop entry runs an arbitrary command line, so only
@@ -1414,7 +1414,7 @@ impl App {
                     let (installed, unknown): (Vec<_>, Vec<_>) = paths
                         .into_iter()
                         .partition(|path| Self::desktop_entry_is_installed(path));
-                    Self::launch_desktop_entries(&installed);
+                    self.launch_desktop_entries(&installed);
                     for path in unknown {
                         match Self::desktop_entry_command(&path) {
                             Some(command) => {
@@ -1430,7 +1430,9 @@ impl App {
                     }
                     continue;
                 }
-            } else if mime == "application/x-executable" || mime == "application/vnd.appimage" {
+            } else if mime.as_str() == "application/x-executable"
+                || mime.as_str() == "application/vnd.appimage"
+            {
                 // An executable runs arbitrary code, so it is confirmed first
                 for path in paths {
                     let page = Self::launch_executable_dialog(path);
@@ -1453,12 +1455,10 @@ impl App {
             }
 
             // loop through subclasses if available
-            if let Some(mime_sub_classes) = mime_icon::parent_mime_types(&mime) {
-                for sub_class in mime_sub_classes {
-                    paths = self.launch_from_mime_cache(&sub_class, &paths);
-                    if paths.is_empty() {
-                        continue 'outer;
-                    }
+            for sub_class in mime_icon::parent_mime_types(&mime) {
+                paths = self.launch_from_mime_cache(&sub_class, &paths);
+                if paths.is_empty() {
+                    continue 'outer;
                 }
             }
 
@@ -1502,76 +1502,52 @@ impl App {
     /// Whether a desktop entry lives in one of the directories applications
     /// are installed into, which is what makes it trusted to run unasked
     fn desktop_entry_is_installed(path: &Path) -> bool {
-        use freedesktop_desktop_entry as fde;
+        let Some(base_dirs) = crate::xdg_dirs::BASE_DIRS.as_ref() else {
+            return false;
+        };
         let Ok(path) = path.canonicalize() else {
             return false;
         };
-        fde::default_paths().any(|dir| {
-            dir.canonicalize()
-                .is_ok_and(|dir| path.starts_with(&dir) && path != dir)
-        })
+        std::iter::once(base_dirs.data_home())
+            .chain(base_dirs.data_dirs().iter().map(PathBuf::as_path))
+            .any(|dir| {
+                dir.join("applications")
+                    .canonicalize()
+                    .is_ok_and(|dir| path.starts_with(&dir) && path != dir)
+            })
     }
 
     /// The command line a desktop entry would run, for the confirmation dialog
     fn desktop_entry_command(path: &Path) -> Option<String> {
-        use freedesktop_desktop_entry::DesktopEntry;
-        DesktopEntry::from_path::<&str>(path, None)
+        xdg_kit::desktop_entry::DesktopEntry::read(path)
             .ok()?
             .exec()
-            .map(str::to_string)
     }
 
-    fn launch_desktop_entries(paths: &[impl AsRef<Path>]) {
-        use freedesktop_desktop_entry::DesktopEntry;
-        let locales = freedesktop_desktop_entry::get_languages_from_env();
-
+    fn launch_desktop_entries(&self, paths: &[impl AsRef<Path>]) {
+        let options = self.mime_app_cache.launch_options();
         for path in paths.iter().map(AsRef::as_ref) {
-            match DesktopEntry::from_path::<&str>(path, None) {
-                Ok(entry) => match entry.exec() {
-                    Some(exec) => {
-                        match mime_app::exec_to_command(
-                            exec,
-                            entry.name(&locales).as_deref().unwrap_or_default(),
-                            Some(path),
-                            &[] as &[&str; 0],
-                        ) {
-                            Some(commands) => {
-                                let cwd_opt = entry.desktop_entry("Path");
-
-                                for mut command in commands {
-                                    if let Some(cwd) = cwd_opt {
-                                        command.current_dir(cwd);
-                                    }
-
-                                    if let Err(err) = spawn_detached(&mut command) {
-                                        log::warn!("failed to execute {}: {}", path.display(), err);
-                                    }
-                                }
-                            }
-                            None => {
-                                log::warn!(
-                                    "failed to parse {}: invalid Desktop Entry/Exec",
-                                    path.display()
-                                );
-                            }
-                        }
-                    }
-                    None => {
-                        log::warn!(
-                            "failed to parse {}: missing Desktop Entry/Exec",
-                            path.display()
-                        );
-                    }
-                },
+            let entry = match xdg_kit::desktop_entry::DesktopEntry::read(path) {
+                Ok(entry) => entry,
                 Err(err) => {
-                    log::warn!("failed to parse {}: {}", path.display(), err);
+                    log::warn!("failed to read {}: {}", path.display(), err);
+                    continue;
+                }
+            };
+            for mut command in mime_app::entry_commands(&entry, &[], &options)
+                .into_iter()
+                .flatten()
+            {
+                if let Err(err) = spawn_detached(&mut command) {
+                    log::warn!("failed to execute {}: {}", path.display(), err);
                 }
             }
         }
     }
 
-    /// Launch `paths` with the first application registered for `mime` that
-    /// accepts them, and return the paths that were not opened.
+    /// Launch `paths` with the first application for `mime` that accepts
+    /// them, in the order [`MimeAppCache::get`] gives, and return the paths
+    /// that were not opened.
     ///
     /// An application whose `Exec` line takes one file at a time yields one
     /// command per path, so a single successful spawn does not mean the whole
@@ -1580,11 +1556,13 @@ impl App {
     /// did open are not launched a second time.
     fn launch_from_mime_cache(&self, mime: &Mime, paths: &[PathBuf]) -> Vec<PathBuf> {
         let mut remaining: Vec<PathBuf> = paths.to_vec();
+        let options = self.mime_app_cache.launch_options();
         for app in self.mime_app_cache.get(mime) {
             if remaining.is_empty() {
                 break;
             }
-            let Some(commands) = app.command(&remaining) else {
+            let targets: Vec<Target> = remaining.iter().cloned().map(Target::Path).collect();
+            let Some(commands) = app.commands(&targets, &options) else {
                 continue;
             };
             // One command covers every path, or there is one command per path
@@ -1623,22 +1601,35 @@ impl App {
     }
 
     #[cfg(feature = "desktop")]
-    fn exec_entry_action(entry: &crate::desktop_entry::DesktopEntryData, action: usize) {
-        if let Some(action) = entry.desktop_actions.get(action) {
-            let mut exec = shlex::Shlex::new(&action.exec);
-            match exec.next() {
-                Some(cmd) if !cmd.contains('=') => {
-                    let mut proc = tokio::process::Command::new(cmd);
-                    proc.args(exec.filter(|arg| !arg.starts_with('%')));
-                    let _ = proc.spawn();
-                }
-                _ => (),
-            }
-        } else {
+    fn exec_entry_action(&self, entry: &crate::desktop_entry::DesktopEntryData, action: usize) {
+        let Some(action) = entry.desktop_actions.get(action) else {
             log::warn!(
                 "Invalid actions index `{action}` for desktop entry {}",
                 entry.name
             );
+            return;
+        };
+        let desktop = match xdg_kit::desktop_entry::DesktopEntry::read(&entry.path) {
+            Ok(desktop) => desktop,
+            Err(err) => {
+                log::warn!("failed to read {}: {}", entry.path.display(), err);
+                return;
+            }
+        };
+        let mut options = self.mime_app_cache.launch_options();
+        options.action = Some(action.id.clone());
+        for mut command in mime_app::entry_commands(&desktop, &[], &options)
+            .into_iter()
+            .flatten()
+        {
+            if let Err(err) = spawn_detached(&mut command) {
+                log::warn!(
+                    "failed to run {:?} of {}: {}",
+                    action.id,
+                    entry.path.display(),
+                    err
+                );
+            }
         }
     }
 
@@ -4966,8 +4957,12 @@ impl Application for App {
                             });
 
                             if let Some((app, _)) = available_apps.get(selected) {
-                                if let Some(mut command) =
-                                    app.command(&[&path]).and_then(|v| v.into_iter().next())
+                                if let Some(mut command) = app
+                                    .commands(
+                                        &[Target::Path(path.clone())],
+                                        &self.mime_app_cache.launch_options(),
+                                    )
+                                    .and_then(|v| v.into_iter().next())
                                 {
                                     match spawn_detached(&mut command) {
                                         Ok(()) => {
@@ -5041,7 +5036,7 @@ impl Application for App {
                         }
                         DialogPage::LaunchDesktopEntry { path, .. } => {
                             #[cfg(feature = "desktop")]
-                            Self::launch_desktop_entries(&[path]);
+                            self.launch_desktop_entries(&[path]);
                             #[cfg(not(feature = "desktop"))]
                             let _ = path;
                         }
@@ -5108,13 +5103,6 @@ impl Application for App {
                 if revision == self.batch_rename_revision {
                     self.batch_rename_preview = preview;
                 }
-            }
-            Message::DefaultTerminal(id) => {
-                self.mime_app_cache.adopt_terminal(id);
-            }
-            Message::DefaultTerminalThenOpen(id, paths) => {
-                self.mime_app_cache.adopt_terminal(id);
-                return self.update(Message::OpenTerminalIn(paths));
             }
             Message::NameChecked(check) => {
                 self.name_check = Some(check);
@@ -5631,25 +5619,11 @@ impl Application for App {
                 if self.defer_until_mime_apps(Message::OpenTerminalIn(paths.clone())) {
                     return Task::none();
                 }
-                if !self.mime_app_cache.terminal_known() {
-                    // The lookup started at startup has not come back yet.
-                    // Rather than run it here -- a whole process, with a two
-                    // second deadline, on the event loop -- ask for it and
-                    // come back to this once the answer is in.
-                    return Task::future(async move {
-                        let id = tokio::task::spawn_blocking(MimeAppCache::query_default_terminal)
-                            .await
-                            .unwrap_or_else(|err| {
-                                log::warn!("failed to look up the default terminal: {err}");
-                                None
-                            });
-                        crate::ui::action::app(Message::DefaultTerminalThenOpen(id, paths))
-                    });
-                }
                 if let Some(terminal) = self.mime_app_cache.terminal() {
+                    let options = self.mime_app_cache.launch_options();
                     for path in &paths {
                         if let Some(mut command) = terminal
-                            .command::<&str>(&[])
+                            .commands(&[], &options)
                             .and_then(|v| v.into_iter().next())
                         {
                             command.current_dir(path);
@@ -5710,8 +5684,12 @@ impl Application for App {
                     task,
                 )) => {
                     let url = format!("mime:///{mime}");
-                    if let Some(mut command) =
-                        app.command(&[&url]).and_then(|v| v.into_iter().next())
+                    if let Some(mut command) = app
+                        .commands(
+                            &[Target::Uri(url.clone())],
+                            &self.mime_app_cache.launch_options(),
+                        )
+                        .and_then(|v| v.into_iter().next())
                     {
                         if let Err(err) = spawn_detached(&mut command) {
                             log::warn!("failed to open {:?} with {:?}: {}", url, app.id, err);
@@ -5829,10 +5807,11 @@ impl Application for App {
                     path: path.clone(),
                     mime,
                     selected: 0,
-                    store_opt: "x-scheme-handler/mime"
-                        .parse::<mime_guess::Mime>()
-                        .ok()
-                        .and_then(|mime| self.mime_app_cache.get(&mime).first().cloned()),
+                    store_opt: self
+                        .mime_app_cache
+                        .get(&Mime::from_static("x-scheme-handler/mime"))
+                        .first()
+                        .cloned(),
                     search_app_name: String::new(),
                 };
                 // From a loading page: fill that page in if it is still up,
@@ -6329,16 +6308,7 @@ impl Application for App {
                 let rebuild = self.mime_app_rebuild;
                 self.mime_app_rebuild = self.mime_app_rebuild.wrapping_add(1);
                 return Task::future(async move {
-                    match tokio::task::spawn_blocking(|| {
-                        let cache = MimeAppCache::new();
-                        // While still on the worker: this shells out to
-                        // `xdg-mime`, and doing it here keeps that off the
-                        // handler that first opens a terminal.
-                        cache.prime_terminal();
-                        cache
-                    })
-                    .await
-                    {
+                    match tokio::task::spawn_blocking(MimeAppCache::new).await {
                         Ok(cache) => crate::ui::action::app(Message::MimeAppCacheReloaded(
                             rebuild,
                             MimeAppCacheWrapper::new(cache),
@@ -6755,7 +6725,7 @@ impl Application for App {
                         }
                         #[cfg(feature = "desktop")]
                         tab::Command::ExecEntryAction(entry, action) => {
-                            Self::exec_entry_action(&entry, action);
+                            self.exec_entry_action(&entry, action);
                         }
                         tab::Command::RunContextAction(action) => {
                             let paths: Box<[_]> = self.selected_paths(Some(entity)).collect();
@@ -8115,7 +8085,8 @@ impl Application for App {
                 let item_height = 32.0;
                 let mut displayed_default = false;
                 let mut last_kind = MimeAppMatch::Exact;
-                for (i, &(app, kind)) in available_apps.iter().enumerate() {
+                for (i, (app, kind)) in available_apps.iter().enumerate() {
+                    let kind = *kind;
                     if kind != last_kind {
                         match kind {
                             MimeAppMatch::Related => {
@@ -8135,7 +8106,9 @@ impl Application for App {
                             widget::button::custom(
                                 widget::Row::with_children([
                                     icon(app.icon()).size(32).into(),
-                                    if app.is_default(mime) && !displayed_default {
+                                    if self.mime_app_cache.is_default(app, mime)
+                                        && !displayed_default
+                                    {
                                         displayed_default = true;
                                         widget::text::body(fl!(
                                             "default-app",

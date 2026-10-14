@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
+use crate::mime_app::Mime;
 use crate::ui::widget::icon;
-use mime_guess::Mime;
 use rustc_hash::FxHashMap;
-use std::fs;
-use std::path::Path;
-use std::sync::{LazyLock, Mutex};
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, LazyLock, Mutex};
+use xdg_kit::mime::{MimeDatabase, PathOptions};
 
 pub const FALLBACK_MIME_ICON: &str = "text-x-generic";
 
@@ -25,11 +25,9 @@ impl MimeIconCache {
         self.cache
             .entry(key)
             .or_insert_with_key(|key| {
-                let mut icon_names = SHARED_MIME_INFO.lookup_icon_names(&key.mime);
-                if icon_names.is_empty() {
-                    return None;
-                }
-                let icon_name = icon_names.remove(0);
+                let icon_name = SHARED_MIME_INFO.icon_name(&key.mime);
+                let mut icon_names = vec![SHARED_MIME_INFO.generic_icon_name(&key.mime)];
+                icon_names.retain(|generic| *generic != icon_name);
                 let mut named = icon::from_name(icon_name).prefer_svg(true).size(key.size);
                 if !icon_names.is_empty() {
                     let fallback_names =
@@ -51,87 +49,36 @@ pub static MIME_ICON_CACHE: LazyLock<Mutex<MimeIconCache>> =
 /// ever queried afterwards, so it needs no mutex of its own; while it lived
 /// inside one, every mime guess -- including the ones view code makes -- had
 /// to queue behind whatever else held that mutex, and a full mime app reload
-/// held it for its entire run.
-pub static SHARED_MIME_INFO: LazyLock<xdg_mime::SharedMimeInfo> =
-    LazyLock::new(xdg_mime::SharedMimeInfo::new);
+/// held it for its entire run. Shared, because the mime app associations
+/// resolve aliases and parents through it too.
+pub static SHARED_MIME_INFO: LazyLock<Arc<MimeDatabase>> = LazyLock::new(|| {
+    Arc::new(match crate::xdg_dirs::BASE_DIRS.as_ref() {
+        Some(base_dirs) => MimeDatabase::load(base_dirs),
+        None => MimeDatabase::from_dirs(std::iter::empty::<PathBuf>()),
+    })
+});
 
-pub fn mime_for_path(
-    path: impl AsRef<Path>,
-    metadata_opt: Option<&fs::Metadata>,
-    remote: bool,
-) -> Mime {
+/// The type of the file at `path`.
+///
+/// With `by_name`, only its name is looked at: for a remote file, where
+/// reading is expensive, and for the first pass of a listing, whose content
+/// check comes later. A name the database has no pattern for is
+/// `application/octet-stream`. Otherwise the file itself is looked at, as
+/// the database says: what kind of file it is, its name, and when the name
+/// does not settle it, its first bytes. Content alone never makes a file a
+/// desktop entry: only its name can.
+pub fn mime_for_path(path: impl AsRef<Path>, by_name: bool) -> Mime {
     let path = path.as_ref();
-    // Try the shared mime info cache first
-    let mut gb = SHARED_MIME_INFO.guess_mime_type();
-    gb.zero_size(false);
-    if remote {
-        if let Some(file_name) = path.file_name().and_then(std::ffi::OsStr::to_str) {
-            gb.file_name(file_name);
-        }
-    } else {
-        gb.path(path);
-    }
-    if let Some(metadata) = metadata_opt {
-        gb.metadata(metadata.clone());
-    }
-    let guess = gb.guess();
-    let guessed_mime = guess.mime_type();
-
-    /// The answers `xdg-mime` gives for a directory, a symbolic link and an
-    /// empty file. They are also what it gives for everything when no
-    /// shared-mime-info database is installed.
-    fn is_special(mime: &Mime) -> bool {
-        matches!(
-            mime.essence_str(),
-            "inode/directory" | "inode/symlink" | "application/x-zerosize"
-        )
-    }
-
-    /// Whether a special answer actually describes this file.
-    ///
-    /// With a database installed these answers are right and an extension
-    /// guess must not override them. With no database the library reports
-    /// `application/x-zerosize` for every file, and says it is certain, so
-    /// certainty cannot tell the two apart. Checking the answer against the
-    /// file can: without this, a system with no database sees every archive,
-    /// image and text file as an empty one, refuses to extract anything and
-    /// sorts everything into a single type.
-    fn special_fits(mime: &Mime, path: &Path, metadata_opt: Option<&fs::Metadata>) -> bool {
-        if mime.essence_str() == "inode/symlink" {
-            // Any metadata the caller holds followed the link, so ask again
-            return fs::symlink_metadata(path).is_ok_and(|m| m.file_type().is_symlink());
-        }
-        let owned;
-        let metadata = match metadata_opt {
-            Some(metadata) => metadata,
-            None => match fs::metadata(path) {
-                Ok(metadata) => {
-                    owned = metadata;
-                    &owned
-                }
-                Err(_) => return false,
-            },
-        };
-        match mime.essence_str() {
-            "inode/directory" => metadata.is_dir(),
-            _ => metadata.len() == 0,
+    if !by_name {
+        match SHARED_MIME_INFO.type_for_path(path, &PathOptions::default()) {
+            Ok(found) => return found.mime,
+            // Gone, or unreadable: the name is all there is to go by
+            Err(err) => log::debug!("failed to type {}: {err}", path.display()),
         }
     }
-
-    let usable = if is_special(guessed_mime) {
-        // A remote guess sees only a name, and a name cannot show that
-        // something is a directory, a link or empty
-        !remote && special_fits(guessed_mime, path, metadata_opt)
-    } else {
-        !guess.uncertain()
-    };
-
-    if usable {
-        guessed_mime.clone()
-    } else {
-        // Nothing usable came back, so go by the name
-        mime_guess::from_path(path).first_or_octet_stream()
-    }
+    path.file_name()
+        .and_then(|name| SHARED_MIME_INFO.type_for_name(name).best())
+        .map_or(Mime::APPLICATION_OCTET_STREAM, |found| found.mime)
 }
 
 /// The icon for `mime` at `size`, but only if it has already been resolved.
@@ -232,26 +179,25 @@ pub fn mime_icon(mime: Mime, size: u16) -> icon::Handle {
     }
 }
 
-pub fn parent_mime_types(mime: &Mime) -> Option<Vec<Mime>> {
-    SHARED_MIME_INFO.get_parents_aliased(mime)
+/// The types `mime` is a direct kind of, as the database says.
+pub fn parent_mime_types(mime: &Mime) -> Vec<Mime> {
+    SHARED_MIME_INFO.parents(mime)
 }
 
+/// Whether `mime_type` is `base` or a kind of it.
 pub fn is_mime_subclass_of(mime_type: &Mime, base: &Mime) -> bool {
-    SHARED_MIME_INFO.mime_type_subclass(mime_type, base)
+    SHARED_MIME_INFO.is_a(mime_type, base)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
 
-    /// A file with content and a known extension must never be reported as a
-    /// directory, a link or an empty file. Without a shared-mime-info
-    /// database the library answers `application/x-zerosize` for everything,
-    /// and says it is certain, which used to be taken at face value: archives
-    /// then refused to extract and every file sorted as the same type. This
-    /// holds whether or not a database is installed.
+    /// A file with content is typed by its name, never as an empty file.
+    /// Needs the shared-mime-info database, as the app does.
     #[test]
-    fn a_file_with_content_is_never_guessed_as_empty() {
+    fn a_file_with_content_is_typed_by_its_name() {
         let dir = tempfile::tempdir().unwrap();
         for (name, expected) in [
             ("archive.zip", "application/zip"),
@@ -260,12 +206,29 @@ mod tests {
         ] {
             let path = dir.path().join(name);
             fs::write(&path, b"some bytes that are not nothing").unwrap();
-            let mime = mime_for_path(&path, None, false);
-            assert_eq!(mime.essence_str(), expected, "for {name}");
+            let mime = mime_for_path(&path, false);
+            assert_eq!(mime, Mime::from_static(expected), "for {name}");
         }
+    }
 
-        // What an empty file reports depends on whether a database is
-        // installed, so it is not asserted here; what matters is that a file
-        // with content is never mistaken for one
+    /// Content alone does not make a desktop entry: the name has to say so
+    /// too. Needs the shared-mime-info database, as the app does.
+    #[test]
+    fn only_a_desktop_name_makes_a_desktop_entry() {
+        let dir = tempfile::tempdir().unwrap();
+        let entry = b"[Desktop Entry]\nType=Application\nName=Viewer\nExec=viewer\n";
+        let named = dir.path().join("viewer.desktop");
+        let unnamed = dir.path().join("viewer");
+        fs::write(&named, entry).unwrap();
+        fs::write(&unnamed, entry).unwrap();
+        assert_eq!(mime_for_path(&named, false), Mime::APPLICATION_X_DESKTOP);
+        assert_eq!(mime_for_path(&unnamed, false), Mime::TEXT_PLAIN);
+    }
+
+    /// A name no pattern matches says nothing about the file.
+    #[test]
+    fn an_unknown_name_is_any_data() {
+        let mime = mime_for_path("no-such-folder/file.no-such-extension", true);
+        assert_eq!(mime, Mime::APPLICATION_OCTET_STREAM);
     }
 }

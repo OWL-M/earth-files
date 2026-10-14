@@ -1,14 +1,14 @@
 // Copyright 2023 System76 <info@system76.com>
 // SPDX-License-Identifier: GPL-3.0-only
 
-#[cfg(feature = "desktop")]
-use freedesktop_desktop_entry::GenericEntry;
-use mime_guess::Mime;
+use crate::mime_app::Mime;
 use rustc_hash::FxHashMap;
 use std::path::Path;
 use std::sync::{LazyLock, Mutex};
 use std::time::Instant;
 use std::{fs, process};
+#[cfg(feature = "desktop")]
+use xdg_kit::desktop_entry::KeyFile;
 
 #[derive(Clone, Debug)]
 pub struct Thumbnailer {
@@ -77,16 +77,15 @@ impl ThumbnailerCache {
         self.cache.clear();
 
         let mut search_dirs = Vec::new();
-        let xdg_dirs = xdg::BaseDirectories::new();
-
-        if let Some(mut data_home) = xdg_dirs.get_data_home() {
-            data_home.push("thumbnailers");
-            search_dirs.push(data_home);
+        if let Some(base_dirs) = crate::xdg_dirs::BASE_DIRS.as_ref() {
+            search_dirs.push(base_dirs.data_home().join("thumbnailers"));
+            search_dirs.extend(
+                base_dirs
+                    .data_dirs()
+                    .iter()
+                    .map(|data_dir| data_dir.join("thumbnailers")),
+            );
         }
-        search_dirs.extend(xdg_dirs.get_data_dirs().into_iter().map(|mut data_dir| {
-            data_dir.push("thumbnailers");
-            data_dir
-        }));
 
         // A thumbnailer file shadows any later directory's file of the same name,
         // so the user's data home overrides the system thumbnailers
@@ -116,23 +115,24 @@ impl ThumbnailerCache {
         }
 
         for path in thumbnailer_paths {
-            let entry = match GenericEntry::from_path(&path) {
+            let entry = match KeyFile::read(&path) {
                 Ok(ok) => ok,
                 Err(err) => {
-                    log::warn!("failed to parse {}: {}", path.display(), err);
+                    log::warn!("failed to read {}: {}", path.display(), err);
                     continue;
                 }
             };
 
-            let Some(section) = entry.group("Thumbnailer Entry") else {
+            const GROUP: &str = "Thumbnailer Entry";
+            if !entry.has_group(GROUP) {
                 log::warn!(
                     "missing Thumbnailer Entry section for thumbnailer {}",
                     path.display()
                 );
                 continue;
-            };
-            if let Some(try_exec) = section.entry("TryExec")
-                && !executable_exists(try_exec)
+            }
+            if let Some(try_exec) = entry.string(GROUP, "TryExec")
+                && !executable_exists(&try_exec)
             {
                 log::debug!(
                     "skipping thumbnailer {}: TryExec {try_exec:?} not found",
@@ -140,11 +140,11 @@ impl ThumbnailerCache {
                 );
                 continue;
             }
-            let Some(exec) = section.entry("Exec") else {
+            let Some(exec) = entry.string(GROUP, "Exec") else {
                 log::warn!("missing Exec attribute for thumbnailer {}", path.display());
                 continue;
             };
-            let Some(mime_types) = section.entry("MimeType") else {
+            let Some(mime_types) = entry.list(GROUP, "MimeType") else {
                 log::warn!(
                     "missing MimeType attribute for thumbnailer {}",
                     path.display()
@@ -152,7 +152,7 @@ impl ThumbnailerCache {
                 continue;
             };
 
-            for mime_type in mime_types.split_terminator(';') {
+            for mime_type in &mime_types {
                 if let Ok(mime) = mime_type.parse::<Mime>() {
                     log::trace!("thumbnailer {}={}", mime, path.display());
                     let apps = self
