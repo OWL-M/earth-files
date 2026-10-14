@@ -462,6 +462,7 @@ sort-largest-to-smallest = Ón gceann is mó go dtí an ceann is lú
 sort-type-a-z = Cineál A-Z
 sort-type-z-a = Cineál Z-A
 repository = Stór
+fork-maintainers = Cothabhálaithe an fhorc
 support = Tacaíocht
 other-apps = Feidhmchláir eile
 related-apps = Feidhmchláir ghaolmhara

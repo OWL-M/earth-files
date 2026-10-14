@@ -487,6 +487,7 @@ sort-largest-to-smallest = 从大到小
 sort-type-a-z = 类型 A-Z
 sort-type-z-a = 类型 Z-A
 repository = 仓库
+fork-maintainers = 分支维护者
 support = 支持
 progress-failed = { $percent }%，失败
 empty-trash-title = 确定要清空回收站？

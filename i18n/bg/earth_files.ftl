@@ -263,6 +263,7 @@ keep = Запазване
 ## About
 
 repository = Хранилище
+fork-maintainers = Поддръжници на разклонението
 support = Поддръжка
 
 ## Add Network Drive

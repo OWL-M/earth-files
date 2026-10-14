@@ -57,6 +57,7 @@ grid-view = Prikaži mrežu
 list-view = Prikaži spisak
 menu-settings = Podešavanja...
 repository = Repozitorijum
+fork-maintainers = Održavaoci forka
 support = Podrška
 cancel = Poništi
 zoom-in = Uvećaj

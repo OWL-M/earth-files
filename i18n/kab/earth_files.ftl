@@ -150,6 +150,7 @@ edit = Ẓreg
 cut = Gzem
 copy = Nɣel
 repository = Asarsay
+fork-maintainers = Imeẓẓayen n fork
 pasted-image = Tettwasenṭeḍ tugna
 pasted-text = Yettwasenṭeḍ uḍris
 pasted-video = Tettwasenṭeḍ tvidyut

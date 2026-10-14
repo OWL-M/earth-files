@@ -263,6 +263,7 @@ keep = Mantieni
 ## About
 
 repository = Repository
+fork-maintainers = Manutentori del fork
 support = Supporto
 
 ## Add Network Drive

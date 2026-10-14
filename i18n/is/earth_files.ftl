@@ -252,6 +252,7 @@ write-only = Aðeins skrifréttindi
 write-execute = Skrif- og keyrsluréttindi
 read-execute = Les- og keyrsluréttindi
 repository = Hugbúnaðarsafn
+fork-maintainers = Umsjónarmenn kvíslar
 edit-history = Breytingaferill
 pending = Í bið
 copying =

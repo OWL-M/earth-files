@@ -559,6 +559,7 @@ sort-largest-to-smallest = Od najväčších po najmenšie
 sort-type-a-z = Typ A-Z
 sort-type-z-a = Typ Z-A
 repository = Repozitár
+fork-maintainers = Správcovia forku
 support = Podpora
 progress-failed = { $percent }%, zlyhalo
 

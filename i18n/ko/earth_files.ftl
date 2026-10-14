@@ -213,6 +213,7 @@ add-network-drive = 네트워크 드라이브 추가
 network-drives-connected = { $count }개 연결됨
 delete = 삭제
 repository = 저장소
+fork-maintainers = 포크 관리자
 replace-warning-operation = 해당 항목을 대체할까요? 대체 시 내용을 덮어쓰게 됩니다.
 support = 지원
 try-again = 다시 시도

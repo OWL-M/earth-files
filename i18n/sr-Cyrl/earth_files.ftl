@@ -59,6 +59,7 @@ earth-files = Earth Files
 open-file = Отвори фајл
 cancel = Прекини
 repository = Репозиторијум
+fork-maintainers = Одржаваоци форка
 support = Подршка
 no-results = Није пронађен ниједан резултат
 home = Кућа

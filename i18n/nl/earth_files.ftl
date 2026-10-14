@@ -507,6 +507,7 @@ pasted-image = Geplakte afbeelding
 pasted-text = Geplakte tekst
 pasted-video = Geplakte video
 repository = Broncode
+fork-maintainers = Fork-beheerders
 empty-trash-title = Prullenbak leegmaken?
 removed-from-recents =
     { $items } { $items ->

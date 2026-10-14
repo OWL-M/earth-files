@@ -173,6 +173,7 @@ read-write-execute = ਪੜ੍ਹਨ, ਲਿਖਣ ਅਤੇ ਚੱਲਣ
 remove = ਹਟਾਓ
 keep = ਰੱਖੋ
 repository = ਰਿਪੋਜ਼ਟਰੀ
+fork-maintainers = ਫੋਰਕ ਸੰਭਾਲਕਰਤਾ
 support = ਸਹਿਯੋਗ
 connect = ਕਨੈਕਟ ਕਰੋ
 remember-password = ਪਾਸਵਰਡ ਨੂੰ ਯਾਦ ਰੱਖੋ

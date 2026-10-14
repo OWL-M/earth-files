@@ -489,6 +489,7 @@ removing-from-recents =
 other-apps = Autres applications
 set-permissions = Permissions définies pour "{ $name }" à { $mode }
 repository = Dépôt
+fork-maintainers = Mainteneurs du fork
 support = Support
 eject = Éjecter
 remove-from-recents = Retirer des récents

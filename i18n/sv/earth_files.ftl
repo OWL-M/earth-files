@@ -410,6 +410,7 @@ sort-type-a-z = Typ A-Ö
 sort-type-z-a = Typ Ö-A
 remove = Ta bort
 repository = Källkod
+fork-maintainers = Fork-underhållare
 support = Support
 extract-password-required = Lösenord krävs
 extract-as-folder = Packa upp till mapp

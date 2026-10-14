@@ -255,6 +255,7 @@ favorite-path-error = خطأ في فتح المجلّد
 remove = أزِل
 keep = أبقِ
 repository = المستودع
+fork-maintainers = مشرفو النسخة المتفرعة
 support = الدعم
 add-network-drive = أضِف قرص شبكة
 network-drives-connected = { $count ->

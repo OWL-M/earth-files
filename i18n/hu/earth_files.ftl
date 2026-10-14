@@ -492,6 +492,7 @@ sort-largest-to-smallest = Legnagyobbtól a legkisebbig
 sort-type-a-z = Típus A-Z
 sort-type-z-a = Típus Z-A
 repository = Tároló
+fork-maintainers = A fork karbantartói
 support = Támogatás
 progress-failed = { $percent }%, sikertelen
 empty-trash-title = Kiüríted a Kukát?

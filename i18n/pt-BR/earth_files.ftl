@@ -254,6 +254,7 @@ keep = Manter
 ## About
 
 repository = Repositório
+fork-maintainers = Mantenedores do fork
 support = Suporte
 
 ## Add Network Drive

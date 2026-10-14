@@ -40,26 +40,31 @@ pub struct About {
     license: Option<String>,
     /// The license url.
     license_url: Option<String>,
-    /// Developers who contributed to the application.
+    /// The maintainers of this fork, each with a link to their profile.
     #[setters(skip)]
-    developers: Vec<(String, String)>,
+    maintainers: Vec<(String, String)>,
     /// Links associated with the application.
     #[setters(skip)]
     links: Vec<(String, String)>,
 }
 
-fn add_contributors(contributors: Vec<(&str, &str)>) -> Vec<(String, String)> {
-    contributors
+fn named_links<K: Into<String>, V: Into<String>>(
+    links: impl IntoIterator<Item = (K, V)>,
+) -> Vec<(String, String)> {
+    links
         .into_iter()
-        .map(|(name, email)| (name.into(), format!("mailto:{email}")))
+        .map(|(name, url)| (name.into(), url.into()))
         .collect()
 }
 
-impl<'a> About {
-    /// Developers who contributed to the application.
+impl About {
+    /// The maintainers of this fork, as names and links to their profiles.
     #[must_use]
-    pub fn developers(mut self, contributors: impl Into<Vec<(&'a str, &'a str)>>) -> Self {
-        self.developers = add_contributors(contributors.into());
+    pub fn maintainers<K: Into<String>, V: Into<String>>(
+        mut self,
+        maintainers: impl IntoIterator<Item = (K, V)>,
+    ) -> Self {
+        self.maintainers = named_links(maintainers);
         self
     }
 
@@ -69,10 +74,7 @@ impl<'a> About {
         mut self,
         links: impl IntoIterator<Item = (K, V)>,
     ) -> Self {
-        self.links = links
-            .into_iter()
-            .map(|(name, url)| (name.into(), url.into()))
-            .collect();
+        self.links = named_links(links);
         self
     }
 }
@@ -138,7 +140,7 @@ pub fn about<'a, Message: Clone + 'static>(
         .then_some(widget::Column::with_children(header_children).align_x(Alignment::Center));
 
     let links_section = section(&about.links, fl!("links"));
-    let developers_section = section(&about.developers, fl!("developers"));
+    let maintainers_section = section(&about.maintainers, fl!("fork-maintainers"));
     let license_section = about.license.as_ref().map(|license| {
         let url = about.license_url.as_deref().unwrap_or_default();
         widget::settings::section()
@@ -151,7 +153,7 @@ pub fn about<'a, Message: Clone + 'static>(
     widget::Column::with_capacity(6)
         .push_maybe(header)
         .push_maybe(links_section)
-        .push_maybe(developers_section)
+        .push_maybe(maintainers_section)
         .push_maybe(license_section)
         .push_maybe(comments)
         .push_maybe(copyright)

@@ -9,6 +9,7 @@ theme = Theme
 appearance = Appearance
 light = Light
 repository = Repository
+fork-maintainers = Fork Maintainers
 support = Support
 dark = Dark
 match-desktop = Match desktop

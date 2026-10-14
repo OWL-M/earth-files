@@ -308,6 +308,7 @@ sort-largest-to-smallest = बड़े से छोटे
 sort-type-a-z = प्रकार अ-ह क्रम में क्रमबद्ध करें
 sort-type-z-a = प्रकार ह-अ क्रम में क्रमबद्ध करें
 repository = रिपॉजिटरी
+fork-maintainers = फ़ोर्क अनुरक्षक
 support = समर्थन
 read-execute = पढ़ें और निष्पादित करें
 deleted =

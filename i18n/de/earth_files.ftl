@@ -473,6 +473,7 @@ sort-largest-to-smallest = Von groß nach klein
 sort-type-a-z = Typ A-Z
 sort-type-z-a = Typ Z-A
 repository = Repositorium
+fork-maintainers = Fork-Betreuer
 empty-trash-title = Papierkorb leeren?
 copy-to-title = Kopierziel auswählen
 copy-to-button-label = Kopieren

@@ -96,6 +96,7 @@ failed-operations-title = {$count ->
 username = Όνομα χρήστη
 delete = Διαγραφή
 repository = Αποθετήριο
+fork-maintainers = Συντηρητές του fork
 support = Υποστήριξη
 eject = Εξαγωγή
 group = Ομάδα

@@ -432,6 +432,7 @@ favorite-path-error-description =
     Haluatko poistaa sen sivupalkista?
 keep = Pidä
 repository = Tietovarasto
+fork-maintainers = Haaran ylläpitäjät
 support = Tuki
 progress = { $percent } %
 progress-cancelled = { $percent } %, peruttu

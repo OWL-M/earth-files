@@ -274,6 +274,7 @@ sort-largest-to-smallest = 最大から最小まで
 sort-type-a-z = 種類 A-Z
 sort-type-z-a = 種類 Z-A
 repository = リポジトリ
+fork-maintainers = フォークのメンテナー
 support = サポート
 remove = 削除
 today = 今日

@@ -187,6 +187,7 @@ favorite-path-error-description =
 remove = Pašalinti
 keep = Išlaikyti
 repository = Saugykla
+fork-maintainers = Atšakos prižiūrėtojai
 support = Palaikymas
 add-network-drive = Pridėti tinklo talpyklą
 network-drives-connected = { $count } { $count ->

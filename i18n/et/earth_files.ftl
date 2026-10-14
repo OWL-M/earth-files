@@ -32,6 +32,7 @@ open = Ava
 remove = Eemalda
 create = Loo
 repository = Tarkvarahoidla
+fork-maintainers = Haru hooldajad
 replace = Asenda
 save = Salvesta
 undo = Võta tegevus tagasi

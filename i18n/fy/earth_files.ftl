@@ -1,5 +1,6 @@
 support = Stipe
 repository = Argyf
+fork-maintainers = Fork-ûnderhâlders
 open-file = Iepenje in bestân
 cancel = Annulearje
 open-folder = Iepenje in map

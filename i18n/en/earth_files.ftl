@@ -254,7 +254,7 @@ keep = Keep
 # Context Pages
 
 ## About
-developers = Developers
+fork-maintainers = Fork Maintainers
 license = License
 links = Links
 repository = Repository

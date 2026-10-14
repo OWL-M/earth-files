@@ -521,6 +521,7 @@ sort-largest-to-smallest = Ад вялікага да найменшага
 sort-type-a-z = Тып А-Я
 sort-type-z-a = Тып Я-А
 repository = Рэпазіторый
+fork-maintainers = Суправаджальнікі форка
 support = Падтрымка
 progress-failed = { $percent }%, няўдала
 removing-from-recents =

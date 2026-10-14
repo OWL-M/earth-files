@@ -151,6 +151,7 @@ menu-settings = Nastavení...
 menu-about = O aplikaci { earth-files }...
 no-results = Nenalezeny žádné výsledky
 repository = Repozitář
+fork-maintainers = Správci forku
 support = Podpora
 networks = Sítě
 notification-in-progress = Probíhají operace se soubory

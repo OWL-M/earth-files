@@ -309,6 +309,7 @@ removed-from-recents =
        *[other] 項目
     }
 repository = 軟體庫
+fork-maintainers = 分支維護者
 trashed-on = 丟入時間
 details = 詳細資訊
 delete = 刪除

@@ -19,6 +19,7 @@ networks = Netwerke
 notification-in-progress = Lêerbewerkings is aan die gang.
 trash = Asblik
 repository = Kodebank
+fork-maintainers = Fork-onderhouers
 open-folder = Oop 'n vouer
 match-desktop = Stelselstandaard
 username = Gebruikersnaam

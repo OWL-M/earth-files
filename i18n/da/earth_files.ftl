@@ -392,6 +392,7 @@ sort-type-z-a = Type Z-A
 delete = Slet
 run = Kør
 repository = Pakkearkiv
+fork-maintainers = Fork-vedligeholdere
 extract-password-required = Adgangskode påkrævet
 extract-as-folder = Udpak til mappe
 extract-to = Udpak Til...

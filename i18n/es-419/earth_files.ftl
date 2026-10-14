@@ -323,6 +323,7 @@ sort-largest-to-smallest = De mayor a menor
 sort-type-a-z = Tipo A-Z
 sort-type-z-a = Tipo Z-A
 repository = Repositorio
+fork-maintainers = Mantenedores del fork
 support = Apoyo
 details = Detalles
 remove = Eliminar

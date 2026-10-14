@@ -45,6 +45,7 @@ details = Detaljer
 pause = Pause
 save = Lagre
 repository = Kodelager
+fork-maintainers = Fork-vedlikeholdere
 modified = Modifisert
 trashed-on = Slettet
 resume = Fortsett

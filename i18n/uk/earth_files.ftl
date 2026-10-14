@@ -208,6 +208,7 @@ list-directories-first = Теки спочатку
 menu-settings = Налаштування...
 menu-about = Про { earth-files }...
 repository = Сховище
+fork-maintainers = Супровідники форку
 support = Підтримка
 details = Подробиці
 remove = Вилучити

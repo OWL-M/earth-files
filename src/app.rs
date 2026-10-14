@@ -4041,11 +4041,11 @@ impl Application for App {
             .name(fl!("earth-files"))
             .icon(icon::from_name(Self::APP_ID))
             .version(env!("CARGO_PKG_VERSION"))
-            .author("owl-m (fork), System76 (upstream)")
+            .author("owl-m fork of cosmic-files")
             .comments(fl!("comment"))
             .license("GPL-3.0-only")
             .license_url("https://spdx.org/licenses/GPL-3.0-only")
-            .developers([("Jeremy Soller", "jeremy@system76.com")])
+            .maintainers([("id3v1669", "https://github.com/id3v1669")])
             .links([
                 (fl!("repository"), "https://github.com/owl-m/earth-files"),
                 (

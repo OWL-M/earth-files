@@ -8,6 +8,7 @@ details = Detalhs
 name = Nom
 cancel = Anullar
 repository = Depaus
+fork-maintainers = Mantenidors del fork
 settings = Configuracion
 menu-settings = Configuracion...
 quit = Quitar

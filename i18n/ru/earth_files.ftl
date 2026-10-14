@@ -285,6 +285,7 @@ sort-type-a-z = Тип от А до Я
 sort-type-z-a = Тип от Я до А
 support = Поддержка
 repository = Репозиторий
+fork-maintainers = Сопровождающие форка
 cancelled = Отменена
 operation-failed-to-start = The file operation could not be started
 details = Сведения

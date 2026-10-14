@@ -171,6 +171,7 @@ favorite-path-error-description =
 remove = Өшіру
 keep = Қалдыру
 repository = Репозиторий
+fork-maintainers = Форк қолдаушылары
 support = Қолдау
 add-network-drive = Желілік дискіні қосу
 network-drives-connected = { $count } қосылған

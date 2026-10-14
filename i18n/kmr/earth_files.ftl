@@ -353,6 +353,7 @@ replace-warning = Tu dixwazî bi ya ku tu niha tomar dikî biguhêrînî? Navero
 show-details = Hûrgiliyan nîşan bide
 sort-oldest-first = Pêşî ya herî kevn
 repository = Embar
+fork-maintainers = Parastvanên forkê
 replace-warning-operation = Tu dixwazî biguherînî? Naveroka berê wê were jêbirin.
 other = Ên din
 read-only = Tenê xwendin

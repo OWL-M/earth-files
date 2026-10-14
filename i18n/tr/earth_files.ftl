@@ -402,6 +402,7 @@ sort-largest-to-smallest = En büyükten en küçüğe
 sort-type-a-z = Tür A-Z
 sort-type-z-a = Tür Z-A
 repository = Depo
+fork-maintainers = Çatal bakımcıları
 support = Destek
 remove = Kaldır
 extract-password-required = Parola gerekli

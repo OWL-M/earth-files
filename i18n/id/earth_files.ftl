@@ -176,6 +176,7 @@ favorite-path-error = Galat membuka direktori
 remove = Hapus
 keep = Pertahankan
 repository = Repositori
+fork-maintainers = Pengelola fork
 favorite-path-error-description =
     Tidak dapat membuka "{ $path }"
     "{ $path }" mungkin tidak ada atau anda mungkin tidak memiliki izin untuk membuka

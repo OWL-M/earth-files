@@ -212,6 +212,7 @@ copying =
 delete = Обриши
 sort-oldest-first = Најстарије прво
 repository = Ризница
+fork-maintainers = Одржаваоци форка
 create-new-file = Направи нову датотеку
 replace-warning-operation = Да ли желите да га замените? Замена ће преписати његов садржај.
 support = Подршка

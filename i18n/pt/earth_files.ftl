@@ -217,6 +217,7 @@ list-directories-first = Listar primeiro os diretórios
 menu-settings = Definições...
 menu-about = Acerca do { earth-files }...
 repository = Repositório
+fork-maintainers = Mantenedores do fork
 support = Suporte
 details = Detalhes
 remove = Remover

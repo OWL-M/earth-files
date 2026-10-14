@@ -4,6 +4,7 @@ cancel = Cancelar
 run = Executar
 delete = Eliminar
 repository = Repositorio
+fork-maintainers = Mantedores do fork
 support = Soporte
 settings = Axustes
 appearance = Apariencia
