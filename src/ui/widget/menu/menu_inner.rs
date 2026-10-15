@@ -12,6 +12,7 @@ use std::sync::Arc;
 use super::aim::{AIM_TIME, ChildOpen, Opening, aims_at, next_selectable};
 use super::menu_bar::{MenuBarState, MenuBarStateInner, Pending, PendingKind};
 use super::menu_tree::MenuTree;
+use super::unfold::{self, FoldKey, Group};
 use crate::ui::shell::runner::{WindowingSystem, windowing_system};
 use crate::ui::theme::menu_bar::StyleSheet;
 use std::time::Instant;
@@ -237,8 +238,6 @@ impl Aod {
 pub(super) struct MenuSlice {
     pub(super) start_index: usize,
     pub(super) end_index: usize,
-    pub(super) lower_bound_rel: f32,
-    pub(super) upper_bound_rel: f32,
 }
 
 #[derive(Debug, Clone)]
@@ -246,7 +245,7 @@ pub(super) struct MenuSlice {
 pub struct MenuBounds {
     pub(crate) child_positions: Vec<f32>,
     child_sizes: Vec<Size>,
-    children_bounds: Rectangle,
+    pub(crate) children_bounds: Rectangle,
     pub parent_bounds: Rectangle,
     check_bounds: Rectangle,
     offset_bounds: Rectangle,
@@ -267,7 +266,7 @@ impl MenuBounds {
         is_overlay: bool,
     ) -> Self {
         let (children_size, child_positions, child_sizes) =
-            get_children_layout(menu_tree, renderer, item_width, item_height, tree);
+            get_children_layout(menu_tree, renderer, item_width, item_height, tree, None);
 
         // viewport space parent bounds
         let view_parent_bounds = parent_bounds + overlay_offset;
@@ -310,6 +309,7 @@ pub(crate) struct MenuState {
     /// The index of the active menu item
     pub(crate) index: Option<usize>,
     scroll_offset: f32,
+    keyboard_selection: bool,
     pub menu_bounds: MenuBounds,
     /// The items the last layout made nodes for, first and last.
     ///
@@ -318,8 +318,179 @@ pub(crate) struct MenuState {
     /// parent placed it, which in a popup is inset by the surface's border,
     /// and that inset alone can drop a one-pixel divider at the top.
     laid_out: Option<(usize, usize)>,
+    /// The group row whose group is unfolded.
+    pub(crate) unfolded: Option<usize>,
+    /// Whether that group was unfolded by pointing at its count, and the
+    /// pointer has not left the count since: a click there then keeps it
+    /// unfolded rather than folding it straight back.
+    fresh: bool,
+    /// Fixed popup height, including room for the largest group.
+    min_height: f32,
+    /// Space fitted by the last layout, reused between layout passes.
+    fitted_height: f32,
+    /// Unused reserved room above the rows, keeping rows below a group still.
+    settle: f32,
+    /// The group opening or closing, while it moves.
+    reveal: Option<unfold::Reveal>,
+    /// Room reserved above the rows for the largest group to unfold upward.
+    pub(crate) room: f32,
+    /// A group asked to open while another one was closing: it opens once
+    /// that one has.
+    queued: Option<usize>,
+    /// Whether `queued` was asked for with the keys, which choose its first
+    /// row once it opens, and which moving the pointer does not cancel.
+    queued_keys: bool,
 }
 impl MenuState {
+    fn new(menu_bounds: MenuBounds) -> Self {
+        Self {
+            index: None,
+            scroll_offset: 0.0,
+            keyboard_selection: false,
+            menu_bounds,
+            laid_out: None,
+            unfolded: None,
+            fresh: false,
+            min_height: 0.0,
+            fitted_height: f32::INFINITY,
+            settle: 0.0,
+            reveal: None,
+            room: 0.0,
+            queued: None,
+            queued_keys: false,
+        }
+    }
+
+    /// Unfolds the group of row `unfolded`, or folds every group, at once,
+    /// and lays the rows of `menu_tree`, this menu, out again.
+    #[allow(clippy::too_many_arguments)]
+    fn refold<Message>(
+        &mut self,
+        menu_tree: &MenuTree<Message>,
+        unfolded: Option<usize>,
+        renderer: &crate::ui::Renderer,
+        item_width: ItemWidth,
+        item_height: ItemHeight,
+        tree: &mut [Tree],
+        bounds_expand: u16,
+    ) {
+        self.unfolded = unfolded;
+        self.reveal = None;
+        self.relayout(
+            menu_tree,
+            renderer,
+            item_width,
+            item_height,
+            tree,
+            bounds_expand,
+        );
+    }
+
+    /// Lays the rows of `menu_tree`, this menu, out as they show now: the
+    /// unfolded group's rows, and those of a group opening or closing as
+    /// far as it has got, with the rows after it moved up by the rest.
+    #[allow(clippy::too_many_arguments)]
+    fn relayout<Message>(
+        &mut self,
+        menu_tree: &MenuTree<Message>,
+        renderer: &crate::ui::Renderer,
+        item_width: ItemWidth,
+        item_height: ItemHeight,
+        tree: &mut [Tree],
+        bounds_expand: u16,
+    ) {
+        let laid_open = self.reveal.as_ref().map(|r| r.head).or(self.unfolded);
+        let (mut size, mut positions, sizes) = get_children_layout(
+            menu_tree,
+            renderer,
+            item_width,
+            item_height,
+            tree,
+            laid_open,
+        );
+        let mut shown = 0.0;
+        if let Some(reveal) = &self.reveal {
+            let hidden = reveal.hidden();
+            for position in positions.iter_mut().skip(reveal.head + reveal.rows + 1) {
+                *position -= hidden;
+            }
+            size.height -= hidden;
+            shown = reveal.shown();
+        } else if let Some(head) = self.unfolded
+            && let Group::Head { rows, .. } = menu_tree.children[head].group
+        {
+            shown = sizes
+                .iter()
+                .skip(head + 1)
+                .take(rows)
+                .map(|s| s.height)
+                .sum();
+        }
+        // The rows below a group never move: what the group takes, the rows
+        // above it give, by moving up
+        let settle = (self.room - shown).max(0.0);
+        let origin = self.menu_bounds.children_bounds.y - self.settle;
+        self.settle = settle;
+        self.menu_bounds.children_bounds.y = origin + settle;
+        self.menu_bounds.child_positions = positions;
+        self.menu_bounds.child_sizes = sizes;
+        self.menu_bounds.children_bounds.width = size.width;
+        self.menu_bounds.children_bounds.height = size.height;
+        self.menu_bounds.check_bounds =
+            pad_rectangle(self.menu_bounds.children_bounds, bounds_expand.into());
+        self.fit_viewport(self.fitted_height);
+        self.laid_out = None;
+        // A chosen row that folded away gives way to its group row
+        if let Some(index) = self.index
+            && !self.shows(index)
+        {
+            let groups: Vec<Group> = menu_tree.children.iter().map(|mt| mt.group).collect();
+            self.index = unfold::heads(&groups)[index];
+        }
+    }
+
+    /// Whether row `index` shows: a folded group's rows do not, nor do
+    /// those of a group closing.
+    fn shows(&self, index: usize) -> bool {
+        let closing = self
+            .reveal
+            .as_ref()
+            .is_some_and(|reveal| reveal.folding && reveal.contains(index));
+        self.drawn(index) && !closing
+    }
+
+    /// Whether row `index` is drawn: it has height, so it shows or is part
+    /// of a group opening or closing.
+    fn drawn(&self, index: usize) -> bool {
+        self.menu_bounds
+            .child_sizes
+            .get(index)
+            .is_some_and(|size| size.height > 0.0)
+    }
+
+    /// The rows of a group opening or closing that can be seen, in the
+    /// space of `layout`, the menu laid out: the rest of them is cut off.
+    fn reveal_clip(&self, layout: Layout<'_>) -> Option<(usize, Rectangle)> {
+        let reveal = self.reveal.as_ref()?;
+        let menu = layout.bounds();
+        Some((
+            reveal.head,
+            Rectangle {
+                x: menu.x,
+                y: menu.y + self.menu_bounds.child_positions[reveal.head + 1] + self.scroll_offset,
+                width: menu.width,
+                height: reveal.shown(),
+            },
+        ))
+    }
+
+    /// Whether row `index` is one of the rows of the group opening or
+    /// closing: those are drawn cut to the part that shows.
+    fn moving(&self, index: usize) -> bool {
+        self.reveal
+            .as_ref()
+            .is_some_and(|reveal| reveal.contains(index))
+    }
     /// Scrolls the menu so row `index` is inside a viewport `height` tall,
     /// as little as it takes; `overlay_offset` takes the menu to the
     /// viewport's space. Whether it moved.
@@ -343,6 +514,21 @@ impl MenuState {
         moved
     }
 
+    /// Give rows priority over the reserved unfolding space when constrained.
+    fn fit_viewport(&mut self, height: f32) {
+        self.fitted_height = height;
+        if self.min_height == 0.0 {
+            return;
+        }
+        let settle = (self.min_height.min(height.max(0.0))
+            - self.menu_bounds.children_bounds.height)
+            .max(0.0);
+        let delta = settle - self.settle;
+        self.menu_bounds.children_bounds.y += delta;
+        self.menu_bounds.check_bounds.y += delta;
+        self.settle = settle;
+    }
+
     /// The bounds of row `index`, in overlay space.
     fn row_bounds(&self, index: usize) -> Rectangle {
         Rectangle::new(
@@ -352,6 +538,37 @@ impl MenuState {
             ),
             self.menu_bounds.child_sizes[index],
         ) + (self.menu_bounds.children_bounds.position() - Point::ORIGIN)
+    }
+
+    /// Visible geometry shared by pointer targeting and viewport slicing.
+    fn visible_row_bounds(&self, index: usize) -> Option<Rectangle> {
+        if !self.drawn(index) {
+            return None;
+        }
+        let row = self.row_bounds(index);
+        if let Some(reveal) = &self.reveal
+            && reveal.contains(index)
+        {
+            let clip = Rectangle {
+                y: self.row_bounds(reveal.head + 1).y,
+                height: reveal.shown(),
+                ..self.menu_bounds.children_bounds
+            };
+            return row.intersection(&clip).filter(|r| r.height > 0.0);
+        }
+        Some(row)
+    }
+
+    fn row_at(&self, cursor: Point) -> Option<usize> {
+        (0..self.menu_bounds.child_sizes.len()).find(|&i| {
+            self.shows(i)
+                && self.visible_row_bounds(i).is_some_and(|row| {
+                    cursor.x >= row.x
+                        && cursor.x < row.x + row.width
+                        && cursor.y >= row.y
+                        && cursor.y < row.y + row.height
+                })
+        })
     }
 
     pub(super) fn layout<Message>(
@@ -365,8 +582,6 @@ impl MenuState {
         let MenuSlice {
             start_index,
             end_index,
-            lower_bound_rel,
-            upper_bound_rel,
         } = slice;
 
         debug_assert_eq!(menu_tree.len(), self.menu_bounds.child_positions.len());
@@ -379,16 +594,10 @@ impl MenuState {
             .zip(self.menu_bounds.child_sizes[start_index..=end_index].iter_mut())
             .zip(menu_tree[start_index..=end_index].iter())
             .map(|((cp, size), mt)| {
-                let mut position = *cp;
-                let mut size = *size;
-
-                if position < lower_bound_rel && (position + size.height) > lower_bound_rel {
-                    size.height = position + size.height - lower_bound_rel;
-                    position = lower_bound_rel;
-                } else if position <= upper_bound_rel && (position + size.height) > upper_bound_rel
-                {
-                    size.height = upper_bound_rel - position;
-                }
+                // Keep natural row geometry. Clipping belongs to drawing, otherwise
+                // a partially visible row re-centres its text as it is revealed.
+                let position = *cp;
+                let size = *size;
 
                 let limits = Limits::new(size, size);
 
@@ -431,52 +640,24 @@ impl MenuState {
         &self,
         viewport_size: Size,
         overlay_offset: Vector,
-        item_height: ItemHeight,
+        _item_height: ItemHeight,
     ) -> MenuSlice {
-        // viewport space children bounds
-        let children_bounds = self.menu_bounds.children_bounds + overlay_offset;
-
         let max_index = self.menu_bounds.child_positions.len().saturating_sub(1);
 
-        // viewport space absolute bounds
-        let lower_bound = children_bounds.y.max(0.0);
-        let upper_bound = (children_bounds.y + children_bounds.height).min(viewport_size.height);
-
-        // menu space relative bounds
-        let lower_bound_rel = lower_bound - (children_bounds.y + self.scroll_offset);
-        let upper_bound_rel = upper_bound - (children_bounds.y + self.scroll_offset);
-
-        // index range
-        let (start_index, end_index) = match item_height {
-            ItemHeight::Uniform(u) => {
-                let start_index = (lower_bound_rel / f32::from(u)).floor() as usize;
-                let end_index = ((upper_bound_rel / f32::from(u)).floor() as usize).min(max_index);
-                (start_index, end_index)
-            }
-            ItemHeight::Static(_) | ItemHeight::Dynamic(_) => {
-                let positions = &self.menu_bounds.child_positions;
-                let sizes = &self.menu_bounds.child_sizes;
-
-                let start_index = search_bound(0, 0, max_index, lower_bound_rel, positions, sizes);
-                let end_index = search_bound(
-                    max_index,
-                    start_index,
-                    max_index,
-                    upper_bound_rel,
-                    positions,
-                    sizes,
-                )
-                .min(max_index);
-
-                (start_index, end_index)
-            }
-        };
+        // Reveal members keep their natural positions while the following
+        // rows move upward, so positions are not sorted during animation.
+        let mut visible = (0..=max_index).filter(|&i| {
+            self.visible_row_bounds(i).is_some_and(|row| {
+                let row = row + overlay_offset;
+                row.y < viewport_size.height && row.y + row.height > 0.0
+            })
+        });
+        let start_index = visible.next().unwrap_or(0);
+        let end_index = visible.next_back().unwrap_or(start_index);
 
         MenuSlice {
             start_index,
             end_index,
-            lower_bound_rel,
-            upper_bound_rel,
         }
     }
 }
@@ -557,6 +738,9 @@ impl<'b, Message: Clone + 'static> Menu<'b, Message> {
                         .fold(
                             (roots, Vec::new()),
                             |(menu_root, mut nodes), (_i, ms)| {
+                                if !self.is_overlay {
+                                    ms.fit_viewport(limits.max().height - 1.0);
+                                }
                                 let slice =
                                     ms.slice(limits.max(), overlay_offset, self.item_height);
                                 let _start_index = slice.start_index;
@@ -569,7 +753,8 @@ impl<'b, Message: Clone + 'static> Menu<'b, Message> {
                                     active_tree,
                                 );
                                 let node_size = children_node.size();
-                                intrinsic_size.height += node_size.height;
+                                intrinsic_size.height +=
+                                    (ms.settle + node_size.height).max(ms.min_height);
 
                                 intrinsic_size.width = intrinsic_size.width.max(node_size.width);
 
@@ -695,7 +880,43 @@ impl<'b, Message: Clone + 'static> Menu<'b, Message> {
         );
 
         match event {
+            // The pointer left the menu: its unfolded group folds
+            Mouse(mouse::Event::CursorLeft) => {
+                let _ = fold_all(self, renderer, shell);
+            }
+
             event::Event::Window(window::Event::RedrawRequested(now)) => {
+                let moving = self.tree.inner.with_data(|state| {
+                    state
+                        .menu_states
+                        .get(self.depth)
+                        .is_some_and(|ms| ms.reveal.is_some())
+                });
+                advance_reveal(self, *now, renderer, shell);
+                if moving {
+                    self.tree.inner.with_data_mut(|state| {
+                        let Some(ms) = state.menu_states.get_mut(self.depth) else {
+                            return;
+                        };
+                        if ms.keyboard_selection {
+                            if ms.reveal.is_none()
+                                && let Some(index) = ms.index
+                                && ms.scroll_into_view(index, viewport_size.height, overlay_offset)
+                            {
+                                shell.invalidate_layout();
+                            }
+                        } else if !state.pressed {
+                            let index = view_cursor
+                                .position()
+                                .and_then(|point| ms.row_at(point - overlay_offset));
+                            if ms.index != index {
+                                ms.index = index;
+                                state.pending = None;
+                                shell.request_redraw();
+                            }
+                        }
+                    });
+                }
                 return process_pending(self, *now, renderer, viewport_size, overlay_offset, shell);
             }
 
@@ -713,7 +934,9 @@ impl<'b, Message: Clone + 'static> Menu<'b, Message> {
             ),
 
             Mouse(ButtonPressed(Left)) | Touch(FingerPressed { .. }) => {
+                let group_press = press_group(self, overlay_cursor, renderer, shell);
                 self.tree.inner.with_data_mut(|data| {
+                    data.group_press = group_press;
                     data.pressed = true;
                     data.view_cursor = view_cursor;
                 });
@@ -721,6 +944,11 @@ impl<'b, Message: Clone + 'static> Menu<'b, Message> {
             }
 
             Mouse(CursorMoved { position }) | Touch(FingerMoved { position, .. }) => {
+                self.tree.inner.with_data_mut(|state| {
+                    if let Some(ms) = state.menu_states.get_mut(self.depth) {
+                        ms.keyboard_selection = false;
+                    }
+                });
                 let view_cursor = Cursor::Available(*position);
                 let overlay_cursor = view_cursor.position().unwrap_or_default() - overlay_offset;
                 if !self.is_overlay && !view_cursor.is_over(viewport) {
@@ -764,8 +992,13 @@ impl<'b, Message: Clone + 'static> Menu<'b, Message> {
                         return;
                     }
 
-                    // A press on a split row's arrow is for its child, and
-                    // a reason only shows something: neither closes the menu
+                    // The release of a press for a group is the group's
+                    if std::mem::take(&mut state.group_press) {
+                        return;
+                    }
+
+                    // A reason only shows something: a click on it does not
+                    // close the menu
                     let depth_index = if self.is_overlay {
                         state.menu_states.len().saturating_sub(1)
                     } else {
@@ -776,13 +1009,23 @@ impl<'b, Message: Clone + 'static> Menu<'b, Message> {
                         && let Some(index) = ms.index
                     {
                         let rows = rows_at(&self.menu_roots, &state.active_root, depth_index);
-                        if rows.iter().all(|row| row.passive)
-                            || rows[index]
-                                .child_open
-                                .takes_click(ms.row_bounds(index), overlay_cursor)
-                        {
+                        if rows.iter().all(|row| row.passive) {
                             return;
                         }
+                    }
+
+                    // Reserved transparent space is outside the visible menu:
+                    // dismiss it just like an outside click.
+                    if !self.is_overlay
+                        && view_cursor.is_over(viewport)
+                        && state.menu_states.get(self.depth).is_some_and(|ms| {
+                            let rows = ms.menu_bounds.children_bounds;
+                            let top = rows.y + ms.scroll_offset;
+                            overlay_cursor.y < top || overlay_cursor.y >= top + rows.height
+                        })
+                    {
+                        close_all(self, state, shell);
+                        return;
                     }
 
                     // process close condition
@@ -927,6 +1170,20 @@ impl<'b, Message: Clone + 'static> Menu<'b, Message> {
                             });
 
                             let children_bounds = children_layout.bounds();
+                            // The rows that show: the first and last of them
+                            // take the menu's corners
+                            let shown = |i: usize| ms.drawn(i);
+                            // The first and last rows that show take the
+                            // corners, not those of a group closing
+                            let cornered = |i: usize| ms.shows(i);
+                            let clip = ms.reveal_clip(children_layout);
+                            let first_shown = (start_index..=end_index)
+                                .find(|i| cornered(*i))
+                                .unwrap_or(start_index);
+                            let last_shown = (start_index..=end_index)
+                                .rev()
+                                .find(|i| cornered(*i))
+                                .unwrap_or(end_index);
 
                             // draw menu background
                             // let bounds = pad_rectangle(children_bounds, styling.background_expand.into());
@@ -947,21 +1204,30 @@ impl<'b, Message: Clone + 'static> Menu<'b, Message> {
                                 snap: true,
                             };
                             let menu_color = styling.background;
-                            r.fill_quad(menu_quad, menu_color);
+                            r.fill_quad(
+                                renderer::Quad {
+                                    border: Border {
+                                        width: 0.0,
+                                        ..menu_quad.border
+                                    },
+                                    ..menu_quad
+                                },
+                                menu_color,
+                            );
                             // draw path highlight
                             if let (true, Some(active)) = (draw_path, ms.index)
+                                && (start_index..=end_index).contains(&active)
                                 && let Some(active_layout) = children_layout
                                     .children()
                                     .nth(active.saturating_sub(start_index))
                             {
-                                let row = active.saturating_sub(start_index);
                                 let mut rad = styling.menu_border_radius;
                                 let rad_0 = theme.cosmic().radius_0();
-                                if start_index != end_index {
-                                    if 0 == row {
+                                if first_shown != last_shown {
+                                    if active == first_shown {
                                         rad[2] = rad_0[0];
                                         rad[3] = rad_0[1];
-                                    } else if row == end_index - start_index {
+                                    } else if active == last_shown {
                                         rad[0] = rad_0[2];
                                         rad[1] = rad_0[3];
                                     } else {
@@ -981,33 +1247,15 @@ impl<'b, Message: Clone + 'static> Menu<'b, Message> {
                                     snap: true,
                                 };
 
-                                r.fill_quad(path_quad, styling.path);
-
-                                // A split row's arrow stays tinted while its
-                                // variants are open
-                                let child_open = state.menu_states.len() > self.depth + i + 1;
-                                if let (true, Some(row)) = (child_open, menu_roots.get(active))
-                                    && let ChildOpen::Arrow(width) = row.child_open
-                                {
-                                    let row_bounds = active_layout.bounds();
-                                    let mut tint = theme.cosmic().accent_color();
-                                    tint.alpha = 0.15;
-                                    r.fill_quad(
-                                        renderer::Quad {
-                                            bounds: Rectangle {
-                                                x: row_bounds.x + row_bounds.width - width,
-                                                width,
-                                                ..row_bounds
-                                            },
-                                            border: Border {
-                                                radius: theme.cosmic().radius_s().to_radius(),
-                                                ..Default::default()
-                                            },
-                                            shadow: Shadow::default(),
-                                            snap: true,
-                                        },
-                                        iced::Background::Color(tint.to_color()),
-                                    );
+                                let path_clip = if ms.moving(active) {
+                                    clip.and_then(|(_, clip)| path_quad.bounds.intersection(&clip))
+                                } else {
+                                    Some(path_quad.bounds)
+                                };
+                                if let Some(path_clip) = path_clip.filter(|r| r.height > 0.0) {
+                                    r.with_layer(path_clip, |r| {
+                                        r.fill_quad(path_quad, styling.path)
+                                    });
                                 }
                             }
                             if start_index < menu_roots.len() {
@@ -1017,32 +1265,86 @@ impl<'b, Message: Clone + 'static> Menu<'b, Message> {
                                     .enumerate()
                                     .zip(children_layout.children())
                                     .for_each(|((i, mt), clo)| {
-                                        let t = theme.with_list_item_position(
-                                            if start_index == end_index {
+                                        let row = start_index + i;
+                                        // A folded group's rows are not drawn
+                                        if !shown(row) {
+                                            return;
+                                        }
+                                        let mut t = theme.with_list_item_position(
+                                            if first_shown == last_shown {
                                                 Some((Alignment::Center, i))
-                                            } else if 0 == i {
+                                            } else if row == first_shown {
                                                 Some((Alignment::Start, i))
-                                            } else if i == end_index - start_index {
+                                            } else if row == last_shown {
                                                 Some((Alignment::End, i))
                                             } else {
                                                 None
                                             },
                                         );
+                                        t.menu_bounds = children_bounds.intersection(&viewport);
+                                        // An unfolded group's row stays lit
+                                        let bounds = clo.bounds();
+                                        let view_cursor = if ms.unfolded == Some(row) {
+                                            Cursor::Available(Point::new(
+                                                bounds.x + 8.0,
+                                                bounds.center_y(),
+                                            ))
+                                        } else {
+                                            view_cursor
+                                        };
 
-                                        mt.item.draw(
-                                            &state.tree.children[active_root[0]].children[mt.index],
-                                            r,
-                                            &t,
-                                            style,
-                                            clo,
-                                            view_cursor,
-                                            &children_layout
-                                                .bounds()
-                                                .intersection(&viewport)
-                                                .unwrap_or_default(),
-                                        );
+                                        let mut row_clip = bounds.intersection(&viewport);
+                                        if ms.moving(row) {
+                                            row_clip = row_clip.and_then(|bounds| {
+                                                clip.and_then(|(_, clip)| {
+                                                    bounds.intersection(&clip)
+                                                })
+                                            });
+                                        }
+                                        let Some(row_clip) = row_clip.filter(|r| r.height > 0.0)
+                                        else {
+                                            return;
+                                        };
+                                        // Hidden portions of a member cannot make its
+                                        // visible fragment hover when the pointer is on
+                                        // the following row.
+                                        let view_cursor = if view_cursor.is_over(row_clip) {
+                                            view_cursor
+                                        } else {
+                                            Cursor::Unavailable
+                                        };
+                                        r.with_layer(row_clip, |r| {
+                                            mt.item.draw(
+                                                &state.tree.children[active_root[0]].children
+                                                    [mt.index],
+                                                r,
+                                                &t,
+                                                style,
+                                                clo,
+                                                view_cursor,
+                                                &row_clip,
+                                            );
+                                        });
                                     });
+                                // A later layer keeps badges above the row layers.
+                                r.with_layer(viewport, |r| {
+                                    draw_groups(
+                                        r,
+                                        theme,
+                                        menu_roots,
+                                        ms,
+                                        (start_index, end_index),
+                                        children_layout,
+                                        view_cursor,
+                                        viewport,
+                                        clip.map(|(_, clip)| clip),
+                                    )
+                                });
                             }
+                            // The outline belongs above all row layers.
+                            r.with_layer(render_bounds, |r| {
+                                r.fill_quad(menu_quad, iced_core::Color::TRANSPARENT);
+                            });
                         };
 
                         renderer.with_layer(render_bounds, draw_menu);
@@ -1328,6 +1630,110 @@ where
     }
 }
 
+/// Draws what the menu adds to its group rows: each one's count, and the
+/// guide line beside an unfolded group's rows.
+#[allow(clippy::too_many_arguments)]
+fn draw_groups<Message>(
+    renderer: &mut crate::ui::Renderer,
+    theme: &crate::ui::Theme,
+    rows: &[MenuTree<Message>],
+    ms: &MenuState,
+    (start_index, end_index): (usize, usize),
+    layout: Layout<'_>,
+    cursor: Cursor,
+    viewport: Rectangle,
+    clip: Option<Rectangle>,
+) {
+    use iced_core::text::{self, Renderer as _};
+
+    let cosmic = theme.cosmic();
+    let bounds_of = |row: usize| {
+        (start_index..=end_index)
+            .contains(&row)
+            .then(|| layout.children().nth(row - start_index))
+            .flatten()
+            .map(|l| l.bounds())
+    };
+    let quad = |bounds: Rectangle, radius: f32| renderer::Quad {
+        bounds,
+        border: Border {
+            radius: radius.into(),
+            ..Default::default()
+        },
+        shadow: Shadow::default(),
+        snap: true,
+    };
+
+    let open = ms.reveal.as_ref().map(|reveal| reveal.head).or(ms.unfolded);
+    if let Some(head) = open
+        && let Some(Group::Head { rows: members, .. }) = rows.get(head).map(|row| row.group)
+        && let (Some(first), Some(last)) = (bounds_of(head + 1), bounds_of(head + members))
+    {
+        let mut line = Rectangle {
+            x: layout.bounds().x + unfold::GUIDE_X,
+            y: first.y + 4.0,
+            width: 1.0,
+            height: (last.y + last.height - 4.0) - (first.y + 4.0),
+        };
+        // As far as the rows show
+        if let Some(clip) = clip {
+            line.height = line
+                .height
+                .min(clip.y + clip.height - 4.0 - line.y)
+                .max(0.0);
+        }
+        renderer.fill_quad(
+            quad(line, 0.0),
+            cosmic.background(theme.transparent).divider.to_color(),
+        );
+    }
+
+    for row in start_index..=end_index {
+        let Some(Group::Head { count, .. }) = rows.get(row).map(|row| row.group) else {
+            continue;
+        };
+        if !ms.shows(row) {
+            continue;
+        }
+        let Some(bounds) = bounds_of(row) else {
+            continue;
+        };
+        let unfolded = ms.unfolded == Some(row);
+        let chip = unfold::chip(bounds, count, unfolded);
+        let hot = unfolded || cursor.position().is_some_and(|at| chip.contains(at));
+        let label = unfold::chip_label(count, unfolded);
+        let font = crate::ui::font::default();
+        let (fill, ink) = if hot {
+            let mut fill = cosmic.accent_color();
+            fill.alpha = 0.15;
+            (fill, cosmic.accent_text_color())
+        } else {
+            let mut fill = cosmic.control_5();
+            fill.alpha = 0.2;
+            let mut ink = cosmic.background(theme.transparent).component.on;
+            ink.alpha *= 0.75;
+            (fill, ink)
+        };
+        renderer.fill_quad(quad(chip, unfold::CHIP_HEIGHT / 2.0), fill.to_color());
+        renderer.fill_text(
+            text::Text {
+                content: label,
+                bounds: chip.size(),
+                size: iced::Pixels(unfold::CHIP_TEXT),
+                line_height: text::LineHeight::default(),
+                font,
+                align_x: text::Alignment::Center,
+                align_y: iced::alignment::Vertical::Center,
+                shaping: text::Shaping::Advanced,
+                wrapping: text::Wrapping::None,
+            },
+            chip.center(),
+            ink.to_color(),
+            viewport,
+        );
+    }
+}
+
 /// Where `child`, a popup, sits in its parent menu's space: beside the row
 /// it opened from, on the side menus open towards.
 fn beside(child: &MenuState, direction: Direction) -> Rectangle {
@@ -1387,24 +1793,19 @@ fn child_menu_state<Message: Clone>(
         vertical_offset: 0.0,
     };
     let tree = &mut state.tree.children[active_root[0]].children;
-    MenuState {
-        index: None,
-        scroll_offset: 0.0,
-        menu_bounds: MenuBounds::new(
-            item,
-            renderer,
-            menu.item_width,
-            menu.item_height,
-            viewport_size,
-            overlay_offset,
-            &aod,
-            menu.bounds_expand,
-            item_bounds,
-            tree,
-            menu.is_overlay,
-        ),
-        laid_out: None,
-    }
+    MenuState::new(MenuBounds::new(
+        item,
+        renderer,
+        menu.item_width,
+        menu.item_height,
+        viewport_size,
+        overlay_offset,
+        &aod,
+        menu.bounds_expand,
+        item_bounds,
+        tree,
+        menu.is_overlay,
+    ))
 }
 
 /// Closes every menu of the chain `menu` belongs to.
@@ -1545,12 +1946,22 @@ pub(crate) fn init_root_menu<Message: Clone>(
                     menu.is_overlay,
                 );
                 state.active_root.push(i);
-                let ms = MenuState {
-                    index: None,
-                    scroll_offset: 0.0,
-                    menu_bounds,
-                    laid_out: None,
-                };
+                let mut ms = MenuState::new(menu_bounds);
+                // Allocate room once, so animation cannot race a configure.
+                if !menu.is_overlay {
+                    let room = fold_reserve(
+                        mt,
+                        renderer,
+                        menu.item_width,
+                        menu.item_height,
+                        &mut state.tree.children[0].children,
+                    );
+                    ms.room = room;
+                    ms.min_height = ms.menu_bounds.children_bounds.height + room;
+                    ms.settle = room;
+                    ms.menu_bounds.children_bounds.y += room;
+                    ms.menu_bounds.check_bounds.y += room;
+                }
                 state.menu_states.push(ms);
                 // Hack to ensure menu opens properly
                 shell.invalidate_layout();
@@ -1626,12 +2037,7 @@ pub(super) fn init_root_popup_menu<Message>(
             Direction::Positive
         };
 
-        let ms = MenuState {
-            index: None,
-            scroll_offset: 0.0,
-            menu_bounds,
-            laid_out: None,
-        };
+        let ms = MenuState::new(menu_bounds);
         state.menu_states.push(ms);
 
         // Hack to ensure menu opens properly
@@ -1684,6 +2090,24 @@ fn process_menu_events<Message: std::clone::Clone>(
         );
 
         let mt = &mut mt.children[hover_index];
+        // A press for a group is not the row's, and nor is its release,
+        // wherever the rows have moved since
+        let cursor = view_cursor.position().unwrap_or_default() - overlay_offset;
+        let for_group = match event {
+            event::Event::Mouse(mouse::Event::ButtonPressed(_))
+            | event::Event::Touch(touch::Event::FingerPressed { .. }) => presses_group(
+                mt,
+                hover.row_bounds(hover_index),
+                hover.unfolded == Some(hover_index),
+                cursor,
+            ),
+            event::Event::Mouse(mouse::Event::ButtonReleased(_))
+            | event::Event::Touch(touch::Event::FingerLifted { .. }) => state.group_press,
+            _ => false,
+        };
+        if for_group {
+            return;
+        }
         let tree = &mut state.tree.children[state.active_root[0]].children[mt.index];
 
         // get layout
@@ -1832,23 +2256,28 @@ where
         let last_parent_bounds = last_menu_bounds.parent_bounds;
         let last_children_bounds = last_menu_bounds.children_bounds;
 
+        // The room a popup keeps for a group to unfold into, and whatever of
+        // the surface the rows do not cover while they move
+        let top = last_children_bounds.y + last_menu_state.scroll_offset;
+        let below_rows = !menu.is_overlay
+            && (overlay_cursor.y < top || overlay_cursor.y >= top + last_children_bounds.height);
         if (menu.is_overlay && !menu.menu_overlays_parent && last_parent_bounds.contains(overlay_cursor))
         // cursor is in the parent part
         || menu.is_overlay && !last_children_bounds.contains(overlay_cursor)
         // cursor is outside
+        || below_rows
         {
 
             if last_menu_state.index.take().is_some() {
                 shell.request_redraw();
             }
+            last_menu_state.fresh = false;
+            if last_menu_state.unfolded.is_some() {
+                set_unfolded(menu, state, depth_index, None, renderer, shell);
+            }
             shell.capture_event();
             return new_menu_root;
         }
-
-        // calc new index
-        let height_diff = (overlay_cursor.y
-            - (last_children_bounds.y + last_menu_state.scroll_offset))
-            .clamp(0.0, last_children_bounds.height - 0.001);
 
         let active_root = if menu.is_overlay {
             &state.active_root
@@ -1860,20 +2289,31 @@ where
             return new_menu_root;
         }
         let active_menu = rows_at(&menu.menu_roots, active_root, active_root.len() - 1);
-        let new_index = match menu.item_height {
-            ItemHeight::Uniform(u) => (height_diff / f32::from(u)).floor() as usize,
-            ItemHeight::Static(_) | ItemHeight::Dynamic(_) => {
-                let max_index = active_menu.len() - 1;
-                search_bound(
-                    0,
-                    0,
-                    max_index,
-                    height_diff,
-                    &last_menu_bounds.child_positions,
-                    &last_menu_bounds.child_sizes,
-                )
+        let Some(new_index) = last_menu_state.row_at(overlay_cursor) else {
+            if last_menu_state.index.take().is_some() {
+                shell.request_redraw();
             }
+            shell.capture_event();
+            return new_menu_root;
         };
+        // Leaving an unfolded group, its row and its rows, folds it: the
+        // rows above it come down, the rows below stay
+        let groups: Vec<Group> = active_menu.iter().map(|row| row.group).collect();
+        if let Some(head) = last_menu_state.unfolded
+            && !unfold::in_group(&groups, head, new_index)
+        {
+            set_unfolded(menu, state, depth_index, None, renderer, shell);
+        }
+        let Some(last_menu_state) = state.menu_states.get_mut(depth_index) else {
+            return new_menu_root;
+        };
+        let active_root = if menu.is_overlay {
+            &state.active_root
+        } else {
+            &state.active_root[..=menu.depth]
+        };
+        let active_menu = rows_at(&menu.menu_roots, active_root, active_root.len() - 1);
+
         let now = Instant::now();
         let entered = last_menu_state.index != Some(new_index);
 
@@ -1921,12 +2361,17 @@ where
         let opening = if item.children.is_empty() {
             Opening::Not
         } else {
-            item.child_open.opening(
+            item.child_open.opening(entered, open)
+        };
+        // Pointing at a group row's count, exactly, unfolds its group at once
+        let on_count = match item.group {
+            Group::Head { count, .. } => unfold::on_chip(
                 state.menu_states[depth_index].row_bounds(new_index),
+                count,
+                state.menu_states[depth_index].unfolded == Some(new_index),
                 overlay_cursor,
-                entered,
-                open,
-            )
+            ),
+            _ => false,
         };
         match opening {
             // * add new menu if the new item is a menu
@@ -1965,6 +2410,32 @@ where
                 if !menu.is_overlay && remove {
                     state.menu_states.truncate(menu.depth + 1);
                 }
+            }
+        }
+
+        // A group closing is not opened again by pointing: its row comes
+        // back under the pointer as it closes, and it would flap open and
+        // shut. A click or the keys can.
+        let closing = state.menu_states[depth_index]
+            .reveal
+            .as_ref()
+            .is_some_and(|reveal| reveal.folding && reveal.head == new_index);
+        if on_count && !closing && state.menu_states[depth_index].unfolded != Some(new_index) {
+            set_unfolded(
+                menu,
+                state,
+                depth_index,
+                Some(new_index),
+                renderer,
+                shell,
+            );
+            state.menu_states[depth_index].fresh = true;
+        } else if !on_count && let Some(ms) = state.menu_states.get_mut(depth_index) {
+            ms.fresh = false;
+            // A group waiting its turn opens only while it is pointed at,
+            // unless the keys asked for it
+            if !ms.queued_keys {
+                ms.queued = None;
             }
         }
 
@@ -2085,6 +2556,7 @@ fn process_key<Message: Clone>(
             close_own(menu, state, shell);
             depth -= 1;
         }
+        state.menu_states[depth].keyboard_selection = true;
         let rows = rows_at(&menu.menu_roots, &state.active_root, depth);
         let index = state.menu_states[depth].index;
         // What Enter does on the chosen row: run its left part, or open its
@@ -2093,18 +2565,70 @@ fn process_key<Message: Clone>(
         let opens = row.is_some_and(|row| {
             !row.children.is_empty()
                 && match row.child_open {
-                    ChildOpen::Arrow(_) => *named == Named::ArrowRight || !row.pressable,
                     ChildOpen::Row => true,
                     ChildOpen::Rest(_) => false,
                 }
         });
+        // → ← and Space fold and unfold groups; Enter on a group row that
+        // runs nothing unfolds it
+        let groups: Vec<Group> = rows.iter().map(|row| row.group).collect();
+        let selectable: Vec<bool> = rows.iter().map(|row| row.selectable).collect();
+        let fold_key = match named {
+            Named::ArrowRight => Some(FoldKey::Right),
+            Named::ArrowLeft => Some(FoldKey::Left),
+            Named::Space => Some(FoldKey::Space),
+            Named::Enter if row.is_some_and(|row| !row.pressable) => Some(FoldKey::Right),
+            _ => None,
+        };
+        let folding = (!forwarded)
+            .then_some(fold_key.zip(index))
+            .flatten()
+            .and_then(|(key, index)| {
+                unfold::on_key(
+                    &groups,
+                    &selectable,
+                    index,
+                    state.menu_states[depth].unfolded,
+                    key,
+                )
+            });
+        if let Some((unfolded, chosen)) = folding {
+            set_unfolded(menu, state, depth, unfolded, renderer, shell);
+            let ms = &mut state.menu_states[depth];
+            // Waiting its turn, the group keeps its row chosen and chooses
+            // its first row once it opens
+            let waits = unfolded.is_some() && ms.queued == unfolded;
+            ms.queued_keys = waits;
+            ms.index = Some(if waits {
+                unfolded.unwrap_or(chosen)
+            } else {
+                chosen
+            });
+            ms.fresh = false;
+            // Do not scroll to the natural position of a still-hidden member.
+            if ms.reveal.is_none()
+                && ms.scroll_into_view(chosen, viewport_size.height, overlay_offset)
+            {
+                shell.invalidate_layout();
+            }
+            state.pending = None;
+            shell.request_redraw();
+            shell.capture_event();
+            return;
+        }
         match named {
             // From the reason's popup the menu cannot be scrolled to show
             // another row, so these only close the reason, as Right and
             // Left do
             Named::ArrowDown | Named::ArrowUp if forwarded => {}
             Named::ArrowDown | Named::ArrowUp => {
-                let selectable: Vec<bool> = rows.iter().map(|row| row.selectable).collect();
+                // A folded group's rows are not stopped on
+                let ms = &state.menu_states[depth];
+                let selectable: Vec<bool> = selectable
+                    .iter()
+                    .enumerate()
+                    .map(|(i, stops)| *stops && ms.shows(i))
+                    .collect();
                 let next = next_selectable(&selectable, index, *named == Named::ArrowDown);
                 if next != index {
                     close_child(menu, state, shell);
@@ -2157,6 +2681,9 @@ fn process_key<Message: Clone>(
                 press = index.filter(|i| rows[*i].pressable);
             }
             Named::Escape => close_all(menu, state, shell),
+            // Space on a row without a group does nothing in a menu with
+            // groups; elsewhere it closes the menu and goes on, as before
+            Named::Space if groups.iter().any(|g| matches!(g, Group::Head { .. })) => {}
             _ => {
                 close_all(menu, state, shell);
                 return;
@@ -2308,13 +2835,14 @@ fn get_children_layout<Message>(
     item_width: ItemWidth,
     item_height: ItemHeight,
     tree: &mut [Tree],
+    unfolded: Option<usize>,
 ) -> (Size, Vec<f32>, Vec<Size>) {
     let width = match item_width {
         ItemWidth::Uniform(u) => f32::from(u),
         ItemWidth::Static(s) => f32::from(menu_tree.width.unwrap_or(s)),
     };
 
-    let child_sizes: Vec<Size> = match item_height {
+    let mut child_sizes: Vec<Size> = match item_height {
         ItemHeight::Uniform(u) => {
             let count = menu_tree.children.len();
             vec![Size::new(width, f32::from(u)); count]
@@ -2360,6 +2888,14 @@ fn get_children_layout<Message>(
             .collect(),
     };
 
+    // A folded group's rows take no room
+    let groups: Vec<Group> = menu_tree.children.iter().map(|mt| mt.group).collect();
+    for (size, shown) in child_sizes.iter_mut().zip(unfold::shown(&groups, unfolded)) {
+        if !shown {
+            size.height = 0.0;
+        }
+    }
+
     let max_index = menu_tree.children.len().saturating_sub(1);
     let child_positions: Vec<f32> = std::iter::once(0.0)
         .chain(child_sizes[0..max_index].iter().scan(0.0, |acc, x| {
@@ -2373,35 +2909,306 @@ fn get_children_layout<Message>(
     (Size::new(width, height), child_positions, child_sizes)
 }
 
-fn search_bound(
-    default: usize,
-    default_left: usize,
-    default_right: usize,
-    bound: f32,
-    positions: &[f32],
-    sizes: &[Size],
-) -> usize {
-    // binary search
-    let mut left = default_left;
-    let mut right = default_right;
-
-    let mut index = default;
-    while left != right {
-        let m = ((left + right) / 2) + 1;
-        if positions[m] > bound {
-            right = m - 1;
-        } else {
-            left = m;
-        }
-    }
-    // let height = f32::from(menu_tree.children[left].height.unwrap_or(default_height));
-    let height = sizes[left].height;
-    if positions[left] + height > bound {
-        index = left;
-    }
-    index
+/// How much taller than folded the menu `menu_tree` gets with its biggest
+/// group unfolded.
+fn fold_reserve<Message>(
+    menu_tree: &MenuTree<Message>,
+    renderer: &crate::ui::Renderer,
+    item_width: ItemWidth,
+    item_height: ItemHeight,
+    tree: &mut [Tree],
+) -> f32 {
+    let folded = get_children_layout(menu_tree, renderer, item_width, item_height, tree, None)
+        .0
+        .height;
+    menu_tree
+        .children
+        .iter()
+        .enumerate()
+        .filter(|(_, mt)| matches!(mt.group, Group::Head { .. }))
+        .map(|(head, _)| {
+            get_children_layout(
+                menu_tree,
+                renderer,
+                item_width,
+                item_height,
+                tree,
+                Some(head),
+            )
+            .0
+            .height
+                - folded
+        })
+        .fold(0.0, f32::max)
 }
 
+/// The menu at `depth`, following `active_root` down from the menu's root.
+fn menu_at<'a, Message>(
+    menu_roots: &'a [MenuTree<Message>],
+    active_root: &[usize],
+    depth: usize,
+) -> &'a MenuTree<Message> {
+    active_root[..=depth]
+        .iter()
+        .skip(1)
+        .fold(&menu_roots[active_root[0]], |mt, next| &mt.children[*next])
+}
+
+/// Animates within the reserved space; another group waits for the current fold.
+fn set_unfolded<Message: Clone>(
+    menu: &Menu<'_, Message>,
+    state: &mut MenuBarStateInner,
+    depth: usize,
+    unfolded: Option<usize>,
+    renderer: &crate::ui::Renderer,
+    shell: &mut Shell<'_, Message>,
+) {
+    let ms = &mut state.menu_states[depth];
+    if unfolded.is_none() {
+        ms.queued = None;
+    }
+    if ms.unfolded == unfolded {
+        return;
+    }
+    if let Some(head) = unfolded {
+        let busy =
+            ms.unfolded.is_some() || ms.reveal.as_ref().is_some_and(|reveal| reveal.head != head);
+        if busy {
+            if ms.unfolded.is_some() {
+                set_unfolded(menu, state, depth, None, renderer, shell);
+            }
+            state.menu_states[depth].queued = Some(head);
+            state.menu_states[depth].queued_keys = false;
+            return;
+        }
+    }
+    close_child(menu, state, shell);
+    let active_root = state.active_root.clone();
+    let menu_tree = menu_at(&menu.menu_roots, &active_root, depth);
+    let tree = &mut state.tree.children[active_root[0]].children;
+    let ms = &mut state.menu_states[depth];
+    let Some(head) = unfolded.or(ms.unfolded) else {
+        return;
+    };
+    let Group::Head { rows, .. } = menu_tree.children[head].group else {
+        return;
+    };
+    let full = get_children_layout(
+        menu_tree,
+        renderer,
+        menu.item_width,
+        menu.item_height,
+        tree,
+        Some(head),
+    )
+    .2
+    .iter()
+    .skip(head + 1)
+    .take(rows)
+    .map(|size| size.height)
+    .sum();
+    let from = ms.reveal.as_ref().filter(|r| r.head == head).map_or(
+        if unfolded.is_some() { 0.0 } else { full },
+        unfold::Reveal::shown,
+    );
+    ms.unfolded = unfolded;
+    ms.reveal = Some(if unfolded.is_some() {
+        unfold::Reveal::unfold(head, rows, full, from)
+    } else {
+        unfold::Reveal::fold(head, rows, full, from)
+    });
+    ms.relayout(
+        menu_tree,
+        renderer,
+        menu.item_width,
+        menu.item_height,
+        tree,
+        menu.bounds_expand,
+    );
+    shell.invalidate_layout();
+    shell.request_redraw();
+}
+
+/// Opens the group that asked to open while another one closed; asked for
+/// with the keys, its first row is chosen.
+fn open_queued<Message: Clone>(
+    menu: &Menu<'_, Message>,
+    state: &mut MenuBarStateInner,
+    depth: usize,
+    renderer: &crate::ui::Renderer,
+    shell: &mut Shell<'_, Message>,
+) {
+    let ms = &mut state.menu_states[depth];
+    let Some(head) = ms.queued.take() else {
+        return;
+    };
+    let keys = std::mem::take(&mut ms.queued_keys);
+    set_unfolded(menu, state, depth, Some(head), renderer, shell);
+    if keys {
+        let rows = rows_at(&menu.menu_roots, &state.active_root, depth);
+        let groups: Vec<Group> = rows.iter().map(|row| row.group).collect();
+        let selectable: Vec<bool> = rows.iter().map(|row| row.selectable).collect();
+        if let Some((_, chosen)) = unfold::on_key(
+            &groups,
+            &selectable,
+            head,
+            Some(head),
+            unfold::FoldKey::Right,
+        ) {
+            state.menu_states[depth].index = Some(chosen);
+        }
+    }
+}
+
+/// Lays the menu at `depth` out again as it shows now.
+fn relayout_menu<Message: Clone>(
+    menu: &Menu<'_, Message>,
+    state: &mut MenuBarStateInner,
+    depth: usize,
+    renderer: &crate::ui::Renderer,
+    shell: &mut Shell<'_, Message>,
+) {
+    let active_root = state.active_root.clone();
+    let menu_tree = menu_at(&menu.menu_roots, &active_root, depth);
+    let tree = &mut state.tree.children[active_root[0]].children;
+    let ms = &mut state.menu_states[depth];
+    ms.relayout(
+        menu_tree,
+        renderer,
+        menu.item_width,
+        menu.item_height,
+        tree,
+        menu.bounds_expand,
+    );
+    shell.invalidate_layout();
+    shell.request_redraw();
+}
+
+/// Advances the reveal without changing the popup surface.
+fn advance_reveal<Message: Clone>(
+    menu: &Menu<'_, Message>,
+    now: Instant,
+    renderer: &crate::ui::Renderer,
+    shell: &mut Shell<'_, Message>,
+) {
+    menu.tree.inner.with_data_mut(|state| {
+        let depth = if menu.is_overlay {
+            state.menu_states.len().saturating_sub(1)
+        } else {
+            menu.depth
+        };
+        if state.active_root.len() <= depth {
+            return;
+        }
+        let Some(ms) = state.menu_states.get_mut(depth) else {
+            return;
+        };
+        let Some(reveal) = ms.reveal.as_mut() else {
+            return;
+        };
+        let changed = reveal.advance(now);
+        let done = !reveal.is_moving();
+        let closed = done && reveal.folding;
+        if done {
+            ms.reveal = None;
+        }
+        if changed || done {
+            relayout_menu(menu, state, depth, renderer, shell);
+        }
+        if !done {
+            shell.request_redraw();
+        }
+        if closed {
+            open_queued(menu, state, depth, renderer, shell);
+        }
+    });
+}
+
+/// Folds the unfolded group of the menu, as the pointer leaves the menu.
+fn fold_all<Message: Clone>(
+    menu: &Menu<'_, Message>,
+    renderer: &crate::ui::Renderer,
+    shell: &mut Shell<'_, Message>,
+) -> bool {
+    menu.tree.inner.with_data_mut(|state| {
+        let depth = if menu.is_overlay {
+            state.menu_states.len().saturating_sub(1)
+        } else {
+            menu.depth
+        };
+        if state.active_root.len() <= depth
+            || !state
+                .menu_states
+                .get(depth)
+                .is_some_and(|ms| ms.unfolded.is_some())
+        {
+            return false;
+        }
+        set_unfolded(menu, state, depth, None, renderer, shell);
+        state.menu_states[depth].fresh = false;
+        true
+    })
+}
+/// Whether a press at `cursor` on `row`, at `bounds`, is for its group
+/// rather than the row: on its count, or anywhere on a group row that runs
+/// nothing itself.
+fn presses_group<Message>(
+    row: &MenuTree<Message>,
+    bounds: Rectangle,
+    unfolded: bool,
+    cursor: Point,
+) -> bool {
+    match row.group {
+        Group::Head { count, .. } => {
+            !row.pressable || unfold::on_chip(bounds, count, unfolded, cursor)
+        }
+        _ => false,
+    }
+}
+
+/// A press on a group row's count, or on a group row that runs nothing:
+/// unfolds its group, or folds it if it was unfolded before the pointer
+/// came. Whether the press was for a group.
+fn press_group<Message: Clone>(
+    menu: &Menu<'_, Message>,
+    overlay_cursor: Point,
+    renderer: &crate::ui::Renderer,
+    shell: &mut Shell<'_, Message>,
+) -> bool {
+    menu.tree.inner.with_data_mut(|state| {
+        let depth = if menu.is_overlay {
+            state.menu_states.len().saturating_sub(1)
+        } else {
+            menu.depth
+        };
+        if state.active_root.len() <= depth {
+            return false;
+        }
+        let Some(ms) = state.menu_states.get(depth) else {
+            return false;
+        };
+        let Some(index) = ms.index else {
+            return false;
+        };
+        let rows = rows_at(&menu.menu_roots, &state.active_root, depth);
+        if !presses_group(
+            &rows[index],
+            ms.row_bounds(index),
+            ms.unfolded == Some(index),
+            overlay_cursor,
+        ) {
+            return false;
+        }
+        let unfolded = if ms.unfolded == Some(index) && !ms.fresh {
+            None
+        } else {
+            Some(index)
+        };
+        set_unfolded(menu, state, depth, unfolded, renderer, shell);
+        state.menu_states[depth].fresh = false;
+        true
+    })
+}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2412,6 +3219,7 @@ mod tests {
         MenuState {
             index: None,
             scroll_offset: 0.0,
+            keyboard_selection: false,
             menu_bounds: MenuBounds {
                 child_positions: vec![0.0],
                 child_sizes: vec![size],
@@ -2421,6 +3229,15 @@ mod tests {
                 offset_bounds: Rectangle::default(),
             },
             laid_out: None,
+            unfolded: None,
+            fresh: false,
+            min_height: 0.0,
+            fitted_height: f32::INFINITY,
+            settle: 0.0,
+            reveal: None,
+            room: 0.0,
+            queued: None,
+            queued_keys: false,
         }
     }
 
@@ -2433,6 +3250,7 @@ mod tests {
         let mut menu = MenuState {
             index: None,
             scroll_offset: 0.0,
+            keyboard_selection: false,
             menu_bounds: MenuBounds {
                 child_positions: (0..rows).map(|i| i as f32 * row.height).collect(),
                 child_sizes: vec![row; rows],
@@ -2445,6 +3263,15 @@ mod tests {
                 offset_bounds: Rectangle::default(),
             },
             laid_out: None,
+            unfolded: None,
+            fresh: false,
+            min_height: 0.0,
+            fitted_height: f32::INFINITY,
+            settle: 0.0,
+            reveal: None,
+            room: 0.0,
+            queued: None,
+            queued_keys: false,
         };
         let height = 200.0;
         assert!(
@@ -2468,9 +3295,10 @@ mod tests {
         );
     }
 
-    /// The pointer leaving a split row's arrow for its variants, beside the
-    /// menu, is heading for them: the child is placed in the parent's space,
-    /// not at the origin of its own.
+    /// The pointer leaving a row for its child popup beside the menu (a
+    /// folded menu bar's submenu, a dimmed row's reason) is heading for it:
+    /// the child is placed in the parent's space, not at the origin of its
+    /// own.
     #[test]
     fn a_child_popup_sits_beside_its_row_for_the_aim() {
         let row = Rectangle::new(Point::new(0.0, 100.0), Size::new(360.0, 36.0));
@@ -2480,8 +3308,208 @@ mod tests {
         let left = beside(&child(row, size), Direction::Negative);
         assert_eq!(left, Rectangle::new(Point::new(-280.0, 100.0), size));
 
-        let on_arrow = Point::new(340.0, 118.0);
-        assert!(aims_at(on_arrow, Point::new(350.0, 140.0), right));
-        assert!(!aims_at(on_arrow, Point::new(300.0, 140.0), right));
+        let on_row = Point::new(340.0, 118.0);
+        assert!(aims_at(on_row, Point::new(350.0, 140.0), right));
+        assert!(!aims_at(on_row, Point::new(300.0, 140.0), right));
+    }
+
+    #[derive(Clone, Copy, PartialEq, Eq)]
+    struct Act;
+    impl crate::ui::widget::menu::action::MenuAction for Act {
+        type Message = ();
+        fn message(&self) {}
+    }
+
+    /// Open, Copy with two variants, Paste: five rows.
+    fn copy_menu() -> MenuTree<()> {
+        use crate::ui::widget::menu::{Entry, Item};
+        let items = crate::ui::widget::menu::items(
+            &std::collections::HashMap::new(),
+            vec![
+                Item::Button("Open", None, Act),
+                Item::Split(
+                    Entry::new("Copy", Act),
+                    vec![
+                        Item::Button("Copy path", None, Act),
+                        Item::Button("Copy to", None, Act),
+                    ],
+                ),
+                Item::Button("Paste", None, Act),
+            ],
+        );
+        let mut menu = MenuTree::with_children(
+            crate::ui::Element::from(crate::ui::widget::Row::new()),
+            items,
+        );
+        menu.set_index();
+        menu
+    }
+
+    fn layout_of(menu: &MenuTree<()>, unfolded: Option<usize>) -> (Size, Vec<f32>, Vec<Size>) {
+        let renderer = iced_texture_cache::testing::headless_tiny_skia();
+        let mut tree: Vec<Tree> = (0..8).map(|_| Tree::empty()).collect();
+        get_children_layout(
+            menu,
+            &renderer,
+            ItemWidth::Uniform(360),
+            ItemHeight::Dynamic(40),
+            &mut tree,
+            unfolded,
+        )
+    }
+
+    /// A folded group's rows take no room; unfolded, they sit under their
+    /// row and push the rows after them down.
+    #[test]
+    fn a_group_takes_room_only_when_unfolded() {
+        let menu = copy_menu();
+        let (size, positions, sizes) = layout_of(&menu, None);
+        let heights: Vec<f32> = sizes.iter().map(|s| s.height).collect();
+        assert_eq!(heights, [36.0, 36.0, 0.0, 0.0, 36.0]);
+        assert_eq!(size.height, 108.0);
+        assert_eq!(positions[4], 72.0, "Paste right under Copy");
+
+        let (size, positions, sizes) = layout_of(&menu, Some(1));
+        let heights: Vec<f32> = sizes.iter().map(|s| s.height).collect();
+        assert_eq!(heights, [36.0, 36.0, 32.0, 32.0, 36.0]);
+        assert_eq!(size.height, 172.0);
+        assert_eq!(positions[2], 72.0, "Copy path right under Copy");
+        assert_eq!(positions[4], 136.0, "Paste moved down");
+    }
+
+    /// Unfolding lays the menu out again, and a row that folds away while
+    /// chosen hands the choice to its group row.
+    #[test]
+    fn refolding_moves_the_rows_and_the_choice() {
+        let menu = copy_menu();
+        let renderer = iced_texture_cache::testing::headless_tiny_skia();
+        let mut tree: Vec<Tree> = (0..8).map(|_| Tree::empty()).collect();
+        let (size, positions, sizes) = layout_of(&menu, None);
+        let mut state = MenuState::new(MenuBounds {
+            child_positions: positions,
+            child_sizes: sizes,
+            children_bounds: Rectangle::new(Point::ORIGIN, size),
+            parent_bounds: Rectangle::default(),
+            check_bounds: Rectangle::default(),
+            offset_bounds: Rectangle::default(),
+        });
+        let refold = |state: &mut MenuState, unfolded, tree: &mut Vec<Tree>| {
+            state.refold(
+                &menu,
+                unfolded,
+                &renderer,
+                ItemWidth::Uniform(360),
+                ItemHeight::Dynamic(40),
+                tree,
+                16,
+            );
+        };
+        refold(&mut state, Some(1), &mut tree);
+        assert_eq!(state.unfolded, Some(1));
+        assert_eq!(state.menu_bounds.children_bounds.height, 172.0);
+        assert_eq!(state.menu_bounds.check_bounds.height, 172.0 + 32.0);
+        assert!(state.shows(3));
+
+        state.index = Some(3);
+        refold(&mut state, None, &mut tree);
+        assert_eq!(state.index, Some(1), "Copy to folded away");
+        assert_eq!(state.menu_bounds.children_bounds.height, 108.0);
+        assert!(!state.shows(3));
+    }
+
+    /// Reserve enough room for the largest group.
+    #[test]
+    fn the_room_kept_is_the_biggest_groups() {
+        let menu = copy_menu();
+        let renderer = iced_texture_cache::testing::headless_tiny_skia();
+        let mut tree: Vec<Tree> = (0..8).map(|_| Tree::empty()).collect();
+        let reserve = fold_reserve(
+            &menu,
+            &renderer,
+            ItemWidth::Uniform(360),
+            ItemHeight::Dynamic(40),
+            &mut tree,
+        );
+        assert_eq!(reserve, 64.0);
+    }
+
+    /// A folded menu without a reserved margin in this geometry fixture.
+    fn folded_state(menu: &MenuTree<()>) -> MenuState {
+        let (size, positions, sizes) = layout_of(menu, None);
+        MenuState::new(MenuBounds {
+            child_positions: positions,
+            child_sizes: sizes,
+            children_bounds: Rectangle::new(Point::ORIGIN, size),
+            parent_bounds: Rectangle::default(),
+            check_bounds: Rectangle::default(),
+            offset_bounds: Rectangle::default(),
+        })
+    }
+
+    fn relayout(state: &mut MenuState, menu: &MenuTree<()>) {
+        let renderer = iced_texture_cache::testing::headless_tiny_skia();
+        let mut tree: Vec<Tree> = (0..8).map(|_| Tree::empty()).collect();
+        state.relayout(
+            menu,
+            &renderer,
+            ItemWidth::Uniform(360),
+            ItemHeight::Dynamic(40),
+            &mut tree,
+            16,
+        );
+    }
+
+    /// While a group closes, its rows no longer count as showing, but the
+    /// rows below it, moved up over them, still do: the pointer and the
+    /// keys keep them. Only the group's own rows are cut to the part that
+    /// shows.
+    #[test]
+    fn only_the_closing_groups_rows_are_hidden_and_cut() {
+        let menu = copy_menu();
+        let mut state = folded_state(&menu);
+        state.unfolded = None;
+        let mut reveal = unfold::Reveal::fold(1, 2, 64.0, 20.0);
+        reveal.advance(Instant::now());
+        state.reveal = Some(reveal);
+        state.index = Some(4);
+        relayout(&mut state, &menu);
+        assert!(!state.shows(2) && !state.shows(3), "closing rows");
+        assert!(state.shows(4), "Paste");
+        assert_eq!(state.index, Some(4), "Paste stays chosen");
+        assert!(state.moving(2) && state.moving(3));
+        assert!(!state.moving(1) && !state.moving(4));
+    }
+    #[test]
+    fn reveal_slice_keeps_the_visible_row_below_hidden_members() {
+        let menu = copy_menu();
+        let mut state = folded_state(&menu);
+        state.unfolded = Some(1);
+        state.reveal = Some(unfold::Reveal::unfold(1, 2, 64.0, 10.0));
+        relayout(&mut state, &menu);
+        state.menu_bounds.children_bounds.y = 0.0;
+        state.scroll_offset = -90.0;
+        let slice = state.slice(
+            Size::new(360.0, 10.0),
+            Vector::ZERO,
+            ItemHeight::Dynamic(40),
+        );
+        assert_eq!((slice.start_index, slice.end_index), (4, 4));
+        assert_eq!(state.row_at(Point::new(100.0, 5.0)), Some(4));
+    }
+
+    #[test]
+    fn reveal_clip_survives_the_first_member_scrolling_away() {
+        let menu = copy_menu();
+        let mut state = folded_state(&menu);
+        state.unfolded = Some(1);
+        state.reveal = Some(unfold::Reveal::unfold(1, 2, 64.0, 48.0));
+        relayout(&mut state, &menu);
+        state.scroll_offset = -110.0;
+        let node = Node::new(Size::new(360.0, 156.0));
+        let (_, clip) = state
+            .reveal_clip(Layout::new(&node))
+            .expect("remaining member needs a clip");
+        assert_eq!(clip.y, -38.0);
+        assert_eq!(clip.height, 48.0);
     }
 }

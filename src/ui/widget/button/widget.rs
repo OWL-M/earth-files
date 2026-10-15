@@ -426,30 +426,51 @@ impl<'a, Message: 'a + Clone> Widget<Message, crate::ui::Theme, crate::ui::Rende
             text_color.a = alpha;
         }
 
-        draw::<_, crate::ui::Theme>(
-            renderer,
-            bounds,
-            *viewport,
-            &styling,
-            |renderer, _styling| {
-                // `renderer::Style` has only `text_color`; the icon colour is
-                // an inheritance channel this crate carries separately (see
-                // `crate::ui::theme::icon_color`) for content that draws its
-                // own symbolic icon.
-                crate::ui::theme::with_icon_color(icon_color, text_color, || {
-                    self.content.as_widget().draw(
-                        &tree.children[0],
-                        renderer,
-                        theme,
-                        &renderer::Style { text_color },
-                        content_layout,
-                        cursor,
-                        &viewport.intersection(&bounds).unwrap_or_default(),
-                    );
-                });
-            },
-            matches!(self.variant, Variant::Image { .. }),
-        );
+        let menu_bounds = matches!(
+            self.style,
+            crate::ui::theme::Button::MenuItem | crate::ui::theme::Button::MenuFolder
+        )
+        .then_some(theme.menu_bounds)
+        .flatten();
+        if menu_bounds.is_some() {
+            // Every fragment uses the same outer curve, even when less than
+            // a corner's radius of the last row has been revealed.
+            styling.border_radius = theme.cosmic().corner_radii.radius_s.to_radius();
+        }
+        let draw_button = |renderer: &mut crate::ui::Renderer| {
+            draw::<_, crate::ui::Theme>(
+                renderer,
+                menu_bounds.unwrap_or(bounds),
+                *viewport,
+                &styling,
+                |renderer, _styling| {
+                    // `renderer::Style` has only `text_color`; the icon colour is
+                    // an inheritance channel this crate carries separately (see
+                    // `crate::ui::theme::icon_color`) for content that draws its
+                    // own symbolic icon.
+                    crate::ui::theme::with_icon_color(icon_color, text_color, || {
+                        self.content.as_widget().draw(
+                            &tree.children[0],
+                            renderer,
+                            theme,
+                            &renderer::Style { text_color },
+                            content_layout,
+                            cursor,
+                            &viewport.intersection(&bounds).unwrap_or_default(),
+                        );
+                    });
+                },
+                matches!(self.variant, Variant::Image { .. }),
+            )
+        };
+        if menu_bounds.is_some() {
+            renderer.with_layer(
+                viewport.intersection(&bounds).unwrap_or_default(),
+                draw_button,
+            );
+        } else {
+            draw_button(renderer);
+        }
 
         if let Variant::Image {
             close_icon,

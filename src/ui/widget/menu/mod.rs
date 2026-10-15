@@ -77,6 +77,7 @@ pub mod menu_column;
 
 mod menu_inner;
 mod menu_tree;
+pub mod unfold;
 pub use menu_tree::{
     Entry, IconSlot, MenuItem as Item, MenuTree as Tree, menu_button, menu_items as items,
     menu_root as root, nav_context,

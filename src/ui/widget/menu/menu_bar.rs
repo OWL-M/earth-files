@@ -63,6 +63,10 @@ pub(crate) struct MenuBarStateInner {
     /// release that ends it is the end of the opening click, not a click on
     /// the menu, and must neither choose an item nor close the menu.
     pub(crate) opening_press_held: bool,
+    /// The press now held was for a group (its count, or a group row that
+    /// runs nothing): its release is too, even if the rows moved under the
+    /// pointer since, and it neither runs a row nor closes the menu.
+    pub(crate) group_press: bool,
     /// Fingers of the two-finger tap that opened a context menu, still down
     /// when it opened on the first lift. Their lifts end that tap, as
     /// `opening_press_held` is for a right click. The context menu takes
@@ -116,6 +120,7 @@ impl MenuBarStateInner {
         self.active_root = Vec::new();
         self.menu_states.clear();
         self.opening_press_held = false;
+        self.group_press = false;
         self.opening_fingers.clear();
         self.pending = None;
         self.last_cursor = None;
@@ -136,6 +141,7 @@ impl Default for MenuBarStateInner {
             leaving: HashMap::new(),
             bar_pressed: false,
             opening_press_held: false,
+            group_press: false,
             opening_fingers: HashSet::new(),
             pending: None,
             last_cursor: None,

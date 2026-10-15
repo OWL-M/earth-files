@@ -985,9 +985,9 @@ mod tests {
 
     #[test]
     fn radii_and_spacing_take_both_shapes() {
-        let all = parse("(corner_radii: (all: 8.0))").apply(&DARK);
-        assert_eq!(all.corner_radii.radius_s, [8.0; 4]);
-        assert_eq!(all.corner_radii.radius_xl, [8.0; 4]);
+        let all = parse("(corner_radii: (all: 12.0))").apply(&DARK);
+        assert_eq!(all.corner_radii.radius_s, [12.0; 4]);
+        assert_eq!(all.corner_radii.radius_xl, [12.0; 4]);
         // A square corner stays square
         assert_eq!(all.corner_radii.radius_0, DARK.corner_radii.radius_0);
 
@@ -1319,7 +1319,7 @@ mod tests {
         let path = dir.path().join("dark.ron");
         std::fs::write(
             &path,
-            b"(\n    name: \"gruvbox\",\n    accent: \"#d65d0e\",\n    bg_color: \"#282828\",\n    text_tint: \"#ebdbb2\",\n    destructive: \"#cc241d\",\n    corner_radii: (all: 8.0),\n    spacing: Compact,\n)\n",
+            b"(\n    name: \"gruvbox\",\n    accent: \"#d65d0e\",\n    bg_color: \"#282828\",\n    text_tint: \"#ebdbb2\",\n    destructive: \"#cc241d\",\n    corner_radii: (all: 12.0),\n    spacing: Compact,\n)\n",
         )
         .unwrap();
         let applied = read_and_apply(&path, &DARK).expect("the theme should load");
@@ -1327,6 +1327,14 @@ mod tests {
         assert_eq!(applied.accent.base, color("#d65d0e"));
         assert_eq!(applied.background.base, color("#282828"));
         assert_eq!(applied.background.on, color("#ebdbb2"));
-        assert_eq!(applied.corner_radii.radius_m, [8.0; 4]);
+        assert_eq!(applied.corner_radii.radius_m, [12.0; 4]);
+    }
+
+    #[test]
+    fn the_built_in_corners_are_all_eight() {
+        let eight = parse("(corner_radii: (all: 8.0))");
+        for base in [&DARK, &LIGHT] {
+            assert_eq!(eight.apply(base).corner_radii, base.corner_radii);
+        }
     }
 }

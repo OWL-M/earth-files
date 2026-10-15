@@ -91,6 +91,8 @@ pub struct Theme {
     pub transparent: bool,
     /// Only meaningful for widgets that must be in a list; otherwise ignored.
     pub list_item_position: Option<(Alignment, usize)>,
+    /// Shared rounded background for menu rows, including partially revealed rows.
+    pub(crate) menu_bounds: Option<iced_core::Rectangle>,
 }
 
 impl Theme {

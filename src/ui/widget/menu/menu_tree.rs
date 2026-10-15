@@ -23,6 +23,7 @@ use crate::ui::widget::icon;
 use crate::ui::widget::menu::action::MenuAction;
 use crate::ui::widget::menu::aim::{ChildOpen, REASON_TIME};
 use crate::ui::widget::menu::key_bind::KeyBind;
+use crate::ui::widget::menu::unfold::{CHIP_RIGHT, CHIP_SLOT, Group};
 use iced_core::{Alignment, Length};
 
 /// Nested menu is essentially a tree of items, a menu is a collection of items
@@ -58,6 +59,8 @@ pub struct MenuTree<Message> {
     /// A row that only shows something, a dimmed row's reason: pressing it
     /// neither chooses anything nor closes the menu.
     pub(crate) passive: bool,
+    /// The row's part in a group that unfolds in place.
+    pub(crate) group: Group,
 }
 
 impl<Message: Clone + 'static> MenuTree<Message> {
@@ -73,6 +76,7 @@ impl<Message: Clone + 'static> MenuTree<Message> {
             selectable: false,
             pressable: false,
             passive: false,
+            group: Group::None,
         }
     }
 
@@ -91,6 +95,7 @@ impl<Message: Clone + 'static> MenuTree<Message> {
             selectable: false,
             pressable: false,
             passive: false,
+            group: Group::None,
         }
     }
 
@@ -233,10 +238,11 @@ pub enum MenuItem<A: MenuAction, L: Into<Cow<'static, str>>> {
     Divider,
     /// A menu entry with every option available; see [`Entry`].
     Entry(Entry<A, L>),
-    /// A split row: the entry's action on its left part, an arrow on its
-    /// right that opens the variants.
+    /// A split row: the entry's action, with its variants folded under it
+    /// behind a count.
     Split(Entry<A, L>, Vec<MenuItem<A, L>>),
-    /// A row that opens a submenu, with an icon: another program's actions.
+    /// Another program's row, with an icon: its actions folded under it
+    /// behind a count.
     Submenu(L, Option<icon::Handle>, Vec<MenuItem<A, L>>),
 }
 
@@ -373,18 +379,25 @@ where
         .force_enabled(true)
 }
 
-/// Width of a split row's arrow part, from the row's right edge: the
-/// divider, the arrow and the gap after it.
-pub const ARROW_WIDTH: f32 = 39.0;
+/// Room every row of a menu with counts keeps at its right end, where a
+/// group row's count is drawn, so all shortcuts line up: a gap, the count
+/// and the space after it.
+const TRAIL: f32 = 8.0 + CHIP_SLOT + CHIP_RIGHT;
 
-/// Room every other row of a menu with arrows keeps at its right end, so
-/// its shortcut lines up with a split row's: the arrow part and the left
-/// part's own padding.
-const TRAIL: f32 = ARROW_WIDTH + 8.0;
+/// Height of the rows of an unfolded group.
+pub const MEMBER_HEIGHT: f32 = 32.0;
 
-/// Width of the popups holding a split row's variants or a program's
-/// actions.
-const CHILD_WIDTH: u16 = 280;
+/// Left padding of the rows of an unfolded group: past the guide line.
+pub const MEMBER_INDENT: f32 = 38.0;
+
+/// Where an entry's row sits, which decides its size and padding.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Place {
+    /// A row of the menu; `trail` keeps the count's room at its end.
+    Top { trail: bool },
+    /// A row of a group, under its group row.
+    Member,
+}
 
 /// Padding around a reason's text, in its popup.
 const REASON_PADDING: u16 = 10;
@@ -497,30 +510,6 @@ fn pin_button<Message: Clone + 'static>(
         .into()
 }
 
-/// The arrow of a split row or a submenu, dimmed when nothing behind it
-/// can run.
-fn arrow<Message: Clone + 'static>(live: bool) -> crate::ui::Element<'static, Message> {
-    let mut chevron = widget::icon::from_name("pan-end-symbolic").size(16).icon();
-    if !live {
-        chevron = chevron.class(theme::Svg::Custom(Rc::new(|theme| {
-            iced::widget::svg::Style {
-                color: Some(
-                    theme
-                        .cosmic()
-                        .background(theme.transparent)
-                        .component
-                        .on_disabled
-                        .to_color(),
-                ),
-            }
-        })));
-    }
-    widget::container(chevron)
-        .width(Length::Fixed(30.0))
-        .center_x(Length::Fixed(30.0))
-        .into()
-}
-
 /// The popup beside a dimmed row saying why it cannot run.
 fn reason_tree<Message: Clone + 'static>(reason: Cow<'static, str>) -> (MenuTree<Message>, u16) {
     let width = crate::ui::font::text_width(&reason, 14.0, crate::ui::font::default())
@@ -548,7 +537,7 @@ fn entry_tree<
     entry: Entry<A, L>,
     key_binds: &HashMap<KeyBind, A>,
     key_class: theme::Text,
-    trail: bool,
+    place: Place,
 ) -> MenuTree<Message> {
     let Entry {
         label,
@@ -564,6 +553,7 @@ fn entry_tree<
     if let Some((pinned, pin_action)) = pin {
         items.push(pin_button(pinned, pin_action.message()));
     }
+    let trail = matches!(place, Place::Top { trail: true } | Place::Member);
     if trail {
         items.push(
             widget::space::horizontal()
@@ -581,6 +571,18 @@ fn entry_tree<
             left: 16.0,
         });
     }
+    if place == Place::Member {
+        // Its shortcut and pin end where the other rows' do: before the
+        // room the counts take
+        button = button
+            .height(Length::Fixed(MEMBER_HEIGHT))
+            .padding(iced::Padding {
+                top: 4.0,
+                right: 0.0,
+                bottom: 4.0,
+                left: MEMBER_INDENT,
+            });
+    }
     if enabled {
         button = button.on_press(action.message());
         return MenuTree::from(Element::from(button)).selectable(true);
@@ -596,10 +598,37 @@ fn entry_tree<
     }
 }
 
-/// A split row: the entry's action on the left, its variants behind the
-/// arrow. With nothing in it able to run it is a dimmed row, with its
-/// reason.
-fn split_tree<
+/// A group row followed by its rows, folded under it: the count is how
+/// many of them are actions.
+fn group_trees<
+    A: MenuAction<Message = Message>,
+    L: Into<Cow<'static, str>> + 'static,
+    Message: Clone + 'static,
+>(
+    mut head: MenuTree<Message>,
+    rows: Vec<MenuItem<A, L>>,
+    key_binds: &HashMap<KeyBind, A>,
+) -> Vec<MenuTree<Message>> {
+    let count = rows
+        .iter()
+        .filter(|row| !matches!(row, MenuItem::Divider))
+        .count();
+    let mut members = items(key_binds, rows, true);
+    for member in &mut members {
+        member.group = Group::Member;
+    }
+    head.group = Group::Head {
+        rows: members.len(),
+        count,
+    };
+    // The keys stop on it to unfold it, whether or not it runs anything
+    head.selectable = true;
+    std::iter::once(head).chain(members).collect()
+}
+
+/// A split row: the entry's action, its variants folded under it. With
+/// nothing in it able to run it is a dimmed row, with its reason.
+fn split_trees<
     A: MenuAction<Message = Message>,
     L: Into<Cow<'static, str>> + 'static,
     Message: Clone + 'static,
@@ -608,58 +637,19 @@ fn split_tree<
     variants: Vec<MenuItem<A, L>>,
     key_binds: &HashMap<KeyBind, A>,
     key_class: theme::Text,
-) -> MenuTree<Message> {
+) -> Vec<MenuTree<Message>> {
     let any_variant = variants.iter().any(MenuItem::runs);
+    let head = entry_tree(entry, key_binds, key_class, Place::Top { trail: true });
     // With no variant, or none that can run, it is a plain row
-    if variants.is_empty() || !entry.enabled && !any_variant {
-        return entry_tree(entry, key_binds, key_class, true);
+    if variants.is_empty() || !any_variant && !head.pressable {
+        return vec![head];
     }
-    let Entry {
-        label,
-        icon,
-        checked,
-        enabled,
-        action,
-        pin,
-        ..
-    } = entry;
-    let key = key_for(key_binds, &action);
-    let mut content = entry_content(label.into(), icon, checked, key, key_class);
-    // A pinned variant on the left part keeps its pin, which unpins it
-    if let Some((pinned, pin_action)) = pin {
-        content.push(pin_button(pinned, pin_action.message()));
-    }
-    let mut left = menu_button(content).padding(iced::Padding {
-        top: 4.0,
-        right: 8.0,
-        bottom: 4.0,
-        left: 16.0,
-    });
-    if enabled {
-        left = left.on_press(action.message());
-    }
-    let row = widget::Row::with_children(vec![
-        left.into(),
-        widget::container(widget::divider::vertical::light())
-            .height(Length::Fixed(20.0))
-            .into(),
-        arrow(true),
-        widget::space::horizontal().width(Length::Fixed(8.0)).into(),
-    ])
-    .align_y(Alignment::Center)
-    .height(Length::Fixed(36.0))
-    .width(Length::Fill);
-    MenuTree::with_children(
-        crate::ui::Element::from(row),
-        menu_items(key_binds, variants),
-    )
-    .width(CHILD_WIDTH)
-    .child_open(ChildOpen::Arrow(ARROW_WIDTH))
-    .selectable(enabled)
+    group_trees(head, variants, key_binds)
 }
 
-/// A row opening a submenu, with an icon: another program's actions.
-fn submenu_tree<
+/// Another program's row, with an icon: its actions folded under it. It
+/// runs nothing itself, but looks live while something in it can run.
+fn submenu_trees<
     A: MenuAction<Message = Message>,
     L: Into<Cow<'static, str>> + 'static,
     Message: Clone + 'static,
@@ -669,7 +659,7 @@ fn submenu_tree<
     children: Vec<MenuItem<A, L>>,
     key_binds: &HashMap<KeyBind, A>,
     key_class: theme::Text,
-) -> MenuTree<Message> {
+) -> Vec<MenuTree<Message>> {
     let live = children.iter().any(MenuItem::runs);
     let mut items = entry_content(
         label.into(),
@@ -678,9 +668,11 @@ fn submenu_tree<
         String::new(),
         key_class,
     );
-    items.push(widget::space::horizontal().width(Length::Fixed(1.0)).into());
-    items.push(arrow(live));
-    items.push(widget::space::horizontal().width(Length::Fixed(8.0)).into());
+    items.push(
+        widget::space::horizontal()
+            .width(Length::Fixed(TRAIL))
+            .into(),
+    );
     let button = menu_button(items)
         .padding(iced::Padding {
             top: 4.0,
@@ -688,17 +680,13 @@ fn submenu_tree<
             bottom: 4.0,
             left: 16.0,
         })
-        .class(if live {
-            theme::Button::MenuFolder
-        } else {
-            theme::Button::MenuItem
-        });
-    let tree = MenuTree::with_children(
-        crate::ui::Element::from(button),
-        menu_items(key_binds, children),
-    )
-    .width(CHILD_WIDTH);
-    if live { tree.selectable(false) } else { tree }
+        .force_enabled(live);
+    let head = MenuTree::from(crate::ui::Element::from(button));
+    if live {
+        group_trees(head, children, key_binds)
+    } else {
+        vec![head]
+    }
 }
 
 impl<A: MenuAction, L: Into<Cow<'static, str>>> MenuItem<A, L> {
@@ -715,8 +703,8 @@ impl<A: MenuAction, L: Into<Cow<'static, str>>> MenuItem<A, L> {
         }
     }
 
-    /// Whether the item has an arrow at its right end.
-    fn has_arrow(&self) -> bool {
+    /// Whether the item can be a group row, with a count at its end.
+    fn has_count(&self) -> bool {
         matches!(self, Self::Split(..) | Self::Submenu(..))
     }
 }
@@ -740,6 +728,20 @@ pub fn menu_items<
     key_binds: &HashMap<KeyBind, A>,
     children: Vec<MenuItem<A, L>>,
 ) -> Vec<MenuTree<Message>> {
+    items(key_binds, children, false)
+}
+
+/// The rows of `children`: a menu's own rows, or, as `members`, the rows
+/// of a group under its group row.
+fn items<
+    A: MenuAction<Message = Message>,
+    L: Into<Cow<'static, str>> + 'static,
+    Message: 'static + std::clone::Clone,
+>(
+    key_binds: &HashMap<KeyBind, A>,
+    children: Vec<MenuItem<A, L>>,
+    members: bool,
+) -> Vec<MenuTree<Message>> {
     // `theme::Text::Custom` holds a `fn(&Theme) -> crate::ui::widget::text::Style`:
     // this crate's text `Style` (colour plus the two selection colours), not
     // `iced_core`'s one-field `text::Style` this file imports as `TextStyle`.
@@ -754,9 +756,15 @@ pub fn menu_items<
     let key_class = theme::Text::Custom(key_style);
 
     let size = children.len();
-    // In a menu with arrows every row keeps the arrow's room, so labels and
-    // shortcuts line up
-    let trail = children.iter().any(MenuItem::has_arrow);
+    // In a menu with counts every row keeps the count's room, so labels
+    // and shortcuts line up
+    let place = if members {
+        Place::Member
+    } else {
+        Place::Top {
+            trail: children.iter().any(MenuItem::has_count),
+        }
+    };
 
     children
         .into_iter()
@@ -768,26 +776,30 @@ pub fn menu_items<
                 MenuItem::Button(label, icon, action) => {
                     let mut entry = Entry::new(label, action);
                     entry.icon = icon.into();
-                    trees.push(entry_tree(entry, key_binds, key_class, trail));
+                    trees.push(entry_tree(entry, key_binds, key_class, place));
                 }
                 MenuItem::ButtonDisabled(label, icon, action) => {
                     let mut entry = Entry::new(label, action).enabled(false);
                     entry.icon = icon.into();
-                    trees.push(entry_tree(entry, key_binds, key_class, trail));
+                    trees.push(entry_tree(entry, key_binds, key_class, place));
                 }
                 MenuItem::CheckBox(label, icon, value, action) => {
                     let mut entry = Entry::new(label, action).checked(value);
                     entry.icon = icon.into();
-                    trees.push(entry_tree(entry, key_binds, key_class, trail));
+                    trees.push(entry_tree(entry, key_binds, key_class, place));
                 }
                 MenuItem::Entry(entry) => {
-                    trees.push(entry_tree(entry, key_binds, key_class, trail));
+                    trees.push(entry_tree(entry, key_binds, key_class, place));
+                }
+                // A group's rows do not nest groups: a variant is one row
+                MenuItem::Split(entry, _) if members => {
+                    trees.push(entry_tree(entry, key_binds, key_class, place));
                 }
                 MenuItem::Split(entry, variants) => {
-                    trees.push(split_tree(entry, variants, key_binds, key_class));
+                    trees.extend(split_trees(entry, variants, key_binds, key_class));
                 }
                 MenuItem::Submenu(label, icon, children) => {
-                    trees.push(submenu_tree(label, icon, children, key_binds, key_class));
+                    trees.extend(submenu_trees(label, icon, children, key_binds, key_class));
                 }
                 MenuItem::Folder(label, children) => {
                     let l: Cow<'static, str> = label.into();
@@ -874,20 +886,43 @@ mod tests {
         menu_items(&HashMap::new(), items)
     }
 
+    fn groups(trees: &[MenuTree<Act>]) -> Vec<Group> {
+        trees.iter().map(|tree| tree.group).collect()
+    }
+
+    fn height(tree: &MenuTree<Act>) -> Length {
+        tree.item
+            .element
+            .with_data_mut(|w| w.as_widget_mut().size().height)
+    }
+
+    /// A split row is its default action, followed by its other ways as
+    /// rows of the same menu, folded under it: no popup of its own.
     #[test]
-    fn a_split_row_opens_its_variants_from_the_arrow() {
+    fn a_split_row_is_followed_by_its_variants_folded_under_it() {
         let trees = build(vec![MenuItem::Split(
             Entry::new("Open", Act::Open),
-            vec![MenuItem::Entry(
-                Entry::new("Open in new tab", Act::OpenTab).pin(false, Act::Pin),
-            )],
+            vec![
+                MenuItem::Entry(Entry::new("Open in new tab", Act::OpenTab).pin(false, Act::Pin)),
+                MenuItem::Divider,
+                MenuItem::Button("Open with", None, Act::Paste),
+            ],
         )]);
-        assert_eq!(trees.len(), 1);
-        assert_eq!(trees[0].child_open, ChildOpen::Arrow(ARROW_WIDTH));
-        assert_eq!(trees[0].children.len(), 1);
-        assert_eq!(trees[0].width, Some(CHILD_WIDTH));
-        assert!(trees[0].selectable);
-        assert!(trees[0].children[0].selectable);
+        assert_eq!(
+            groups(&trees),
+            [
+                Group::Head { rows: 3, count: 2 },
+                Group::Member,
+                Group::Member,
+                Group::Member
+            ]
+        );
+        assert!(trees[0].selectable && trees[0].pressable);
+        assert!(trees[0].children.is_empty(), "no popup of its own");
+        assert!(trees[1].selectable && trees[1].pressable);
+        assert!(!trees[2].selectable, "the divider");
+        assert_eq!(height(&trees[0]), Length::Fixed(36.0));
+        assert_eq!(height(&trees[1]), Length::Fixed(MEMBER_HEIGHT));
     }
 
     /// A dimmed row is not stopped on by the keys and shows its reason in a
@@ -916,16 +951,21 @@ mod tests {
         assert!(trees[0].children.is_empty());
     }
 
-    /// A split row whose action cannot run but a variant can keeps its
-    /// arrow; one where nothing can run is a dimmed row.
+    /// A split row whose action cannot run but a variant can is dimmed
+    /// with its reason and still unfolds; one where nothing can run is a
+    /// plain dimmed row.
     #[test]
     fn a_split_row_is_dimmed_only_when_nothing_in_it_runs() {
         let half = build(vec![MenuItem::Split(
-            Entry::new("Open", Act::Open).enabled(false),
+            Entry::new("Open", Act::Open)
+                .enabled(false)
+                .reason("Files and folders do not open together"),
             vec![MenuItem::Entry(Entry::new("Open in new tab", Act::OpenTab))],
         )]);
-        assert_eq!(half[0].child_open, ChildOpen::Arrow(ARROW_WIDTH));
-        assert!(half[0].selectable);
+        assert_eq!(half[0].group, Group::Head { rows: 1, count: 1 });
+        assert!(half[0].selectable, "the keys stop on it to unfold it");
+        assert!(!half[0].pressable);
+        assert_eq!(half[0].child_open, ChildOpen::Rest(REASON_TIME));
 
         let none = build(vec![MenuItem::Split(
             Entry::new("Open", Act::Open)
@@ -935,20 +975,35 @@ mod tests {
                 Entry::new("Open in new tab", Act::OpenTab).enabled(false),
             )],
         )]);
+        assert_eq!(groups(&none), [Group::None]);
         assert_eq!(none[0].child_open, ChildOpen::Rest(REASON_TIME));
         assert!(!none[0].selectable);
     }
 
+    /// Another program's actions unfold under its row as well; its row runs
+    /// nothing itself.
     #[test]
-    fn a_program_row_opens_on_entering_it() {
+    fn a_program_row_unfolds_its_actions() {
         let trees = build(vec![MenuItem::Submenu(
             "PeaZip",
             None,
-            vec![MenuItem::Button("Extract here", None, Act::Peazip)],
+            vec![
+                MenuItem::Button("Extract here", None, Act::Peazip),
+                MenuItem::Divider,
+                MenuItem::Button("Add to archive", None, Act::Peazip),
+            ],
         )]);
-        assert_eq!(trees[0].child_open, ChildOpen::Row);
-        assert_eq!(trees[0].children.len(), 1);
-        assert!(trees[0].selectable);
+        assert_eq!(trees[0].group, Group::Head { rows: 3, count: 2 });
+        assert!(trees[0].selectable && !trees[0].pressable);
+        assert!(trees[0].children.is_empty());
+
+        let dead = build(vec![MenuItem::Submenu(
+            "PeaZip",
+            None,
+            vec![MenuItem::ButtonDisabled("Extract here", None, Act::Peazip)],
+        )]);
+        assert_eq!(groups(&dead), [Group::None]);
+        assert!(!dead[0].selectable);
     }
 
     #[test]

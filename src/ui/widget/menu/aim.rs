@@ -21,9 +21,6 @@ pub enum ChildOpen {
     /// As soon as the pointer enters the row.
     #[default]
     Row,
-    /// As soon as the pointer enters the row's last `width` pixels: a split
-    /// row's arrow. Its left part never opens the child.
-    Arrow(f32),
     /// Once the pointer has rested on the row this long: a dimmed row's
     /// reason.
     Rest(Duration),
@@ -41,35 +38,21 @@ pub enum Opening {
 }
 
 impl ChildOpen {
-    /// What the pointer at `cursor`, on `row`, asks of the row's child.
-    /// `entered` is whether the pointer has just come onto the row; `open`
-    /// whether the child is open already.
+    /// What the pointer on the row asks of the row's child. `entered` is
+    /// whether the pointer has just come onto the row; `open` whether the
+    /// child is open already.
     #[must_use]
-    pub fn opening(self, row: Rectangle, cursor: Point, entered: bool, open: bool) -> Opening {
+    pub fn opening(self, entered: bool, open: bool) -> Opening {
         if open {
             return Opening::Not;
         }
         match self {
             Self::Row if entered => Opening::Now,
             Self::Row => Opening::Not,
-            Self::Arrow(width) if in_arrow(row, width, cursor) => Opening::Now,
-            Self::Arrow(_) => Opening::Not,
             Self::Rest(time) if entered => Opening::After(time),
             Self::Rest(_) => Opening::Not,
         }
     }
-
-    /// Whether a press and release at `cursor` on `row` is meant for the
-    /// child rather than for the row: on a split row's arrow.
-    #[must_use]
-    pub fn takes_click(self, row: Rectangle, cursor: Point) -> bool {
-        matches!(self, Self::Arrow(width) if in_arrow(row, width, cursor))
-    }
-}
-
-/// Whether `cursor` is in the last `width` pixels of `row`.
-fn in_arrow(row: Rectangle, width: f32, cursor: Point) -> bool {
-    row.contains(cursor) && cursor.x >= row.x + row.width - width
 }
 
 /// Whether the pointer, moving from `from` to `to`, is heading for `child`:
@@ -130,47 +113,18 @@ pub fn next_selectable(selectable: &[bool], from: Option<usize>, down: bool) -> 
 mod tests {
     use super::*;
 
-    const ROW: Rectangle = Rectangle {
-        x: 0.0,
-        y: 100.0,
-        width: 290.0,
-        height: 36.0,
-    };
-
     #[test]
     fn a_plain_parent_opens_on_entering_the_row() {
-        let at = Point::new(20.0, 110.0);
-        assert_eq!(ChildOpen::Row.opening(ROW, at, true, false), Opening::Now);
-        assert_eq!(ChildOpen::Row.opening(ROW, at, false, false), Opening::Not);
-        assert_eq!(ChildOpen::Row.opening(ROW, at, true, true), Opening::Not);
-    }
-
-    #[test]
-    fn a_split_row_opens_only_from_its_arrow() {
-        let arrow = ChildOpen::Arrow(39.0);
-        let left = Point::new(100.0, 110.0);
-        let on_arrow = Point::new(270.0, 110.0);
-        assert_eq!(arrow.opening(ROW, left, true, false), Opening::Not);
-        assert_eq!(
-            arrow.opening(ROW, on_arrow, false, false),
-            Opening::Now,
-            "moving onto it"
-        );
-        assert_eq!(arrow.opening(ROW, on_arrow, true, true), Opening::Not);
-        assert!(arrow.takes_click(ROW, on_arrow));
-        assert!(!arrow.takes_click(ROW, left));
-        assert!(!ChildOpen::Row.takes_click(ROW, on_arrow));
+        assert_eq!(ChildOpen::Row.opening(true, false), Opening::Now);
+        assert_eq!(ChildOpen::Row.opening(false, false), Opening::Not);
+        assert_eq!(ChildOpen::Row.opening(true, true), Opening::Not);
     }
 
     #[test]
     fn a_reason_waits_for_the_pointer_to_rest() {
         let rest = ChildOpen::Rest(REASON_TIME);
-        let at = Point::new(100.0, 110.0);
-        assert_eq!(
-            rest.opening(ROW, at, true, false),
-            Opening::After(REASON_TIME)
-        );
-        assert_eq!(rest.opening(ROW, at, false, false), Opening::Not);
+        assert_eq!(rest.opening(true, false), Opening::After(REASON_TIME));
+        assert_eq!(rest.opening(false, false), Opening::Not);
     }
 
     #[test]

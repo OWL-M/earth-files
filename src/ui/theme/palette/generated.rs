@@ -4,7 +4,8 @@
 //! Generated snapshot. See the module documentation in `../palette.rs`.
 //!
 //! Captured from cosmic-theme at pop-os/libcosmic d9431dc
-//! (`Theme::{dark_default, light_default}`).
+//! (`Theme::{dark_default, light_default}`), except the corner radii: every
+//! non-zero size is 8, the same as `corner_radii: (all: 8.0)` in a theme file.
 
 #![allow(clippy::unreadable_literal)]
 
@@ -367,11 +368,11 @@ pub static DARK: Palette = Palette {
     },
     corner_radii: CornerRadii {
         radius_0: [0.0, 0.0, 0.0, 0.0],
-        radius_xs: [4.0, 4.0, 4.0, 4.0],
+        radius_xs: [8.0, 8.0, 8.0, 8.0],
         radius_s: [8.0, 8.0, 8.0, 8.0],
-        radius_m: [16.0, 16.0, 16.0, 16.0],
-        radius_l: [32.0, 32.0, 32.0, 32.0],
-        radius_xl: [160.0, 160.0, 160.0, 160.0],
+        radius_m: [8.0, 8.0, 8.0, 8.0],
+        radius_l: [8.0, 8.0, 8.0, 8.0],
+        radius_xl: [8.0, 8.0, 8.0, 8.0],
     },
     is_dark: true,
     is_high_contrast: false,
@@ -734,11 +735,11 @@ pub static LIGHT: Palette = Palette {
     },
     corner_radii: CornerRadii {
         radius_0: [0.0, 0.0, 0.0, 0.0],
-        radius_xs: [4.0, 4.0, 4.0, 4.0],
+        radius_xs: [8.0, 8.0, 8.0, 8.0],
         radius_s: [8.0, 8.0, 8.0, 8.0],
-        radius_m: [16.0, 16.0, 16.0, 16.0],
-        radius_l: [32.0, 32.0, 32.0, 32.0],
-        radius_xl: [160.0, 160.0, 160.0, 160.0],
+        radius_m: [8.0, 8.0, 8.0, 8.0],
+        radius_l: [8.0, 8.0, 8.0, 8.0],
+        radius_xl: [8.0, 8.0, 8.0, 8.0],
     },
     is_dark: false,
     is_high_contrast: false,
