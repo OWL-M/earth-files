@@ -14173,7 +14173,10 @@ mod tests {
         width(&tab, 1000.0);
         assert!(tab.column_slide_fits(400.0, false), "1000 → 1400: closing");
 
-        width(&tab, SORT_LABELS_MIN + 200.0);
+        // Where the labels start to fit: never under SORT_LABELS_MIN, and later
+        // when the fonts at hand measure them wider
+        let labels_min = tab.sort_bar_labelled_width().max(SORT_LABELS_MIN);
+        width(&tab, labels_min + 200.0);
         assert!(
             !tab.column_slide_fits(400.0, true),
             "the sort bar drops its labels on the way"
@@ -14201,10 +14204,10 @@ mod tests {
         );
 
         // The exact boundary keeps the labels.
-        width(&tab, SORT_LABELS_MIN + 400.0);
+        width(&tab, labels_min + 400.0);
         assert!(
             tab.column_slide_fits(400.0, true),
-            "down to exactly SORT_LABELS_MIN"
+            "down to exactly where the labels fit"
         );
 
         width(&tab, 1400.0);

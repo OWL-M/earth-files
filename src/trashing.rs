@@ -859,6 +859,9 @@ mod tests {
         let top = drive();
         let bin = bin_in(top.path());
         crate::trash::remember_folder(bin.root.clone());
+        // As another test running in parallel may do: look for the trash
+        // folders again, which must not forget this one
+        crate::trash::refresh_folders();
         let inner = bin.root.join("files/d/info/x.trashinfo");
         fs::create_dir_all(inner.parent().expect("parent")).expect("mkdir");
         fs::write(&inner, "x").expect("write");

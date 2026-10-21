@@ -91,23 +91,19 @@ pub fn refresh_folders() {
     set_folders(Trash::folders().unwrap_or_default());
 }
 
-/// Adds `folder` to the trash folders known, as a search would find it.
+/// Trash folders tests made, kept apart from [`TRASH_FOLDERS`]: tests run in
+/// parallel, and another test's first look for the trash folders replaces
+/// that set, which would drop a folder added to it.
+#[cfg(test)]
+static REMEMBERED_FOLDERS: RwLock<Vec<PathBuf>> = RwLock::new(Vec::new());
+
+/// Counts `folder` as a trash folder, as a search would find it.
 #[cfg(test)]
 pub fn remember_folder(folder: PathBuf) {
-    if TRASH_FOLDERS
-        .read()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-        .is_none()
-    {
-        refresh_folders();
-    }
-    if let Some(folders) = TRASH_FOLDERS
+    REMEMBERED_FOLDERS
         .write()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
-        .as_mut()
-    {
-        folders.insert(folder);
-    }
+        .push(folder);
 }
 
 /// Takes `folders` as the trash folders there are, found elsewhere.
@@ -118,6 +114,15 @@ pub fn set_folders(folders: HashSet<PathBuf>) {
 }
 
 fn is_trash_root(root: &Path) -> bool {
+    #[cfg(test)]
+    if REMEMBERED_FOLDERS
+        .read()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .iter()
+        .any(|folder| folder == root)
+    {
+        return true;
+    }
     let known =
         |folders: &Option<HashSet<PathBuf>>| folders.as_ref().map(|folders| folders.contains(root));
     let found = known(

@@ -116,14 +116,14 @@ fn clashes(planned: &[PlannedOp]) -> Vec<(PathBuf, PathBuf)> {
         .collect()
 }
 
-/// The first folder a move could not remove one of `froms` from, and
+/// The first folder a move could not remove one of `sources` from, and
 /// whether that is because its filesystem is read-only rather than for lack
 /// of permission. Removing an entry takes writing to the folder it is in; in
 /// a sticky folder someone else owns, such as `/tmp`, it also takes owning
 /// the entry.
 ///
 /// Blocking: it asks the filesystem about every folder once.
-fn removal_block(froms: &[PathBuf]) -> Option<(PathBuf, bool)> {
+fn removal_block(sources: &[PathBuf]) -> Option<(PathBuf, bool)> {
     use std::os::unix::fs::MetadataExt;
 
     // SAFETY: `geteuid` has no preconditions and cannot fail
@@ -132,7 +132,7 @@ fn removal_block(froms: &[PathBuf]) -> Option<(PathBuf, bool)> {
     // for a sticky one where only owned entries can
     let mut folders: std::collections::HashMap<&Path, Result<bool, bool>> =
         std::collections::HashMap::new();
-    for from in froms {
+    for from in sources {
         let Some(folder) = from.parent() else {
             continue;
         };
@@ -506,9 +506,9 @@ impl Context {
                 Method::Move {
                     cross_device_copy: false,
                 } => {
-                    let froms: Vec<PathBuf> =
+                    let sources: Vec<PathBuf> =
                         checked.planned.iter().map(|op| op.from.clone()).collect();
-                    removal_block(&froms)
+                    removal_block(&sources)
                 }
                 _ => None,
             };
