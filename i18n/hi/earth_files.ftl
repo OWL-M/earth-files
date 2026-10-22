@@ -366,6 +366,7 @@ abort-tooltip = यहीं रोकें और जो हो चुका �
 cancel-tooltip = रोकें और सब कुछ पहले जैसा कर दें
 stalled-title = ड्राइव जवाब नहीं दे रही है
 stalled-for = {$seconds} से. से कोई जवाब नहीं
+keep-waiting = प्रतीक्षा जारी रखें
 keep-original = मूल रखें
 destination-no-permission = "{$folder}" में लिखा नहीं जा सकता: अनुमति नहीं है
 destination-read-only = "{$folder}" में लिखा नहीं जा सकता: यह केवल पढ़ने के लिए है

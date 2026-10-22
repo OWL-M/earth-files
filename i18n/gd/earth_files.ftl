@@ -18,6 +18,7 @@ abort-tooltip = Sguir an-seo is cùm na rinneadh
 cancel-tooltip = Sguir is cuir gach nì air ais
 stalled-title = Chan eil an draibh a’ freagairt
 stalled-for = Gun fhreagairt fad {$seconds} s
+keep-waiting = Fuirich fhathast
 keep-original = Cùm an tionndadh tùsail
 destination-no-permission = Cha ghabh sgrìobhadh gu “{$folder}”: gun chead
 destination-read-only = Cha ghabh sgrìobhadh gu “{$folder}”: tha e ri leughadh a-mhàin

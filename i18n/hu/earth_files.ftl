@@ -56,6 +56,7 @@ abort-tooltip = Leállítás itt, az elkészült rész megmarad
 cancel-tooltip = Leállítás és minden visszaállítása
 stalled-title = A meghajtó nem válaszol
 stalled-for = {$seconds} mp óta nincs válasz
+keep-waiting = Várakozás tovább
 keep-original = Eredeti megtartása
 destination-no-permission = Nem írható: „{$folder}” (nincs jogosultság)
 destination-read-only = Nem írható: „{$folder}” (csak olvasható)

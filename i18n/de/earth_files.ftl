@@ -57,6 +57,7 @@ abort-tooltip = Hier anhalten und das Erledigte behalten
 cancel-tooltip = Anhalten und alles zurücksetzen
 stalled-title = Das Laufwerk reagiert nicht
 stalled-for = Seit {$seconds} s keine Antwort
+keep-waiting = Weiter warten
 keep-original = Original behalten
 destination-no-permission = In „{$folder}“ kann nicht geschrieben werden: keine Berechtigung
 destination-read-only = In „{$folder}“ kann nicht geschrieben werden: schreibgeschützt

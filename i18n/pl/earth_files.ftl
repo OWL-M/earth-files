@@ -61,6 +61,7 @@ abort-tooltip = Zatrzymaj tutaj i zachowaj to, co zrobione
 cancel-tooltip = Zatrzymaj i przywróć wszystko
 stalled-title = Dysk nie odpowiada
 stalled-for = Brak odpowiedzi od {$seconds} s
+keep-waiting = Czekaj dalej
 keep-original = Zachowaj oryginał
 destination-no-permission = Nie można zapisać w „{$folder}”: brak uprawnień
 destination-read-only = Nie można zapisać w „{$folder}”: tylko do odczytu

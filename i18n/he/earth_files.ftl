@@ -20,6 +20,7 @@ abort-tooltip = עצירה כאן ושמירה על מה שכבר בוצע
 cancel-tooltip = עצירה והחזרת הכול למצבו הקודם
 stalled-title = הכונן אינו מגיב
 stalled-for = אין תגובה כבר {$seconds} שנ׳
+keep-waiting = להמשיך להמתין
 keep-original = שמירת המקור
 destination-no-permission = לא ניתן לכתוב אל "{$folder}": אין הרשאה
 destination-read-only = לא ניתן לכתוב אל "{$folder}": לקריאה בלבד

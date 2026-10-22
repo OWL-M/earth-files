@@ -18,6 +18,7 @@ abort-tooltip = Shu yerda to‘xtatish va bajarilganini saqlash
 cancel-tooltip = To‘xtatish va hammasini qaytarish
 stalled-title = Disk javob bermayapti
 stalled-for = {$seconds} soniyadan beri javob yo‘q
+keep-waiting = Kutishda davom etish
 keep-original = Aslini saqlash
 destination-no-permission = “{$folder}” jildiga yozib bo‘lmaydi: ruxsat yo‘q
 destination-read-only = “{$folder}” jildiga yozib bo‘lmaydi: faqat o‘qish uchun

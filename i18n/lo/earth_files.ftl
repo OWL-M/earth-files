@@ -18,6 +18,7 @@ abort-tooltip = ຢຸດຢູ່ນີ້ ແລະ ເກັບສິ່ງ�
 cancel-tooltip = ຢຸດ ແລະ ເອົາທຸກຢ່າງຄືນ
 stalled-title = ໄດຣຟ໌ບໍ່ຕອບສະໜອງ
 stalled-for = ບໍ່ມີການຕອບສະໜອງ {$seconds} ວິ
+keep-waiting = ລໍຖ້າຕໍ່
 keep-original = ເກັບຕົ້ນສະບັບໄວ້
 destination-no-permission = ບໍ່ສາມາດຂຽນໃສ່ "{$folder}" ໄດ້: ບໍ່ມີສິດ
 destination-read-only = ບໍ່ສາມາດຂຽນໃສ່ "{$folder}" ໄດ້: ອ່ານໄດ້ຢ່າງດຽວ

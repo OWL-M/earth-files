@@ -58,6 +58,7 @@ abort-tooltip = Parar aqui e manter o que já foi feito
 cancel-tooltip = Parar e desfazer tudo
 stalled-title = A unidade não responde
 stalled-for = Sem resposta há {$seconds} s
+keep-waiting = Continuar esperando
 keep-original = Manter original
 destination-no-permission = Não é possível gravar em "{$folder}": sem permissão
 destination-read-only = Não é possível gravar em "{$folder}": é somente leitura

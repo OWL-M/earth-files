@@ -21,6 +21,7 @@ abort-tooltip = ᱱᱚᱰᱮ ᱛᱤᱝᱜᱩ ᱟᱨ ᱪᱮᱫ ᱦᱩᱭ ᱟᱠ�
 cancel-tooltip = ᱛᱤᱝᱜᱩ ᱟᱨ ᱥᱟᱱᱟᱢ ᱨᱩᱣᱟᱹᱲ ᱫᱚᱦᱚ
 stalled-title = ᱰᱨᱟᱭᱤᱵ ᱛᱮᱞᱟ ᱵᱟᱝ ᱮᱢ ᱮᱫᱟ
 stalled-for = {$seconds} ᱥᱮᱠ. ᱠᱷᱚᱱ ᱛᱮᱞᱟ ᱵᱟᱹᱱᱩᱜᱼᱟ
+keep-waiting = ᱛᱟᱺᱜᱤ ᱫᱚᱦᱚᱭ ᱢᱮ
 keep-original = ᱢᱩᱞ ᱫᱚᱦᱚᱭ ᱢᱮ
 destination-no-permission = "{$folder}" ᱨᱮ ᱚᱞ ᱵᱟᱝ ᱜᱟᱱᱚᱜ ᱠᱟᱱᱟ: ᱟᱹᱜᱭᱟᱹ ᱵᱟᱹᱱᱩᱜᱼᱟ
 destination-read-only = "{$folder}" ᱨᱮ ᱚᱞ ᱵᱟᱝ ᱜᱟᱱᱚᱜ ᱠᱟᱱᱟ: ᱱᱚᱶᱟ ᱫᱚ ᱥᱩᱢᱩᱝ ᱯᱟᱲᱦᱟᱣ ᱞᱟᱹᱜᱤᱫ

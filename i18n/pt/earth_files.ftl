@@ -255,6 +255,7 @@ abort-tooltip = Parar aqui e manter o que já está feito
 cancel-tooltip = Parar e repor tudo como estava
 stalled-title = A unidade não responde
 stalled-for = Sem resposta há {$seconds} s
+keep-waiting = Continuar à espera
 keep-original = Manter original
 destination-no-permission = Não é possível escrever em "{$folder}": sem permissão
 destination-read-only = Não é possível escrever em "{$folder}": é apenas de leitura

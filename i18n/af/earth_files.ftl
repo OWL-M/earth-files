@@ -63,6 +63,7 @@ abort-tooltip = Stop hier en hou wat klaar is
 cancel-tooltip = Stop en sit alles terug
 stalled-title = Die skyf reageer nie
 stalled-for = {$seconds} s sonder reaksie
+keep-waiting = Wag steeds
 keep-original = Hou oorspronklike
 destination-no-permission = Kan nie na "{$folder}" skryf nie: geen toestemming
 destination-read-only = Kan nie na "{$folder}" skryf nie: dit is leesalleen

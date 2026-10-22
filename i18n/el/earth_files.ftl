@@ -58,6 +58,7 @@ abort-tooltip = Διακοπή εδώ και διατήρηση όσων έγι�
 cancel-tooltip = Διακοπή και επαναφορά όλων
 stalled-title = Η μονάδα δεν αποκρίνεται
 stalled-for = Καμία απόκριση για {$seconds} δευτ.
+keep-waiting = Συνέχεια αναμονής
 keep-original = Διατήρηση πρωτοτύπου
 destination-no-permission = Δεν είναι δυνατή η εγγραφή στο «{$folder}»: δεν υπάρχουν δικαιώματα
 destination-read-only = Δεν είναι δυνατή η εγγραφή στο «{$folder}»: είναι μόνο για ανάγνωση

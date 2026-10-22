@@ -20,6 +20,7 @@ abort-tooltip = Ĉesi ĉi tie kaj konservi la faritaĵon
 cancel-tooltip = Ĉesi kaj remeti ĉion
 stalled-title = La disko ne respondas
 stalled-for = Neniu respondo dum {$seconds} s
+keep-waiting = Daŭre atendi
 keep-original = Konservi originalon
 destination-no-permission = Ne eblas skribi al "{$folder}": mankas permeso
 destination-read-only = Ne eblas skribi al "{$folder}": ĝi estas nurlega

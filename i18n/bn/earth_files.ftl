@@ -18,6 +18,7 @@ abort-tooltip = এখানে থামুন এবং যা হয়েছ
 cancel-tooltip = থামুন এবং সবকিছু আগের মতো ফিরিয়ে দিন
 stalled-title = ড্রাইভটি সাড়া দিচ্ছে না
 stalled-for = {$seconds} সে. ধরে কোনো সাড়া নেই
+keep-waiting = অপেক্ষা চালিয়ে যান
 keep-original = মূলটি রাখুন
 destination-no-permission = "{$folder}"-এ লেখা যাচ্ছে না: অনুমতি নেই
 destination-read-only = "{$folder}"-এ লেখা যাচ্ছে না: এটি শুধু-পঠনযোগ্য

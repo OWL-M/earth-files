@@ -75,6 +75,7 @@ abort-tooltip = Stopp her og behold det som er gjort
 cancel-tooltip = Stopp og sett alt tilbake
 stalled-title = Disken svarer ikke
 stalled-for = Ingen svar på {$seconds} s
+keep-waiting = Vent videre
 keep-original = Behold originalen
 destination-no-permission = Kan ikke skrive til «{$folder}»: mangler tillatelse
 destination-read-only = Kan ikke skrive til «{$folder}»: den er kun lesbar

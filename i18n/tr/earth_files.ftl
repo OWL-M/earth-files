@@ -54,6 +54,7 @@ abort-tooltip = Burada dur ve yapılanı koru
 cancel-tooltip = Dur ve her şeyi geri al
 stalled-title = Sürücü yanıt vermiyor
 stalled-for = {$seconds} sn'dir yanıt yok
+keep-waiting = Beklemeye devam et
 keep-original = Orijinali koru
 destination-no-permission = "{$folder}" konumuna yazılamıyor: izin yok
 destination-read-only = "{$folder}" konumuna yazılamıyor: salt okunur

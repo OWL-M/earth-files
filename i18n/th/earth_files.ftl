@@ -54,6 +54,7 @@ abort-tooltip = หยุดตรงนี้และเก็บส่วน�
 cancel-tooltip = หยุดและคืนทุกอย่างกลับเหมือนเดิม
 stalled-title = ไดร์ฟไม่ตอบสนอง
 stalled-for = ไม่มีการตอบสนองมา {$seconds} วินาที
+keep-waiting = รอต่อไป
 keep-original = เก็บต้นฉบับไว้
 destination-no-permission = ไม่สามารถเขียนไปยัง "{$folder}": ไม่มีสิทธิ์
 destination-read-only = ไม่สามารถเขียนไปยัง "{$folder}": เป็นแบบอ่านอย่างเดียว

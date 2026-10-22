@@ -53,6 +53,7 @@ abort-tooltip = Seḥbes dagi, eǧǧ ayen yemmden
 cancel-tooltip = Seḥbes, err kullec akken yella
 stalled-title = Ameɣri ur d-yerri ara
 stalled-for = Ulac tiririt azal n {$seconds} tsn
+keep-waiting = Kemmel arǧu
 keep-original = Eǧǧ aneẓli
 destination-no-permission = Ur tezmireḍ ara ad taruḍ deg "{$folder}": ulac tisirag
 destination-read-only = Ur tezmireḍ ara ad taruḍ deg "{$folder}": i tɣuri kan

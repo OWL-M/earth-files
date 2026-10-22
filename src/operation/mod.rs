@@ -122,7 +122,11 @@ async fn extract_archive(
     .await
     .map_err(wrap_compio_spawn_error)??;
     if !written_files.is_empty() || !target_dirs.is_empty() {
-        sync_to_disk(written_files, target_dirs).await;
+        sync_to_disk(written_files, target_dirs)
+            .await
+            .map_err(|(path, err)| {
+                OperationError::from_err(failure_text(&path, &err), controller)
+            })?;
     }
     Ok(())
 }
@@ -252,13 +256,40 @@ pub(crate) fn filesystem_name(dir: &Path) -> Option<&'static str> {
     const MSDOS_SUPER_MAGIC: i64 = 0x4d44;
     const EXFAT_SUPER_MAGIC: i64 = 0x2011_bab0;
     const NTFS3_SUPER_MAGIC: i64 = 0x7366_746e;
+    const FUSE_SUPER_MAGIC: i64 = 0x6573_5546;
 
     match filesystem_magic(dir)? {
         MSDOS_SUPER_MAGIC => Some("FAT"),
         EXFAT_SUPER_MAGIC => Some("exFAT"),
         NTFS3_SUPER_MAGIC => Some("NTFS"),
+        // A drive mounted through FUSE, as exfat-fuse and ntfs-3g do: the
+        // magic only says FUSE, but udev knows what is on the drive
+        FUSE_SUPER_MAGIC => match fuse_drive_type(dir)?.as_str() {
+            "vfat" => Some("FAT"),
+            "exfat" => Some("exFAT"),
+            "ntfs" => Some("NTFS"),
+            _ => None,
+        },
         _ => None,
     }
+}
+
+/// The filesystem udev found on the drive a FUSE mount at `dir` reads,
+/// such as `exfat`. Only a block device's FUSE mount has one: its device
+/// number is the drive's.
+fn fuse_drive_type(dir: &Path) -> Option<String> {
+    use std::os::unix::fs::MetadataExt;
+
+    let dev = fs::metadata(dir).ok()?.dev();
+    let data = fs::read_to_string(format!(
+        "/run/udev/data/b{}:{}",
+        libc::major(dev),
+        libc::minor(dev)
+    ))
+    .ok()?;
+    data.lines()
+        .find_map(|line| line.strip_prefix("E:ID_FS_TYPE="))
+        .map(str::to_owned)
 }
 
 /// The magic number `statfs` gives for the filesystem `dir` is on.
@@ -323,7 +354,8 @@ pub struct BlockedQuestion {
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct Ask {
     /// How many questions of its kind are left in the operation, this one
-    /// included: "Same for the rest" is offered above one.
+    /// included: "Same for the rest" is offered above one. A failure cannot
+    /// be foreseen, so for one it is how many steps are left.
     pub count: usize,
     /// Whether Retry is offered: only while the operation runs, when a step
     /// can change.
@@ -335,8 +367,8 @@ pub struct Ask {
     /// The last "Retry as root" was not granted: the prompt was dismissed or
     /// the password refused.
     pub not_granted: bool,
-    /// Whether Skip is offered. A step that failed mid-way offers Cancel,
-    /// Abort and Try again instead.
+    /// Whether Skip is offered. A delete step that failed mid-way offers
+    /// Cancel, Abort and Try again instead.
     pub skip: bool,
     /// Whether Abort is offered: stop here and keep what is done.
     pub abort: bool,
@@ -934,29 +966,62 @@ async fn recursive_pairs(
     Ok(std::mem::take(&mut context.op_sel))
 }
 
+/// Flushes what was written to disk: the files, then the folders that
+/// gained entries. The first failure is returned with its path: what it
+/// wrote may not be on the drive. A filesystem that cannot flush, and a
+/// path that is gone, are not failures.
 pub async fn sync_to_disk(
     written_files: Vec<PathBuf>,
     target_dirs: std::collections::HashSet<PathBuf>,
-) {
-    // Sync files to disk
-    stream::iter(written_files.into_iter().map(|path| async move {
-        if let Ok(file) = compio::fs::OpenOptions::new().write(true).open(&path).await {
-            let _ = file.sync_all().await;
+) -> Result<(), (PathBuf, io::Error)> {
+    /// A written file that is a link is not followed: opening it opens what
+    /// it points to, which can be a loop or a pipe, and the link itself is
+    /// kept by its folder. A folder is reached however its path goes,
+    /// through links too.
+    async fn sync(path: PathBuf, follow: bool) -> Result<(), (PathBuf, io::Error)> {
+        let meta = if follow {
+            compio::fs::metadata(&path).await
+        } else {
+            compio::fs::symlink_metadata(&path).await
+        };
+        let result = match meta {
+            // Only files and folders
+            Ok(meta) if !(meta.is_file() || meta.is_dir()) => return Ok(()),
+            // Read-only: a copy can be read-only, and fsync needs no more
+            Ok(_) => match compio::fs::OpenOptions::new().read(true).open(&path).await {
+                Ok(file) => file.sync_all().await,
+                Err(err) => Err(err),
+            },
+            Err(err) => Err(err),
+        };
+        match result {
+            Err(err) if !cannot_sync(&err) => Err((path, err)),
+            _ => Ok(()),
         }
-    }))
-    .buffer_unordered(32)
-    .collect::<()>()
-    .await;
+    }
 
-    // Sync directories to disk
-    stream::iter(target_dirs.into_iter().map(|path| async move {
-        if let Ok(dir) = compio::fs::OpenOptions::new().read(true).open(&path).await {
-            let _ = dir.sync_all().await;
-        }
-    }))
-    .buffer_unordered(16)
-    .collect::<()>()
-    .await;
+    stream::iter(written_files.into_iter().map(|path| sync(path, false)))
+        .buffer_unordered(32)
+        .collect::<Vec<_>>()
+        .await
+        .into_iter()
+        .collect::<Result<(), _>>()?;
+    stream::iter(target_dirs.into_iter().map(|path| sync(path, true)))
+        .buffer_unordered(16)
+        .collect::<Vec<_>>()
+        .await
+        .into_iter()
+        .collect()
+}
+
+/// Whether `err` from opening or flushing a path only says the flush cannot
+/// happen, not that written data was lost: the path is gone or not ours to
+/// open, or the filesystem does not flush.
+pub(crate) fn cannot_sync(err: &io::Error) -> bool {
+    matches!(
+        err.kind(),
+        io::ErrorKind::NotFound | io::ErrorKind::PermissionDenied | io::ErrorKind::Unsupported
+    ) || err.raw_os_error() == Some(libc::EINVAL)
 }
 
 /// The created paths of `result`, with any path that sits inside another one
@@ -1064,16 +1129,23 @@ impl Operation {
                 if !created_only(result).is_empty() || !result.trash_items.is_empty() =>
             {
                 let mut paths = created_only(result);
+                // Only a replaced file's place that something holds: one whose
+                // replacement was left out, and the original could not come
+                // back, is empty, and only the original is to restore
                 for path in result
                     .trash_items
                     .iter()
                     .map(trash::TrashItem::original_path)
+                    .filter(|path| path.symlink_metadata().is_ok())
                 {
                     if !paths.contains(&path) {
                         paths.push(path);
                     }
                 }
-                let mut undo = vec![Self::Delete { paths }];
+                let mut undo = Vec::new();
+                if !paths.is_empty() {
+                    undo.push(Self::Delete { paths });
+                }
                 if !result.trash_items.is_empty() {
                     undo.push(Self::Restore {
                         items: result.trash_items.clone(),
@@ -2159,7 +2231,14 @@ impl Operation {
                                     controller.clone(),
                                 )
                                 .await?;
-                                sync_to_disk(Vec::new(), [to.clone()].into_iter().collect()).await;
+                                sync_to_disk(Vec::new(), [to.clone()].into_iter().collect())
+                                    .await
+                                    .map_err(|(path, err)| {
+                                        OperationError::from_err(
+                                            failure_text(&path, &err),
+                                            &controller,
+                                        )
+                                    })?;
                                 // Entries moved by a plain rename are not in the selection
                                 for entry in entries {
                                     if let Some(name) = entry.file_name() {

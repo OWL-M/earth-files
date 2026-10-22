@@ -64,6 +64,7 @@ abort-tooltip = Zastaviť tu a ponechať hotové
 cancel-tooltip = Zastaviť a všetko vrátiť späť
 stalled-title = Disk neodpovedá
 stalled-for = Bez odozvy {$seconds} s
+keep-waiting = Čakať ďalej
 keep-original = Ponechať originál
 destination-no-permission = Do „{$folder}“ sa nedá zapisovať: chýba oprávnenie
 destination-read-only = Do „{$folder}“ sa nedá zapisovať: je len na čítanie

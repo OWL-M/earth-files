@@ -18,6 +18,7 @@ abort-tooltip = აქ შეჩერება და შესრულებ�
 cancel-tooltip = შეჩერება და ყველაფრის დაბრუნება
 stalled-title = დისკი არ პასუხობს
 stalled-for = პასუხი არ არის {$seconds} წმ
+keep-waiting = ლოდინის გაგრძელება
 keep-original = ორიგინალის შენარჩუნება
 destination-no-permission = „{$folder}“-ში ჩაწერა ვერ ხერხდება: წვდომა არ არის
 destination-read-only = „{$folder}“-ში ჩაწერა ვერ ხერხდება: მხოლოდ წასაკითხია

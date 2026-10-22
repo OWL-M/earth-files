@@ -51,6 +51,7 @@ abort-tooltip = Осы жерде тоқтатып, орындалғанын қ�
 cancel-tooltip = Тоқтатып, барлығын қайтару
 stalled-title = Диск жауап бермейді
 stalled-for = {$seconds} с бойы жауап жоқ
+keep-waiting = Күте беру
 keep-original = Түпнұсқаны қалдыру
 destination-no-permission = "{$folder}" ішіне жазу мүмкін емес: рұқсат жоқ
 destination-read-only = "{$folder}" ішіне жазу мүмкін емес: тек оқуға арналған

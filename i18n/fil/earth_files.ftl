@@ -18,6 +18,7 @@ abort-tooltip = Huminto rito at panatilihin ang natapos na
 cancel-tooltip = Huminto at ibalik ang lahat
 stalled-title = Hindi tumutugon ang drive
 stalled-for = Walang tugon sa loob ng {$seconds} s
+keep-waiting = Patuloy na maghintay
 keep-original = Panatilihin ang orihinal
 destination-no-permission = Hindi makasulat sa "{$folder}": walang pahintulot
 destination-read-only = Hindi makasulat sa "{$folder}": read-only ito

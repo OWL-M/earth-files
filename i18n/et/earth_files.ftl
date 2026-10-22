@@ -87,6 +87,7 @@ abort-tooltip = Peata siin ja säilita tehtu
 cancel-tooltip = Peata ja pane kõik tagasi
 stalled-title = Ketas ei vasta
 stalled-for = Vastust pole {$seconds} s
+keep-waiting = Oota edasi
 keep-original = Säilita originaal
 destination-no-permission = Kausta „{$folder}“ ei saa kirjutada: puudub õigus
 destination-read-only = Kausta „{$folder}“ ei saa kirjutada: see on ainult loetav

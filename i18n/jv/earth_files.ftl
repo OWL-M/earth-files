@@ -18,6 +18,7 @@ abort-tooltip = Mandheg ing kene lan simpen sing wis rampung
 cancel-tooltip = Mandheg lan balekake kabeh
 stalled-title = Drive ora nanggapi
 stalled-for = Ora ana tanggapan suwene {$seconds} dtk
+keep-waiting = Terus ngenteni
 keep-original = Simpen sing asli
 destination-no-permission = Ora bisa nulis menyang "{$folder}": ora ana idin
 destination-read-only = Ora bisa nulis menyang "{$folder}": mung kena diwaca

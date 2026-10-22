@@ -343,6 +343,7 @@ abort-tooltip = Pysäytä tähän ja säilytä tehty
 cancel-tooltip = Pysäytä ja palauta kaikki ennalleen
 stalled-title = Levy ei vastaa
 stalled-for = Ei vastausta {$seconds} sekuntiin
+keep-waiting = Odota edelleen
 keep-original = Pidä alkuperäinen
 destination-no-permission = Kansioon ”{$folder}” ei voi kirjoittaa: ei oikeuksia
 destination-read-only = Kansioon ”{$folder}” ei voi kirjoittaa: vain luku

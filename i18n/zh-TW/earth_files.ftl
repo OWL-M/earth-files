@@ -343,6 +343,7 @@ abort-tooltip = 在此停止，保留已完成的部分
 cancel-tooltip = 停止並全部還原
 stalled-title = 磁碟機沒有回應
 stalled-for = {$seconds} 秒無回應
+keep-waiting = 繼續等待
 keep-original = 保留原始檔案
 destination-no-permission = 無法寫入「{$folder}」：沒有權限
 destination-read-only = 無法寫入「{$folder}」：唯讀

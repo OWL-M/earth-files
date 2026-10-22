@@ -57,6 +57,7 @@ abort-tooltip = Sustabdyti čia ir išlaikyti tai, kas atlikta
 cancel-tooltip = Sustabdyti ir viską grąžinti
 stalled-title = Kaupyklė neatsako
 stalled-for = Nėra atsako {$seconds} s
+keep-waiting = Laukti toliau
 keep-original = Palikti originalą
 destination-no-permission = Nepavyksta rašyti į „{$folder}“: nėra leidimo
 destination-read-only = Nepavyksta rašyti į „{$folder}“: tik skaitomas

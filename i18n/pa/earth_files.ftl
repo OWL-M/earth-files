@@ -50,6 +50,7 @@ abort-tooltip = ਇੱਥੇ ਰੋਕੋ ਅਤੇ ਜੋ ਹੋ ਗਿਆ ਉ�
 cancel-tooltip = ਰੋਕੋ ਅਤੇ ਸਭ ਕੁਝ ਪਹਿਲਾਂ ਵਾਂਗ ਕਰੋ
 stalled-title = ਡਰਾਇਵ ਜਵਾਬ ਨਹੀਂ ਦੇ ਰਹੀ
 stalled-for = {$seconds} ਸਕਿੰ. ਤੋਂ ਕੋਈ ਜਵਾਬ ਨਹੀਂ
+keep-waiting = ਉਡੀਕ ਜਾਰੀ ਰੱਖੋ
 keep-original = ਅਸਲ ਨੂੰ ਰੱਖੋ
 destination-no-permission = "{$folder}" ਵਿੱਚ ਲਿਖਿਆ ਨਹੀਂ ਜਾ ਸਕਦਾ: ਇਜਾਜ਼ਤ ਨਹੀਂ ਹੈ
 destination-read-only = "{$folder}" ਵਿੱਚ ਲਿਖਿਆ ਨਹੀਂ ਜਾ ਸਕਦਾ: ਇਹ ਸਿਰਫ਼ ਪੜ੍ਹਨ ਲਈ ਹੈ

@@ -255,6 +255,7 @@ abort-tooltip = Li vir rawestîne û ya hatî kirin bihêle
 cancel-tooltip = Rawestîne û her tiştî vegerîne
 stalled-title = Ajoker bersiv nade
 stalled-for = Ji {$seconds} s ve bersiv tune
+keep-waiting = Li bendê bimîne
 keep-original = Orîjînalê bihêle
 destination-no-permission = Nikare li "{$folder}" binivîse: maf tune
 destination-read-only = Nikare li "{$folder}" binivîse: tenê xwendin e

@@ -51,6 +51,7 @@ abort-tooltip = Arrestar aicí e gardar çò qu'es fach
 cancel-tooltip = Arrestar e tot tornar metre coma èra
 stalled-title = Lo disc respond pas
 stalled-for = Cap de responsa dempuèi {$seconds} s
+keep-waiting = Contunhar d’esperar
 keep-original = Gardar l'original
 destination-no-permission = Impossible d'escriure dins « {$folder} »: pas d'autorizacion
 destination-read-only = Impossible d'escriure dins « {$folder} »: es en lectura sola

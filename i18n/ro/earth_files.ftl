@@ -58,6 +58,7 @@ abort-tooltip = Oprește aici și păstrează ce s-a făcut
 cancel-tooltip = Oprește și readu totul la loc
 stalled-title = Unitatea nu răspunde
 stalled-for = Niciun răspuns de {$seconds} s
+keep-waiting = Așteaptă în continuare
 keep-original = Păstrează originalul
 destination-no-permission = Nu se poate scrie în „{$folder}”: lipsă permisiune
 destination-read-only = Nu se poate scrie în „{$folder}”: este doar pentru citire

@@ -90,6 +90,7 @@ abort-tooltip = Zaustavi ovde i zadrži urađeno
 cancel-tooltip = Zaustavi i vrati sve nazad
 stalled-title = Uređaj ne odgovara
 stalled-for = Bez odgovora {$seconds} s
+keep-waiting = Nastavi da čekaš
 keep-original = Zadrži original
 destination-no-permission = Nije moguće pisati u „{$folder}“: nema ovlašćenja
 destination-read-only = Nije moguće pisati u „{$folder}“: samo za čitanje

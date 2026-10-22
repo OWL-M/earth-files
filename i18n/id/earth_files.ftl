@@ -51,6 +51,7 @@ abort-tooltip = Berhenti di sini dan pertahankan yang sudah selesai
 cancel-tooltip = Berhenti dan kembalikan semuanya
 stalled-title = Drive tidak merespons
 stalled-for = Tidak ada respons selama {$seconds} dtk
+keep-waiting = Tetap tunggu
 keep-original = Pertahankan yang asli
 destination-no-permission = Tidak dapat menulis ke "{$folder}": tidak ada izin
 destination-read-only = Tidak dapat menulis ke "{$folder}": hanya baca

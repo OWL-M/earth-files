@@ -18,6 +18,7 @@ abort-tooltip = இங்கே நிறுத்தி, முடிந்த�
 cancel-tooltip = நிறுத்தி எல்லாவற்றையும் முன்பிருந்தபடி மீட்டமை
 stalled-title = இயக்ககம் பதிலளிக்கவில்லை
 stalled-for = {$seconds} வி. ஆக பதில் இல்லை
+keep-waiting = காத்திருப்பதைத் தொடர்
 keep-original = அசலை வைத்திரு
 destination-no-permission = "{$folder}" இல் எழுத முடியவில்லை: அனுமதி இல்லை
 destination-read-only = "{$folder}" இல் எழுத முடியவில்லை: இது படிக்க மட்டுமே

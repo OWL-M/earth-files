@@ -18,6 +18,7 @@ abort-tooltip = Ustavi tukaj in ohrani opravljeno
 cancel-tooltip = Ustavi in vse povrni
 stalled-title = Pogon se ne odziva
 stalled-for = Brez odziva {$seconds} s
+keep-waiting = Čakaj naprej
 keep-original = Obdrži izvirnik
 destination-no-permission = V „{$folder}“ ni mogoče pisati: ni dovoljenja
 destination-read-only = V „{$folder}“ ni mogoče pisati: je samo za branje

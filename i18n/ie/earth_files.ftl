@@ -18,6 +18,7 @@ abort-tooltip = Haltar ci e conservar lo que es fat
 cancel-tooltip = Haltar e restituer omnicos
 stalled-title = Li unité ne responde
 stalled-for = Null response durant {$seconds} s
+keep-waiting = Continuar atender
 keep-original = Conservar li original
 destination-no-permission = Ne posse scrir in "{$folder}": null permission
 destination-read-only = Ne posse scrir in "{$folder}": it es solmen legibil

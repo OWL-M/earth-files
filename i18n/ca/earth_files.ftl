@@ -57,6 +57,7 @@ abort-tooltip = Atura aquí i conserva el que ja s'ha fet
 cancel-tooltip = Atura i ho torna tot enrere
 stalled-title = La unitat no respon
 stalled-for = Sense resposta des de fa {$seconds} s
+keep-waiting = Continua esperant
 keep-original = Conserva l'original
 destination-no-permission = No es pot escriure a «{$folder}»: sense permís
 destination-read-only = No es pot escriure a «{$folder}»: és només de lectura

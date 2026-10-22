@@ -57,6 +57,7 @@ abort-tooltip = Спиране тук и запазване на свършен�
 cancel-tooltip = Спиране и връщане на всичко обратно
 stalled-title = Устройството не отговаря
 stalled-for = Няма отговор от {$seconds} с
+keep-waiting = Изчакай още
 keep-original = Запазване на оригинала
 destination-no-permission = Не може да се пише в „{$folder}“: няма права
 destination-read-only = Не може да се пише в „{$folder}“: само за четене

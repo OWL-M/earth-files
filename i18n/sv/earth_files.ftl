@@ -152,6 +152,7 @@ abort-tooltip = Stoppa här och behåll det som är klart
 cancel-tooltip = Stoppa och återställ allt
 stalled-title = Enheten svarar inte
 stalled-for = Inget svar på {$seconds} s
+keep-waiting = Fortsätt vänta
 keep-original = Behåll originalet
 destination-no-permission = Kan inte skriva till "{$folder}": behörighet saknas
 destination-read-only = Kan inte skriva till "{$folder}": den är skrivskyddad

@@ -18,6 +18,7 @@ abort-tooltip = Gelditu hemen eta gorde egindakoa
 cancel-tooltip = Gelditu eta itzuli dena lehengora
 stalled-title = Unitateak ez du erantzuten
 stalled-for = {$seconds} s erantzunik gabe
+keep-waiting = Itxaron gehiago
 keep-original = Mantendu jatorrizkoa
 destination-no-permission = Ezin da "{$folder}" karpetan idatzi: baimenik ez
 destination-read-only = Ezin da "{$folder}" karpetan idatzi: irakurtzeko soilik da

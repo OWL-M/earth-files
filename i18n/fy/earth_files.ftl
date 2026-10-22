@@ -29,6 +29,7 @@ abort-tooltip = Hjir stopje en hâlde wat dien is
 cancel-tooltip = Stopje en alles weromsette
 stalled-title = It stasjon reagearret net
 stalled-for = Al {$seconds} s gjin reaksje
+keep-waiting = Fierder wachtsje
 keep-original = Orizjineel hâlde
 destination-no-permission = Kin net skriuwe nei “{$folder}”: gjin tastimming
 destination-read-only = Kin net skriuwe nei “{$folder}”: it is allinnich-lêze

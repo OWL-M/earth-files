@@ -248,6 +248,7 @@ abort-tooltip = Зупинитися тут і залишити зроблене
 cancel-tooltip = Зупинити й повернути все назад
 stalled-title = Диск не відповідає
 stalled-for = Немає відповіді {$seconds} с
+keep-waiting = Чекати далі
 keep-original = Залишити оригінал
 destination-no-permission = Не вдається записати до «{$folder}»: немає прав доступу
 destination-read-only = Не вдається записати до «{$folder}»: тільки для читання

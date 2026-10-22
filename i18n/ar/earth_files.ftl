@@ -187,6 +187,7 @@ abort-tooltip = توقّف هنا واحتفظ بما اكتمل
 cancel-tooltip = توقّف وأعِد كل شيء كما كان
 stalled-title = القرص لا يستجيب
 stalled-for = لا استجابة منذ {$seconds} ث
+keep-waiting = تابع الانتظار
 keep-original = أبقِ الأصل
 destination-no-permission = تعذّرت الكتابة في «{$folder}»: لا توجد أذونات
 destination-read-only = تعذّرت الكتابة في «{$folder}»: للقراءة فقط

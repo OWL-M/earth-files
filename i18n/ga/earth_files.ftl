@@ -54,6 +54,7 @@ abort-tooltip = Stop anseo agus coinnigh a bhfuil déanta
 cancel-tooltip = Stop agus cuir gach rud ar ais
 stalled-title = Níl an tiomántán ag freagairt
 stalled-for = Gan freagra le {$seconds} s
+keep-waiting = Fan fós
 keep-original = Coinnigh an bunleagan
 destination-no-permission = Ní féidir scríobh chuig "{$folder}": gan chead
 destination-read-only = Ní féidir scríobh chuig "{$folder}": léamh amháin atá ann

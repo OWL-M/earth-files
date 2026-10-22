@@ -18,6 +18,7 @@ abort-tooltip = Dừng tại đây và giữ phần đã xong
 cancel-tooltip = Dừng và đưa mọi thứ về như cũ
 stalled-title = Ổ đĩa không phản hồi
 stalled-for = Không phản hồi trong {$seconds} giây
+keep-waiting = Tiếp tục chờ
 keep-original = Giữ bản gốc
 destination-no-permission = Không thể ghi vào "{$folder}": không có quyền
 destination-read-only = Không thể ghi vào "{$folder}": chỉ đọc

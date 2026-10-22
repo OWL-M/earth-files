@@ -54,6 +54,7 @@ abort-tooltip = 在此停止，保留已完成的部分
 cancel-tooltip = 停止并全部还原
 stalled-title = 驱动器无响应
 stalled-for = {$seconds} 秒无响应
+keep-waiting = 继续等待
 keep-original = 保留原文件
 destination-no-permission = 无法写入“{$folder}”：没有权限
 destination-read-only = 无法写入“{$folder}”：只读

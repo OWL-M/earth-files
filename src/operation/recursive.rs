@@ -57,6 +57,58 @@ impl Error for GioCopyError {
     }
 }
 
+/// How much of a file a copy writes before sending it on to the drive. A
+/// write only lands in memory, and the kernel holds gigabytes there: sent
+/// on in chunks, a copy goes at the speed of the drive, its progress says
+/// what is on it, and nothing is left to wait for once the bar is full.
+const WRITE_BACK_CHUNK: u64 = 8 * 1024 * 1024;
+
+/// How much of a file can be on its way to the drive at once. More than a
+/// chunk: a drive that is slow to answer, as a network one is, still gets
+/// enough to keep busy.
+const WRITE_BACK_WINDOW: u64 = 64 * 1024 * 1024;
+
+/// Starts sending bytes `start..end` of `file` to its drive, and waits until
+/// everything before the last [`WRITE_BACK_WINDOW`] is there.
+async fn write_back(file: &compio::fs::File, start: u64, end: u64) -> std::io::Result<()> {
+    let op = AsyncifyFd::new(file.to_shared_fd(), move |file: &std::fs::File| {
+        use std::os::fd::AsRawFd;
+        let range = |from: u64, to: u64, flags| {
+            // SAFETY: a plain call on a descriptor the file keeps open
+            let done = unsafe {
+                libc::sync_file_range(
+                    file.as_raw_fd(),
+                    from as libc::off64_t,
+                    (to - from) as libc::off64_t,
+                    flags,
+                )
+            };
+            if done == 0 {
+                Ok(())
+            } else {
+                Err(std::io::Error::last_os_error())
+            }
+        };
+        // A length of 0 would mean up to the end of the file
+        let wait = |to: u64| {
+            if to == 0 {
+                return Ok(());
+            }
+            range(
+                0,
+                to,
+                libc::SYNC_FILE_RANGE_WAIT_BEFORE
+                    | libc::SYNC_FILE_RANGE_WRITE
+                    | libc::SYNC_FILE_RANGE_WAIT_AFTER,
+            )
+        };
+        let result = range(start, end, libc::SYNC_FILE_RANGE_WRITE)
+            .and_then(|()| wait(end.saturating_sub(WRITE_BACK_WINDOW)));
+        BufResult(result.map(|()| 0), ())
+    });
+    compio::runtime::submit(op).await.0.map(|_| ())
+}
+
 /// A step that stopped for lack of permission, carrying what to ask the
 /// user. Found again by downcasting the step's error.
 #[derive(Debug)]
@@ -269,6 +321,8 @@ pub struct Context {
     remaining_conflicts: usize,
     /// The user chose to skip every blocked path from here on.
     skip_blocked: bool,
+    /// The files copied since the last flush to disk.
+    written: Vec<PathBuf>,
     /// What the user decided, before the operation ran, for each
     /// destination that was already taken.
     decided: std::collections::HashMap<PathBuf, ReplaceResult>,
@@ -300,6 +354,9 @@ pub struct Context {
     /// The step running replaced what was at its destination: what it puts
     /// there is its own, to take away when putting things back.
     replaced_now: bool,
+    /// How many trash entries there were when the running step started:
+    /// the ones after are its own.
+    step_trash: usize,
     /// A folder whose name is taken by a folder goes into it without asking,
     /// as an extraction does; a copy or move asks.
     pub(crate) merge_folders: bool,
@@ -447,6 +504,7 @@ impl Context {
             replace_result_opt: None,
             remaining_conflicts: 0,
             skip_blocked: false,
+            written: Vec::new(),
             decided: std::collections::HashMap::new(),
             free_space: super::free_space,
             done: Vec::new(),
@@ -458,6 +516,7 @@ impl Context {
             deleted: Vec::new(),
             deleted_more: 0,
             replaced_now: false,
+            step_trash: 0,
             merge_folders: false,
             id: NEXT_CONTEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
             #[cfg(not(test))]
@@ -544,6 +603,37 @@ impl Context {
             self.skip_blocked = true;
         }
         answer
+    }
+
+    /// Leaves `op` out at the user's word, `path` being what was asked
+    /// about. A file left unread is not written, and with it skipped its
+    /// original stays; a cleanup that could not remove an original simply
+    /// leaves it. What the step sent to the trash comes back: left out, it
+    /// replaces nothing. Failing that, the operation fails, and the trash
+    /// entry stays among what it did, to undo.
+    async fn leave_out(&mut self, op: &Op, path: &Path) -> Result<(), OperationError> {
+        if !op.is_cleanup {
+            op.skipped.normal.set(true);
+        }
+        self.op_sel.skipped.push(path.to_path_buf());
+        // Only an entry of this step's: one it removed for good, as root,
+        // has none, and the ones before it belong to other steps
+        if self.op_sel.trash_items.len() > self.step_trash
+            && let Some(item) = self.op_sel.trash_items.pop()
+        {
+            let (to, restore, kept) = (item.original_path(), self.trash.restore, item.clone());
+            let restored = compio::runtime::spawn_blocking(move || restore(item))
+                .await
+                .unwrap_or_else(|_| Err("the trash's worker stopped".into()));
+            if let Err(err) = restored {
+                self.op_sel.trash_items.push(kept);
+                return Err(OperationError {
+                    partial: Box::new(self.op_sel.clone()),
+                    ..OperationError::from_err(super::failure_text(&to, &*err), &self.controller)
+                });
+            }
+        }
+        Ok(())
     }
 
     /// Starts the helper if it is not running yet: the first grant of root
@@ -1061,7 +1151,6 @@ impl Context {
     ) -> Result<bool, OperationError> {
         let mut ops = Vec::new();
         let mut cleanup_ops = Vec::new();
-        let mut written_files = Vec::new();
         let mut target_dirs = std::collections::HashSet::new();
         // Every item is checked before anything is touched or asked: the
         // whole size is known before the first question, and every question
@@ -1482,11 +1571,17 @@ impl Context {
         self.remaining_conflicts = 1;
 
         let total_ops = ops.len();
+        let mut flushed = false;
         for (current_ops, mut op) in ops.into_iter().enumerate() {
             self.controller
                 .check()
                 .await
                 .map_err(|s| OperationError::from_state(s, &self.controller))?;
+            // A move removes no original before its copy is on the drive
+            if op.is_cleanup && !flushed {
+                self.flush(&target_dirs).await?;
+                flushed = true;
+            }
 
             let progress = || Progress {
                 current_ops,
@@ -1502,6 +1597,7 @@ impl Context {
             let to_before = op.to.clone();
             let to_existed = compio::fs::symlink_metadata(&to_before).await.is_ok();
             self.replaced_now = false;
+            self.step_trash = self.op_sel.trash_items.len();
             // A step stopped for lack of permission asks the user, and runs
             // again for as long as they answer Retry.
             let mut left_alone = false;
@@ -1520,19 +1616,26 @@ impl Context {
                         path: op.from.clone(),
                         reason: super::failure_text(&op.from, &*err),
                     };
+                    // How many more can fail is not known: "Same for the
+                    // rest" counts the steps left
                     let ask = Ask {
-                        count: 1,
+                        count: total_ops - current_ops,
                         retry: true,
-                        skip: false,
+                        skip: true,
                         abort: true,
                         ..Ask::default()
                     };
-                    match (self.on_blocked)(failed, ask).await {
+                    match self.blocked(failed, ask).await {
                         // The same step again: what is done is not redone
                         BlockedAnswer::Retry => continue,
                         BlockedAnswer::Abort => {
                             self.controller.abort();
                             return Err(self.cancelled());
+                        }
+                        BlockedAnswer::Skip(_) => {
+                            self.leave_out(&op, &op.from).await?;
+                            left_alone = true;
+                            break Ok(true);
                         }
                         BlockedAnswer::Cancel => return Err(self.cancelled()),
                         _ => break Err(err),
@@ -1578,14 +1681,8 @@ impl Context {
                         return Err(self.cancelled());
                     }
                     BlockedAnswer::Skip(_) => {
-                        // A file left unread is not written, and with it
-                        // skipped its original stays; a cleanup that could
-                        // not remove an original simply leaves it
-                        if !op.is_cleanup {
-                            op.skipped.normal.set(true);
-                        }
+                        self.leave_out(&op, blocked.path()).await?;
                         left_alone = true;
-                        self.op_sel.skipped.push(blocked.path().to_path_buf());
                         break Ok(true);
                     }
                     BlockedAnswer::Cancel => return Err(self.cancelled()),
@@ -1609,15 +1706,6 @@ impl Context {
                 );
                 OperationError::from_err(super::failure_text(&op.from, &*err), &self.controller)
             })? {
-                if matches!(
-                    op.kind,
-                    OpKind::Copy
-                        | OpKind::Move {
-                            cross_device_copy: true
-                        }
-                ) {
-                    written_files.push(op.to.clone());
-                }
                 // What was written no longer needs keeping room for
                 if !op.is_cleanup
                     && !op.skipped.normal.get()
@@ -1692,10 +1780,27 @@ impl Context {
             }
         }
 
-        // Flush files to disk
-        sync_to_disk(written_files, target_dirs).await;
+        if !flushed || !self.written.is_empty() {
+            self.flush(&target_dirs).await?;
+        }
 
         Ok(true)
+    }
+
+    /// Flushes to disk the files written since the last flush, and the
+    /// folders in `dirs`. Failing, the operation fails: what it wrote may
+    /// not be on the drive.
+    async fn flush(
+        &mut self,
+        dirs: &std::collections::HashSet<PathBuf>,
+    ) -> Result<(), OperationError> {
+        sync_to_disk(std::mem::take(&mut self.written), dirs.clone())
+            .await
+            .map_err(|(path, err)| OperationError {
+                // What is done stays, to undo
+                partial: Box::new(self.op_sel.clone()),
+                ..OperationError::from_err(super::failure_text(&path, &err), &self.controller)
+            })
     }
 
     pub fn on_progress<F: OnProgress>(mut self, f: F) -> Self {
@@ -2106,8 +2211,14 @@ impl Op {
                 match made {
                     Ok(()) => {}
                     // `EPERM`, unlike `EACCES`, is the filesystem saying it
-                    // cannot hold links at all (symlink(2))
-                    Err(err) if err.raw_os_error() == Some(libc::EPERM) => {
+                    // cannot hold links at all (symlink(2)); a FUSE one, such
+                    // as exfat-fuse, says `ENOSYS` or `EOPNOTSUPP`
+                    Err(err)
+                        if matches!(
+                            err.raw_os_error(),
+                            Some(libc::EPERM | libc::ENOSYS | libc::EOPNOTSUPP)
+                        ) =>
+                    {
                         let fs = self.to.parent().and_then(super::filesystem_name);
                         return Err(Denied(Blocked::Link {
                             path: self.from.clone(),
@@ -2187,13 +2298,27 @@ impl Op {
             #[cfg(feature = "gvfs")]
             Err(why) => {
                 _ = from_file.close().await;
-                // A destination that is already taken is not something to push
-                // past. This fallback exists for the unsupported-operation
-                // errors that copying over MTP raises, but it removes whatever
-                // is at the destination and copies with `OVERWRITE`, so letting
-                // an `AlreadyExists` through would destroy a file — or a
-                // dangling symlink — that nobody agreed to replace.
-                if why.kind() == std::io::ErrorKind::AlreadyExists {
+                // Off the operation thread: a stat on a remote mount is a
+                // round trip
+                let parent = self.to.parent().map(Path::to_path_buf);
+                let on_gvfs = compio::runtime::spawn_blocking(move || {
+                    parent
+                        .and_then(|parent| fs::metadata(parent).ok())
+                        .is_some_and(|meta| crate::tab::fs_kind(&meta) == crate::tab::FsKind::Gvfs)
+                })
+                .await
+                .unwrap_or(false);
+                // This fallback exists for the errors that copying over MTP
+                // raises, through GVFS's FUSE bridge. Elsewhere only what the
+                // drive does not support goes to gio: any other error is the
+                // real reason, which gio's own failure would hide. And it
+                // removes whatever is at the destination and copies with
+                // `OVERWRITE`, so letting an `AlreadyExists` through would
+                // destroy a file — or a dangling symlink — that nobody agreed
+                // to replace.
+                if why.kind() == std::io::ErrorKind::AlreadyExists
+                    || !(on_gvfs || why.kind() == std::io::ErrorKind::Unsupported)
+                {
                     return Err(why)
                         .with_context(|| {
                             format!("failed to open {} for writing", self.to.display())
@@ -2225,6 +2350,9 @@ impl Op {
         let mut buf_in = std::mem::take(&mut ctx.buf);
         // Track where the current read/write position is at.
         let mut pos = 0;
+        // Sent on to the drive up to here; `None` once the filesystem
+        // turned out not to take it
+        let mut sent = Some(0);
 
         loop {
             let BufResult(result, buf_out) = from_file.read_at(buf_in, pos).await;
@@ -2272,6 +2400,21 @@ impl Op {
             progress.current_bytes += count as u64;
             pos += count as u64;
 
+            if let Some(start) = sent
+                && pos - start >= WRITE_BACK_CHUNK
+            {
+                match write_back(&to_file, start, pos).await {
+                    Ok(()) => sent = Some(pos),
+                    Err(why) if super::cannot_sync(&why) => sent = None,
+                    Err(why) => {
+                        tracing::error!("failed to write: {:?}", why);
+                        ctx.buf = buf_out;
+                        _ = futures::future::join(from_file.close(), to_file.close()).await;
+                        return Err(why).context("failed to write")?;
+                    }
+                }
+            }
+
             // Avoid spamming progress messages too early.
             let current = Instant::now();
             if current.duration_since(last_progress_update).as_millis() > 49 {
@@ -2293,6 +2436,8 @@ impl Op {
 
             buf_in = buf_out;
         }
+        // The last bytes, which the updates above may have left out
+        (ctx.on_progress)(self, &progress);
 
         ctx.buf = buf_in;
 
@@ -2320,6 +2465,7 @@ impl Op {
         }
 
         _ = to_file.close().await;
+        ctx.written.push(self.to.clone());
 
         Ok(true)
     }
@@ -2422,7 +2568,13 @@ impl Op {
                     }
                 }
 
-                result = rx => return result.unwrap(),
+                result = rx => {
+                    let result = result.unwrap();
+                    if result.is_ok() {
+                        ctx.written.push(self.to.clone());
+                    }
+                    return result;
+                }
 
                 _ = task => (),
 
@@ -3134,7 +3286,7 @@ mod tests {
         let err = result.expect_err("stopped");
         assert!(controller.is_aborted());
         assert_eq!(asked.len(), 1);
-        assert!(!asked[0].skip && asked[0].abort && asked[0].retry);
+        assert!(asked[0].skip && asked[0].abort && asked[0].retry);
         // What was done stays, and is there to undo
         let to = dir.path().join("to");
         assert_eq!(fs::read(to.join("a")).expect("a"), b"a");
@@ -3285,6 +3437,162 @@ mod tests {
         result.expect("finished");
         assert_eq!(asked.len(), 2, "asked again while it was still gone");
         assert_eq!(fs::read(dir.path().join("to/c")).expect("c"), b"c");
+    }
+
+    #[test(compio::test)]
+    async fn skip_after_a_failure_midway_leaves_it_out_and_carries_on() {
+        use crate::operation::BlockedAnswer;
+        let (result, asked, dir, _) = copy_failing_midway(|_, _| BlockedAnswer::Skip(false)).await;
+
+        let done = result.expect("finished");
+        assert!(done);
+        assert_eq!(asked.len(), 1);
+        // Asked at the last of the three steps
+        assert_eq!(asked[0].count, 1);
+        let to = dir.path().join("to");
+        assert_eq!(fs::read(to.join("a")).expect("a"), b"a");
+        assert_eq!(fs::read(to.join("b")).expect("b"), b"b");
+        assert!(!to.join("c").exists(), "c is left out");
+    }
+
+    /// A file whose copy fails after it replaced one, skipped: the one it
+    /// replaced comes back, and the trash keeps nothing of it.
+    #[test(compio::test)]
+    async fn a_skipped_replacement_brings_back_what_it_replaced() {
+        use crate::operation::{BlockedAnswer, ReplaceResult};
+        let dir = tempfile::tempdir().expect("tempdir");
+        let from = dir.path().join("x");
+        fs::write(&from, b"new").expect("write");
+        let to = dir.path().join("to");
+        fs::create_dir(&to).expect("mkdir");
+        fs::write(to.join("x"), b"old").expect("write");
+
+        // Gone by the time it is copied: the step fails after the replace
+        let gone = from.clone();
+        let mut ctx = Context::new(Controller::default())
+            .on_replace(move |_op, _count| {
+                let _ = fs::remove_file(&gone);
+                Box::pin(async { ReplaceResult::Replace(false) })
+            })
+            .on_blocked(|_blocked, _ask| Box::pin(async { BlockedAnswer::Skip(false) }));
+        ctx.recursive_copy_or_move([(from, to.join("x"))], Method::Copy)
+            .await
+            .expect("finished");
+        assert_eq!(fs::read(to.join("x")).expect("x"), b"old");
+        assert!(ctx.op_sel.trash_items.is_empty());
+    }
+
+    /// A step removed for good as root has no trash entry of its own:
+    /// skipped, it leaves the earlier step's entry, and that file, alone.
+    #[test(compio::test)]
+    async fn a_skip_brings_back_only_its_own_steps_trash_entry() {
+        use super::{Op, Skip, TRASH};
+        use std::cell::Cell;
+        use std::rc::Rc;
+        let dir = tempfile::tempdir().expect("tempdir");
+        let earlier = dir.path().join("earlier");
+        fs::write(&earlier, b"earlier").expect("write");
+        let mut ctx = Context::new(Controller::default());
+        // An earlier step replaced `earlier`, a file now in its place
+        ctx.op_sel
+            .trash_items
+            .push((TRASH.delete)(&earlier).expect("trashed"));
+        fs::write(&earlier, b"copied").expect("write");
+        // This step: as `root_taken` leaves it after removing for good
+        ctx.step_trash = ctx.op_sel.trash_items.len();
+        ctx.replaced_now = true;
+        let op = Op {
+            kind: OpKind::Copy,
+            from: dir.path().join("c"),
+            to: dir.path().join("to/c"),
+            skipped: Rc::new(Skip {
+                normal: Cell::new(false),
+                cleanup: Cell::new(false),
+            }),
+            is_cleanup: false,
+            created_to: Cell::new(false),
+            moved: Cell::new(false),
+            root: true,
+        };
+        ctx.leave_out(&op, &op.from).await.expect("left out");
+        assert_eq!(ctx.op_sel.trash_items.len(), 1, "the earlier entry stays");
+        assert_eq!(fs::read(&earlier).expect("earlier"), b"copied");
+    }
+
+    /// What a skipped replacement cannot bring back fails the operation,
+    /// and its trash entry stays, to undo.
+    #[test(compio::test)]
+    async fn a_replacement_that_cannot_come_back_fails_the_skip() {
+        use super::{TRASH, Trash};
+        use crate::operation::{BlockedAnswer, ReplaceResult};
+        let dir = tempfile::tempdir().expect("tempdir");
+        let from = dir.path().join("x");
+        fs::write(&from, b"new").expect("write");
+        let to = dir.path().join("to");
+        fs::create_dir(&to).expect("mkdir");
+        fs::write(to.join("x"), b"old").expect("write");
+
+        let gone = from.clone();
+        let mut ctx = Context::new(Controller::default())
+            .on_replace(move |_op, _count| {
+                let _ = fs::remove_file(&gone);
+                Box::pin(async { ReplaceResult::Replace(false) })
+            })
+            .on_blocked(|_blocked, _ask| Box::pin(async { BlockedAnswer::Skip(false) }));
+        ctx.trash = Trash {
+            restore: |_item| Err("refused".into()),
+            ..TRASH
+        };
+        let err = ctx
+            .recursive_copy_or_move([(from, to.join("x"))], Method::Copy)
+            .await
+            .expect_err("failed");
+        assert_eq!(err.partial.trash_items.len(), 1);
+        assert_eq!(err.partial.trash_items[0].original_path(), to.join("x"));
+
+        // Its undo brings the original back, and nothing stands in its way
+        let copy = crate::operation::Operation::Copy {
+            paths: vec![dir.path().join("x")],
+            to: to.clone(),
+        };
+        let undo = copy.undo_after_failure(&err.partial);
+        assert!(
+            matches!(undo.as_slice(), [crate::operation::Operation::Restore { items }] if items.len() == 1)
+        );
+        assert!(undo.iter().all(crate::operation::Operation::is_applicable));
+    }
+
+    /// A link among the written files is left to its folder: one pointing
+    /// at itself cannot be opened, and is no failure.
+    #[test(compio::test)]
+    async fn a_written_link_is_not_flushed_through() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let file = dir.path().join("file");
+        fs::write(&file, b"data").expect("write");
+        let looped = dir.path().join("loop");
+        std::os::unix::fs::symlink("loop", &looped).expect("symlink");
+        crate::operation::sync_to_disk(
+            vec![file, looped],
+            [dir.path().to_path_buf()].into_iter().collect(),
+        )
+        .await
+        .expect("flushed");
+    }
+
+    /// A file of several write-back chunks, and a bit more, arrives whole.
+    #[test(compio::test)]
+    async fn a_file_sent_on_in_chunks_arrives_whole() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let from = dir.path().join("big");
+        let len = 3 * super::WRITE_BACK_CHUNK as usize + 12_345;
+        let data: Vec<u8> = (0..len).map(|i| (i * 7 % 251) as u8).collect();
+        fs::write(&from, &data).expect("write");
+        let to = dir.path().join("copy");
+        let mut ctx = Context::new(Controller::default());
+        ctx.recursive_copy_or_move([(from, to.clone())], Method::Copy)
+            .await
+            .expect("copied");
+        assert!(fs::read(&to).expect("copy") == data);
     }
 
     #[test]

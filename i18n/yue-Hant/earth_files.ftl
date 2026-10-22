@@ -18,6 +18,7 @@ abort-tooltip = 喺度停，保留已經做咗嘅部分
 cancel-tooltip = 停低，將所有嘢還原
 stalled-title = 磁碟機冇反應
 stalled-for = {$seconds} 秒冇反應
+keep-waiting = 繼續等
 keep-original = 保留原檔
 destination-no-permission = 寫唔入「{$folder}」：冇權限
 destination-read-only = 寫唔入「{$folder}」：唯讀

@@ -18,6 +18,7 @@ abort-tooltip = ኣብዚ ደው ኣብል፡ ዝተገብረ ሓልዎ
 cancel-tooltip = ደው ኣብል፡ ኩሉ ናብ ቦታኡ ምለስ
 stalled-title = እቲ ድራይቭ መልሲ ይህብ የለን
 stalled-for = ን{$seconds} ካ. መልሲ የለን
+keep-waiting = ምጽባይ ቀጽል
 keep-original = ነቲ መበቆላዊ ሓዝ
 destination-no-permission = ናብ "{$folder}" ክጽሓፍ ኣይከኣልን: ፍቓድ የለን
 destination-read-only = ናብ "{$folder}" ክጽሓፍ ኣይከኣልን: ንንባብ ጥራይ እዩ

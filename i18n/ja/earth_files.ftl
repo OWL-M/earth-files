@@ -304,6 +304,7 @@ abort-tooltip = ここで止めて、済んだ分はそのままにします
 cancel-tooltip = 止めて、すべて元に戻します
 stalled-title = ドライブが応答しません
 stalled-for = {$seconds} 秒間応答がありません
+keep-waiting = 待ち続ける
 keep-original = 元のファイルを保持
 destination-no-permission = 「{$folder}」に書き込めません: 権限がありません
 destination-read-only = 「{$folder}」に書き込めません: 読み取り専用です

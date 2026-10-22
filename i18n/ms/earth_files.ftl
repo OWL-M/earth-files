@@ -18,6 +18,7 @@ abort-tooltip = Berhenti di sini dan simpan yang telah selesai
 cancel-tooltip = Berhenti dan kembalikan semuanya
 stalled-title = Pemacu tidak bertindak balas
 stalled-for = Tiada respons selama {$seconds} s
+keep-waiting = Terus menunggu
 keep-original = Simpan yang asal
 destination-no-permission = Tidak dapat menulis ke "{$folder}": tiada kebenaran
 destination-read-only = Tidak dapat menulis ke "{$folder}": baca sahaja

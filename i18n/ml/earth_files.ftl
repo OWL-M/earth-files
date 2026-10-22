@@ -18,6 +18,7 @@ abort-tooltip = ഇവിടെ നിർത്തി ചെയ്തത് ന�
 cancel-tooltip = നിർത്തി എല്ലാം പഴയപടിയാക്കുക
 stalled-title = ഡ്രൈവ് പ്രതികരിക്കുന്നില്ല
 stalled-for = {$seconds} സെ. ആയി പ്രതികരണമില്ല
+keep-waiting = കാത്തിരിപ്പ് തുടരുക
 keep-original = ഒറിജിനൽ നിലനിർത്തുക
 destination-no-permission = "{$folder}" എന്നതിലേക്ക് എഴുതാൻ കഴിയില്ല: അനുമതിയില്ല
 destination-read-only = "{$folder}" എന്നതിലേക്ക് എഴുതാൻ കഴിയില്ല: ഇത് വായിക്കാൻ മാത്രമുള്ളതാണ്

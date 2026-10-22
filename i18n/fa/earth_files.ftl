@@ -54,6 +54,7 @@ abort-tooltip = همین‌جا متوقف شو و کارهای انجام‌ش�
 cancel-tooltip = متوقف شو و همه‌چیز را برگردان
 stalled-title = درایو پاسخ نمی‌دهد
 stalled-for = {$seconds} ثانیه بدون پاسخ
+keep-waiting = به انتظار ادامه بده
 keep-original = نگه داشتن اصلی
 destination-no-permission = نوشتن در «{$folder}» ممکن نیست: مجوز ندارید
 destination-read-only = نوشتن در «{$folder}» ممکن نیست: فقط خواندنی است

@@ -170,6 +170,7 @@ abort-tooltip = 여기서 멈추고 완료된 것은 유지
 cancel-tooltip = 멈추고 모두 되돌리기
 stalled-title = 드라이브가 응답하지 않음
 stalled-for = {$seconds}초 동안 응답 없음
+keep-waiting = 계속 기다리기
 keep-original = 원본 유지
 destination-no-permission = "{$folder}"에 쓸 수 없음: 권한 없음
 destination-read-only = "{$folder}"에 쓸 수 없음: 읽기 전용

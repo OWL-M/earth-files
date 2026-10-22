@@ -57,6 +57,7 @@ abort-tooltip = Stop her og behold det, der er udført
 cancel-tooltip = Stop og læg alt tilbage
 stalled-title = Drevet svarer ikke
 stalled-for = Intet svar i {$seconds} s
+keep-waiting = Vent videre
 keep-original = Behold originalen
 destination-no-permission = Kan ikke skrive til “{$folder}”: ingen tilladelse
 destination-read-only = Kan ikke skrive til “{$folder}”: den er skrivebeskyttet

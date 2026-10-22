@@ -73,6 +73,7 @@ abort-tooltip = Stöðva hér og halda því sem er búið
 cancel-tooltip = Stöðva og setja allt til baka
 stalled-title = Drifið svarar ekki
 stalled-for = Ekkert svar í {$seconds} sek.
+keep-waiting = Bíða áfram
 keep-original = Halda upprunalegu
 destination-no-permission = Ekki er hægt að skrifa í „{$folder}“: engin heimild
 destination-read-only = Ekki er hægt að skrifa í „{$folder}“: mappan er skrifvarin

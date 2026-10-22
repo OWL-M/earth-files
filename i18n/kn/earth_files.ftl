@@ -199,6 +199,7 @@ abort-tooltip = ಇಲ್ಲಿಯೇ ನಿಲ್ಲಿಸಿ ಮತ್ತು �
 cancel-tooltip = ನಿಲ್ಲಿಸಿ ಮತ್ತು ಎಲ್ಲವನ್ನೂ ಹಿಂದಿನಂತೆ ಮಾಡಿ
 stalled-title = ಡ್ರೈವ್ ಪ್ರತಿಕ್ರಿಯಿಸುತ್ತಿಲ್ಲ
 stalled-for = {$seconds} ಸೆ. ನಿಂದ ಪ್ರತಿಕ್ರಿಯೆ ಇಲ್ಲ
+keep-waiting = ಕಾಯುತ್ತಿರಿ
 keep-original = ಮೂಲವನ್ನು ಇಟ್ಟುಕೊಳ್ಳಿ
 destination-no-permission = "{$folder}" ಗೆ ಬರೆಯಲು ಸಾಧ್ಯವಿಲ್ಲ: ಅನುಮತಿ ಇಲ್ಲ
 destination-read-only = "{$folder}" ಗೆ ಬರೆಯಲು ಸಾಧ್ಯವಿಲ್ಲ: ಇದು ಓದಲು ಮಾತ್ರ

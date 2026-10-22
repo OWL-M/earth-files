@@ -3708,9 +3708,15 @@ impl App {
             );
         }
         if question.ask.count > 1 {
+            // A failure's count is of the steps left, not of failures to come
+            let label = if matches!(question.blocked, Blocked::Failed { .. }) {
+                fl!("same-for-rest")
+            } else {
+                fl!("same-for-rest-count", count = question.ask.count)
+            };
             dialog = dialog.control(
                 widget::checkbox(question.same_for_rest)
-                    .label(fl!("same-for-rest-count", count = question.ask.count))
+                    .label(label)
                     .on_toggle(move |on| Message::BlockedSameForRest(id, on)),
             );
         }
@@ -8084,7 +8090,7 @@ impl Application for App {
                     .title(fl!("stalled-title"))
                     .body(op.pending_text(controller.progress(), controller.state()))
                     .primary_action(
-                        widget::button::suggested(fl!("try-again"))
+                        widget::button::suggested(fl!("keep-waiting"))
                             .on_press(Message::StalledWait(*id))
                             .id(BLOCKED_BUTTON_ID.clone()),
                     )
@@ -9555,7 +9561,7 @@ fn question_text(blocked: &Blocked) -> (String, String) {
         Blocked::Link { fs: None, .. } => (fl!("blocked-link", name = name), fl!("skip")),
         Blocked::Move { .. } => (fl!("blocked-move", name = name), fl!("skip")),
         Blocked::Destination(_) => (fl!("destination-no-permission", folder = name), fl!("skip")),
-        Blocked::Failed { .. } => (fl!("blocked-failed", name = name), fl!("try-again")),
+        Blocked::Failed { .. } => (fl!("blocked-failed", name = name), fl!("skip")),
         Blocked::TooBig { fs, .. } => (
             fl!("blocked-too-big", name = name, fs = fs.to_string()),
             fl!("skip"),

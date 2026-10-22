@@ -18,6 +18,7 @@ abort-tooltip = Hie stoppe en hawwe wat gedaon is
 cancel-tooltip = Stoppe en alles trökzette
 stalled-title = De sjijf reageert neet
 stalled-for = Al {$seconds} s gein reactie
+keep-waiting = Wach wiejer
 keep-original = Origineel hawwe
 destination-no-permission = Kin neet sjrieve nao “{$folder}”: gein toestumming
 destination-read-only = Kin neet sjrieve nao “{$folder}”: allein-leze

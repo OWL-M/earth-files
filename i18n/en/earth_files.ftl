@@ -60,6 +60,7 @@ abort-tooltip = Stop here and keep what is done
 cancel-tooltip = Stop and put everything back
 stalled-title = The drive is not responding
 stalled-for = No response for {$seconds} s
+keep-waiting = Keep waiting
 keep-original = Keep original
 destination-no-permission = Can't write to "{$folder}": no permission
 destination-read-only = Can't write to "{$folder}": it is read-only

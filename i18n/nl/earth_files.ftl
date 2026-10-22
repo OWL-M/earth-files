@@ -57,6 +57,7 @@ abort-tooltip = Hier stoppen en behouden wat klaar is
 cancel-tooltip = Stoppen en alles terugzetten
 stalled-title = De schijf reageert niet
 stalled-for = Al {$seconds} s geen reactie
+keep-waiting = Blijven wachten
 keep-original = Origineel behouden
 destination-no-permission = Kan niet schrijven naar “{$folder}”: geen rechten
 destination-read-only = Kan niet schrijven naar “{$folder}”: alleen lezen
