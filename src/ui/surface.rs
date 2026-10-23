@@ -332,6 +332,62 @@ pub(crate) mod dismissal {
     }
 }
 
+/// Where a popup's own content begins in its surface, for a popup that
+/// keeps room above it.
+///
+/// A context menu reserves room above its rows for a group to unfold into,
+/// so the surface is taller than the menu, and how much of that room the
+/// menu takes changes as groups open and close. The genie has to collapse
+/// the menu into the menu's corner, not the room's, so the shell asks here
+/// each frame where the menu begins.
+///
+/// Thread-local for the same reason as [`dismissal`]. A reader, not a value:
+/// the menu's widget owns the number, and the shell draws the popup.
+pub(crate) mod content_top {
+    use iced_core::window;
+    use std::cell::RefCell;
+    use std::collections::HashMap;
+
+    type Reader = Box<dyn Fn() -> f32>;
+
+    thread_local! {
+        static TOPS: RefCell<HashMap<window::Id, Reader>> = RefCell::new(HashMap::new());
+    }
+
+    /// The widget that opens popup `id` says how to read where its content
+    /// begins.
+    pub(crate) fn watch(id: window::Id, top: impl Fn() -> f32 + 'static) {
+        TOPS.with(|tops| tops.borrow_mut().insert(id, Box::new(top)));
+    }
+
+    /// Where popup `id`'s content begins: 0 for one that fills its surface.
+    pub(crate) fn of(id: window::Id) -> f32 {
+        TOPS.with(|tops| tops.borrow().get(&id).map_or(0.0, |top| top()))
+            .max(0.0)
+    }
+
+    /// The shell lets go of popup `id`, gone.
+    pub(crate) fn forget(id: window::Id) {
+        TOPS.with(|tops| tops.borrow_mut().remove(&id));
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::{forget, of, watch};
+        use iced_core::window;
+
+        #[test]
+        fn a_popup_reads_its_top_until_forgotten() {
+            let (id, other) = (window::Id::unique(), window::Id::unique());
+            watch(id, || 64.0);
+            assert_eq!(of(id), 64.0);
+            assert_eq!(of(other), 0.0, "one nobody watches fills its surface");
+            forget(id);
+            assert_eq!(of(id), 0.0);
+        }
+    }
+}
+
 /// The popups that are open, so only one chain of them ever is.
 ///
 /// Every popup this app opens takes a grab, and a grabbing popup has to be

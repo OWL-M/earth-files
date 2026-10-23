@@ -342,6 +342,12 @@ pub(crate) struct MenuState {
     queued_keys: bool,
 }
 impl MenuState {
+    /// How far down its surface the menu begins: the room reserved above
+    /// its rows that no unfolded group takes.
+    pub(crate) const fn top(&self) -> f32 {
+        self.settle
+    }
+
     fn new(menu_bounds: MenuBounds) -> Self {
         Self {
             index: None,

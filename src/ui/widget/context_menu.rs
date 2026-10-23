@@ -238,6 +238,21 @@ impl<Message: Clone + 'static> ContextMenu<'_, Message> {
                     | crate::ui::surface::PopupConstraintAdjustment::SlideY
                     | crate::ui::surface::PopupConstraintAdjustment::ResizeY,
             };
+            // The menu begins below the room it keeps for its groups, and
+            // collapses from there: read live, as a group unfolds into the
+            // room. A dismissed menu has dropped its state, and collapses
+            // from where it last was.
+            let menu = my_state.menu_bar_state.clone();
+            let last = std::cell::Cell::new(room);
+            crate::ui::surface::content_top::watch(id, move || {
+                if let Some(top) = menu
+                    .inner
+                    .with_data(|state| state.menu_states.first().map(|ms| ms.top()))
+                {
+                    last.set(top);
+                }
+                last.get()
+            });
             let parent = self.window_id;
             shell.publish(surface_action(crate::ui::surface::action::simple_popup(
                 move || PopupSettings {
@@ -247,9 +262,7 @@ impl<Message: Clone + 'static> ContextMenu<'_, Message> {
                     // Only a dismissed menu animates out, never a replaced
                     // one: see `destroy_popup_animated` and the `leaving`
                     // map. Two popups cannot share the one menu tree.
-                    // Grouped menus reserve transparent space above the
-                    // click; the surface corner is not their visual origin.
-                    animate: room == 0.0,
+                    animate: true,
                 },
                 Some(move || popup_content(popup_menu.clone()).map(crate::ui::action::app)),
             )));
@@ -1481,6 +1494,18 @@ mod tests {
         assert_eq!(row_y(&tree, PASTE), ROOM + 72.0, "Paste stays");
     }
 
+    /// The menu says where it begins in its surface, which is where the
+    /// genie collapses it from: below the room while its groups are folded,
+    /// at the top once one fills the room.
+    #[test]
+    fn the_menu_begins_below_the_room_its_groups_do_not_take() {
+        let (menu, tree, surface) = copy_popup();
+        let top = |tree: &MenuBarState| tree.inner.with_data(|d| d.menu_states[0].top());
+        assert_eq!(top(&tree), ROOM);
+        send_to(menu, surface, ON_COUNT, &frames());
+        assert_eq!(top(&tree), 0.0, "Copy's rows take the room");
+    }
+
     /// Folding plays the other way: the rows close as Copy and the rows
     /// above come back down, to exactly where they started; Paste never
     /// moves.
@@ -1714,6 +1739,121 @@ mod tests {
         );
         assert_eq!(unfolded(&tree), None);
     }
+    /// A popup given less height than it asked for gives its room up to its
+    /// rows as it is laid out, and the crop follows on that same, first
+    /// layout: every row is drawn, from the top of the surface.
+    #[test]
+    fn a_constrained_popup_is_cropped_where_it_fits_on_its_first_layout() {
+        use iced_core::renderer::Headless;
+        let (menu, tree, surface) = copy_popup_with_surface_handler();
+        assert_eq!(tree.inner.with_data(|d| d.menu_states[0].top()), ROOM);
+        let mut renderer = iced_texture_cache::testing::headless_tiny_skia();
+        let state = tree.clone();
+        let top =
+            crate::ui::widget::Top::new(move || state.inner.with_data(|d| d.menu_states[0].top()));
+        let crop = std::cell::Cell::new(iced::Rectangle::default());
+        let view = top.place(
+            iced_texture_cache::cached(
+                iced_texture_cache::TextureCache::new(),
+                crate::ui::widget::measure_bounds(top.crop(popup_content(menu)), &crop),
+            )
+            .border_radius(8.0),
+        );
+        // Three rows and the border, without the room
+        let fitted = Size::new(surface.width, 110.0);
+        let mut ui = UserInterface::build(view, fitted, Cache::default(), &mut renderer);
+        let theme = crate::ui::theme::active();
+        let pixels = Size::new(fitted.width as u32, fitted.height as u32);
+        iced_core::Renderer::reset(&mut renderer, iced::Rectangle::with_size(fitted));
+        ui.draw(
+            &mut renderer,
+            &theme,
+            &iced_core::renderer::Style {
+                text_color: iced::Color::WHITE,
+            },
+            mouse::Cursor::Unavailable,
+        );
+        let image = renderer.screenshot(pixels, 1.0, iced::Color::TRANSPARENT);
+        assert_eq!(tree.inner.with_data(|d| d.menu_states[0].top()), 0.0);
+        assert_eq!(crop.get().y, 0.0, "cropped from the top of the surface");
+        // Open, the first row, now at the top
+        let (x, y) = (100, (1.0 + 18.0) as usize);
+        assert_ne!(
+            image[(y * pixels.width as usize + x) * 4 + 3],
+            0,
+            "Open is drawn"
+        );
+    }
+
+    /// The shell's popup composition, built once: a group unfolding over
+    /// frames moves the crop with it, so the rows moving up into the room
+    /// are drawn, not cut off at where the menu began when it was built.
+    #[test]
+    fn rows_unfolding_into_the_room_are_drawn_in_the_cropped_popup() {
+        use iced_core::renderer::Headless;
+        let (menu, tree, surface) = copy_popup_with_surface_handler();
+        let mut renderer = iced_texture_cache::testing::headless_tiny_skia();
+        let state = tree.clone();
+        let top =
+            crate::ui::widget::Top::new(move || state.inner.with_data(|d| d.menu_states[0].top()));
+        let view = top.place(
+            iced_texture_cache::cached(
+                iced_texture_cache::TextureCache::new(),
+                top.crop(popup_content(menu)),
+            )
+            .border_radius(8.0),
+        );
+        let mut ui = UserInterface::build(view, surface, Cache::default(), &mut renderer);
+        let theme = crate::ui::theme::active();
+        let pixels = Size::new(surface.width as u32, surface.height as u32);
+        let mut draw = |ui: &mut UserInterface<'_, Msg, crate::ui::Theme, crate::ui::Renderer>,
+                        renderer: &mut crate::ui::Renderer| {
+            iced_core::Renderer::reset(renderer, iced::Rectangle::with_size(surface));
+            ui.draw(
+                renderer,
+                &theme,
+                &iced_core::renderer::Style {
+                    text_color: iced::Color::WHITE,
+                },
+                mouse::Cursor::Available(ON_COUNT),
+            );
+            renderer.screenshot(pixels, 1.0, iced::Color::TRANSPARENT)
+        };
+        // Copy's row once it has moved up by its group's rows: in the room
+        let (x, y) = (100, (1.0 + 36.0 + 18.0) as usize);
+        let alpha = |rgba: &[u8]| rgba[(y * pixels.width as usize + x) * 4 + 3];
+        assert_eq!(alpha(&draw(&mut ui, &mut renderer)), 0, "the room is empty");
+
+        let mut messages = Vec::new();
+        let cursor = mouse::Cursor::Available(ON_COUNT);
+        let now = Instant::now();
+        let events = std::iter::once(Event::Mouse(mouse::Event::CursorMoved {
+            position: ON_COUNT,
+        }))
+        .chain((0..60).map(|frame| {
+            Event::Window(window::Event::RedrawRequested(
+                now + std::time::Duration::from_millis(16 * frame),
+            ))
+        }));
+        for event in events {
+            let _ = ui.update(
+                &[event],
+                cursor,
+                &mut renderer,
+                &mut clipboard::Null,
+                &mut messages,
+            );
+            let _ = draw(&mut ui, &mut renderer);
+        }
+        assert_eq!(unfolded(&tree), Some(COPY));
+        assert_eq!(row_y(&tree, COPY), 36.0, "Copy moved up by its rows");
+        assert_ne!(
+            alpha(&draw(&mut ui, &mut renderer)),
+            0,
+            "Copy's row is drawn in the room"
+        );
+    }
+
     #[test]
     fn cached_unfold_frames_keep_lower_rows_still_and_leave_no_trails() {
         use iced_core::renderer::Headless;

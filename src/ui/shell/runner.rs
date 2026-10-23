@@ -341,6 +341,13 @@ impl<App: Application> Shell<App> {
             // the recorded corner is squeezed with the texture and reads as
             // a straight cut.
             let corner_radius = self.theme.cosmic().radius_s()[0];
+            // Only the popup's own content collapses, not room it keeps above
+            // it: placed that far down, the genie gets the content's corner,
+            // and the crop puts the content back where it was. Read at each
+            // layout, as a group unfolds into the room without the view
+            // being built again.
+            let top = crate::ui::widget::Top::new(move || crate::ui::surface::content_top::of(id));
+            let content = top.crop(content);
             let collapsing = iced_texture_cache::cached(genie.cache(), content)
                 // A menu on its way out is a picture, not a menu. Dismissal
                 // has already cleared the state it draws from — `Menu::draw`
@@ -366,7 +373,7 @@ impl<App: Application> Shell<App> {
                 collapsing,
             );
 
-            return genie.motion().host(watched).into();
+            return genie.motion().host(top.place(watched)).into();
         }
 
         if self
@@ -532,6 +539,7 @@ impl<App: Application> Shell<App> {
         let mut task = iced::Task::none();
         for other in crate::ui::surface::chain::open(id, parent) {
             self.popup_genies.remove(other);
+            crate::ui::surface::content_top::forget(other);
             task = task.chain(self.remove_popup(other));
         }
         task
@@ -618,6 +626,7 @@ impl<App: Application> Shell<App> {
             self.opened_surfaces.remove(&id);
             self.popup_views.remove(&id);
             self.popup_genies.remove(id);
+            crate::ui::surface::content_top::forget(id);
             crate::ui::surface::chain::closed(id);
         }
 

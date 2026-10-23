@@ -47,7 +47,10 @@ pub mod context_drawer;
 pub use context_drawer::{ContextDrawer, context_drawer};
 
 pub mod context_menu;
+
+pub mod crop_top;
 pub use context_menu::{ContextMenu, context_menu};
+pub use crop_top::{CropTop, Top};
 
 pub mod dialog;
 pub use dialog::{Dialog, dialog};
