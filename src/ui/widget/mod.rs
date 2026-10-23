@@ -113,6 +113,8 @@ pub mod spring_height;
 pub use spring_height::{SpringHeight, spring_height};
 pub mod spring_width;
 pub use spring_width::{SpringWidth, spring_width};
+pub mod path_morph;
+pub use path_morph::{PathMorph, path_morph};
 
 pub mod settle_watch;
 pub use settle_watch::{SettleWatch, settle_watch};

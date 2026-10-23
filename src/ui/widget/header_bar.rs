@@ -131,6 +131,42 @@ impl<'a, Message: Clone + 'static> HeaderBar<'a, Message> {
     }
 }
 
+thread_local! {
+    /// Whether a header is measuring its centre's natural width; see
+    /// [`measuring`].
+    static MEASURING: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Whether the layout running is a header measuring its centre for the
+/// width to keep for it, rather than laying it out to be shown. A centre
+/// that would take more room once shown, only where that room is free,
+/// reports the width it keeps; see [`path_morph`](super::path_morph).
+pub fn measuring() -> bool {
+    MEASURING.with(std::cell::Cell::get)
+}
+
+/// Marks a measure of the centre until dropped, as a header does, for
+/// tests of what it lays out.
+#[cfg(test)]
+pub(crate) fn tests_measuring() -> impl Sized {
+    Measuring::start()
+}
+
+/// Marks a measure of the centre until dropped, putting back what was.
+struct Measuring(bool);
+
+impl Measuring {
+    fn start() -> Self {
+        Self(MEASURING.with(|cell| cell.replace(true)))
+    }
+}
+
+impl Drop for Measuring {
+    fn drop(&mut self) {
+        MEASURING.with(|cell| cell.set(self.0));
+    }
+}
+
 pub struct HeaderBarWidget<'a, Message> {
     start: Element<'a, Message>,
     /// The title after the start, when the centre holds something else.
@@ -219,6 +255,7 @@ impl<'a, Message: Clone + 'static> Widget<Message, crate::ui::Theme, crate::ui::
         // shortens first, before the crumbs do. Measured on its own, this
         // also keeps the centre from jittering as it shortens.
         let natural_width = self.center.as_mut().map_or(0.0, |center| {
+            let _measuring = Measuring::start();
             center
                 .as_widget_mut()
                 .layout(&mut tree.children[2], renderer, &limits.loose())
@@ -278,8 +315,11 @@ impl<'a, Message: Clone + 'static> Widget<Message, crate::ui::Theme, crate::ui::
                 &layout::Limits::new(Size::ZERO, Size::new(slot_width, height)),
             );
 
-            let ideal_x = (width - natural_width) / 2.0;
-            let max_x = (width - end_width - gap - natural_width).max(slot_start);
+            // Centred by the width it takes, which can be more than the
+            // width kept for it (see `path_morph`)
+            let center_width = node.size().width;
+            let ideal_x = (width - center_width) / 2.0;
+            let max_x = (width - end_width - gap - center_width).max(slot_start);
             let center_x = ideal_x.clamp(slot_start, max_x);
 
             child_nodes.push(vcenter(node, center_x));
@@ -677,5 +717,101 @@ mod tests {
 
         // ...while it is still laid out whole, not squeezed to 484
         assert_eq!(bounds(&layout(header()), "content").width, 600.0);
+    }
+
+    /// A centre keeping 200 for itself and wanting `wanted`.
+    fn widening(wanted: f32) -> Element<'static, Announced> {
+        // An empty field wants twice its inset and room for the cursor
+        crate::ui::widget::path_morph(
+            part("kept", Some(200.0)),
+            crate::ui::widget::path_morph::Names {
+                field_inset: (wanted - 2.0) / 2.0,
+                ..Default::default()
+            },
+        )
+        .field(part("center", None), String::new(), Id::new("center"))
+        .into()
+    }
+
+    #[test]
+    fn a_widening_centre_is_kept_its_own_width_and_shown_wider() {
+        let header = || {
+            HeaderBarWidget::new(
+                responsive_container(
+                    space::horizontal()
+                        .width(Length::Fixed(600.0))
+                        .height(Length::Fixed(32.0)),
+                    Id::new("menu"),
+                    |action| match action {
+                        crate::ui::surface::Action::ResponsiveMenuBar { limits, .. } => {
+                            Announced(Some(limits.max().width))
+                        }
+                        _ => Announced(None),
+                    },
+                )
+                .into(),
+                None,
+                Some(widening(400.0)),
+                part("end", Some(100.0)),
+            )
+        };
+        let mut renderer = iced_texture_cache::testing::headless_tiny_skia();
+        let mut ui = UserInterface::build(
+            Element::from(header()),
+            Size::new(WIDTH, 32.0),
+            Cache::default(),
+            &mut renderer,
+        );
+        let mut messages = Vec::new();
+        let _ = ui.update(
+            &[iced_core::Event::Window(window::Event::RedrawRequested(
+                std::time::Instant::now(),
+            ))],
+            mouse::Cursor::Unavailable,
+            &mut renderer,
+            &mut clipboard::Null,
+            &mut messages,
+        );
+        // The menus judge by 692 - (200 + 8), as if the centre were its
+        // kept 200 wide
+        let announced: Vec<_> = messages.iter().filter_map(|m| m.0).collect();
+        assert_eq!(announced, [484.0]);
+
+        // ...and beside menus folded to 100, it is shown 400 wide, centred
+        let center = bounds(
+            &layout(HeaderBarWidget::new(
+                part("start", Some(100.0)),
+                None,
+                Some(widening(400.0)),
+                part("end", Some(100.0)),
+            )),
+            "center",
+        );
+        assert_eq!((center.x, center.width), ((WIDTH - 400.0) / 2.0, 400.0));
+    }
+
+    #[test]
+    fn a_widening_centre_takes_only_the_room_left_free() {
+        let parts = layout(HeaderBarWidget::new(
+            part("start", Some(300.0)),
+            None,
+            Some(widening(600.0)),
+            part("end", Some(100.0)),
+        ));
+        // From 300 + 8 to 800 - 100 - 8
+        let center = bounds(&parts, "center");
+        assert_eq!((center.x, center.width), (308.0, 384.0));
+    }
+
+    #[test]
+    fn a_widening_centre_is_never_narrower_than_it_keeps() {
+        let parts = layout(HeaderBarWidget::new(
+            part("start", Some(100.0)),
+            None,
+            Some(widening(50.0)),
+            part("end", Some(100.0)),
+        ));
+        let center = bounds(&parts, "center");
+        assert_eq!((center.x, center.width), (300.0, 200.0));
     }
 }

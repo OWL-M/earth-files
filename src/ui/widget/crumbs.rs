@@ -61,7 +61,6 @@ pub fn crumbs<'a, Message>(
         children,
         n,
         spacing: 0.0,
-        invisible: false,
     }
 }
 
@@ -73,8 +72,6 @@ pub struct Crumbs<'a, Message> {
     children: Vec<Element<'a, Message, Theme, Renderer>>,
     n: usize,
     spacing: f32,
-    /// Laid out, but neither drawn nor given events; see [`Self::invisible`].
-    invisible: bool,
 }
 
 /// How many leading crumbs the last layout hid.
@@ -89,25 +86,6 @@ impl<Message> Crumbs<'_, Message> {
     pub const fn spacing(mut self, spacing: f32) -> Self {
         self.spacing = spacing;
         self
-    }
-
-    /// Only takes up its room: nothing of it is drawn, and it takes no
-    /// events. The header lays these out under the path field, so the field
-    /// is as wide as the crumbs it stands in for.
-    #[must_use]
-    pub const fn invisible(mut self) -> Self {
-        self.invisible = true;
-        self
-    }
-
-    /// The children drawn and given events: those shown, none while
-    /// invisible.
-    fn live(&self, hidden: usize) -> Vec<usize> {
-        if self.invisible {
-            Vec::new()
-        } else {
-            self.shown(hidden)
-        }
     }
 
     const fn crumb(&self, i: usize) -> usize {
@@ -234,7 +212,7 @@ impl<Message> Widget<Message, Theme, Renderer> for Crumbs<'_, Message> {
         operation: &mut dyn Operation,
     ) {
         let hidden = tree.state.downcast_ref::<State>().hidden;
-        let shown = self.live(hidden);
+        let shown = self.shown(hidden);
         for (c, ((child, tree), layout)) in self
             .children
             .iter_mut()
@@ -262,7 +240,7 @@ impl<Message> Widget<Message, Theme, Renderer> for Crumbs<'_, Message> {
         viewport: &Rectangle,
     ) {
         let hidden = tree.state.downcast_ref::<State>().hidden;
-        let shown = self.live(hidden);
+        let shown = self.shown(hidden);
         let cursor = within(cursor, layout);
         for (c, ((child, tree), layout)) in self
             .children
@@ -301,7 +279,7 @@ impl<Message> Widget<Message, Theme, Renderer> for Crumbs<'_, Message> {
         renderer: &Renderer,
     ) -> mouse::Interaction {
         let hidden = tree.state.downcast_ref::<State>().hidden;
-        let shown = self.live(hidden);
+        let shown = self.shown(hidden);
         let cursor = within(cursor, layout);
         self.children
             .iter()
@@ -329,7 +307,7 @@ impl<Message> Widget<Message, Theme, Renderer> for Crumbs<'_, Message> {
         viewport: &Rectangle,
     ) {
         let hidden = tree.state.downcast_ref::<State>().hidden;
-        let shown = self.live(hidden);
+        let shown = self.shown(hidden);
         // Clipped to its own bounds: see `within`
         renderer.with_layer(layout.bounds(), |renderer| {
             for (c, ((child, tree), layout)) in self
@@ -357,7 +335,7 @@ impl<Message> Widget<Message, Theme, Renderer> for Crumbs<'_, Message> {
         translation: Vector,
     ) -> Option<overlay::Element<'b, Message, Theme, Renderer>> {
         let hidden = tree.state.downcast_ref::<State>().hidden;
-        let shown = self.live(hidden);
+        let shown = self.shown(hidden);
         let overlays: Vec<_> = self
             .children
             .iter_mut()
@@ -581,26 +559,6 @@ mod tests {
             &mut messages,
         );
         assert!(messages.is_empty(), "{messages:?}");
-    }
-
-    #[test]
-    fn an_invisible_row_only_takes_up_its_room() {
-        // What follows starts where the whole path ends, but nothing of the
-        // path is reached by an operation
-        let row = crate::ui::widget::Row::new()
-            .push(Element::from(
-                crumbs(
-                    child("icon", 20.0),
-                    vec![child("a", 100.0), child("b", 100.0), child("c", 100.0)],
-                    vec![child("sep0", 10.0), child("sep1", 10.0)],
-                    vec![child("more0", 20.0), child("more1", 20.0)],
-                )
-                .invisible(),
-            ))
-            .push(child("after", 10.0));
-        let shown = shown(row.into(), 400.0);
-        assert_eq!(ids(&shown), [Id::new("after")]);
-        assert_eq!(shown[0].1.x, 340.0);
     }
 
     #[test]

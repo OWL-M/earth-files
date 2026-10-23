@@ -70,6 +70,9 @@ const THUMBNAIL_SIZE: u32 = (ICON_SIZE_GRID as u32) * (ICON_SCALE_MAX as u32);
 /// The side of an item's preview in a dialog about it, such as the one for
 /// a name already taken.
 const DIALOG_PREVIEW: f32 = 128.0;
+/// How far the path field's text is in from its ends: as far as the menus'
+/// labels are from their pill's (2 + 12).
+const FIELD_INSET: u16 = 14;
 /// How long an external thumbnailer may run before it is killed.
 ///
 /// Thumbnail work is bounded by [`THUMB_SEMAPHORE`], so a thumbnailer that
@@ -7571,9 +7574,8 @@ impl Tab {
             .spacing(space_xxs.to_pixels())
             .push(history);
 
-        /// The crumb pill around `crumbs`, with its background only where it
-        /// is seen.
-        fn pill(crumbs: widget::Crumbs<'_, Message>, seen: bool) -> Element<'_, Message> {
+        /// The crumb pill around `crumbs`.
+        fn pill(crumbs: widget::Crumbs<'_, Message>) -> Element<'_, Message> {
             let Spacing { space_xxxs, .. } = spacing();
             widget::container(crumbs.spacing(space_xxxs.into()))
                 // The icon 12 in from the left end; the last name as far in
@@ -7581,20 +7583,19 @@ impl Tab {
                 // (2 + 12), its button adding its own 4
                 .padding(padding::left(12).right(f32::from(14u16.saturating_sub(space_xxxs))))
                 .center_y(Length::Fixed(32.0))
-                .class(if seen {
-                    Container::Pill
-                } else {
-                    Container::Transparent
-                })
+                .class(Container::Pill)
                 .into()
         }
+
+        let crumbs = self.crumbs();
 
         if let Some(edit_location) = &self.edit_location {
             let mut text_input = None;
 
             if let Location::Network(ref uri, ..) = edit_location.location {
                 let location = edit_location.location.clone();
-                text_input = Some(
+                text_input = Some((
+                    uri.clone(),
                     widget::text_input("", uri.clone())
                         .id(self.edit_location_id.clone())
                         .on_input(move |input| {
@@ -7603,12 +7604,14 @@ impl Tab {
                         .on_submit(|_| Message::EditLocationSubmit)
                         .on_unfocus(Message::EditLocation(None))
                         .line_height(1.0),
-                );
+                ));
             } else if let Some(resolved_location) = edit_location.resolve()
                 && let Some(path) = resolved_location.path_opt().cloned()
             {
-                text_input = Some(
-                    widget::text_input("", path.to_string_lossy().into_owned())
+                let value = path.to_string_lossy().into_owned();
+                text_input = Some((
+                    value.clone(),
+                    widget::text_input("", value)
                         .id(self.edit_location_id.clone())
                         .on_input(move |input| {
                             Message::EditLocation(Some(
@@ -7619,15 +7622,13 @@ impl Tab {
                         .on_tab(Message::EditLocationTab)
                         .on_unfocus(Message::EditLocation(None))
                         .line_height(1.0),
-                );
+                ));
             }
-            if let Some(text_input) = text_input {
-                // As wide as the crumbs it stands in for, which stay laid out
-                // under it unseen: the header keeps the room it kept for
-                // them, so the menus do not fold or unfold as the field opens
-                // and closes. With no crumbs, at most 360 wide. Round, as the
-                // search field is.
-                let crumbs = self.crumbs();
+            if let Some((value, text_input)) = text_input {
+                // In place of the crumbs, the names gliding from them into
+                // its text, and as wide as that text where the room beside
+                // the menus allows (see `widget::path_morph`). With no
+                // crumbs, at most 360 wide. Round, as the search field is.
                 let text_input = text_input
                     .width(if crumbs.is_some() {
                         Length::Fill
@@ -7635,9 +7636,11 @@ impl Tab {
                         Length::Fixed(360.0)
                     })
                     .style(crate::ui::theme::TextInput::Search)
+                    // The crumbs' size, which the names gliding into it keep
+                    .size(widget::path_morph::TEXT_SIZE)
                     // The text as far in from the ends as the menus' labels
                     // are from their pill's (2 + 12)
-                    .padding([space_xxs, 14]);
+                    .padding([space_xxs, FIELD_INSET]);
                 let mut popover =
                     widget::popover(text_input).position(widget::popover::Position::Bottom);
                 if let Some((completions, choosable)) = edit_location.shown() {
@@ -7701,22 +7704,30 @@ impl Tab {
                 }
                 let field = widget::container(popover).center_y(Length::Fill);
                 return match crumbs {
-                    Some(crumbs) => row.push(stack![pill(crumbs.invisible(), false), field]),
+                    Some((crumbs, names)) => {
+                        row.push(widget::path_morph(pill(crumbs), names).field(
+                            field,
+                            value,
+                            self.edit_location_id.clone(),
+                        ))
+                    }
                     None => row.push(field),
                 }
                 .into();
             }
         }
 
-        if let Some(crumbs) = self.crumbs() {
-            row = row.push(pill(crumbs, true));
+        if let Some((crumbs, names)) = crumbs {
+            row = row.push(widget::path_morph(pill(crumbs), names));
         }
         row.into()
     }
 
     /// The crumbs of the header's crumb pill, from the outermost folder to
-    /// this one, with the icon of the outermost. See [`widget::crumbs`].
-    fn crumbs(&self) -> Option<widget::Crumbs<'_, Message>> {
+    /// this one, with the icon of the outermost (see [`widget::crumbs`]),
+    /// and what the glide to the path field needs of them (see
+    /// [`widget::path_morph`]).
+    fn crumbs(&self) -> Option<(widget::Crumbs<'_, Message>, widget::path_morph::Names)> {
         // The "›" between crumbs: the header's text colour, faded
         fn separator_style(theme: &crate::ui::Theme) -> crate::ui::widget::text::Style {
             let mut color = theme.cosmic().background(theme.transparent).on;
@@ -7739,8 +7750,24 @@ impl Tab {
                     }
                 }))
         };
+        // What the glide to the path field needs of the crumbs
+        let names = |crumbs: Vec<widget::path_morph::Name>, handle: widget::icon::Handle| {
+            widget::path_morph::Names {
+                crumbs,
+                icon: Some(handle),
+                crumb_inset: f32::from(space_xxxs),
+                field_inset: f32::from(FIELD_INSET),
+            }
+        };
         let single = |handle: widget::icon::Handle, label: String, message: Message| {
-            widget::crumbs(
+            let glide = names(
+                vec![widget::path_morph::Name {
+                    label: label.clone(),
+                    path: None,
+                }],
+                handle.clone(),
+            );
+            let crumbs = widget::crumbs(
                 icon(handle),
                 vec![
                     widget::button::custom(widget::text::heading(label))
@@ -7751,7 +7778,8 @@ impl Tab {
                 ],
                 Vec::new(),
                 Vec::new(),
-            )
+            );
+            (crumbs, glide)
         };
 
         // A crumb's button with everything a crumb does: going to its
@@ -7834,7 +7862,18 @@ impl Tab {
                     .rev()
                     .collect();
                 let (_, _, outermost, _) = ancestors.first()?;
-                let icon = icon(folder_icon_symbolic(outermost, 16));
+                let handle = folder_icon_symbolic(outermost, 16);
+                let glide = names(
+                    ancestors
+                        .iter()
+                        .map(|&(_, _, ancestor, name)| widget::path_morph::Name {
+                            label: name.clone(),
+                            path: Some(ancestor.to_string_lossy().into_owned()),
+                        })
+                        .collect(),
+                    handle.clone(),
+                );
+                let icon = icon(handle);
 
                 let mut crumbs = Vec::with_capacity(ancestors.len());
                 let mut separators = Vec::with_capacity(ancestors.len());
@@ -7881,7 +7920,7 @@ impl Tab {
                         current,
                     ));
                 }
-                Some(widget::crumbs(icon, crumbs, separators, more))
+                Some((widget::crumbs(icon, crumbs, separators, more), glide))
             }
             Location::Trash | Location::Search(SearchLocation::Trash, ..) => Some(single(
                 Trash::icon_symbolic(16),
@@ -12215,6 +12254,68 @@ mod tests {
             Message::EditLocation(Some(Location::Path(path).into())),
             Modifiers::empty(),
         );
+    }
+
+    /// The address field's bounds in the header laid out `width` wide.
+    fn field_bounds(tab: &Tab, width: f32) -> crate::ui::iced_core::Rectangle {
+        use crate::ui::iced_core::widget::{Id, Operation};
+        use crate::ui::iced_core::{Rectangle, Size};
+        use crate::ui::iced_runtime::user_interface::{Cache, UserInterface};
+
+        struct Containers(Vec<(Option<Id>, Rectangle)>);
+        impl Operation for Containers {
+            fn traverse(&mut self, operate: &mut dyn FnMut(&mut dyn Operation)) {
+                operate(self);
+            }
+            fn container(&mut self, id: Option<&Id>, bounds: Rectangle) {
+                self.0.push((id.cloned(), bounds));
+            }
+        }
+
+        let mut renderer = iced_texture_cache::testing::headless_tiny_skia();
+        let mut ui = UserInterface::build(
+            tab.header_view(),
+            Size::new(width, 40.0),
+            Cache::default(),
+            &mut renderer,
+        );
+        let mut containers = Containers(Vec::new());
+        ui.operate(&renderer, &mut containers);
+        containers
+            .0
+            .into_iter()
+            .find(|(id, _)| id.as_ref() == Some(&tab.edit_location_id))
+            .expect("the field is laid out")
+            .1
+    }
+
+    #[test]
+    fn the_address_field_widens_to_its_text_within_the_room() -> io::Result<()> {
+        let fs = empty_fs()?;
+        let mut tab = tab_editing(fs.path(), fs.path().to_owned(), None);
+        let short = field_bounds(&tab, 1600.0);
+
+        type_path(
+            &mut tab,
+            fs.path()
+                .join("a folder with a rather long name, longer than the crumbs"),
+        );
+        let long = field_bounds(&tab, 1600.0);
+        assert!(
+            long.width > short.width + 100.0,
+            "the field widens with its text: {short:?} then {long:?}"
+        );
+
+        // In a narrow header, as wide as the room and no wider. The crumbs
+        // shorten there too, so this can be narrower than `short`.
+        let window = short.x + long.width / 2.0;
+        let narrow = field_bounds(&tab, window);
+        assert!(narrow.width < long.width, "{long:?} {narrow:?}");
+        assert!(
+            (narrow.x + narrow.width - window).abs() < 0.5,
+            "fills the room: {narrow:?} in {window}"
+        );
+        Ok(())
     }
 
     /// Two folders, `alpha` and `beta`, and the list the field shows for the
