@@ -28,7 +28,6 @@ log = "0.4"
 mundy = { version = "0.2", default-features = false, features = ["color-scheme", "tokio"] }
 notify-debouncer-full = "0.7"
 notify-rust = { version = "4", optional = true }
-open = "5.3.4"
 # Colour type for `ui::theme`'s palette.
 palette = "0.7.7"
 regex = "1"
@@ -47,7 +46,7 @@ uzers = "0.12.2"
 # Wayland protocol support for `ui::dnd`. Required because this app only supports
 # Wayland.
 wayland-client = "0.31.14"
-xdg-kit = { git = "https://github.com/OWL-M/xdg-kit-rs" }
+xdg-kit = { git = "https://github.com/OWL-M/xdg-kit-rs", features = ["desktop-entry-dbus"] }
 # Raw D-Bus for the one portal read `ui::icon_theme` makes:
 # `org.freedesktop.portal.Settings`, which `mundy` has no interest for.
 # Declared at the version already in the tree, so cargo unifies the two.
@@ -219,14 +218,12 @@ path = "src/bin/earth-files-helper.rs"
 [features]
 default = [
     "bzip2",
-    "desktop",
     "gvfs",
     "io-uring",
     "lzma-rust2",
     "notify",
     "wgpu",
 ]
-desktop = []
 gvfs = ["dep:gio", "dep:glib"]
 io-uring = ["compio/io-uring"]
 jemalloc = ["dep:tikv-jemallocator"]

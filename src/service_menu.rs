@@ -159,7 +159,6 @@ pub fn watched_folders(dirs: &[PathBuf]) -> Vec<PathBuf> {
 
 /// Whether a change at `path` concerns service menus under `dirs`: a menu
 /// file, or one of the menu folders or a folder on the way to one.
-#[cfg(any(feature = "desktop", test))]
 fn concerns_menus(path: &Path, dirs: &[PathBuf]) -> bool {
     path.extension().is_some_and(|ext| ext == "desktop")
         || menu_folders(dirs)
@@ -170,7 +169,6 @@ fn concerns_menus(path: &Path, dirs: &[PathBuf]) -> bool {
 /// Calls `emitter` whenever a service menu under `dirs` is added, changed
 /// or removed, or a menu folder is made, watching `folders` (see
 /// [`watched_folders`]).
-#[cfg(feature = "desktop")]
 pub async fn watch(
     dirs: Vec<PathBuf>,
     folders: Vec<PathBuf>,

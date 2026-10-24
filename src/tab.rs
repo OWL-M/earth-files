@@ -39,7 +39,6 @@ use std::time::{Duration, Instant, SystemTime};
 use tempfile::NamedTempFile;
 use tokio::sync::mpsc;
 use trash::{TrashItem, TrashItemMetadata, TrashItemSize};
-#[cfg(feature = "desktop")]
 use xdg_kit::desktop_entry::{DesktopEntry, Locales};
 
 use crate::app::{Action, PreviewItem, PreviewKind};
@@ -774,12 +773,6 @@ fn read_fs_kinds() -> FxHashMap<u64, FsKind> {
     devices
 }
 
-#[cfg(not(feature = "desktop"))]
-fn get_desktop_file_display_name(path: &Path) -> Option<String> {
-    None
-}
-
-#[cfg(feature = "desktop")]
 fn get_desktop_file_display_name(path: &Path) -> Option<String> {
     let entry = match DesktopEntry::read(path) {
         Ok(ok) => ok,
@@ -792,12 +785,6 @@ fn get_desktop_file_display_name(path: &Path) -> Option<String> {
     entry.name(&Locales::from_env())
 }
 
-#[cfg(not(feature = "desktop"))]
-fn get_desktop_file_icon(path: &Path) -> Option<String> {
-    None
-}
-
-#[cfg(feature = "desktop")]
 fn get_desktop_file_icon(path: &Path) -> Option<String> {
     let entry = match DesktopEntry::read(path) {
         Ok(ok) => ok,
@@ -824,7 +811,6 @@ fn desktop_icon_handle(icon: &str, size: u16) -> widget::icon::Handle {
     }
 }
 
-#[cfg(feature = "desktop")]
 pub fn parse_desktop_file(path: &Path) -> (Option<String>, Option<String>) {
     let entry = match DesktopEntry::read(path) {
         Ok(ok) => ok,
@@ -2195,7 +2181,6 @@ pub enum Command {
     DropFiles(PathBuf, bool),
     ClearRecents,
     EmptyTrash,
-    #[cfg(feature = "desktop")]
     ExecEntryAction(crate::desktop_entry::DesktopEntryData, usize),
     Iced(TaskWrapper),
     OpenFile(Vec<PathBuf>),
@@ -2269,7 +2254,6 @@ pub enum Message {
     OpenInNewTab(PathBuf),
     ClearRecents,
     EmptyTrash,
-    #[cfg(feature = "desktop")]
     ExecEntryAction(Option<PathBuf>, usize),
     Gallery(bool),
     GalleryPrevious,
@@ -6099,7 +6083,6 @@ impl Tab {
             Message::EmptyTrash => {
                 commands.push(Command::EmptyTrash);
             }
-            #[cfg(feature = "desktop")]
             Message::ExecEntryAction(path, action) => {
                 let lang_id = crate::localize::LANGUAGE_LOADER.current_language();
                 let language = lang_id.language.as_str();

@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 use crate::ui::widget;
-#[cfg(feature = "desktop")]
 use notify_debouncer_full::notify;
 use rustc_hash::{FxHashMap, FxHashSet};
 use std::ffi::OsStr;
@@ -10,20 +9,16 @@ use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 use std::process;
 use std::sync::{Arc, LazyLock, Mutex};
-#[cfg(feature = "desktop")]
 use std::time::{self, Instant};
 use xdg_kit::desktop_entry::{
     AppEntry, DesktopEntry, Launch, LaunchOptions, LaunchPlan, Locales, Target, prepare_launch,
 };
 pub use xdg_kit::mime::MimeType as Mime;
-#[cfg(feature = "desktop")]
 use xdg_kit::mime_apps::MimeApps;
 
 /// The type whose default application is the user's terminal.
-#[cfg(feature = "desktop")]
 const TERMINAL_MIME: Mime = Mime::from_static("x-scheme-handler/terminal");
 
-#[cfg(feature = "desktop")]
 pub async fn watch(mut emitter: impl FnMut() + 'static + Send) {
     let Some(base_dirs) = crate::xdg_dirs::BASE_DIRS.as_ref() else {
         return;
@@ -72,14 +67,12 @@ pub async fn watch(mut emitter: impl FnMut() + 'static + Send) {
 /// The folders, not the files: a list is saved by writing a new file and
 /// renaming it over the old one, which ends a watch on the old file, so a
 /// watch on the file would see only the first save.
-#[cfg(feature = "desktop")]
 fn list_folders(files: &FxHashSet<PathBuf>) -> FxHashSet<&Path> {
     files.iter().filter_map(|file| file.parent()).collect()
 }
 
 /// Whether an event on `paths` concerns one of the `mimeapps.list` files,
 /// rather than something else in their folders.
-#[cfg(feature = "desktop")]
 fn touches_a_list(paths: &[PathBuf], files: &FxHashSet<PathBuf>) -> bool {
     paths.iter().any(|path| files.contains(path))
 }
@@ -226,6 +219,58 @@ pub fn entry_commands(
     }
 }
 
+/// Opens a file or URI with its default application, as `xdg-open` does,
+/// D-Bus activation included. It blocks, reading the associations or calling
+/// D-Bus, so it runs on a worker. Made by [`MimeAppCache::opener`].
+#[derive(Clone, Debug)]
+pub struct Opener {
+    /// The cache's associations; none while it is not loaded.
+    associations: Option<MimeApps>,
+    /// The cache's launch options, its terminal among them.
+    options: LaunchOptions,
+}
+
+impl Opener {
+    /// Opens `target`: a file whose type is `mime`, or a URI.
+    pub fn open(&self, target: &Target, mime: Option<&Mime>) -> Result<(), String> {
+        let plan = self.plan(target, mime)?;
+        if matches!(plan.launch, Launch::Commands(_)) {
+            // Commands run detached, as every launch of this app does
+            plan_commands(plan).into_iter().try_for_each(|mut command| {
+                crate::spawn_detached::spawn_detached(&mut command).map_err(|err| err.to_string())
+            })
+        } else {
+            plan.spawn().map(drop).map_err(|err| err.to_string())
+        }
+    }
+
+    /// How [`Self::open`] opens `target`. A file opens with the default for
+    /// `mime`, the type already found for it, or for one of its parents; a
+    /// URI with the default for its scheme.
+    fn plan(&self, target: &Target, mime: Option<&Mime>) -> Result<LaunchPlan, String> {
+        let (associations, options) = (self.associations()?, &self.options);
+        match (target, mime) {
+            (Target::Path(_), Some(mime)) => {
+                let app = std::iter::once(mime.clone())
+                    .chain(crate::mime_icon::parent_mime_types(mime))
+                    .find_map(|mime| associations.default_for(&mime))
+                    .ok_or_else(|| format!("no application opens {mime}"))?;
+                prepare_launch(app.entry(), std::slice::from_ref(target), options)
+                    .map_err(|err| err.to_string())
+            }
+            _ => xdg_kit::mime_apps::open_plan(target, associations, options)
+                .map_err(|err| err.to_string()),
+        }
+    }
+
+    /// The cache's associations, once it has loaded them.
+    fn associations(&self) -> Result<&MimeApps, String> {
+        self.associations
+            .as_ref()
+            .ok_or_else(|| "the applications are not loaded yet".to_owned())
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum MimeAppMatch {
     Exact,
@@ -359,10 +404,8 @@ struct TypeApps {
 
 pub struct MimeAppCache {
     apps: Vec<Arc<MimeApp>>,
-    #[cfg(feature = "desktop")]
     by_id: FxHashMap<String, Arc<MimeApp>>,
     terminals: Vec<Arc<MimeApp>>,
-    #[cfg(feature = "desktop")]
     associations: Option<MimeApps>,
     /// Answers already worked out, by type. Asked from view code, so each
     /// type is resolved once per cache.
@@ -383,10 +426,8 @@ impl MimeAppCache {
     pub fn empty() -> Self {
         Self {
             apps: Vec::new(),
-            #[cfg(feature = "desktop")]
             by_id: FxHashMap::default(),
             terminals: Vec::new(),
-            #[cfg(feature = "desktop")]
             associations: None,
             by_type: Mutex::default(),
             default_terminal: None,
@@ -419,6 +460,20 @@ impl MimeAppCache {
         options
     }
 
+    /// What a worker needs to open a file or URI with its default
+    /// application once the usual launch has found nothing that runs; see
+    /// [`Opener`].
+    pub fn opener(&self) -> Opener {
+        let mut options = self.launch_options();
+        // The usual launch runs only commands; this is where an application
+        // started only through D-Bus is reached
+        options.dbus = true;
+        Opener {
+            associations: self.associations.clone(),
+            options,
+        }
+    }
+
     /// The command that runs a program in the terminal: the terminal's own
     /// command, then `-e`, which most terminals take.
     fn terminal_command(&self) -> Option<Vec<std::ffi::OsString>> {
@@ -445,16 +500,6 @@ impl MimeAppCache {
             .clone()
     }
 
-    #[cfg(not(feature = "desktop"))]
-    fn resolve(&self, _mime: &Mime) -> TypeApps {
-        TypeApps {
-            apps: Vec::new(),
-            default: None,
-            launch: Vec::new(),
-        }
-    }
-
-    #[cfg(feature = "desktop")]
     fn resolve(&self, mime: &Mime) -> TypeApps {
         use crate::localize::LANGUAGE_SORTER;
         use xdg_kit::mime_apps::Matched;
@@ -573,12 +618,8 @@ impl MimeAppCache {
         self.type_apps(mime).default.as_deref() == Some(app.id.as_str())
     }
 
-    #[cfg(not(feature = "desktop"))]
-    pub fn reload(&mut self) {}
-
     /// Reload the installed applications and their associations and
     /// defaults.
-    #[cfg(feature = "desktop")]
     pub fn reload(&mut self) {
         match crate::xdg_dirs::BASE_DIRS.as_ref() {
             Some(base_dirs) => self.reload_from(base_dirs),
@@ -592,7 +633,6 @@ impl MimeAppCache {
     }
 
     /// [`Self::reload`] from the applications and lists of `base_dirs`.
-    #[cfg(feature = "desktop")]
     fn reload_from(&mut self, base_dirs: &xdg_kit::basedir::BaseDirs) {
         use crate::localize::LANGUAGE_SORTER;
         use xdg_kit::desktop_entry::{AppIndex, Desktops, EntryType};
@@ -663,7 +703,6 @@ impl MimeAppCache {
     /// `MimeApps::default_for` takes a default only for an application
     /// associated with the type, so a terminal chosen as the default would
     /// be passed over there.
-    #[cfg(feature = "desktop")]
     fn configured_terminal(&self, associations: &MimeApps) -> Option<String> {
         use xdg_kit::mime_apps::{Group, MimeAppsList, TypePattern};
 
@@ -746,14 +785,6 @@ impl MimeAppCache {
             .or_else(|| self.terminals.first())
     }
 
-    #[cfg(not(feature = "desktop"))]
-    pub fn set_default(mime: Mime, id: String) -> bool {
-        log::warn!(
-            "failed to set default handler for {mime:?} to {id:?}: desktop feature not enabled"
-        );
-        false
-    }
-
     /// Queue `id` as the default application for `mime`, and return a handle
     /// to wait on.
     ///
@@ -795,7 +826,6 @@ impl MimeAppCache {
     /// Reads and writes `mimeapps.list`, so it belongs on a worker. It takes
     /// nothing from the cache, which is why it is an associated function: the
     /// caller can hand it to a worker without the cache going with it.
-    #[cfg(feature = "desktop")]
     pub fn set_default(mime: Mime, id: String) -> bool {
         let Some(base_dirs) = crate::xdg_dirs::BASE_DIRS.as_ref() else {
             log::warn!("failed to find mimeapps.list path");
@@ -815,7 +845,6 @@ impl MimeAppCache {
     /// The list written is the one read first: the user's list for the
     /// first of `desktops` that has one, else their `mimeapps.list`. A
     /// default written anywhere else would lose to one that list names.
-    #[cfg(feature = "desktop")]
     fn set_default_in(
         base_dirs: &xdg_kit::basedir::BaseDirs,
         desktops: &xdg_kit::desktop_entry::Desktops,
@@ -853,7 +882,6 @@ impl MimeAppCache {
 
 /// Reads the list at `path`, applies `edit` and writes it back; whether all
 /// of it worked. Problems are logged.
-#[cfg(feature = "desktop")]
 fn edit_list(
     path: &Path,
     edit: impl FnOnce(
@@ -889,7 +917,6 @@ impl Default for MimeAppCache {
 }
 
 /// A desktop file ID without its `.desktop`, as this app names applications.
-#[cfg(feature = "desktop")]
 fn app_id(id: &str) -> &str {
     id.strip_suffix(".desktop").unwrap_or(id)
 }
@@ -897,12 +924,10 @@ fn app_id(id: &str) -> &str {
 #[cfg(test)]
 mod tests {
     use super::exec_to_command;
-    #[cfg(feature = "desktop")]
     use std::path::Path;
 
     /// The base directories of a home at `home`: its own `config` and
     /// `data` folders, and no system ones.
-    #[cfg(feature = "desktop")]
     fn base_dirs(home: &Path) -> xdg_kit::basedir::BaseDirs {
         xdg_kit::basedir::BaseDirs::from_vars(|name| {
             let path = match name {
@@ -918,7 +943,6 @@ mod tests {
     }
 
     /// Writes the desktop entry `id` into `home`'s applications.
-    #[cfg(feature = "desktop")]
     fn install(home: &Path, id: &str, extra: &str) {
         let apps = home.join("data/applications");
         std::fs::create_dir_all(&apps).unwrap();
@@ -930,7 +954,6 @@ mod tests {
     }
 
     /// Writes `text` as `home`'s list `name`.
-    #[cfg(feature = "desktop")]
     fn write_list(home: &Path, name: &str, text: &str) {
         let config = home.join("config");
         std::fs::create_dir_all(&config).unwrap();
@@ -940,7 +963,6 @@ mod tests {
     /// A default chosen in the app lands in the list read first, the
     /// desktop's own when there is one, so it wins over the default that
     /// list already names.
-    #[cfg(feature = "desktop")]
     #[test]
     fn a_chosen_default_goes_to_the_list_read_first() {
         use xdg_kit::desktop_entry::{AppIndex, Desktops};
@@ -1000,7 +1022,6 @@ mod tests {
 
     /// A terminal chosen as the default for `x-scheme-handler/terminal`
     /// is used, though terminals do not list that type themselves.
-    #[cfg(feature = "desktop")]
     #[test]
     fn the_chosen_terminal_is_used() {
         let home = tempfile::tempdir().unwrap();
@@ -1017,10 +1038,149 @@ mod tests {
         assert_eq!(cache.terminal().map(|t| t.id.as_str()), Some("foot"));
     }
 
+    /// The program and arguments of each command `plan` runs.
+    fn command_lines(plan: xdg_kit::desktop_entry::LaunchPlan) -> Vec<Vec<String>> {
+        super::plan_commands(plan)
+            .iter()
+            .map(|command| {
+                std::iter::once(command.get_program())
+                    .chain(command.get_args())
+                    .map(|part| part.to_string_lossy().into_owned())
+                    .collect()
+            })
+            .collect()
+    }
+
+    /// A home with a browser, the default for `https`, and an editor, the
+    /// default for `text/plain`, loaded into a cache.
+    fn opening_home() -> (tempfile::TempDir, super::MimeAppCache) {
+        let home = tempfile::tempdir().unwrap();
+        let apps = home.path().join("data/applications");
+        std::fs::create_dir_all(&apps).unwrap();
+        std::fs::write(
+            apps.join("browser.desktop"),
+            "[Desktop Entry]\nType=Application\nName=browser\nExec=browser %u\n\
+             MimeType=x-scheme-handler/https;\n",
+        )
+        .unwrap();
+        install(home.path(), "editor", "MimeType=text/plain;\n");
+        write_list(
+            home.path(),
+            "mimeapps.list",
+            "[Default Applications]\nx-scheme-handler/https=browser.desktop\ntext/plain=editor.desktop\n",
+        );
+        let mut cache = super::MimeAppCache::empty();
+        cache.reload_from(&base_dirs(home.path()));
+        (home, cache)
+    }
+
+    /// A URI opens with the default for its scheme, a file with the default
+    /// for the type already found for it, without looking at it again.
+    #[test]
+    fn a_uri_or_a_file_opens_with_its_default() {
+        use xdg_kit::desktop_entry::Target;
+
+        let (home, cache) = opening_home();
+        let opener = cache.opener();
+
+        let url = "https://example.org/a";
+        let plan = opener.plan(&Target::Uri(url.to_owned()), None).unwrap();
+        assert_eq!(command_lines(plan), [["browser", url]]);
+
+        // Never read: the type given is the one used
+        let file = home.path().join("no such file");
+        let plan = opener
+            .plan(&Target::Path(file.clone()), Some(&super::Mime::TEXT_PLAIN))
+            .unwrap();
+        let file = file.to_string_lossy().into_owned();
+        assert_eq!(command_lines(plan), [["editor".to_owned(), file]]);
+
+        assert!(
+            opener
+                .plan(&Target::Uri("gopher://example.org".to_owned()), None)
+                .is_err()
+        );
+    }
+
+    /// A default started only through D-Bus is opened that way.
+    #[test]
+    fn a_dbus_only_default_opens_through_dbus() {
+        use xdg_kit::desktop_entry::{Launch, Target};
+
+        let home = tempfile::tempdir().unwrap();
+        let apps = home.path().join("data/applications");
+        std::fs::create_dir_all(&apps).unwrap();
+        std::fs::write(
+            apps.join("org.example.Viewer.desktop"),
+            "[Desktop Entry]\nType=Application\nName=Viewer\nDBusActivatable=true\n\
+             MimeType=text/plain;\n",
+        )
+        .unwrap();
+        write_list(
+            home.path(),
+            "mimeapps.list",
+            "[Default Applications]\ntext/plain=org.example.Viewer.desktop\n",
+        );
+        let mut cache = super::MimeAppCache::empty();
+        cache.reload_from(&base_dirs(home.path()));
+
+        // The usual launch has no command for it
+        let target = Target::Path(home.path().join("a.txt"));
+        let viewer = cache.get(&super::Mime::TEXT_PLAIN);
+        assert!(
+            viewer[0]
+                .commands(std::slice::from_ref(&target), &cache.launch_options())
+                .is_none()
+        );
+
+        let plan = cache
+            .opener()
+            .plan(&target, Some(&super::Mime::TEXT_PLAIN))
+            .unwrap();
+        assert!(matches!(plan.launch, Launch::DBus(_)), "{plan:?}");
+    }
+
+    /// A default that runs in a terminal opens in the user's terminal.
+    #[test]
+    fn a_terminal_default_opens_in_the_terminal() {
+        use xdg_kit::desktop_entry::Target;
+
+        let home = tempfile::tempdir().unwrap();
+        install(home.path(), "kitty", "Categories=TerminalEmulator;\n");
+        install(home.path(), "vim", "Terminal=true\nMimeType=text/plain;\n");
+        write_list(
+            home.path(),
+            "mimeapps.list",
+            "[Default Applications]\ntext/plain=vim.desktop\n\
+             x-scheme-handler/terminal=kitty.desktop\n",
+        );
+        let mut cache = super::MimeAppCache::empty();
+        cache.reload_from(&base_dirs(home.path()));
+        let opener = cache.opener();
+
+        let file = home.path().join("notes.txt");
+        let plan = opener
+            .plan(&Target::Path(file.clone()), Some(&super::Mime::TEXT_PLAIN))
+            .unwrap();
+        let file = file.to_string_lossy().into_owned();
+        assert_eq!(command_lines(plan), [["kitty", "-e", "vim", file.as_str()]]);
+    }
+
+    /// Before the applications are loaded, nothing opens.
+    #[test]
+    fn an_empty_cache_opens_nothing() {
+        let target = xdg_kit::desktop_entry::Target::Uri("https://example.org".to_owned());
+        assert!(
+            super::MimeAppCache::empty()
+                .opener()
+                .plan(&target, None)
+                .is_err()
+        );
+    }
+
     /// Changes to a list are seen after the app has saved it, too: a save
     /// renames a new file over the old one, which a watch on the file
     /// itself would not survive.
-    #[cfg(feature = "desktop")]
     #[test]
     fn list_changes_are_seen_after_a_save() {
         use notify_debouncer_full::notify::{self, Watcher as _};
@@ -1088,7 +1248,6 @@ mod tests {
     /// A default reached only through a broader type, here any data, is
     /// still the default: opening tries it before the type's own
     /// applications.
-    #[cfg(feature = "desktop")]
     #[test]
     fn a_default_through_a_broader_type_opens_first() {
         let home = tempfile::tempdir().unwrap();
@@ -1127,7 +1286,6 @@ mod tests {
     /// An application counts as opening some type when a `mimeapps.list`
     /// adds it, though its desktop file names no type. One named only as a
     /// default does not, as the default is not taken either.
-    #[cfg(feature = "desktop")]
     #[test]
     fn other_applications_are_those_some_type_lists() {
         let home = tempfile::tempdir().unwrap();

@@ -518,11 +518,7 @@ fn context_menu_items(tab: &Tab, sources: &Sources) -> Vec<menu::Item<TabAction,
     selected_types.sort_unstable();
     selected_types.dedup();
     selected_trash_only = selected_trash_only && selected == 1;
-    // Without desktop entries there is nothing to read from one
-    #[cfg(not(feature = "desktop"))]
-    let _ = selected_desktop_entry;
     // Parse the desktop entry if it is the only selection
-    #[cfg(feature = "desktop")]
     let selected_desktop_entry = selected_desktop_entry.and_then(|path| {
         if selected == 1 {
             let lang_id = crate::localize::LANGUAGE_LOADER.current_language();
@@ -647,7 +643,6 @@ fn context_menu_items(tab: &Tab, sources: &Sources) -> Vec<menu::Item<TabAction,
                     open.push(folder_open_row());
                 } else if selected_dir == 0 {
                     open.push(file_open_row());
-                    #[cfg(feature = "desktop")]
                     if let Some(entry) = selected_desktop_entry {
                         open.extend(
                             entry

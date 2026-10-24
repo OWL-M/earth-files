@@ -208,7 +208,6 @@ pub enum Action {
     EditLocation,
     Eject,
     EmptyTrash,
-    #[cfg(feature = "desktop")]
     ExecEntryAction(usize),
     ExtractAsFolder,
     ExtractHere,
@@ -293,7 +292,6 @@ impl Action {
             Self::ExtractAsFolder => Message::ExtractAsFolder(entity_opt),
             Self::ExtractHere => Message::ExtractHere(entity_opt),
             Self::ExtractTo => Message::ExtractTo(entity_opt),
-            #[cfg(feature = "desktop")]
             Self::ExecEntryAction(action) => {
                 Message::TabMessage(entity_opt, tab::Message::ExecEntryAction(None, *action))
             }
@@ -1436,31 +1434,28 @@ impl App {
 
             // First launch apps that can be launched directly
             if mime == Mime::APPLICATION_X_DESKTOP {
-                #[cfg(feature = "desktop")]
-                {
-                    // A desktop entry runs an arbitrary command line, so only
-                    // the ones installed as applications launch unasked. Any
-                    // other one, such as a file just downloaded or unpacked,
-                    // has to be confirmed first.
-                    let (installed, unknown): (Vec<_>, Vec<_>) = paths
-                        .into_iter()
-                        .partition(|path| Self::desktop_entry_is_installed(path));
-                    self.launch_desktop_entries(&installed);
-                    for path in unknown {
-                        match Self::desktop_entry_command(&path) {
-                            Some(command) => {
-                                tasks.push(self.push_dialog(
-                                    DialogPage::LaunchDesktopEntry { path, command },
-                                    Some(LAUNCH_DESKTOP_ENTRY_CONFIRM_BUTTON_ID.clone()),
-                                ));
-                            }
-                            None => {
-                                log::warn!("failed to read desktop entry {}", path.display());
-                            }
+                // A desktop entry runs an arbitrary command line, so only
+                // the ones installed as applications launch unasked. Any
+                // other one, such as a file just downloaded or unpacked,
+                // has to be confirmed first.
+                let (installed, unknown): (Vec<_>, Vec<_>) = paths
+                    .into_iter()
+                    .partition(|path| Self::desktop_entry_is_installed(path));
+                self.launch_desktop_entries(&installed);
+                for path in unknown {
+                    match Self::desktop_entry_command(&path) {
+                        Some(command) => {
+                            tasks.push(self.push_dialog(
+                                DialogPage::LaunchDesktopEntry { path, command },
+                                Some(LAUNCH_DESKTOP_ENTRY_CONFIRM_BUTTON_ID.clone()),
+                            ));
+                        }
+                        None => {
+                            log::warn!("failed to read desktop entry {}", path.display());
                         }
                     }
-                    continue;
                 }
+                continue;
             } else if mime.as_str() == "application/x-executable"
                 || mime.as_str() == "application/vnd.appimage"
             {
@@ -1493,23 +1488,31 @@ impl App {
                 }
             }
 
-            // Fall back to using open crate
-            for path in paths {
-                match open::that_detached(&path) {
-                    Ok(()) => {
-                        if self.config.show_recents {
-                            crate::recents::record(
-                                path.clone(),
+            // Last, as `xdg-open` would: the default application, through
+            // D-Bus too, which the launches above do not use. On a worker,
+            // as a D-Bus call can take a while.
+            let opener = self.mime_app_cache.opener();
+            let show_recents = self.config.show_recents;
+            tasks.push(Task::future(async move {
+                let opened = tokio::task::spawn_blocking(move || {
+                    for path in paths {
+                        match opener.open(&Target::Path(path.clone()), Some(&mime)) {
+                            Ok(()) if show_recents => crate::recents::record(
+                                path,
                                 Self::APP_ID.to_string(),
                                 "earth-files".to_string(),
-                            );
+                            ),
+                            Ok(()) => {}
+                            Err(err) => log::warn!("failed to open {}: {err}", path.display()),
                         }
                     }
-                    Err(err) => {
-                        log::warn!("failed to open {}: {}", path.display(), err);
-                    }
+                })
+                .await;
+                if let Err(err) = opened {
+                    log::warn!("failed to open files: {err}");
                 }
-            }
+                crate::ui::action::app(Message::None)
+            }));
         }
 
         Task::batch(tasks)
@@ -1529,7 +1532,6 @@ impl App {
         }
     }
 
-    #[cfg(feature = "desktop")]
     /// Whether a desktop entry lives in one of the directories applications
     /// are installed into, which is what makes it trusted to run unasked
     fn desktop_entry_is_installed(path: &Path) -> bool {
@@ -1631,7 +1633,6 @@ impl App {
         remaining
     }
 
-    #[cfg(feature = "desktop")]
     fn exec_entry_action(&self, entry: &crate::desktop_entry::DesktopEntryData, action: usize) {
         let Some(action) = entry.desktop_actions.get(action) else {
             log::warn!(
@@ -5199,10 +5200,7 @@ impl Application for App {
                             tasks.push(self.operation(Operation::SetExecutableAndLaunch { path }));
                         }
                         DialogPage::LaunchDesktopEntry { path, .. } => {
-                            #[cfg(feature = "desktop")]
                             self.launch_desktop_entries(&[path]);
-                            #[cfg(not(feature = "desktop"))]
-                            let _ = path;
                         }
                         DialogPage::LaunchExecutable { path, .. } => {
                             let mut command = std::process::Command::new(&path);
@@ -5392,12 +5390,27 @@ impl Application for App {
             Message::MaybeExit => {
                 return self.maybe_exit();
             }
-            Message::LaunchUrl(url) => match open::that_detached(&url) {
-                Ok(()) => {}
-                Err(err) => {
-                    log::warn!("failed to open {url:?}: {err}");
+            Message::LaunchUrl(url) => {
+                if self.defer_until_mime_apps(Message::LaunchUrl(url.clone())) {
+                    return Task::none();
                 }
-            },
+                // On a worker, as opening may be a D-Bus call
+                let opener = self.mime_app_cache.opener();
+                return Task::future(async move {
+                    let opened = tokio::task::spawn_blocking(move || {
+                        opener
+                            .open(&Target::Uri(url.clone()), None)
+                            .map_err(|err| format!("failed to open {url:?}: {err}"))
+                    })
+                    .await;
+                    match opened {
+                        Ok(Ok(())) => {}
+                        Ok(Err(err)) => log::warn!("{err}"),
+                        Err(err) => log::warn!("failed to open a URL: {err}"),
+                    }
+                    crate::ui::action::app(Message::None)
+                });
+            }
             Message::ModifiersChanged(window_id, modifiers) => {
                 if self.core.main_window_id() == Some(window_id) {
                     self.modifiers = modifiers;
@@ -7011,7 +7024,6 @@ impl Application for App {
                                 Some(EMPTY_TRASH_BUTTON_ID.clone()),
                             );
                         }
-                        #[cfg(feature = "desktop")]
                         tab::Command::ExecEntryAction(entry, action) => {
                             self.exec_entry_action(&entry, action);
                         }
@@ -9110,7 +9122,6 @@ impl Application for App {
     fn subscription(&self) -> Subscription<Self::Message> {
         struct WatcherSubscription;
         struct TrashWatcherSubscription;
-        #[cfg(feature = "desktop")]
         struct ServiceMenuSubscription;
         struct RecentsWatcherSubscription;
 
@@ -9222,7 +9233,6 @@ impl Application for App {
                     },
                 )
             }),
-            #[cfg(feature = "desktop")]
             Subscription::run(|| {
                 stream::channel(
                     1,
@@ -9239,7 +9249,6 @@ impl Application for App {
                 )
             }),
             // Keyed by the folders, so a changed set starts a new watcher
-            #[cfg(feature = "desktop")]
             Subscription::run_with(
                 (
                     TypeId::of::<ServiceMenuSubscription>(),

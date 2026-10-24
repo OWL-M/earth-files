@@ -7,7 +7,6 @@ use std::path::Path;
 use std::sync::{LazyLock, Mutex};
 use std::time::Instant;
 use std::{fs, process};
-#[cfg(feature = "desktop")]
 use xdg_kit::desktop_entry::KeyFile;
 
 #[derive(Clone, Debug)]
@@ -67,10 +66,6 @@ impl ThumbnailerCache {
         thumbnailer_cache
     }
 
-    #[cfg(not(feature = "desktop"))]
-    pub fn reload(&mut self) {}
-
-    #[cfg(feature = "desktop")]
     pub fn reload(&mut self) {
         let start = Instant::now();
 
