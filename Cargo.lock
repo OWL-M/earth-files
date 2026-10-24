@@ -175,7 +175,7 @@ version = "1.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "40c48f72fd53cd289104fc64099abca73db4166ad86ea0b4341abe65af83dadc"
 dependencies = [
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -186,7 +186,7 @@ checksum = "291e6a250ff86cd4a820112fb8898808a366d8f9f58ce16d1f538353ad55747d"
 dependencies = [
  "anstyle",
  "once_cell_polyfill",
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -1423,7 +1423,7 @@ dependencies = [
  "libc",
  "option-ext",
  "redox_users 0.5.3",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -1517,7 +1517,7 @@ dependencies = [
  "jxl-oxide",
  "libc",
  "log",
- "lzma-rust2 0.23.0",
+ "lzma-rust2",
  "md-5",
  "mundy",
  "notify-debouncer-full",
@@ -1642,7 +1642,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -1709,8 +1709,8 @@ dependencies = [
 
 [[package]]
 name = "exwlshellev"
-version = "0.21.0-rc3"
-source = "git+https://github.com/waycrate/exwlshelleventloop?branch=master#305ec948f138341515b9292f0bd597c4e1dcbfbe"
+version = "0.21.2"
+source = "git+https://github.com/waycrate/exwlshelleventloop?branch=master#26868619ad9c778763e0a2911bdab959964a3db8"
 dependencies = [
  "calloop 0.14.5",
  "calloop-wayland-source 0.4.1",
@@ -2209,7 +2209,7 @@ dependencies = [
  "gobject-sys",
  "libc",
  "system-deps",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -2646,8 +2646,8 @@ dependencies = [
 
 [[package]]
 name = "iced_exdevtools"
-version = "0.21.0-rc3"
-source = "git+https://github.com/waycrate/exwlshelleventloop?branch=master#305ec948f138341515b9292f0bd597c4e1dcbfbe"
+version = "0.21.2"
+source = "git+https://github.com/waycrate/exwlshelleventloop?branch=master#26868619ad9c778763e0a2911bdab959964a3db8"
 dependencies = [
  "iced_debug",
  "iced_devtools",
@@ -2659,8 +2659,8 @@ dependencies = [
 
 [[package]]
 name = "iced_exwlshell"
-version = "0.21.0-rc3"
-source = "git+https://github.com/waycrate/exwlshelleventloop?branch=master#305ec948f138341515b9292f0bd597c4e1dcbfbe"
+version = "0.21.2"
+source = "git+https://github.com/waycrate/exwlshelleventloop?branch=master#26868619ad9c778763e0a2911bdab959964a3db8"
 dependencies = [
  "enumflags2",
  "exwlshellev",
@@ -2685,8 +2685,8 @@ dependencies = [
 
 [[package]]
 name = "iced_exwlshell_macros"
-version = "0.21.0-rc3"
-source = "git+https://github.com/waycrate/exwlshelleventloop?branch=master#305ec948f138341515b9292f0bd597c4e1dcbfbe"
+version = "0.21.2"
+source = "git+https://github.com/waycrate/exwlshelleventloop?branch=master#26868619ad9c778763e0a2911bdab959964a3db8"
 dependencies = [
  "darling 0.24.1",
  "manyhow",
@@ -2805,8 +2805,8 @@ dependencies = [
 
 [[package]]
 name = "iced_wayland_subscriber"
-version = "0.21.0-rc3"
-source = "git+https://github.com/waycrate/exwlshelleventloop?branch=master#305ec948f138341515b9292f0bd597c4e1dcbfbe"
+version = "0.21.2"
+source = "git+https://github.com/waycrate/exwlshelleventloop?branch=master#26868619ad9c778763e0a2911bdab959964a3db8"
 dependencies = [
  "exwlshellev",
  "futures",
@@ -4122,15 +4122,6 @@ dependencies = [
 
 [[package]]
 name = "lzma-rust2"
-version = "0.22.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7277c9742229dc25243236d578b6471a798c554512c6f6a04365ec2e87c2a3bb"
-dependencies = [
- "sha2",
-]
-
-[[package]]
-name = "lzma-rust2"
 version = "0.23.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f1c46f3fcd2e888afdb01a07efc071cb21300e07c68d32c3e8b01b5c8cb1fcaa"
@@ -4508,7 +4499,7 @@ version = "0.50.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7957b9740744892f114936ab4a57b3f487491bbeafaf8083688b16841a4240e5"
 dependencies = [
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -5893,7 +5884,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.12.1",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -6280,7 +6271,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c3d1e2c7f27f8d4cb10542a02c49005dbd6e93095799d6f3be745fae9f8fedd4"
 dependencies = [
  "libc",
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -6497,10 +6488,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.3.4",
+ "getrandom 0.4.3",
  "once_cell",
  "rustix 1.1.5",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -6887,9 +6878,9 @@ dependencies = [
 
 [[package]]
 name = "typed-path"
-version = "0.12.4"
+version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "54ec2755506471f54baf5e4bb5499d8e510cc1caf271270e778a736bd2d7336c"
+checksum = "9ce898823d8cd0f028662d2f349694b1af0a5cc9be83f1d213a00d3147445e1e"
 
 [[package]]
 name = "typeid"
@@ -6911,7 +6902,7 @@ checksum = "f2f6fb2847f6742cd76af783a2a2c49e9375d0a111c7bef6f71cd9e738c72d6e"
 dependencies = [
  "memoffset",
  "tempfile",
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -7210,8 +7201,8 @@ dependencies = [
 
 [[package]]
 name = "waycrate_xkbkeycode"
-version = "0.21.0-rc3"
-source = "git+https://github.com/waycrate/exwlshelleventloop?branch=master#305ec948f138341515b9292f0bd597c4e1dcbfbe"
+version = "0.21.2"
+source = "git+https://github.com/waycrate/exwlshelleventloop?branch=master#26868619ad9c778763e0a2911bdab959964a3db8"
 dependencies = [
  "calloop 0.14.5",
  "log",
@@ -7560,7 +7551,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.48.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -8041,9 +8032,9 @@ dependencies = [
 
 [[package]]
 name = "winit-common"
-version = "0.31.0-beta.3"
+version = "0.31.0-beta.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e90422ff1c04502aaaac1dad1d099791c2bbb3fbb3f823019e0ce5cdeee04025"
+checksum = "93ef82b1146fc93e6f60755e851152d708ede1f845eb73e8fdefc3192458ccf5"
 dependencies = [
  "memmap2",
  "smol_str 0.3.7",
@@ -8054,9 +8045,9 @@ dependencies = [
 
 [[package]]
 name = "winit-core"
-version = "0.31.0-beta.3"
+version = "0.31.0-beta.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b8af6307236c51847199950c15cf80e0481a250bb96ce9132f5026df4ad3d0f9"
+checksum = "74158ad0526ab0f1e850b89f63a4513f4fee9178ef72b408bfb37f30a429d62e"
 dependencies = [
  "bitflags 2.13.2",
  "cursor-icon",
@@ -8064,7 +8055,6 @@ dependencies = [
  "keyboard-types",
  "raw-window-handle",
  "smol_str 0.3.7",
- "url",
  "web-time",
 ]
 
@@ -8526,9 +8516,9 @@ dependencies = [
 
 [[package]]
 name = "zip"
-version = "9.0.5"
+version = "9.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6e04976da629d3b04204ba8105b396a193af8ad2583b2c79bfb3ab8af580a11e"
+checksum = "2886b00003a72c4ccee3f42cfc34908d33b2508a74d827dc2a4244706475c704"
 dependencies = [
  "aes",
  "bzip2",
@@ -8539,7 +8529,7 @@ dependencies = [
  "getrandom 0.4.3",
  "hmac",
  "indexmap",
- "lzma-rust2 0.22.0",
+ "lzma-rust2",
  "memchr",
  "nix",
  "pbkdf2",
@@ -8547,6 +8537,7 @@ dependencies = [
  "sha1",
  "time",
  "typed-path",
+ "windows-sys 0.61.2",
  "zeroize",
  "zopfli",
  "zstd",

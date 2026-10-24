@@ -135,12 +135,12 @@ version = "0.14"
 version = "0.14"
 
 [dependencies.iced_exwlshell]
-version = "0.21.0-dev"
+version = "0.21.2-dev"
 
 # What the shell runtime reports about its windows; here, whether the
 # compositor has one activated, so its menus close when it is not.
 [dependencies.iced_wayland_subscriber]
-version = "0.21.0-dev"
+version = "0.21.2-dev"
 
 # `iced_core 0.14` does not re-export `cosmic_text::Affinity`, so it is used
 # directly. `cargo tree -i cosmic-text` shows one `v0.15.0`, used by
