@@ -1496,7 +1496,6 @@ dependencies = [
  "fastrand",
  "filetime",
  "flate2",
- "fork",
  "freedesktop-icons",
  "gio",
  "glib",
@@ -1957,15 +1956,6 @@ name = "foreign-types-shared"
 version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "aa9a19cbb55df58761df49b23516a86d432839add4af60fc256da840f66ed35b"
-
-[[package]]
-name = "fork"
-version = "0.10.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "aafa2fb0e6b3b0886eb36b909c13a5e3dc9d7e0cf436376e43f095177050c029"
-dependencies = [
- "libc",
-]
 
 [[package]]
 name = "form_urlencoded"

@@ -3,7 +3,7 @@
 
 use crate::ui::iced_core::layout::Limits;
 use crate::ui::shell::Settings;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::{env, fs, process};
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
@@ -210,13 +210,15 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     if daemonize {
-        match fork::daemon(true, true) {
-            Ok(fork::Fork::Child) => (),
-            Ok(fork::Fork::Parent(_child_pid)) => process::exit(0),
-            Err(err) => {
-                eprintln!("failed to daemonize: {err:?}");
+        if single_threaded() {
+            if let Err(err) = detach() {
+                eprintln!("failed to daemonize: {err}");
                 process::exit(1);
             }
+        } else {
+            log::warn!(
+                "not detaching from the terminal: other threads may already be running"
+            );
         }
     }
 
@@ -256,8 +258,88 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// Settings and recent files are written by worker threads, which the process
 /// would otherwise take down with it along with whatever is still queued.
 /// Anything that ends the process must call this first.
+/// Leaves the terminal Earth Files was started from, as `daemon(7)`
+/// describes: the shell gets its prompt back, and closing the terminal or
+/// pressing Ctrl+C there no longer ends it. Returns only in the detached
+/// process; the others end here.
+///
+/// It forks twice. After the first fork and `setsid`, the process leads a new
+/// session with no terminal. The second fork leaves a process that does not
+/// lead it, which can never take a terminal back: a session leader opening a
+/// terminal device without `O_NOCTTY`, as `File::open` does, would make it
+/// its controlling terminal, and be ended with `SIGHUP` when it hangs up.
+///
+/// Only the thread that forks exists in the child, so this runs while there
+/// is just the one; see [`single_threaded`].
+fn detach() -> std::io::Result<()> {
+    // SAFETY: the process has a single thread (checked by the caller), so
+    // nothing in the children waits on a lock or a thread that is not there.
+    // The parents end with `_exit`, which runs no destructors or exit
+    // handlers that the child, a copy of the same state, is still using.
+    unsafe {
+        match libc::fork() {
+            -1 => return Err(std::io::Error::last_os_error()),
+            0 => {}
+            _ => libc::_exit(0),
+        }
+        if libc::setsid() == -1 {
+            return Err(std::io::Error::last_os_error());
+        }
+        match libc::fork() {
+            -1 => Err(std::io::Error::last_os_error()),
+            0 => Ok(()),
+            _ => libc::_exit(0),
+        }
+    }
+}
+
+/// Whether this process is known to run only the one thread, as [`detach`]
+/// needs. Not when `/proc` cannot tell: forking then is not known to be safe.
+fn single_threaded() -> bool {
+    thread_count(Path::new("/proc/self/task")) == Some(1)
+}
+
+/// How many threads `tasks`, a `/proc/<pid>/task` folder, lists, or `None`
+/// when it cannot be read whole.
+fn thread_count(tasks: &Path) -> Option<usize> {
+    fs::read_dir(tasks)
+        .ok()?
+        .try_fold(0, |count, task| task.ok().map(|_| count + 1))
+}
+
 pub fn shut_down() {
     config::store::flush();
     recents::flush();
     mime_app::flush_associations();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{single_threaded, thread_count};
+
+    #[test]
+    fn another_thread_is_seen() {
+        let (stop, wait) = std::sync::mpsc::channel::<()>();
+        let other = std::thread::spawn(move || {
+            let _ = wait.recv();
+        });
+        assert!(!single_threaded());
+        drop(stop);
+        other.join().unwrap();
+    }
+
+    #[test]
+    fn a_folder_that_cannot_be_read_counts_nothing() {
+        let gone = tempfile::tempdir().unwrap().path().join("task");
+        assert_eq!(thread_count(&gone), None);
+    }
+
+    #[test]
+    fn each_task_listed_is_counted() {
+        let tasks = tempfile::tempdir().unwrap();
+        for id in ["1", "2", "3"] {
+            std::fs::create_dir(tasks.path().join(id)).unwrap();
+        }
+        assert_eq!(thread_count(tasks.path()), Some(3));
+    }
 }
