@@ -369,8 +369,8 @@ pub fn system_time_to_zip_date_time(system_time: SystemTime) -> Option<zip::Date
 mod tests {
     use super::*;
 
-    fn zip_options() -> zip::write::FileOptions<'static, ()> {
-        zip::write::FileOptions::default()
+    fn zip_options() -> zip::write::SimpleFileOptions {
+        zip::write::SimpleFileOptions::default()
     }
 
     /// An archive holding a symlink out of the destination and a file beneath

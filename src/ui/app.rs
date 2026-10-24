@@ -63,6 +63,9 @@ pub enum Action {
     ToggleNavBar,
     /// Toggles the condensed status of the nav bar.
     ToggleNavBarCondensed,
+    /// The compositor no longer has this window activated: another window
+    /// is, even while a menu's grab keeps the keyboard here.
+    Deactivated(window::Id),
     /// Window focus lost.
     Unfocus(window::Id),
     /// Windowing system initialized.

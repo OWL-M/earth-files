@@ -57,7 +57,7 @@ bzip2 = { version = "0.6", optional = true }
 flate2 = "1.1"
 fork = "0.10"
 tar = "0.4.45"
-lzma-rust2 = { version = "0.21", optional = true }
+lzma-rust2 = { version = "0.23", optional = true }
 ordermap = { version = "1.2.0", features = ["serde"] }
 # Internationalization
 i18n-embed = { version = "0.16", features = [
@@ -68,7 +68,7 @@ i18n-embed-fl = "0.10"
 rust-embed = "8"
 slotmap = "1.1.1"
 recently-used-xbel = "1.2.0"
-zip = "8"
+zip = "9"
 md-5 = "0.11"
 sha2 = "0.11"
 png = "0.18"
@@ -137,6 +137,11 @@ version = "0.14"
 version = "0.14"
 
 [dependencies.iced_exwlshell]
+version = "0.21.0-dev"
+
+# What the shell runtime reports about its windows; here, whether the
+# compositor has one activated, so its menus close when it is not.
+[dependencies.iced_wayland_subscriber]
 version = "0.21.0-dev"
 
 # `iced_core 0.14` does not re-export `cosmic_text::Affinity`, so it is used

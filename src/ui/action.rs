@@ -5,21 +5,21 @@
 //!
 //! [`Action::Exwl`] carries requests to `iced_exwlshell`.
 //!
-//! exwlshell requires `Message: TryInto<ExwlShellCustomActionWithId,
+//! exwlshell requires `Message: TryInto<ExWlShellCustomActionWithId,
 //! Error = Message>`. Its `#[to_exwlshell_message]` macro implements this by
 //! injecting eighteen variants (`NewPopUp`, `PopUpReposition`, `RemoveWindow`,
 //! `NewLayerShell`, `Lock`, …). Seventeen cover surfaces this app never opens,
 //! but all would need handling in [`Action::map`] and [`Action::flatten`],
 //! which run on every popup view.
 //!
-//! A single variant holds `ExwlShellCustomActionWithId`, the macro's output
+//! A single variant holds `ExWlShellCustomActionWithId`, the macro's output
 //! type. The shell constructs its requests in `shell::runner`, and `TryInto`
 //! takes three lines. The macro's `popup_open` and `base_window_open` helpers
 //! combine `IcedId::unique()` with `Task::done`; [`exwl`] reproduces them.
 
 use iced_core::window;
 use iced_exwlshell::actions::{
-    ExwlShellCustomAction, ExwlShellCustomActionWithId, IcedNewPopupSettings, IcedXdgWindowSettings,
+    ExWlShellCustomAction, ExWlShellCustomActionWithId, IcedNewPopupSettings, IcedXdgWindowSettings,
 };
 
 use crate::ui::{app, surface};
@@ -55,7 +55,7 @@ pub enum Action<M> {
     Surface(surface::Action<M>),
     /// A request for the `iced_exwlshell` runtime itself. Intercepted before
     /// `update` ever sees it.
-    Exwl(ExwlShellCustomActionWithId),
+    Exwl(ExWlShellCustomActionWithId),
     /// Do nothing.
     None,
 }
@@ -98,10 +98,10 @@ impl<M> From<M> for Action<M> {
 /// Everything that is not an [`Action::Exwl`] is handed back untouched and
 /// reaches `update` as normal; this is exactly the shape
 /// `#[to_exwlshell_message]` generates.
-impl<M> TryInto<ExwlShellCustomActionWithId> for Action<M> {
+impl<M> TryInto<ExWlShellCustomActionWithId> for Action<M> {
     type Error = Self;
 
-    fn try_into(self) -> Result<ExwlShellCustomActionWithId, Self::Error> {
+    fn try_into(self) -> Result<ExWlShellCustomActionWithId, Self::Error> {
         match self {
             Action::Exwl(action) => Ok(action),
             other => Err(other),
@@ -116,23 +116,23 @@ impl<M> TryInto<ExwlShellCustomActionWithId> for Action<M> {
 /// app relies on, since it must recognise its own popup's `Closed` event.
 pub mod exwl {
     use super::{
-        Action, ExwlShellCustomAction, ExwlShellCustomActionWithId, IcedNewPopupSettings,
+        Action, ExWlShellCustomAction, ExWlShellCustomActionWithId, IcedNewPopupSettings,
         IcedXdgWindowSettings, window,
     };
 
     /// Open the application's base `xdg_toplevel`.
     pub fn base_window<M>(id: window::Id, settings: IcedXdgWindowSettings) -> Action<M> {
-        Action::Exwl(ExwlShellCustomActionWithId::new(
+        Action::Exwl(ExWlShellCustomActionWithId::new(
             None,
-            ExwlShellCustomAction::NewBaseWindow { settings, id },
+            ExWlShellCustomAction::NewBaseWindow { settings, id },
         ))
     }
 
     /// Open a popup on `settings.parent`.
     pub fn popup<M>(id: window::Id, settings: IcedNewPopupSettings) -> Action<M> {
-        Action::Exwl(ExwlShellCustomActionWithId::new(
+        Action::Exwl(ExWlShellCustomActionWithId::new(
             None,
-            ExwlShellCustomAction::NewPopUp { settings, id },
+            ExWlShellCustomAction::NewPopUp { settings, id },
         ))
     }
 
@@ -147,17 +147,17 @@ pub mod exwl {
     /// a surface that no longer exists. Drive it from inside the popup, or from
     /// state that is not pointer-derived.
     pub fn reposition_popup<M>(id: window::Id, settings: IcedNewPopupSettings) -> Action<M> {
-        Action::Exwl(ExwlShellCustomActionWithId::new(
+        Action::Exwl(ExWlShellCustomActionWithId::new(
             Some(id),
-            ExwlShellCustomAction::PopUpReposition { settings },
+            ExWlShellCustomAction::PopUpReposition { settings },
         ))
     }
 
     /// Destroy a surface.
     pub fn remove_window<M>(id: window::Id) -> Action<M> {
-        Action::Exwl(ExwlShellCustomActionWithId::new(
+        Action::Exwl(ExWlShellCustomActionWithId::new(
             Some(id),
-            ExwlShellCustomAction::RemoveWindow,
+            ExWlShellCustomAction::RemoveWindow,
         ))
     }
 }

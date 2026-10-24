@@ -450,6 +450,35 @@ pub(crate) mod chain {
         })
     }
 
+    /// Forget every popup open on `toplevel`, through any number of popups
+    /// between, and say which to close: the outermost of each chain, since
+    /// closing a popup takes its own children with it.
+    pub(crate) fn rooted_in(toplevel: window::Id) -> Vec<window::Id> {
+        OPEN.with(|open| {
+            let mut open = open.borrow_mut();
+            let root = |mut id: window::Id| {
+                while let Some(parent) = open.get(&id) {
+                    id = *parent;
+                }
+                id
+            };
+            let chained: Vec<window::Id> = open
+                .keys()
+                .copied()
+                .filter(|popup| root(*popup) == toplevel)
+                .collect();
+            let outermost: Vec<window::Id> = chained
+                .iter()
+                .copied()
+                .filter(|popup| open.get(popup) == Some(&toplevel))
+                .collect();
+            for popup in &chained {
+                open.remove(popup);
+            }
+            outermost
+        })
+    }
+
     /// Forget `id` once its surface is gone.
     pub(crate) fn closed(id: window::Id) {
         OPEN.with(|open| {
@@ -505,6 +534,23 @@ pub(crate) mod chain {
             let menu = window::Id::unique();
             open(menu, window);
             assert_eq!(open(window::Id::unique(), chooser), [menu]);
+        }
+
+        #[test]
+        fn a_window_names_the_outermost_of_its_own_chains_only() {
+            let window = window::Id::unique();
+            let menu = window::Id::unique();
+            let submenu = window::Id::unique();
+            open(menu, window);
+            open(submenu, menu);
+            let chooser = window::Id::unique();
+            let chooser_menu = window::Id::unique();
+            OPEN.with(|open| open.borrow_mut().insert(chooser_menu, chooser));
+
+            assert_eq!(rooted_in(window), [menu]);
+            // Both forgotten, the other window's left
+            assert_eq!(rooted_in(window), []);
+            assert_eq!(rooted_in(chooser), [chooser_menu]);
         }
 
         #[test]

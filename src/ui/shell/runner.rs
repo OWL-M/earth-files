@@ -45,6 +45,12 @@ type PopupView<M> = Box<dyn Fn() -> Element<'static, crate::ui::Action<M>> + Sen
 pub(crate) static WINDOWING_SYSTEM: std::sync::OnceLock<WindowingSystem> =
     std::sync::OnceLock::new();
 
+/// What the runtime reports about the windows it made, set once in [`run`].
+/// Every shell in the process listens to it, a file chooser's nested one
+/// too: they share the runtime that reports.
+static SHELL_EVENTS: std::sync::OnceLock<iced_wayland_subscriber::shell::ShellReceiver> =
+    std::sync::OnceLock::new();
+
 /// The windowing backends.
 ///
 /// Only [`WindowingSystem::Wayland`] is reachable because `iced_exwlshell`
@@ -195,6 +201,10 @@ pub fn run<App: Application>(
 
     let (iced_settings, mut exwl_settings, mut core, window_settings, theme) =
         split_settings::<App>(settings);
+
+    let (shell_broadcast, shell_events) = iced_wayland_subscriber::shell::channel();
+    exwl_settings.shell_broadcast = shell_broadcast;
+    _ = SHELL_EVENTS.set(shell_events);
 
     // Own the connection rather than letting exwlshell open one, so
     // `ui::dnd` can put a second event queue on the same connection and bind
@@ -526,6 +536,22 @@ impl<App: Application> Shell<App> {
         window::is_maximized(id).map(move |maximized| {
             crate::ui::Action::Cosmic(crate::ui::app::Action::WindowMaximized(id, maximized))
         })
+    }
+
+    /// Close, at once, every popup open on this shell's main window, as
+    /// [`Self::close_other_chains`] does. Only its own: a file chooser's
+    /// nested shell closes those on its window itself.
+    fn close_chains_in(&mut self, window: window::Id) -> AppTask<App::Message> {
+        if !self.app.core().main_window_is(window) {
+            return iced::Task::none();
+        }
+        let mut task = iced::Task::none();
+        for popup in crate::ui::surface::chain::rooted_in(window) {
+            self.popup_genies.remove(popup);
+            crate::ui::surface::content_top::forget(popup);
+            task = task.chain(self.remove_popup(popup));
+        }
+        task
     }
 
     /// Close, at once, every popup that is not on the way to `parent`, before
@@ -890,6 +916,8 @@ impl<App: Application> Shell<App> {
                 self.app.core_mut().focused_window = vec![id];
             }
 
+            Action::Deactivated(id) => return self.close_chains_in(id),
+
             Action::Unfocus(id) => {
                 let core = self.app.core_mut();
                 if core.focused_window().is_some_and(|cur| cur == id) {
@@ -940,6 +968,26 @@ impl<App: Application> Shell<App> {
             subscriptions.push(
                 crate::ui::keyboard_nav::subscription()
                     .map(|(window_id, action)| Action::KeyboardNav(window_id, action))
+                    .map(crate::ui::Action::Cosmic),
+            );
+        }
+
+        // A window the compositor deactivates closes its menus. Hyprland
+        // does not draw a tiled window's popups while another window is
+        // focused, and it takes no keyboard from a menu holding its grab, so
+        // there is no `Unfocused` either: without this, the menu would only
+        // vanish from sight, still taking clicks, and come back with focus.
+        if let Some(shell_events) = SHELL_EVENTS.get() {
+            subscriptions.push(
+                shell_events
+                    .listen()
+                    .filter_map(|event| match event {
+                        iced_wayland_subscriber::shell::ShellEvent::WindowActivationChanged {
+                            window,
+                            activated: false,
+                        } => Some(Action::Deactivated(window)),
+                        _ => None,
+                    })
                     .map(crate::ui::Action::Cosmic),
             );
         }
