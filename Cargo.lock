@@ -175,7 +175,7 @@ version = "1.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "40c48f72fd53cd289104fc64099abca73db4166ad86ea0b4341abe65af83dadc"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -186,7 +186,7 @@ checksum = "291e6a250ff86cd4a820112fb8898808a366d8f9f58ce16d1f538353ad55747d"
 dependencies = [
  "anstyle",
  "once_cell_polyfill",
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -1423,7 +1423,7 @@ dependencies = [
  "libc",
  "option-ext",
  "redox_users 0.5.3",
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -1550,7 +1550,7 @@ dependencies = [
  "wayland-client",
  "xdg-kit",
  "xdgen",
- "zbus",
+ "zbus 6.1.0",
  "zip",
 ]
 
@@ -1642,7 +1642,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -2209,7 +2209,7 @@ dependencies = [
  "gobject-sys",
  "libc",
  "system-deps",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -4341,7 +4341,7 @@ dependencies = [
  "wasm-bindgen-futures",
  "web-sys",
  "windows 0.62.2",
- "zbus",
+ "zbus 5.19.0",
 ]
 
 [[package]]
@@ -4490,7 +4490,7 @@ dependencies = [
  "mac-notification-sys",
  "serde",
  "tauri-winrt-notification",
- "zbus",
+ "zbus 5.19.0",
 ]
 
 [[package]]
@@ -4508,7 +4508,7 @@ version = "0.50.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7957b9740744892f114936ab4a57b3f487491bbeafaf8083688b16841a4240e5"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -5893,7 +5893,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.12.1",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -6280,7 +6280,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c3d1e2c7f27f8d4cb10542a02c49005dbd6e93095799d6f3be745fae9f8fedd4"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -6497,10 +6497,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.4.3",
+ "getrandom 0.3.4",
  "once_cell",
  "rustix 1.1.5",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -6911,7 +6911,7 @@ checksum = "f2f6fb2847f6742cd76af783a2a2c49e9375d0a111c7bef6f71cd9e738c72d6e"
 dependencies = [
  "memoffset",
  "tempfile",
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -7560,7 +7560,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.48.0",
 ]
 
 [[package]]
@@ -8140,7 +8140,7 @@ checksum = "2fb433233f2df9344722454bc7e96465c9d03bff9d77c248f9e7523fe79585b5"
 [[package]]
 name = "xdg-kit"
 version = "0.1.0"
-source = "git+https://github.com/OWL-M/xdg-kit-rs#e3f8a6fed19bd5be6b36eb7ddd0e025f96578356"
+source = "git+https://github.com/OWL-M/xdg-kit-rs#1d53c2d0cb4644358fd261655932395773527cf0"
 dependencies = [
  "xdg-kit-basedir",
  "xdg-kit-desktop-entry",
@@ -8152,7 +8152,7 @@ dependencies = [
 [[package]]
 name = "xdg-kit-basedir"
 version = "0.1.0"
-source = "git+https://github.com/OWL-M/xdg-kit-rs#e3f8a6fed19bd5be6b36eb7ddd0e025f96578356"
+source = "git+https://github.com/OWL-M/xdg-kit-rs#1d53c2d0cb4644358fd261655932395773527cf0"
 dependencies = [
  "rustix 1.1.5",
 ]
@@ -8160,26 +8160,25 @@ dependencies = [
 [[package]]
 name = "xdg-kit-desktop-entry"
 version = "0.1.0"
-source = "git+https://github.com/OWL-M/xdg-kit-rs#e3f8a6fed19bd5be6b36eb7ddd0e025f96578356"
+source = "git+https://github.com/OWL-M/xdg-kit-rs#1d53c2d0cb4644358fd261655932395773527cf0"
 dependencies = [
- "async-io",
- "futures-lite",
  "libc",
  "rustix 1.1.5",
  "xdg-kit-basedir",
  "xdg-kit-locale",
- "zbus",
+ "zbus 6.1.0",
+ "zruntime",
 ]
 
 [[package]]
 name = "xdg-kit-locale"
 version = "0.1.0"
-source = "git+https://github.com/OWL-M/xdg-kit-rs#e3f8a6fed19bd5be6b36eb7ddd0e025f96578356"
+source = "git+https://github.com/OWL-M/xdg-kit-rs#1d53c2d0cb4644358fd261655932395773527cf0"
 
 [[package]]
 name = "xdg-kit-mime"
 version = "0.1.0"
-source = "git+https://github.com/OWL-M/xdg-kit-rs#e3f8a6fed19bd5be6b36eb7ddd0e025f96578356"
+source = "git+https://github.com/OWL-M/xdg-kit-rs#1d53c2d0cb4644358fd261655932395773527cf0"
 dependencies = [
  "libc",
  "quick-xml 0.42.0",
@@ -8191,7 +8190,7 @@ dependencies = [
 [[package]]
 name = "xdg-kit-mime-apps"
 version = "0.1.0"
-source = "git+https://github.com/OWL-M/xdg-kit-rs#e3f8a6fed19bd5be6b36eb7ddd0e025f96578356"
+source = "git+https://github.com/OWL-M/xdg-kit-rs#1d53c2d0cb4644358fd261655932395773527cf0"
 dependencies = [
  "libc",
  "rustix 1.1.5",
@@ -8344,9 +8343,37 @@ dependencies = [
  "uuid",
  "windows-sys 0.61.2",
  "winnow",
- "zbus_macros",
+ "zbus_macros 5.19.0",
  "zbus_names",
  "zvariant",
+]
+
+[[package]]
+name = "zbus"
+version = "6.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fcff5faa63a63d5b81051740f7382017f10b3440b3f401d97f0cf0b3b39c62d9"
+dependencies = [
+ "async-trait",
+ "bitflags 2.13.2",
+ "endi",
+ "futures-core",
+ "hex",
+ "libc",
+ "ordered-stream",
+ "rustix 1.1.5",
+ "serde",
+ "serde_repr",
+ "socket2",
+ "tokio",
+ "uds_windows",
+ "uuid",
+ "windows-sys 0.61.2",
+ "winnow",
+ "zbus_macros 6.1.0",
+ "zbus_utils",
+ "zcheapstr",
+ "zruntime",
 ]
 
 [[package]]
@@ -8365,6 +8392,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "zbus_macros"
+version = "6.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5bba6e2bfe19571dc81b3e0be9f8daec6e5422db3e2eea2e766a859553e7bd37"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 3.0.9",
+ "zbus_utils",
+]
+
+[[package]]
 name = "zbus_names"
 version = "4.3.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8373,6 +8412,19 @@ dependencies = [
  "serde",
  "winnow",
  "zvariant",
+]
+
+[[package]]
+name = "zbus_utils"
+version = "6.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c27a055b114bd9fc3686e90f62bd1fe612d523fc5f620bac3b1d2f42d3f6cab8"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "serde",
+ "syn 3.0.9",
+ "winnow",
 ]
 
 [[package]]
@@ -8522,6 +8574,19 @@ dependencies = [
  "crc32fast",
  "log",
  "simd-adler32",
+]
+
+[[package]]
+name = "zruntime"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dfc035df602243402949ddf3dcc5bcfad7edeb732dd49ec6e605431c4eca54ce"
+dependencies = [
+ "futures-core",
+ "futures-io",
+ "rustix 1.1.5",
+ "socket2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

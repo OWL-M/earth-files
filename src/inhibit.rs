@@ -33,6 +33,6 @@ pub async fn block_sleep_and_shutdown(why: &str) -> Option<OwnedFd> {
             return None;
         }
     };
-    let fd: zbus::zvariant::OwnedFd = reply.body().deserialize().ok()?;
+    let fd: zbus::OwnedFd = reply.body().deserialize().ok()?;
     Some(fd.into())
 }

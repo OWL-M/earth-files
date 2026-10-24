@@ -10,7 +10,7 @@ use std::ffi::OsStr;
 use std::os::unix::ffi::{OsStrExt, OsStringExt};
 use std::path::PathBuf;
 
-use zbus::zvariant::{OwnedValue, Value};
+use zbus::{OwnedVariant, Variant};
 
 use crate::dialog::{
     DialogChoice, DialogChoiceOption, DialogFilter, DialogFilterPattern, DialogKind,
@@ -46,7 +46,7 @@ pub struct Request {
     pub save_names: Vec<std::ffi::OsString>,
 }
 
-fn get_bool(options: &HashMap<String, OwnedValue>, key: &str) -> bool {
+fn get_bool(options: &HashMap<String, OwnedVariant>, key: &str) -> bool {
     options
         .get(key)
         .and_then(|value| bool::try_from(value).ok())
@@ -59,7 +59,7 @@ fn is_plain_name(name: &[u8]) -> bool {
     !name.is_empty() && name != b"." && name != b".." && !name.contains(&b'/')
 }
 
-fn get_string(options: &HashMap<String, OwnedValue>, key: &str) -> Option<String> {
+fn get_string(options: &HashMap<String, OwnedVariant>, key: &str) -> Option<String> {
     options
         .get(key)
         .and_then(|value| String::try_from(value.clone()).ok())
@@ -67,7 +67,7 @@ fn get_string(options: &HashMap<String, OwnedValue>, key: &str) -> Option<String
 
 /// A path the portal passes as bytes. It is nul terminated by convention, and
 /// it is filesystem bytes rather than text, so it is read as such.
-fn get_path(options: &HashMap<String, OwnedValue>, key: &str) -> Option<PathBuf> {
+fn get_path(options: &HashMap<String, OwnedVariant>, key: &str) -> Option<PathBuf> {
     let bytes: Vec<u8> = options
         .get(key)
         .and_then(|value| Vec::<u8>::try_from(value.clone()).ok())?;
@@ -80,7 +80,7 @@ fn get_path(options: &HashMap<String, OwnedValue>, key: &str) -> Option<PathBuf>
 
 /// `a(sa(us))`: a label and a list of `(kind, pattern)`, where kind 0 is a
 /// glob and kind 1 is a mime type.
-fn get_filters(value: &OwnedValue) -> Vec<DialogFilter> {
+fn get_filters(value: &OwnedVariant) -> Vec<DialogFilter> {
     let Ok(raw) = <Vec<(String, Vec<(u32, String)>)>>::try_from(value.clone()) else {
         return Vec::new();
     };
@@ -101,7 +101,7 @@ fn get_filters(value: &OwnedValue) -> Vec<DialogFilter> {
         .collect()
 }
 
-fn get_current_filter(value: &OwnedValue) -> Option<DialogFilter> {
+fn get_current_filter(value: &OwnedVariant) -> Option<DialogFilter> {
     let (label, patterns) = <(String, Vec<(u32, String)>)>::try_from(value.clone()).ok()?;
     Some(DialogFilter {
         label,
@@ -120,7 +120,7 @@ fn get_current_filter(value: &OwnedValue) -> Option<DialogFilter> {
 
 /// `a(ssa(ss)s)`: id, label, options, and the initially selected option. An
 /// empty option list means a check box, whose values are "true" and "false".
-fn get_choices(value: &OwnedValue) -> Vec<DialogChoice> {
+fn get_choices(value: &OwnedVariant) -> Vec<DialogChoice> {
     let Ok(raw) = <Vec<(String, String, Vec<(String, String)>, String)>>::try_from(value.clone())
     else {
         return Vec::new();
@@ -162,7 +162,7 @@ impl Request {
     pub fn from_options(
         method: Method,
         title: &str,
-        options: &HashMap<String, OwnedValue>,
+        options: &HashMap<String, OwnedVariant>,
     ) -> Self {
         let filters = options.get("filters").map(get_filters).unwrap_or_default();
         let current = options.get("current_filter").and_then(get_current_filter);
@@ -294,7 +294,7 @@ pub fn results(
     paths: &[PathBuf],
     choices: &[(String, String)],
     current_filter: Option<&DialogFilter>,
-) -> HashMap<String, OwnedValue> {
+) -> HashMap<String, OwnedVariant> {
     // `writable` is deliberately absent. Its documentation says the default
     // is false, but the frontend starts the document flags with write set and
     // only clears them when the key is present and false
@@ -304,11 +304,11 @@ pub fn results(
     // asked to open.
     let mut results = HashMap::new();
     let uris: Vec<String> = paths.iter().map(|path| path_to_uri(path)).collect();
-    if let Ok(value) = OwnedValue::try_from(Value::from(uris)) {
+    if let Ok(value) = OwnedVariant::try_from(Variant::from(uris)) {
         results.insert("uris".to_string(), value);
     }
     if !choices.is_empty()
-        && let Ok(value) = OwnedValue::try_from(Value::from(choices.to_vec()))
+        && let Ok(value) = OwnedVariant::try_from(Variant::from(choices.to_vec()))
     {
         results.insert("choices".to_string(), value);
     }
@@ -321,7 +321,7 @@ pub fn results(
                 DialogFilterPattern::Mime(value) => (1, value.clone()),
             })
             .collect();
-        if let Ok(value) = OwnedValue::try_from(Value::from((filter.label.clone(), patterns))) {
+        if let Ok(value) = OwnedVariant::try_from(Variant::from((filter.label.clone(), patterns))) {
             results.insert("current_filter".to_string(), value);
         }
     }
@@ -332,10 +332,10 @@ pub fn results(
 mod tests {
     use super::*;
 
-    fn options(pairs: Vec<(&str, Value<'static>)>) -> HashMap<String, OwnedValue> {
+    fn options(pairs: Vec<(&str, Variant<'static>)>) -> HashMap<String, OwnedVariant> {
         pairs
             .into_iter()
-            .map(|(key, value)| (key.to_string(), OwnedValue::try_from(value).unwrap()))
+            .map(|(key, value)| (key.to_string(), OwnedVariant::try_from(value).unwrap()))
             .collect()
     }
 
@@ -347,14 +347,14 @@ mod tests {
         let many = Request::from_options(
             Method::OpenFile,
             "Open",
-            &options(vec![("multiple", Value::from(true))]),
+            &options(vec![("multiple", Variant::from(true))]),
         );
         assert!(matches!(many.kind, DialogKind::OpenMultipleFiles));
 
         let folder = Request::from_options(
             Method::OpenFile,
             "Open",
-            &options(vec![("directory", Value::from(true))]),
+            &options(vec![("directory", Variant::from(true))]),
         );
         assert!(matches!(folder.kind, DialogKind::OpenFolder));
 
@@ -362,8 +362,8 @@ mod tests {
             Method::OpenFile,
             "Open",
             &options(vec![
-                ("directory", Value::from(true)),
-                ("multiple", Value::from(true)),
+                ("directory", Variant::from(true)),
+                ("multiple", Variant::from(true)),
             ]),
         );
         assert!(matches!(folders.kind, DialogKind::OpenMultipleFolders));
@@ -374,7 +374,7 @@ mod tests {
         let request = Request::from_options(
             Method::SaveFile,
             "Save",
-            &options(vec![("current_name", Value::from("report.pdf"))]),
+            &options(vec![("current_name", Variant::from("report.pdf"))]),
         );
         match request.kind {
             DialogKind::SaveFile { filename } => assert_eq!(filename, "report.pdf"),
@@ -392,7 +392,7 @@ mod tests {
             "Save",
             &options(vec![(
                 "current_file",
-                Value::from(b"/home/user/report.txt\0".to_vec()),
+                Variant::from(b"/home/user/report.txt\0".to_vec()),
             )]),
         );
         match request.kind {
@@ -406,8 +406,11 @@ mod tests {
             Method::SaveFile,
             "Save",
             &options(vec![
-                ("current_file", Value::from(b"/home/user/a.txt\0".to_vec())),
-                ("current_name", Value::from("b.txt")),
+                (
+                    "current_file",
+                    Variant::from(b"/home/user/a.txt\0".to_vec()),
+                ),
+                ("current_name", Variant::from("b.txt")),
             ]),
         );
         match named.kind {
@@ -427,7 +430,7 @@ mod tests {
         let request = Request::from_options(
             Method::SaveFile,
             "Save",
-            &options(vec![("current_file", Value::from(bytes))]),
+            &options(vec![("current_file", Variant::from(bytes))]),
         );
         match &request.kind {
             DialogKind::SaveFile { filename } => {
@@ -459,7 +462,7 @@ mod tests {
         let request = Request::from_options(
             Method::OpenFile,
             "Open",
-            &options(vec![("choices", Value::from(choices))]),
+            &options(vec![("choices", Variant::from(choices))]),
         );
         match &request.choices[0] {
             DialogChoice::ComboBox { selected, .. } => assert_eq!(*selected, Some(0)),
@@ -475,7 +478,7 @@ mod tests {
         let request = Request::from_options(
             Method::SaveFiles,
             "Save",
-            &options(vec![("files", Value::from(names))]),
+            &options(vec![("files", Variant::from(names))]),
         );
         let paths = request.selected_paths(vec![PathBuf::from("/tmp/out")]);
         assert_eq!(paths.len(), 2);
@@ -496,7 +499,7 @@ mod tests {
             let request = Request::from_options(
                 Method::SaveFile,
                 "Save",
-                &options(vec![("current_name", Value::from(name))]),
+                &options(vec![("current_name", Variant::from(name))]),
             );
             match request.kind {
                 DialogKind::SaveFile { filename } => assert_eq!(filename, "", "{name}"),
@@ -508,7 +511,7 @@ mod tests {
         let request = Request::from_options(
             Method::SaveFiles,
             "Save",
-            &options(vec![("files", Value::from(names))]),
+            &options(vec![("files", Variant::from(names))]),
         );
         let directory = PathBuf::from("/tmp/out");
         let paths = request.selected_paths(vec![directory.clone()]);
@@ -522,7 +525,7 @@ mod tests {
             "Open",
             &options(vec![(
                 "current_folder",
-                Value::from(b"/home/user/docs\0".to_vec()),
+                Variant::from(b"/home/user/docs\0".to_vec()),
             )]),
         );
         assert_eq!(request.folder, Some(PathBuf::from("/home/user/docs")));
@@ -533,7 +536,7 @@ mod tests {
             "Save",
             &options(vec![(
                 "current_file",
-                Value::from(b"/home/user/docs/a.txt\0".to_vec()),
+                Variant::from(b"/home/user/docs/a.txt\0".to_vec()),
             )]),
         );
         assert_eq!(from_file.folder, Some(PathBuf::from("/home/user/docs")));
@@ -549,10 +552,10 @@ mod tests {
             Method::OpenFile,
             "Open",
             &options(vec![
-                ("filters", Value::from(filters)),
+                ("filters", Variant::from(filters)),
                 (
                     "current_filter",
-                    Value::from(("Text".to_string(), vec![(0_u32, "*.txt".to_string())])),
+                    Variant::from(("Text".to_string(), vec![(0_u32, "*.txt".to_string())])),
                 ),
             ]),
         );
@@ -575,7 +578,7 @@ mod tests {
             "Open",
             &options(vec![(
                 "current_filter",
-                Value::from(("Only".to_string(), vec![(0_u32, "*".to_string())])),
+                Variant::from(("Only".to_string(), vec![(0_u32, "*".to_string())])),
             )]),
         );
         assert_eq!(request.filters.len(), 1);
@@ -604,7 +607,7 @@ mod tests {
         let request = Request::from_options(
             Method::OpenFile,
             "Open",
-            &options(vec![("choices", Value::from(choices))]),
+            &options(vec![("choices", Variant::from(choices))]),
         );
         match &request.choices[0] {
             DialogChoice::ComboBox {
@@ -634,7 +637,7 @@ mod tests {
         let request = Request::from_options(
             Method::SaveFiles,
             "Save",
-            &options(vec![("files", Value::from(names))]),
+            &options(vec![("files", Variant::from(names))]),
         );
         assert!(matches!(request.kind, DialogKind::OpenFolder));
         assert_eq!(

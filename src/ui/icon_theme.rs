@@ -144,7 +144,7 @@ async fn read_portal_icon_theme() -> Option<String> {
     // `ReadOne` replies with a bare variant. (`Read`, its deprecated
     // predecessor, nests it one deeper; portals old enough to have only that
     // are left to fall through to the gtk settings below.)
-    let value: zbus::zvariant::OwnedValue = reply.body().deserialize().ok()?;
+    let value: zbus::OwnedVariant = reply.body().deserialize().ok()?;
     String::try_from(value).ok().filter(|name| !name.is_empty())
 }
 

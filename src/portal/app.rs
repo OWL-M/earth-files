@@ -12,7 +12,7 @@ use std::collections::HashMap;
 use std::sync::{LazyLock, Mutex};
 
 use tokio::sync::mpsc;
-use zbus::zvariant::OwnedObjectPath;
+use zbus::OwnedObjectPath;
 
 use crate::dialog::{Dialog, DialogChoice, DialogMessage, DialogResult, DialogSettings};
 use crate::ui::app::Task;

@@ -12,7 +12,7 @@ use std::collections::HashMap;
 use tokio::sync::{mpsc, oneshot};
 use zbus::interface;
 use zbus::object_server::SignalEmitter;
-use zbus::zvariant::{ObjectPath, OwnedObjectPath, OwnedValue};
+use zbus::{ObjectPath, OwnedObjectPath, OwnedVariant};
 
 use super::convert::{Method, RESPONSE_OTHER, Request};
 
@@ -31,7 +31,7 @@ pub struct Incoming {
 /// What the application answers with
 pub struct Answer {
     pub response: u32,
-    pub results: HashMap<String, OwnedValue>,
+    pub results: HashMap<String, OwnedVariant>,
 }
 
 impl Answer {
@@ -68,9 +68,9 @@ impl FileChooser {
         &self,
         handle: OwnedObjectPath,
         title: &str,
-        options: HashMap<String, OwnedValue>,
+        options: HashMap<String, OwnedVariant>,
         method: Method,
-    ) -> (u32, HashMap<String, OwnedValue>) {
+    ) -> (u32, HashMap<String, OwnedVariant>) {
         let request = Request::from_options(method, title, &options);
         let (reply, answer) = oneshot::channel();
         let incoming = Incoming {
@@ -97,8 +97,8 @@ impl FileChooser {
         app_id: &str,
         parent_window: &str,
         title: &str,
-        options: HashMap<String, OwnedValue>,
-    ) -> (u32, HashMap<String, OwnedValue>) {
+        options: HashMap<String, OwnedVariant>,
+    ) -> (u32, HashMap<String, OwnedVariant>) {
         log::debug!("OpenFile from {app_id:?} (parent {parent_window:?})");
         self.run(handle, title, options, Method::OpenFile).await
     }
@@ -109,8 +109,8 @@ impl FileChooser {
         app_id: &str,
         parent_window: &str,
         title: &str,
-        options: HashMap<String, OwnedValue>,
-    ) -> (u32, HashMap<String, OwnedValue>) {
+        options: HashMap<String, OwnedVariant>,
+    ) -> (u32, HashMap<String, OwnedVariant>) {
         log::debug!("SaveFile from {app_id:?} (parent {parent_window:?})");
         self.run(handle, title, options, Method::SaveFile).await
     }
@@ -121,8 +121,8 @@ impl FileChooser {
         app_id: &str,
         parent_window: &str,
         title: &str,
-        options: HashMap<String, OwnedValue>,
-    ) -> (u32, HashMap<String, OwnedValue>) {
+        options: HashMap<String, OwnedVariant>,
+    ) -> (u32, HashMap<String, OwnedVariant>) {
         log::debug!("SaveFiles from {app_id:?} (parent {parent_window:?})");
         self.run(handle, title, options, Method::SaveFiles).await
     }
@@ -135,9 +135,9 @@ impl FileChooser {
 pub async fn serve(
     requests: mpsc::UnboundedSender<Incoming>,
 ) -> Result<zbus::Connection, zbus::Error> {
-    let connection = zbus::connection::Builder::session()?
-        .name(BUS_NAME)?
-        .serve_at("/org/freedesktop/portal/desktop", FileChooser { requests })?
+    let connection = zbus::connection::Builder::session()
+        .name(BUS_NAME)
+        .serve_at("/org/freedesktop/portal/desktop", FileChooser { requests })
         .build()
         .await?;
     log::info!("serving {BUS_NAME}");
