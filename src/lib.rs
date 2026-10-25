@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 use std::{env, fs, process};
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
+use xdg_kit::basedir::UserDirKind;
 
 use crate::app::{App, Flags};
 use crate::config::{Config, State};
@@ -59,7 +60,7 @@ pub(crate) fn err_str<T: ToString>(err: T) -> String {
 }
 
 pub fn desktop_dir() -> PathBuf {
-    if let Some(path) = dirs::desktop_dir() {
+    if let Some(path) = xdg_dirs::user_dir(&UserDirKind::Desktop) {
         path
     } else {
         let path = home_dir().join("Desktop");
@@ -72,7 +73,7 @@ pub fn desktop_dir() -> PathBuf {
 }
 
 pub fn home_dir() -> PathBuf {
-    if let Some(home) = dirs::home_dir() {
+    if let Some(home) = xdg_dirs::home() {
         home
     } else {
         let path = PathBuf::from("/");
@@ -221,6 +222,7 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
             );
         }
     }
+    crate::ui::icon_theme::warm();
 
     let mut settings = Settings::default();
     settings = settings.theme(config.app_theme.theme());

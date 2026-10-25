@@ -39,6 +39,7 @@ use std::time::{Duration, Instant, SystemTime};
 use tempfile::NamedTempFile;
 use tokio::sync::mpsc;
 use trash::{TrashItem, TrashItemMetadata, TrashItemSize};
+use xdg_kit::basedir::UserDirKind;
 use xdg_kit::desktop_entry::{DesktopEntry, Locales};
 
 use crate::app::{Action, PreviewItem, PreviewKind};
@@ -52,8 +53,8 @@ use crate::localize::{LANGUAGE_SORTER, LOCALE};
 use crate::mime_icon::mime_for_path;
 use crate::mounter::MOUNTERS;
 use crate::operation::{Controller, ControllerState, OperationError};
-use crate::thumbnail_cacher::{CachedThumbnail, ThumbnailCacher, ThumbnailSize};
-use crate::thumbnailer::thumbnailer;
+use crate::thumbnail_cacher::{self, CachedThumbnail, ThumbnailCacher};
+use crate::thumbnailer::thumbnailers;
 use crate::trash::{Trash, TrashExt};
 use crate::ui::convert::{ToColor, ToPixels, ToRadius};
 use crate::ui::shell::panel_slide::ColumnSlide;
@@ -249,12 +250,16 @@ const DIR_SIZE_PAUSE_POLL: Duration = Duration::from_millis(50);
 
 pub(crate) static SORT_OPTION_FALLBACK: LazyLock<FxHashMap<String, (HeadingOptions, bool)>> =
     LazyLock::new(|| {
-        FxHashMap::from_iter(dirs::download_dir().into_iter().map(|dir| {
-            (
-                Location::Path(dir).normalize().to_string(),
-                (HeadingOptions::Modified, false),
-            )
-        }))
+        FxHashMap::from_iter(
+            crate::xdg_dirs::user_dir(&UserDirKind::Download)
+                .into_iter()
+                .map(|dir| {
+                    (
+                        Location::Path(dir).normalize().to_string(),
+                        (HeadingOptions::Modified, false),
+                    )
+                }),
+        )
     });
 
 static MODE_NAMES: LazyLock<Vec<String>> = LazyLock::new(|| {
@@ -322,31 +327,23 @@ pub fn group_name(gid: u32) -> String {
 
 static SPECIAL_DIRS: LazyLock<FxHashMap<PathBuf, &'static str>> = LazyLock::new(|| {
     let mut special_dirs = FxHashMap::default();
-    if let Some(dir) = dirs::document_dir() {
-        special_dirs.insert(dir, "folder-documents");
+    if let Some(user_dirs) = crate::xdg_dirs::user_dirs() {
+        for (kind, icon) in [
+            (UserDirKind::Documents, "folder-documents"),
+            (UserDirKind::Download, "folder-download"),
+            (UserDirKind::Music, "folder-music"),
+            (UserDirKind::Pictures, "folder-pictures"),
+            (UserDirKind::PublicShare, "folder-publicshare"),
+            (UserDirKind::Templates, "folder-templates"),
+            (UserDirKind::Videos, "folder-videos"),
+            (UserDirKind::Desktop, "user-desktop"),
+        ] {
+            if let Some(dir) = user_dirs.get(&kind) {
+                special_dirs.insert(dir.to_owned(), icon);
+            }
+        }
     }
-    if let Some(dir) = dirs::download_dir() {
-        special_dirs.insert(dir, "folder-download");
-    }
-    if let Some(dir) = dirs::audio_dir() {
-        special_dirs.insert(dir, "folder-music");
-    }
-    if let Some(dir) = dirs::picture_dir() {
-        special_dirs.insert(dir, "folder-pictures");
-    }
-    if let Some(dir) = dirs::public_dir() {
-        special_dirs.insert(dir, "folder-publicshare");
-    }
-    if let Some(dir) = dirs::template_dir() {
-        special_dirs.insert(dir, "folder-templates");
-    }
-    if let Some(dir) = dirs::video_dir() {
-        special_dirs.insert(dir, "folder-videos");
-    }
-    if let Some(dir) = dirs::desktop_dir() {
-        special_dirs.insert(dir, "user-desktop");
-    }
-    if let Some(dir) = dirs::home_dir() {
+    if let Some(dir) = crate::xdg_dirs::home() {
         special_dirs.insert(dir, "user-home");
     }
     special_dirs
@@ -1508,12 +1505,7 @@ pub fn search_scope_icon(recursive: bool) -> widget::icon::Handle {
     };
 
     let theme = crate::ui::icon_theme::default();
-    let themed = freedesktop_icons::lookup(name)
-        .with_theme(theme.as_str())
-        .with_size(16)
-        .with_cache()
-        .force_svg()
-        .find();
+    let themed = crate::ui::icon_theme::lookup_in(&theme, name, 16, 1, true);
     match themed {
         Some(path) => widget::icon::from_path(path),
         None => {
@@ -1599,16 +1591,16 @@ pub fn scan_search<F: Fn(SearchItem) -> bool + Sync>(
             });
         }
         SearchLocation::Recents => {
-            let recent_files = match recently_used_xbel::parse_file() {
+            let recent_files = match crate::recents::load() {
                 Ok(recent_files) => recent_files,
                 Err(err) => {
-                    log::warn!("Error reading recent files: {err:?}");
+                    log::warn!("Error reading recent files: {err}");
                     return;
                 }
             };
 
-            for bookmark in recent_files.bookmarks {
-                let path = uri_to_path(bookmark.href);
+            for bookmark in recent_files.bookmarks() {
+                let path = uri_to_path(bookmark.href().to_owned());
                 if let Some(path) = path
                     && path.exists()
                 {
@@ -1663,27 +1655,23 @@ fn uri_to_path(uri: String) -> Option<PathBuf> {
 }
 
 pub fn has_recents() -> bool {
-    match recently_used_xbel::parse_file() {
-        Ok(recent_files) => !recent_files.bookmarks.is_empty(),
-        Err(_) => false,
-    }
+    crate::recents::load().is_ok_and(|recent_files| recent_files.bookmarks().next().is_some())
 }
 
 pub fn scan_recents(sizes: IconSizes) -> Vec<Item> {
-    let recent_files = match recently_used_xbel::parse_file() {
+    let recent_files = match crate::recents::load() {
         Ok(recent_files) => recent_files,
         Err(err) => {
-            log::warn!("Error reading recent files: {err:?}");
+            log::warn!("Error reading recent files: {err}");
             return Vec::new();
         }
     };
     let mut recents: Vec<_> = recent_files
-        .bookmarks
-        .into_iter()
+        .bookmarks()
         .filter_map(|bookmark| {
-            let path = uri_to_path(bookmark.href)?;
-            let last_edit = bookmark.modified.parse::<jiff::Timestamp>().ok()?;
-            let last_visit = bookmark.visited.parse::<jiff::Timestamp>().ok()?;
+            let path = uri_to_path(bookmark.href().to_owned())?;
+            let last_edit = jiff::Timestamp::try_from(bookmark.modified()?).ok()?;
+            let last_visit = jiff::Timestamp::try_from(bookmark.visited()?).ok()?;
 
             if path.exists() {
                 let file_name = path.file_name()?;
@@ -2113,7 +2101,7 @@ impl Location {
         let mut components = path.components();
         match components.next() {
             Some(path::Component::Normal(os_str)) if os_str == "~" => {
-                if let Some(home) = dirs::home_dir() {
+                if let Some(home) = crate::xdg_dirs::home() {
                     home.join(components.as_path())
                 } else {
                     path
@@ -2454,7 +2442,7 @@ impl ItemThumbnail {
         max_size_mb: u64,
     ) -> Self {
         let thumbnail_cacher =
-            ThumbnailCacher::new(path, ThumbnailSize::from_pixel_size(thumbnail_size));
+            ThumbnailCacher::new(path, thumbnail_cacher::size_for(thumbnail_size));
         match thumbnail_cacher.as_ref() {
             Ok(cache) => match cache.get_cached_thumbnail() {
                 CachedThumbnail::Valid((thumbnail_path, size)) => {
@@ -2462,7 +2450,7 @@ impl ItemThumbnail {
                     // This prevents trying to load huge images in preview mode
                     let original_dims = match image::image_dimensions(path) {
                         Ok((width, height)) => Some((width, height)),
-                        Err(_) => size.map(|s| (s.pixel_size(), s.pixel_size())),
+                        Err(_) => size.map(|s| (s.max_dimension(), s.max_dimension())),
                     };
 
                     return Self::Image(
@@ -2476,7 +2464,7 @@ impl ItemThumbnail {
                     }
                 }
                 CachedThumbnail::RequiresUpdate(size) => {
-                    thumbnail_size = size.pixel_size();
+                    thumbnail_size = size.max_dimension();
                 }
             },
             Err(err) => {
@@ -2602,12 +2590,8 @@ impl ItemThumbnail {
         }
 
         // Try external thumbnailers.
-        let thumbnail_dir = thumbnail_cacher
-            .as_ref()
-            .ok()
-            .map(ThumbnailCacher::thumbnail_dir);
         if let Some((item_thumbnail, temp_file)) =
-            Self::generate_thumbnail_external(path, &mime, thumbnail_size, thumbnail_dir)
+            Self::generate_thumbnail_external(path, &mime, thumbnail_size)
         {
             if let Ok(cache) = thumbnail_cacher
                 && let Err(err) = cache.update_with_temp_file(temp_file)
@@ -2617,7 +2601,7 @@ impl ItemThumbnail {
             return item_thumbnail;
         }
 
-        tried_supported_file = tried_supported_file || !thumbnailer(&mime).is_empty();
+        tried_supported_file = tried_supported_file || !thumbnailers(&mime).is_empty();
 
         // Try internal thumbnailers that don't get cached.
         if mime.is_media("image")
@@ -2694,27 +2678,21 @@ impl ItemThumbnail {
         path: &Path,
         mime: &Mime,
         thumbnail_size: u32,
-        thumbnail_dir: Option<&Path>,
     ) -> Option<(Self, NamedTempFile)> {
         // Try external thumbnailers
-        for thumbnailer in thumbnailer(mime) {
-            let is_evince = thumbnailer.exec.starts_with("evince-thumbnailer ");
+        for thumbnailer in thumbnailers(mime) {
+            let is_evince = thumbnailer.exec().starts_with("evince-thumbnailer ");
             let prefix = if is_evince {
                 "gnome-desktop-"
             } else {
                 "earth-files-"
             };
 
-            // It's preferable to create the tempfile in the same directory as the final cached
-            // thumbnail to ensure that no copies across filesystems need to be made. However,
-            // the apparmor config for evince-thumbnailer does not allow this, so we need to
-            // fallback to the system tempdir.
-            let dir = if is_evince { None } else { thumbnail_dir };
-            let file = match dir {
-                Some(d) => tempfile::Builder::new().prefix(prefix).tempfile_in(d),
-                None => tempfile::Builder::new().prefix(prefix).tempfile(),
-            };
-            let file = match file {
+            // In the system's temporary folder: the cache installs a copy of
+            // it, with the standard's keys, so where it is written does not
+            // matter, and evince-thumbnailer's AppArmor profile allows only
+            // there (and only with its own prefix)
+            let file = match tempfile::Builder::new().prefix(prefix).tempfile() {
                 Ok(ok) => ok,
                 Err(err) => {
                     log::warn!(
@@ -2726,7 +2704,9 @@ impl ItemThumbnail {
                 }
             };
 
-            let Some(mut command) = thumbnailer.command(path, file.path(), thumbnail_size) else {
+            let Some(mut command) =
+                crate::thumbnailer::command(thumbnailer, path, file.path(), thumbnail_size)
+            else {
                 continue;
             };
             // Thumbnailers such as ffmpegthumbnailer print harmless notices

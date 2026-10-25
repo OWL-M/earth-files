@@ -175,7 +175,7 @@ version = "1.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "40c48f72fd53cd289104fc64099abca73db4166ad86ea0b4341abe65af83dadc"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -186,7 +186,7 @@ checksum = "291e6a250ff86cd4a820112fb8898808a366d8f9f58ce16d1f538353ad55747d"
 dependencies = [
  "anstyle",
  "once_cell_polyfill",
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -586,17 +586,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6bb31b46c14244e20ee9984b11bf5c992b91fb6939fea616e3512c8baecdbe5f"
 dependencies = [
  "memchr",
- "regex-automata",
  "serde_core",
-]
-
-[[package]]
-name = "btoi"
-version = "0.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3b5ab9db53bcda568284df0fd39f6eac24ad6f7ba7ff1168b9e76eba6576b976"
-dependencies = [
- "num-traits",
 ]
 
 [[package]]
@@ -636,12 +626,6 @@ dependencies = [
  "quote",
  "syn 3.0.9",
 ]
-
-[[package]]
-name = "byteorder"
-version = "1.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1fd0f2584146f6f2ef48085050886acf353beff7305ebd1ae69500e27c67f64b"
 
 [[package]]
 name = "byteorder-lite"
@@ -737,17 +721,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "cfb"
-version = "0.7.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d38f2da7a0a2c4ccf0065be06397cc26a81f4e528be095826eee9d4adbb8c60f"
-dependencies = [
- "byteorder",
- "fnv",
- "uuid",
-]
-
-[[package]]
 name = "cfg-expr"
 version = "0.20.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -776,9 +749,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1aa79e62e7697b8e29b513a68abacf485adcd1fe8284a4316c5ae868e6633327"
 dependencies = [
  "iana-time-zone",
- "js-sys",
  "num-traits",
- "wasm-bindgen",
  "windows-link",
 ]
 
@@ -1385,48 +1356,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "dirs"
-version = "5.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "44c45a9d03d6676652bcb5e724c7e988de1acad23a711b5217ab9cbecbec2225"
-dependencies = [
- "dirs-sys 0.4.1",
-]
-
-[[package]]
-name = "dirs"
-version = "7.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8d57d423b3c82e89b9a24ca3091fee61f456a26edbd28d26c65906f4bc1dcd8f"
-dependencies = [
- "dirs-sys 0.5.0",
-]
-
-[[package]]
-name = "dirs-sys"
-version = "0.4.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "520f05a5cbd335fae5a99ff7a6ab8627577660ee5cfd6a94a6a929b52ff0321c"
-dependencies = [
- "libc",
- "option-ext",
- "redox_users 0.4.6",
- "windows-sys 0.48.0",
-]
-
-[[package]]
-name = "dirs-sys"
-version = "0.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e01a3366d27ee9890022452ee61b2b63a67e6f13f58900b651ff5665f0bb1fab"
-dependencies = [
- "libc",
- "option-ext",
- "redox_users 0.5.3",
- "windows-sys 0.61.2",
-]
-
-[[package]]
 name = "dispatch"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1492,11 +1421,9 @@ dependencies = [
  "compio",
  "cosmic-text",
  "derive_setters",
- "dirs 7.0.0",
  "fastrand",
  "filetime",
  "flate2",
- "freedesktop-icons",
  "gio",
  "glib",
  "glob",
@@ -1518,15 +1445,12 @@ dependencies = [
  "libc",
  "log",
  "lzma-rust2",
- "md-5",
  "mundy",
  "notify-debouncer-full",
  "notify-rust",
  "ordermap",
  "palette",
- "png 0.18.1",
  "procfs",
- "recently-used-xbel",
  "regex",
  "ron",
  "rust-embed",
@@ -1642,7 +1566,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -1967,21 +1891,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "freedesktop-icons"
-version = "0.4.0"
-source = "git+https://github.com/id3v1669/freedesktop-icons#9fd3881b83ec33e4f581ef9e7d4ca4b809f3df79"
-dependencies = [
- "bstr",
- "btoi",
- "dirs 7.0.0",
- "memchr",
- "memmap2",
- "once_cell",
- "tracing",
- "xdg",
-]
-
-[[package]]
 name = "freedesktop_entry_parser"
 version = "2.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2128,17 +2037,6 @@ dependencies = [
 
 [[package]]
 name = "getrandom"
-version = "0.2.17"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ff2abc00be7fca6ebc474524697ae276ad847ad0a6b3faa4bcb027e9a4614ad0"
-dependencies = [
- "cfg-if",
- "libc",
- "wasi",
-]
-
-[[package]]
-name = "getrandom"
 version = "0.3.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "899def5c37c4fd7b2664648c28120ecec138e4d395b459e5ca34f9cce2dd77fd"
@@ -2209,7 +2107,7 @@ dependencies = [
  "gobject-sys",
  "libc",
  "system-deps",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -3409,15 +3307,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "infer"
-version = "0.16.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bc150e5ce2330295b8616ce0e3f53250e53af31759a9dbedad1621ba29151847"
-dependencies = [
- "cfb",
-]
-
-[[package]]
 name = "inotify"
 version = "0.11.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4196,16 +4085,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "md-5"
-version = "0.11.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "69b6441f590336821bb897fb28fc622898ccceb1d6cea3fde5ea86b090c4de98"
-dependencies = [
- "cfg-if",
- "digest",
-]
-
-[[package]]
 name = "memchr"
 version = "2.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4499,7 +4378,7 @@ version = "0.50.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7957b9740744892f114936ab4a57b3f487491bbeafaf8083688b16841a4240e5"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -4961,12 +4840,6 @@ name = "once_cell_polyfill"
 version = "1.70.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "384b8ab6d37215f3c5301a95a4accb5d64aa607f1fcb26a11b5303878451b4fe"
-
-[[package]]
-name = "option-ext"
-version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "04744f49eae99ab78e0d5c0b603ab218f515ea8cfe5a456d7629ad883a3b6e7d"
 
 [[package]]
 name = "orbclient"
@@ -5459,16 +5332,6 @@ checksum = "a993555f31e5a609f617c12db6250dedcac1b0a85076912c436e6fc9b2c8e6a3"
 
 [[package]]
 name = "quick-xml"
-version = "0.36.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f7649a7b4df05aed9ea7ec6f628c67c9953a43869b8bc50929569b2999d443fe"
-dependencies = [
- "memchr",
- "serde",
-]
-
-[[package]]
-name = "quick-xml"
 version = "0.41.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e660451e55124f798a69a5af3f49ccfbefbd41910eefd25caf2393e1f3473ec1"
@@ -5661,22 +5524,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "03251193000f4bd3b042892be858ee50e8b3719f2b08e5833ac4353724632430"
 
 [[package]]
-name = "recently-used-xbel"
-version = "1.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "63ab2febcd4f0245fbadd0b44f7cd35207128a7b210a089e65740625a45399b5"
-dependencies = [
- "chrono",
- "dirs 5.0.1",
- "infer",
- "mime_guess",
- "quick-xml 0.36.2",
- "serde",
- "thiserror 1.0.69",
- "url",
-]
-
-[[package]]
 name = "redox_syscall"
 version = "0.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5701,27 +5548,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "580c875845b41ecb1564ad1ae4703044cef774145e3d7a94dc2b3fa7c97868fd"
 dependencies = [
  "bitflags 2.13.2",
-]
-
-[[package]]
-name = "redox_users"
-version = "0.4.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ba009ff324d1fc1b900bd1fdb31564febe58a8ccc8a6fdbb93b543d33b13ca43"
-dependencies = [
- "getrandom 0.2.17",
- "libredox",
- "thiserror 1.0.69",
-]
-
-[[package]]
-name = "redox_users"
-version = "0.5.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "60dc65c0ff1a7ae1294b0c67b9f14baf70b644404010370171787bfac1038fc0"
-dependencies = [
- "libredox",
- "thiserror 2.0.21",
 ]
 
 [[package]]
@@ -5884,7 +5710,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.12.1",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -6271,7 +6097,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c3d1e2c7f27f8d4cb10542a02c49005dbd6e93095799d6f3be745fae9f8fedd4"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -6488,10 +6314,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.4.3",
+ "getrandom 0.3.4",
  "once_cell",
  "rustix 1.1.5",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -6902,7 +6728,7 @@ checksum = "f2f6fb2847f6742cd76af783a2a2c49e9375d0a111c7bef6f71cd9e738c72d6e"
 dependencies = [
  "memoffset",
  "tempfile",
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -7551,7 +7377,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.48.0",
 ]
 
 [[package]]
@@ -8122,37 +7948,45 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "163b33ed8786455e2fa5d72f554057ce3f3182425434f756cd39c99839d88e23"
 
 [[package]]
-name = "xdg"
-version = "3.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2fb433233f2df9344722454bc7e96465c9d03bff9d77c248f9e7523fe79585b5"
-
-[[package]]
 name = "xdg-kit"
 version = "0.1.0"
-source = "git+https://github.com/OWL-M/xdg-kit-rs#1d53c2d0cb4644358fd261655932395773527cf0"
+source = "git+https://github.com/OWL-M/xdg-kit-rs#8ebf920136a63215d05ba5fa5c5c2b034eebe627"
 dependencies = [
  "xdg-kit-basedir",
+ "xdg-kit-bookmarks",
  "xdg-kit-desktop-entry",
+ "xdg-kit-icon-theme",
  "xdg-kit-locale",
  "xdg-kit-mime",
  "xdg-kit-mime-apps",
+ "xdg-kit-thumbnails",
 ]
 
 [[package]]
 name = "xdg-kit-basedir"
 version = "0.1.0"
-source = "git+https://github.com/OWL-M/xdg-kit-rs#1d53c2d0cb4644358fd261655932395773527cf0"
+source = "git+https://github.com/OWL-M/xdg-kit-rs#8ebf920136a63215d05ba5fa5c5c2b034eebe627"
 dependencies = [
+ "libc",
  "rustix 1.1.5",
+]
+
+[[package]]
+name = "xdg-kit-bookmarks"
+version = "0.1.0"
+source = "git+https://github.com/OWL-M/xdg-kit-rs#8ebf920136a63215d05ba5fa5c5c2b034eebe627"
+dependencies = [
+ "quick-xml 0.42.0",
+ "rustix 1.1.5",
+ "xdg-kit-basedir",
+ "xdg-kit-mime",
 ]
 
 [[package]]
 name = "xdg-kit-desktop-entry"
 version = "0.1.0"
-source = "git+https://github.com/OWL-M/xdg-kit-rs#1d53c2d0cb4644358fd261655932395773527cf0"
+source = "git+https://github.com/OWL-M/xdg-kit-rs#8ebf920136a63215d05ba5fa5c5c2b034eebe627"
 dependencies = [
- "libc",
  "rustix 1.1.5",
  "xdg-kit-basedir",
  "xdg-kit-locale",
@@ -8161,14 +7995,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "xdg-kit-icon-theme"
+version = "0.1.0"
+source = "git+https://github.com/OWL-M/xdg-kit-rs#8ebf920136a63215d05ba5fa5c5c2b034eebe627"
+dependencies = [
+ "xdg-kit-basedir",
+ "xdg-kit-desktop-entry",
+ "xdg-kit-locale",
+]
+
+[[package]]
 name = "xdg-kit-locale"
 version = "0.1.0"
-source = "git+https://github.com/OWL-M/xdg-kit-rs#1d53c2d0cb4644358fd261655932395773527cf0"
+source = "git+https://github.com/OWL-M/xdg-kit-rs#8ebf920136a63215d05ba5fa5c5c2b034eebe627"
 
 [[package]]
 name = "xdg-kit-mime"
 version = "0.1.0"
-source = "git+https://github.com/OWL-M/xdg-kit-rs#1d53c2d0cb4644358fd261655932395773527cf0"
+source = "git+https://github.com/OWL-M/xdg-kit-rs#8ebf920136a63215d05ba5fa5c5c2b034eebe627"
 dependencies = [
  "libc",
  "quick-xml 0.42.0",
@@ -8180,9 +8024,20 @@ dependencies = [
 [[package]]
 name = "xdg-kit-mime-apps"
 version = "0.1.0"
-source = "git+https://github.com/OWL-M/xdg-kit-rs#1d53c2d0cb4644358fd261655932395773527cf0"
+source = "git+https://github.com/OWL-M/xdg-kit-rs#8ebf920136a63215d05ba5fa5c5c2b034eebe627"
 dependencies = [
  "libc",
+ "rustix 1.1.5",
+ "xdg-kit-basedir",
+ "xdg-kit-desktop-entry",
+ "xdg-kit-mime",
+]
+
+[[package]]
+name = "xdg-kit-thumbnails"
+version = "0.1.0"
+source = "git+https://github.com/OWL-M/xdg-kit-rs#8ebf920136a63215d05ba5fa5c5c2b034eebe627"
+dependencies = [
  "rustix 1.1.5",
  "xdg-kit-basedir",
  "xdg-kit-desktop-entry",

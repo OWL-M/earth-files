@@ -51,7 +51,7 @@ impl Store {
 
     /// A store for `name` under the user's config directory.
     pub fn named(name: &str) -> Self {
-        let dir = dirs::config_dir()
+        let dir = crate::xdg_dirs::config_home()
             .unwrap_or_else(|| crate::home_dir().join(".config"))
             .join("earth-files");
         Self::at(dir.join(format!("{name}.ron")))

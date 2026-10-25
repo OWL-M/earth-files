@@ -61,23 +61,14 @@ impl Named {
     pub fn path(self) -> Option<PathBuf> {
         let name = &*self.name;
         let fallback = &self.fallback;
-        let locate = |theme: &str, name| {
-            let mut lookup = freedesktop_icons::lookup(name)
-                .with_theme(theme.as_ref())
-                .with_cache();
-
-            if let Some(scale) = self.scale {
-                lookup = lookup.with_scale(scale);
-            }
-
-            if let Some(size) = self.size {
-                lookup = lookup.with_size(size);
-            }
-
-            if self.prefer_svg {
-                lookup = lookup.force_svg();
-            }
-            lookup.find()
+        let locate = |theme: &str, name: &str| {
+            crate::ui::icon_theme::lookup_in(
+                theme,
+                name,
+                self.size.unwrap_or(24),
+                self.scale.unwrap_or(1),
+                self.prefer_svg,
+            )
         };
 
         use crate::ui::icon_theme;

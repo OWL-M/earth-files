@@ -12,7 +12,9 @@ use std::ffi::OsString;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use xdg_kit::desktop_entry::{DesktopEntry, Locales};
+use xdg_kit::desktop_entry::{
+    DesktopEntry, LaunchOptions, Locales, Target as LaunchTarget, prepare_launch,
+};
 
 use crate::mime_app::{self, Mime};
 use crate::spawn_detached::spawn_detached;
@@ -28,8 +30,9 @@ const LEGACY_TYPE: &str = "KonqPopupMenu/Plugin";
 pub struct ServiceAction {
     pub name: String,
     pub icon: Option<String>,
-    pub exec: String,
-    /// The service menu file, for the `%k` field code.
+    /// The action's id in the file's `Actions`.
+    pub action: String,
+    /// The service menu file the action is read from when it runs.
     pub file: PathBuf,
 }
 
@@ -54,20 +57,31 @@ pub enum ServiceEntry {
 }
 
 impl ServiceAction {
-    /// The commands that run the action on `paths`.
-    fn commands(&self, paths: &[PathBuf]) -> Option<Vec<std::process::Command>> {
-        mime_app::exec_to_command(&self.exec, &self.name, Some(&self.file), paths)
+    /// The commands that run the action on `paths`: its `Exec` as the
+    /// Desktop Entry spec reads it, with `%f %F %u %U` taking the paths and
+    /// `%k` the menu file. The file is read again here, so an edit made
+    /// since the menu was listed is what runs.
+    fn commands(&self, paths: &[PathBuf]) -> Result<Vec<std::process::Command>, String> {
+        let entry = DesktopEntry::read(&self.file)
+            .map_err(|err| format!("cannot read {}: {err}", self.file.display()))?;
+        let mut options = LaunchOptions::default();
+        options.action = Some(self.action.clone());
+        options.locales = Locales::from_env();
+        options.dbus = false;
+        let targets: Vec<LaunchTarget> = paths.iter().cloned().map(LaunchTarget::Path).collect();
+        prepare_launch(&entry, &targets, &options)
+            .map(mime_app::plan_commands)
+            .map_err(|err| err.to_string())
     }
 
     /// Runs the action on `paths`.
     pub fn run(&self, paths: &[PathBuf]) {
-        let Some(commands) = self.commands(paths) else {
-            log::warn!(
-                "service menu action {:?}: invalid Exec {:?}",
-                self.name,
-                self.exec
-            );
-            return;
+        let commands = match self.commands(paths) {
+            Ok(commands) => commands,
+            Err(err) => {
+                log::warn!("service menu action {:?}: {err}", self.name);
+                return;
+            }
         };
         for mut command in commands {
             if let Err(err) = spawn_detached(&mut command) {
@@ -304,10 +318,12 @@ impl ServiceFile {
                     return Some(ServiceItem::Separator);
                 }
                 let action = entry.action(id)?;
+                // An action without a command has nothing to run
+                action.exec()?;
                 Some(ServiceItem::Action(ServiceAction {
                     name: action.name(locales)?,
                     icon: action.icon(locales),
-                    exec: action.exec()?,
+                    action: id.clone(),
                     file: path.to_path_buf(),
                 }))
             })
@@ -573,8 +589,17 @@ Exec=peazip -ext2browse %F
         let ServiceItem::Action(action) = &items[1] else {
             panic!("not an action");
         };
-        assert_eq!(action.exec, "peazip -ext2here %F");
+        assert_eq!(action.action, "peazipexthere");
         assert!(action.file.ends_with("peazip-kde6.desktop"));
+        let commands = action
+            .commands(&[PathBuf::from("/a.zip")])
+            .expect("commands");
+        let command = &commands[0];
+        assert_eq!(command.get_program(), "peazip");
+        assert_eq!(
+            command.get_args().collect::<Vec<_>>(),
+            ["-ext2here", "/a.zip"]
+        );
     }
 
     /// `application/octet-stream` is every file, as declared: a Markdown
@@ -839,22 +864,64 @@ Exec=peazip -ext2here %F
         );
     }
 
-    #[test]
-    fn an_action_runs_its_exec_on_the_selected_paths() {
+    /// The action's own `Exec`, as the spec quotes it, on every path.
+    fn run_action(exec: &str, paths: &[&str]) -> Vec<Vec<String>> {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("peazip.desktop");
+        fs::write(
+            &file,
+            format!(
+                "[Desktop Entry]\nType=Service\nMimeType=application/zip;\nActions=here;\n\
+                 [Desktop Action here]\nName=Extract here\nExec={exec}\n"
+            ),
+        )
+        .unwrap();
         let action = ServiceAction {
             name: "Extract here".into(),
             icon: None,
-            exec: "peazip -ext2here %F".into(),
-            file: PathBuf::from("/menus/peazip.desktop"),
+            action: "here".into(),
+            file,
         };
-        let commands = action
-            .commands(&[PathBuf::from("/a.zip"), PathBuf::from("/b b.zip")])
-            .expect("commands");
-        assert_eq!(commands.len(), 1, "%F takes every path at once");
-        let command = &commands[0];
-        assert_eq!(command.get_program(), "peazip");
-        let args: Vec<_> = command.get_args().collect();
-        assert_eq!(args, ["-ext2here", "/a.zip", "/b b.zip"]);
+        let paths: Vec<PathBuf> = paths.iter().map(PathBuf::from).collect();
+        action
+            .commands(&paths)
+            .expect("commands")
+            .iter()
+            .map(|command| {
+                std::iter::once(command.get_program())
+                    .chain(command.get_args())
+                    .map(|part| part.to_string_lossy().into_owned())
+                    .collect()
+            })
+            .collect()
+    }
+
+    #[test]
+    fn an_action_runs_its_exec_on_the_selected_paths() {
+        // %F takes every path at once
+        assert_eq!(
+            run_action("peazip -ext2here %F", &["/a.zip", "/b b.zip"]),
+            [["peazip", "-ext2here", "/a.zip", "/b b.zip"]]
+        );
+        // %f runs once per path
+        assert_eq!(
+            run_action("peazip -ext2here %f", &["/a.zip", "/b.zip"]),
+            [
+                ["peazip", "-ext2here", "/a.zip"],
+                ["peazip", "-ext2here", "/b.zip"]
+            ]
+        );
+    }
+
+    /// Quoting follows the Desktop Entry spec: inside double quotes a
+    /// backslash escapes only `"`, `` ` ``, `$` and `\`, so a single quote
+    /// is a plain character there, where a shell would end a quote on it.
+    #[test]
+    fn an_action_is_quoted_as_the_desktop_entry_spec_says() {
+        assert_eq!(
+            run_action(r#"sh -c "echo it's here" %F"#, &["/a.zip"]),
+            [["sh", "-c", "echo it's here", "/a.zip"]]
+        );
     }
 
     #[test]

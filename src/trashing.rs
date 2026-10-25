@@ -34,10 +34,7 @@ pub(crate) fn uid() -> u32 {
 
 /// The home trash: `$XDG_DATA_HOME/Trash`, else `~/.local/share/Trash`.
 pub fn home() -> Option<Bin> {
-    let data = std::env::var_os("XDG_DATA_HOME")
-        .filter(|dir| !dir.is_empty())
-        .map(PathBuf::from)
-        .or_else(|| dirs::home_dir().map(|home| home.join(".local/share")))?;
+    let data = crate::xdg_dirs::data_home()?;
     Some(Bin {
         root: data.join("Trash"),
         top: data,

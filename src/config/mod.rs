@@ -3,7 +3,9 @@
 use std::num::NonZeroU16;
 use std::path::PathBuf;
 
+use crate::xdg_dirs;
 use serde::{Deserialize, Serialize};
+use xdg_kit::basedir::UserDirKind;
 
 use crate::app::Action;
 
@@ -94,12 +96,12 @@ impl Favorite {
 
     pub fn path_opt(&self) -> Option<PathBuf> {
         match self {
-            Self::Home => dirs::home_dir(),
-            Self::Documents => dirs::document_dir(),
-            Self::Downloads => dirs::download_dir(),
-            Self::Music => dirs::audio_dir(),
-            Self::Pictures => dirs::picture_dir(),
-            Self::Videos => dirs::video_dir(),
+            Self::Home => xdg_dirs::home(),
+            Self::Documents => xdg_dirs::user_dir(&UserDirKind::Documents),
+            Self::Downloads => xdg_dirs::user_dir(&UserDirKind::Download),
+            Self::Music => xdg_dirs::user_dir(&UserDirKind::Music),
+            Self::Pictures => xdg_dirs::user_dir(&UserDirKind::Pictures),
+            Self::Videos => xdg_dirs::user_dir(&UserDirKind::Videos),
             Self::Path(path) => Some(path.clone()),
             Self::Network { path, .. } => Some(path.clone()),
             Self::Named { path, .. } => Some(path.clone()),
@@ -154,12 +156,16 @@ pub struct State {
 impl Default for State {
     fn default() -> Self {
         Self {
-            sort_names: FxOrderMap::from_iter(dirs::download_dir().into_iter().map(|dir| {
-                (
-                    Location::Path(dir).normalize().to_string(),
-                    (HeadingOptions::Modified, false),
-                )
-            })),
+            sort_names: FxOrderMap::from_iter(
+                xdg_dirs::user_dir(&UserDirKind::Download)
+                    .into_iter()
+                    .map(|dir| {
+                        (
+                            Location::Path(dir).normalize().to_string(),
+                            (HeadingOptions::Modified, false),
+                        )
+                    }),
+            ),
         }
     }
 }
@@ -432,7 +438,7 @@ mod tests {
 
     #[test]
     fn favorite_with_label_converts_special_folder_to_named() {
-        let home = dirs::home_dir().unwrap();
+        let home = crate::xdg_dirs::home().unwrap();
         assert_eq!(
             Favorite::Home.with_label("Custom"),
             Favorite::Named {

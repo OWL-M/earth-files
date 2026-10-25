@@ -1,342 +1,173 @@
-use image::DynamicImage;
-use md5::{Digest, Md5};
-use rustc_hash::FxHashMap;
+//! Thumbnails cached as the freedesktop.org Thumbnail Managing Standard
+//! says, through xdg-kit: the personal cache other programs share, and the
+//! markers that say a thumbnail could not be made.
+//! <https://specifications.freedesktop.org/thumbnail-spec/latest/>
+
 use std::error::Error;
-use std::fs::{self, File};
-use std::io::{self, BufReader, BufWriter};
-use std::os::unix::fs::PermissionsExt;
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
-use std::time::UNIX_EPOCH;
-use tempfile::NamedTempFile;
-use url::Url;
 
-/// Implements thumbnail caching based on the freedesktop.org Thumbnail Managing Standard.
-/// <https://specifications.freedesktop.org/thumbnail-spec/latest>/
+use image::DynamicImage;
+use tempfile::NamedTempFile;
+use xdg_kit::basedir::Durability;
+use xdg_kit::thumbnails::{Application, SourceInfo, ThumbnailCache, ThumbnailSource};
+
+pub use xdg_kit::thumbnails::ThumbnailSize;
+
+/// The personal cache; none without base directories.
+static CACHE: LazyLock<Option<ThumbnailCache>> = LazyLock::new(|| {
+    let cache = crate::xdg_dirs::BASE_DIRS.as_ref().map(ThumbnailCache::new);
+    if cache.is_none() {
+        log::warn!("no thumbnail cache directory, thumbnails will not be cached");
+    }
+    cache
+});
+
+/// The name failure markers are filed under. It carries the version, so a
+/// new version tries again what an older one could not make.
+static APPLICATION: LazyLock<Option<Application>> =
+    LazyLock::new(|| Application::new(format!("earth-files-{}", env!("CARGO_PKG_VERSION"))).ok());
+
+/// One file's thumbnail at one size, in the cache.
 pub struct ThumbnailCacher {
+    cache: &'static ThumbnailCache,
+    /// The file as asked for, shown as is when it is a thumbnail itself.
     file_path: PathBuf,
-    file_uri: String,
-    thumbnail_dir: PathBuf,
-    thumbnail_path: PathBuf,
-    thumbnail_size: ThumbnailSize,
-    thumbnail_fail_marker_path: PathBuf,
+    source: ThumbnailSource,
+    /// The file's metadata when this was made. A new thumbnail is stamped
+    /// with it, so it never claims to be newer than what it was made from.
+    info: SourceInfo,
+    size: ThumbnailSize,
 }
 
 impl ThumbnailCacher {
-    pub fn new(file_path: &Path, thumbnail_size: ThumbnailSize) -> Result<Self, String> {
-        let file_uri = thumbnail_uri(file_path)
-            .map_err(|err| format!("failed to create URI for {}: {}", file_path.display(), err))?;
-        let cache_base_dir = THUMBNAIL_CACHE_BASE_DIR
+    pub fn new(file_path: &Path, size: ThumbnailSize) -> Result<Self, String> {
+        let cache = CACHE
             .as_ref()
-            .ok_or("failed to get thumbnail cache directory".to_string())?;
-        let thumbnail_filename = thumbnail_cache_filename(&file_uri);
-        let thumbnail_dir = cache_base_dir.join(thumbnail_size.subdirectory_name());
-        if let Err(err) = fs::create_dir_all(&thumbnail_dir) {
-            log::warn!(
-                "{}: cannot create thumbnail directory: {err}",
-                thumbnail_dir.display()
-            );
-        }
-        let thumbnail_path = thumbnail_dir.join(&thumbnail_filename);
-        let thumbnail_fail_marker_path = cache_base_dir
-            .join("fail")
-            .join(format!("earth-files-{}", env!("CARGO_PKG_VERSION")))
-            .join(&thumbnail_filename);
+            .ok_or_else(|| "no thumbnail cache directory".to_owned())?;
+        Self::in_cache(cache, file_path, size)
+    }
 
+    /// [`Self::new`] in `cache`.
+    fn in_cache(
+        cache: &'static ThumbnailCache,
+        file_path: &Path,
+        size: ThumbnailSize,
+    ) -> Result<Self, String> {
+        // Keyed by the real path, symlinks resolved, as this app has always
+        // keyed it, so thumbnails made before are still found
+        let real = fs::canonicalize(file_path)
+            .map_err(|err| format!("failed to resolve {}: {err}", file_path.display()))?;
+        let source = ThumbnailSource::local(&real)
+            .map_err(|err| format!("failed to name {}: {err}", real.display()))?;
+        let info = SourceInfo::of_local(&real)
+            .map_err(|err| format!("failed to read {}: {err}", real.display()))?;
         Ok(Self {
+            cache,
             file_path: file_path.to_path_buf(),
-            file_uri,
-            thumbnail_dir,
-            thumbnail_path,
-            thumbnail_size,
-            thumbnail_fail_marker_path,
+            source,
+            info,
+            size,
         })
     }
 
     pub fn get_cached_thumbnail(&self) -> CachedThumbnail {
-        // If the file is already a thumbnail, just use it so we don't generate
-        // cached thumbnails of thumbnails.
-        if let (Some(cache_base_dir), Ok(metadata)) = (
-            THUMBNAIL_CACHE_BASE_DIR.as_ref(),
-            std::fs::metadata(&self.file_path),
-        ) && metadata.is_file()
-            && self.file_path.starts_with(cache_base_dir)
+        // A thumbnail is shown as itself: the standard forbids thumbnails of
+        // thumbnails
+        if self
+            .source
+            .path()
+            .is_some_and(|path| self.cache.is_thumbnail_path(path))
         {
             return CachedThumbnail::Valid((self.file_path.clone(), None));
         }
 
-        // Use cached thumbnail if it is valid.
-        if self.is_thumbnail_valid(&self.thumbnail_path) {
-            return CachedThumbnail::Valid((
-                self.thumbnail_path.clone(),
-                Some(self.thumbnail_size),
-            ));
+        match self.cache.find(&self.source, self.size, &self.info) {
+            Ok(Some(thumbnail)) => {
+                return CachedThumbnail::Valid((
+                    thumbnail.path().to_path_buf(),
+                    Some(thumbnail.size()),
+                ));
+            }
+            Ok(None) => {}
+            Err(err) => log::warn!(
+                "failed to look up the thumbnail of {}: {err}",
+                self.file_path.display()
+            ),
         }
 
-        // Check if there is a fail marker from an earlier failure.
-        if self.is_thumbnail_valid(&self.thumbnail_fail_marker_path) {
+        // Made before and failed, and the file has not changed since
+        if let Some(application) = APPLICATION.as_ref()
+            && let Ok(Some(_)) = self.cache.failed(&self.source, application, &self.info)
+        {
             return CachedThumbnail::Failed;
         }
 
-        CachedThumbnail::RequiresUpdate(self.thumbnail_size)
+        CachedThumbnail::RequiresUpdate(self.size)
     }
 
-    pub fn thumbnail_dir(&self) -> &Path {
-        &self.thumbnail_dir
+    /// Installs `temp_file`, a PNG a thumbnailer wrote, as the thumbnail.
+    pub fn update_with_temp_file(
+        &self,
+        temp_file: NamedTempFile,
+    ) -> Result<PathBuf, Box<dyn Error>> {
+        self.install(temp_file.path())
     }
 
-    pub fn update_with_temp_file(&self, temp_file: NamedTempFile) -> Result<&Path, Box<dyn Error>> {
-        fs::set_permissions(temp_file.path(), fs::Permissions::from_mode(0o600))?;
-        self.update_thumbnail_text_metadata(temp_file.path())?;
-        fs::rename(temp_file.path(), &self.thumbnail_path)?;
-
-        Ok(&self.thumbnail_path)
-    }
-
-    pub fn update_with_image(&self, image: DynamicImage) -> Result<&Path, Box<dyn Error>> {
+    /// Installs `image`, scaled down to the size, as the thumbnail.
+    pub fn update_with_image(&self, image: DynamicImage) -> Result<PathBuf, Box<dyn Error>> {
+        let edge = self.size.max_dimension();
         let temp_file = tempfile::Builder::new()
             .prefix("earth-files-")
-            .tempfile_in(&self.thumbnail_dir)?;
-        {
-            let file = File::create(temp_file.path())?;
-            let image = image
-                .thumbnail(
-                    self.thumbnail_size.pixel_size(),
-                    self.thumbnail_size.pixel_size(),
-                )
-                .into_rgba8();
-            let writer = BufWriter::new(file);
-            let mut encoder = png::Encoder::new(writer, image.width(), image.height());
-            encoder.set_color(png::ColorType::Rgba);
-            encoder.set_depth(png::BitDepth::Eight);
-            encoder
-                .write_header()?
-                .write_image_data(&image.into_raw())?;
-        }
-
-        self.update_with_temp_file(temp_file)
+            .suffix(".png")
+            .tempfile()?;
+        image
+            .thumbnail(edge, edge)
+            .into_rgba8()
+            .save_with_format(temp_file.path(), image::ImageFormat::Png)?;
+        self.install(temp_file.path())
     }
 
+    /// Records that no thumbnail could be made, so it is not tried again
+    /// until the file changes.
     pub fn create_fail_marker(&self) -> Result<(), Box<dyn Error>> {
-        if let Some(dir) = self.thumbnail_fail_marker_path.parent() {
-            fs::create_dir_all(dir)?;
-            fs::set_permissions(dir, fs::Permissions::from_mode(0o700))?;
-        }
-
-        let file = File::create(&self.thumbnail_fail_marker_path)?;
-        let writer = BufWriter::new(file);
-        let mut encoder = png::Encoder::new(writer, 1, 1);
-        encoder.set_color(png::ColorType::Grayscale);
-        encoder.set_depth(png::BitDepth::One);
-        encoder.write_header()?.write_image_data(&[0])?;
-        self.update_thumbnail_text_metadata(&self.thumbnail_fail_marker_path)
-    }
-
-    fn update_thumbnail_text_metadata(&self, path: &Path) -> Result<(), Box<dyn Error>> {
-        let file = File::open(path)?;
-        let reader = BufReader::new(file);
-
-        let decoder = png::Decoder::new(reader);
-        let mut reader = decoder.read_info()?;
-        let (width, height, color_type, bit_depth, mut text_chunks) = {
-            let info = reader.info();
-            let text_chunks: FxHashMap<String, String> = info
-                .uncompressed_latin1_text
-                .iter()
-                .map(|chunk| (chunk.keyword.clone(), chunk.text.clone()))
-                .collect();
-            (
-                info.width,
-                info.height,
-                info.color_type,
-                info.bit_depth,
-                text_chunks,
-            )
-        };
-
-        let mut image_data = vec![
-            0;
-            reader
-                .output_buffer_size()
-                .ok_or("The required image buffer size is too large.")?
-        ];
-        reader.next_frame(&mut image_data)?;
-
-        let file = File::create(path)?;
-        let writer = BufWriter::new(file);
-
-        let mut encoder = png::Encoder::new(writer, width, height);
-        encoder.set_color(color_type);
-        encoder.set_depth(bit_depth);
-
-        text_chunks.insert("Software".to_string(), "Earth Files".to_string());
-        text_chunks.insert("Thumb::URI".to_string(), self.file_uri.clone());
-        let metadata = std::fs::metadata(&self.file_path)?;
-        let size = metadata.len();
-        text_chunks.insert("Thumb::Size".to_string(), size.to_string());
-        let mtime = metadata
-            .modified()?
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs();
-        text_chunks.insert("Thumb::MTime".to_string(), mtime.to_string());
-
-        for (keyword, text) in text_chunks {
-            encoder.add_text_chunk(keyword, text)?;
-        }
-
-        let mut writer = encoder.write_header()?;
-        writer.write_image_data(&image_data)?;
-
+        let application = APPLICATION
+            .as_ref()
+            .ok_or("no application name for the failure marker")?;
+        let (_, durability) = self
+            .cache
+            .mark_failed(&self.source, &self.info, application)?;
+        not_synced(durability, &self.file_path);
         Ok(())
     }
 
-    fn is_thumbnail_valid(&self, thumbnail_path: &Path) -> bool {
-        let thumbnail_file = match File::open(thumbnail_path) {
-            Ok(file) => file,
-            Err(_) => return false,
-        };
-        let decoder = png::Decoder::new(BufReader::new(thumbnail_file));
-        let reader = match decoder.read_info() {
-            Ok(reader) => reader,
-            Err(err) => {
-                log::warn!(
-                    "failed to decode {} as PNG: {}",
-                    thumbnail_path.display(),
-                    err
-                );
-                return false;
-            }
-        };
-
-        let texts = &reader.info().uncompressed_latin1_text;
-
-        // Thumb::URI is required and must match.
-        let thumb_uri = texts
-            .iter()
-            .find(|&text| text.keyword == "Thumb::URI")
-            .map(|t| &t.text);
-        if let Some(thumb_uri) = thumb_uri {
-            if *thumb_uri != self.file_uri {
-                return false;
-            }
-        } else {
-            return false;
-        }
-
-        let metadata = match std::fs::metadata(&self.file_path) {
-            Ok(m) => m,
-            Err(err) => {
-                log::warn!(
-                    "failed to get metadata of {}: {}",
-                    self.file_path.display(),
-                    err
-                );
-                return false;
-            }
-        };
-
-        // Thumb::MTime is required and must match.
-        let thumb_mtime = texts
-            .iter()
-            .find(|&text| text.keyword == "Thumb::MTime")
-            .map(|t| &t.text);
-        if let Some(thumb_mtime) = thumb_mtime {
-            let modified = match metadata.modified() {
-                Ok(m) => m,
-                Err(err) => {
-                    log::warn!(
-                        "failed to get modified from metadata of {}, {}",
-                        self.file_path.display(),
-                        err
-                    );
-                    return false;
-                }
-            };
-            let mtime = modified
-                .duration_since(UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_secs()
-                .to_string();
-            if *thumb_mtime != mtime {
-                return false;
-            }
-        } else {
-            return false;
-        }
-
-        // Thumb::Size isn't required, but it should be verified if present.
-        let thumb_size = texts
-            .iter()
-            .find(|&text| text.keyword == "Thumb::Size")
-            .map(|t| &t.text);
-        if let Some(thumb_size) = thumb_size {
-            let size = metadata.len();
-            if *thumb_size != size.to_string() {
-                return false;
-            }
-        }
-
-        true
+    fn install(&self, finished: &Path) -> Result<PathBuf, Box<dyn Error>> {
+        let (path, durability) =
+            self.cache
+                .install(finished, &self.source, &self.info, self.size)?;
+        not_synced(durability, &self.file_path);
+        Ok(path)
     }
 }
 
-fn thumbnail_uri(path: &Path) -> io::Result<String> {
-    let absolute_path = fs::canonicalize(path)?;
-    let url = Url::from_file_path(&absolute_path).map_err(|()| {
-        io::Error::other(format!(
-            "failed to create URI for thumbnail_file: {}",
-            absolute_path.display()
-        ))
-    })?;
-    // Technically square brackets don't need to be percent encoded,
-    // and they aren't by the url crate, but the thumbnailer used by
-    // Gnome Files does. In order to share thumbnails and not get duplicates
-    // we should do the same.
-    let url = url.as_str().replace('[', "%5B").replace(']', "%5D");
-    Ok(url)
+/// Logs a thumbnail that is in place but whose folder could not be synced:
+/// it is there, and only a crash could lose it, which costs a regeneration.
+fn not_synced(durability: Durability, file_path: &Path) {
+    if let Durability::NotSynced(err) = durability {
+        log::debug!(
+            "thumbnail of {} is in place but not synced: {err}",
+            file_path.display()
+        );
+    }
 }
 
-fn thumbnail_cache_filename(file_uri: &str) -> String {
-    // Gnome Files computes the same freedesktop thumbnail cache key. A different
-    // filename would silently prevent cache sharing.
-    format!("{}.png", crate::hex::lower(Md5::digest(file_uri)))
-}
-
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
-#[repr(u32)]
-pub enum ThumbnailSize {
-    Normal = 128,
-    Large = 256,
-    XLarge = 512,
-    XXLarge = 1024,
-}
-
-impl ThumbnailSize {
-    pub fn from_pixel_size(pixel_size: u32) -> Self {
-        if pixel_size <= Self::Normal.pixel_size() {
-            Self::Normal
-        } else if pixel_size <= Self::Large.pixel_size() {
-            Self::Large
-        } else if pixel_size <= Self::XLarge.pixel_size() {
-            Self::XLarge
-        } else {
-            Self::XXLarge
-        }
-    }
-
-    pub const fn pixel_size(self) -> u32 {
-        self as u32
-    }
-
-    pub const fn subdirectory_name(self) -> &'static str {
-        match self {
-            Self::Normal => "normal",
-            Self::Large => "large",
-            Self::XLarge => "x-large",
-            Self::XXLarge => "xx-large",
-        }
-    }
+/// The size class for thumbnails up to `pixel_size` across.
+pub fn size_for(pixel_size: u32) -> ThumbnailSize {
+    ThumbnailSize::ALL
+        .into_iter()
+        .find(|size| pixel_size <= size.max_dimension())
+        .unwrap_or(ThumbnailSize::XXLarge)
 }
 
 pub enum CachedThumbnail {
@@ -351,29 +182,135 @@ pub enum CachedThumbnail {
     Failed,
 }
 
-static THUMBNAIL_CACHE_BASE_DIR: LazyLock<Option<PathBuf>> = LazyLock::new(|| {
-    if let Some(cache_dir) = dirs::cache_dir() {
-        return Some(cache_dir.join("thumbnails"));
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The cache file name is the lowercase hex MD5 of the file's URI, the
+    /// same name other file managers compute: a different one would quietly
+    /// stop the cache being shared. Reference value from
+    /// `printf 'file:///home/user/test.png' | md5sum`.
+    #[test]
+    fn the_cache_name_is_shared_with_other_file_managers() {
+        let source = ThumbnailSource::local("/home/user/test.png").unwrap();
+        assert_eq!(source.cache_name(), "03223f4f10458a8b5d14327f3ae23136.png");
     }
 
-    log::warn!("failed to get thumbnail cache directory, thumbnails will not be cached");
-
-    None
-});
-
-#[cfg(test)]
-mod md5_name_tests {
-    use super::thumbnail_cache_filename;
-
-    /// The freedesktop thumbnail filename is the lowercase hex MD5 of the file URI.
-    /// Other file managers compute the same name, so changing it would silently prevent
-    /// cache sharing. Reference value from `printf 'file:///home/user/test.png' |
-    /// md5sum`.
+    /// Square brackets are percent-encoded, as GNOME's thumbnailer encodes
+    /// them, so its thumbnails of such names are found too.
     #[test]
-    fn cache_filename_is_lowercase_hex_md5_of_the_uri() {
-        assert_eq!(
-            thumbnail_cache_filename("file:///home/user/test.png"),
-            "03223f4f10458a8b5d14327f3ae23136.png"
-        );
+    fn square_brackets_are_encoded_as_gnome_encodes_them() {
+        let source = ThumbnailSource::local("/home/user/a [1].png").unwrap();
+        assert_eq!(source.uri(), "file:///home/user/a%20%5B1%5D.png");
+    }
+
+    /// A cache in a home of its own, kept for the test's run.
+    fn cache_in(home: &Path) -> &'static ThumbnailCache {
+        let base_dirs = xdg_kit::basedir::BaseDirs::from_vars(|name| {
+            let path = match name {
+                "HOME" => home.to_owned(),
+                "XDG_CACHE_HOME" => home.join("cache"),
+                _ => return None,
+            };
+            Some(path.into())
+        })
+        .unwrap();
+        Box::leak(Box::new(ThumbnailCache::new(&base_dirs)))
+    }
+
+    #[test]
+    fn a_made_thumbnail_is_found_until_its_file_changes() {
+        let home = tempfile::tempdir().unwrap();
+        let cache = cache_in(home.path());
+        let photo = home.path().join("photo.png");
+        DynamicImage::new_rgb8(300, 200).save(&photo).unwrap();
+
+        let cacher = ThumbnailCacher::in_cache(cache, &photo, ThumbnailSize::Normal).unwrap();
+        assert!(matches!(
+            cacher.get_cached_thumbnail(),
+            CachedThumbnail::RequiresUpdate(_)
+        ));
+        let made = cacher
+            .update_with_image(image::open(&photo).unwrap())
+            .unwrap();
+        assert!(made.starts_with(home.path().join("cache/thumbnails/normal")));
+        let (width, height) = image::image_dimensions(&made).unwrap();
+        assert_eq!((width, height), (128, 85), "scaled down to the size");
+
+        let again = ThumbnailCacher::in_cache(cache, &photo, ThumbnailSize::Normal).unwrap();
+        assert!(matches!(
+            again.get_cached_thumbnail(),
+            CachedThumbnail::Valid((path, Some(ThumbnailSize::Normal))) if path == made
+        ));
+
+        // A later change to the file makes the thumbnail stale
+        let later = std::time::SystemTime::now() + std::time::Duration::from_secs(5);
+        std::fs::File::options()
+            .write(true)
+            .open(&photo)
+            .unwrap()
+            .set_modified(later)
+            .unwrap();
+        let changed = ThumbnailCacher::in_cache(cache, &photo, ThumbnailSize::Normal).unwrap();
+        assert!(matches!(
+            changed.get_cached_thumbnail(),
+            CachedThumbnail::RequiresUpdate(_)
+        ));
+    }
+
+    #[test]
+    fn a_failure_is_remembered_until_its_file_changes() {
+        let home = tempfile::tempdir().unwrap();
+        let cache = cache_in(home.path());
+        let broken = home.path().join("broken.png");
+        std::fs::write(&broken, "not a picture").unwrap();
+
+        let cacher = ThumbnailCacher::in_cache(cache, &broken, ThumbnailSize::Normal).unwrap();
+        cacher.create_fail_marker().unwrap();
+        let again = ThumbnailCacher::in_cache(cache, &broken, ThumbnailSize::Normal).unwrap();
+        assert!(matches!(
+            again.get_cached_thumbnail(),
+            CachedThumbnail::Failed
+        ));
+
+        let later = std::time::SystemTime::now() + std::time::Duration::from_secs(5);
+        std::fs::File::options()
+            .write(true)
+            .open(&broken)
+            .unwrap()
+            .set_modified(later)
+            .unwrap();
+        let changed = ThumbnailCacher::in_cache(cache, &broken, ThumbnailSize::Normal).unwrap();
+        assert!(matches!(
+            changed.get_cached_thumbnail(),
+            CachedThumbnail::RequiresUpdate(_)
+        ));
+    }
+
+    #[test]
+    fn a_thumbnail_is_shown_as_itself() {
+        let home = tempfile::tempdir().unwrap();
+        let cache = cache_in(home.path());
+        let photo = home.path().join("photo.png");
+        DynamicImage::new_rgb8(300, 200).save(&photo).unwrap();
+        let made = ThumbnailCacher::in_cache(cache, &photo, ThumbnailSize::Normal)
+            .unwrap()
+            .update_with_image(image::open(&photo).unwrap())
+            .unwrap();
+
+        let of_thumbnail = ThumbnailCacher::in_cache(cache, &made, ThumbnailSize::Normal).unwrap();
+        assert!(matches!(
+            of_thumbnail.get_cached_thumbnail(),
+            CachedThumbnail::Valid((path, None)) if path == made
+        ));
+    }
+
+    #[test]
+    fn a_pixel_size_picks_the_smallest_class_that_holds_it() {
+        assert_eq!(size_for(64), ThumbnailSize::Normal);
+        assert_eq!(size_for(128), ThumbnailSize::Normal);
+        assert_eq!(size_for(129), ThumbnailSize::Large);
+        assert_eq!(size_for(512), ThumbnailSize::XLarge);
+        assert_eq!(size_for(4000), ThumbnailSize::XXLarge);
     }
 }

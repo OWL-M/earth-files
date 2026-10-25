@@ -9353,62 +9353,27 @@ impl Application for App {
                 stream::channel(
                     1,
                     |mut output: futures::channel::mpsc::Sender<Message>| async move {
-                        let Some(recents_path) = recently_used_xbel::dir() else {
-                            log::warn!(
-                                "failed to watch recents changes: .recently_used.xbel does not exist"
-                            );
+                        let Some(recents_path) = crate::recents::path() else {
+                            log::warn!("failed to watch recents changes: no data folder");
                             return std::future::pending().await;
                         };
 
-                        let watcher_res = new_debouncer(
-                            time::Duration::from_millis(250),
-                            Some(time::Duration::from_millis(250)),
-                            move |event_res: notify_debouncer_full::DebounceEventResult| {
-                                match event_res {
-                                    Ok(events) => {
-                                        // Programs differ in how they modify the recents file so the
-                                        // rescan is triggered on any event but access.
-                                        if events.iter().any(|event| {
-                                            let kind = event.kind;
-                                            kind.is_create()
-                                                || kind.is_modify()
-                                                || kind.is_remove()
-                                                || kind.is_other()
-                                        }) && let Err(e) = futures::executor::block_on(async {
-                                            output.send(Message::RescanRecents).await
-                                        }) {
-                                            log::warn!(
-                                                "open recents tabs need to be updated but sending message failed: {e:?}"
-                                            );
-                                        }
-                                    }
-                                    Err(e) => {
-                                        log::warn!(
-                                            "failed to watch recents file for changes: {e:?}"
-                                        )
-                                    }
-                                }
-                            },
-                        );
+                        let watcher_res = crate::recents::watch(recents_path, move || {
+                            if let Err(e) = futures::executor::block_on(async {
+                                output.send(Message::RescanRecents).await
+                            }) {
+                                log::warn!(
+                                    "open recents tabs need to be updated but sending message failed: {e:?}"
+                                );
+                            }
+                        });
 
                         match watcher_res {
-                            Ok(mut watcher) => {
-                                if let Err(e) = watcher
-                                    .watch(&recents_path, notify::RecursiveMode::NonRecursive)
-                                {
-                                    log::warn!(
-                                        "failed to add recents file `{}` to watcher: {}",
-                                        recents_path.display(),
-                                        e
-                                    );
-                                }
-
+                            Ok(_watcher) => {
                                 // Don't drop the watcher.
                                 std::future::pending::<()>().await;
                             }
-                            Err(e) => {
-                                log::warn!("failed to create new watcher for recents file: {e:?}")
-                            }
+                            Err(e) => log::warn!("failed to watch recents changes: {e}"),
                         }
 
                         std::future::pending().await

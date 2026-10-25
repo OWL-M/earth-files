@@ -455,7 +455,7 @@ impl MimeAppCache {
     pub fn launch_options(&self) -> LaunchOptions {
         let mut options = LaunchOptions::default();
         options.locales = self.locales.clone();
-        options.terminal = self.terminal_command();
+        options.terminal = self.terminal_command().unwrap_or_default();
         options.dbus = false;
         options
     }
@@ -902,7 +902,13 @@ fn edit_list(
         return false;
     }
     match list.write() {
-        Ok(()) => true,
+        Ok(xdg_kit::basedir::Durability::Synced) => true,
+        // The list was replaced; only syncing its folder failed. Writing it
+        // again could overwrite a change made since, so it counts as written.
+        Ok(xdg_kit::basedir::Durability::NotSynced(err)) => {
+            log::warn!("wrote {} but could not sync it: {err}", path.display());
+            true
+        }
         Err(err) => {
             log::warn!("failed to write {}: {}", path.display(), err);
             false

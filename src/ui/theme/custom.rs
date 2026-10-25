@@ -763,7 +763,7 @@ pub fn spacing(density_steps: Spacing) -> Spacing {
 /// The directory theme files are read from
 #[must_use]
 pub fn themes_dir() -> PathBuf {
-    dirs::config_dir()
+    crate::xdg_dirs::config_home()
         .unwrap_or_else(|| crate::home_dir().join(".config"))
         .join("earth-files")
         .join("themes")

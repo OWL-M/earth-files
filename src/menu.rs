@@ -1404,7 +1404,7 @@ mod tests {
         let services = [ServiceEntry::Action(ServiceAction {
             name: "Checksum".into(),
             icon: None,
-            exec: "sum %F".into(),
+            action: "sum".into(),
             file: PathBuf::from("/menus/a.desktop"),
         })];
         let zip = Mime::from_static("application/zip");
@@ -1555,7 +1555,7 @@ mod tests {
         let action = |name: &str| ServiceAction {
             name: name.into(),
             icon: None,
-            exec: "run %F".into(),
+            action: "run".into(),
             file: PathBuf::from("/menus/a.desktop"),
         };
         let services: Rc<[ServiceEntry]> = Rc::from([
