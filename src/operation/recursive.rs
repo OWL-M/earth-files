@@ -222,9 +222,9 @@ pub(crate) use delete::remove_tree;
 #[derive(Clone, Copy)]
 struct Trash {
     /// Sends a path there, returning its entry.
-    delete: fn(&Path) -> Result<trash::TrashItem, Box<dyn Error + Send + Sync>>,
+    delete: fn(&Path) -> Result<crate::trashing::TrashItem, Box<dyn Error + Send + Sync>>,
     /// Brings an entry back to where it was.
-    restore: fn(trash::TrashItem) -> Result<(), Box<dyn Error + Send + Sync>>,
+    restore: fn(crate::trashing::TrashItem) -> Result<(), Box<dyn Error + Send + Sync>>,
     /// Where a path sent there would end up.
     place: fn(&Path) -> delete::Place,
 }
@@ -260,7 +260,7 @@ mod test_trash {
         place: |_| super::delete::Place::Here,
     };
 
-    fn delete(path: &Path) -> Result<trash::TrashItem, Box<dyn Error + Send + Sync>> {
+    fn delete(path: &Path) -> Result<crate::trashing::TrashItem, Box<dyn Error + Send + Sync>> {
         let dir = std::env::temp_dir().join(format!("earth-files-trash-{}", std::process::id()));
         std::fs::create_dir_all(&dir)?;
         let kept = dir.join(NEXT.fetch_add(1, Ordering::Relaxed).to_string());
@@ -268,7 +268,7 @@ mod test_trash {
         let time_deleted = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map_or(0, |since| since.as_secs() as i64);
-        Ok(trash::TrashItem {
+        Ok(crate::trashing::TrashItem {
             id: kept.into(),
             name: path.file_name().unwrap_or_default().to_owned(),
             original_parent: path.parent().unwrap_or(path).to_path_buf(),
@@ -276,7 +276,7 @@ mod test_trash {
         })
     }
 
-    fn restore(item: trash::TrashItem) -> Result<(), Box<dyn Error + Send + Sync>> {
+    fn restore(item: crate::trashing::TrashItem) -> Result<(), Box<dyn Error + Send + Sync>> {
         crate::operation::rename_no_replace(Path::new(&item.id), &item.original_path())?;
         Ok(())
     }
@@ -3197,7 +3197,7 @@ mod tests {
             .op_sel
             .trash_items
             .iter()
-            .map(trash::TrashItem::original_path)
+            .map(crate::trashing::TrashItem::original_path)
             .collect();
         assert_eq!(trashed, vec![to.join("a")]);
     }
@@ -3370,7 +3370,7 @@ mod tests {
         let trashed: Vec<_> = op_sel
             .trash_items
             .iter()
-            .map(trash::TrashItem::original_path)
+            .map(crate::trashing::TrashItem::original_path)
             .collect();
         assert_eq!(trashed, vec![to.join("b")]);
     }

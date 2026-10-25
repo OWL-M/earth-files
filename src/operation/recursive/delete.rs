@@ -109,7 +109,9 @@ fn remove_at(
 /// copied and then removed from the trash. Never over something now in its
 /// place, and nothing is made there first: the trash crate's own restore
 /// makes an empty file, then cannot rename across drives.
-pub(super) fn restore_entry(item: trash::TrashItem) -> Result<(), Box<dyn Error + Send + Sync>> {
+pub(super) fn restore_entry(
+    item: crate::trashing::TrashItem,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
     let (kept, info) = crate::operation::in_trash(&item);
     let to = item.original_path();
     if let Some(parent) = to.parent() {
@@ -503,7 +505,7 @@ impl Context {
     /// Abort / Try again. Nothing removed comes back.
     pub async fn purge(
         &mut self,
-        items: Vec<(trash::TrashItem, PathBuf, Option<PathBuf>)>,
+        items: Vec<(crate::trashing::TrashItem, PathBuf, Option<PathBuf>)>,
     ) -> Result<(), OperationError> {
         self.scope = root::Scope {
             sources: items
@@ -717,7 +719,7 @@ mod tests {
             .op_sel
             .trash_items
             .iter()
-            .map(trash::TrashItem::original_path)
+            .map(crate::trashing::TrashItem::original_path)
             .collect();
         assert_eq!(trashed, vec![a, b]);
     }
@@ -790,7 +792,7 @@ mod tests {
         fs::create_dir(trash.path().join("info")).expect("mkdir");
         let info = trash.path().join("info/d.trashinfo");
         fs::write(&info, b"[Trash Info]").expect("write");
-        let item = |parent: &Path| trash::TrashItem {
+        let item = |parent: &Path| crate::trashing::TrashItem {
             id: info.clone().into(),
             name: "d".into(),
             original_parent: parent.to_path_buf(),
@@ -1001,7 +1003,7 @@ mod tests {
             .op_sel
             .trash_items
             .iter()
-            .map(trash::TrashItem::original_path)
+            .map(crate::trashing::TrashItem::original_path)
             .collect();
         back.sort();
         assert_eq!(back, vec![a, b]);

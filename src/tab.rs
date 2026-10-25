@@ -1,4 +1,5 @@
 use crate::mime_app::Mime;
+use crate::trashing::{TrashItem, TrashItemMetadata, TrashItemSize};
 use crate::ui::Element;
 use crate::ui::iced::advanced::text;
 use crate::ui::iced::futures::{self, SinkExt};
@@ -38,7 +39,6 @@ use std::sync::{Arc, LazyLock, Mutex, RwLock, atomic};
 use std::time::{Duration, Instant, SystemTime};
 use tempfile::NamedTempFile;
 use tokio::sync::mpsc;
-use trash::{TrashItem, TrashItemMetadata, TrashItemSize};
 use xdg_kit::basedir::UserDirKind;
 use xdg_kit::desktop_entry::{DesktopEntry, Locales};
 
@@ -1253,12 +1253,12 @@ pub fn item_from_trash_entry(
     };
 
     let (mime, icon_handle_grid, icon_handle_list) = match metadata.size {
-        trash::TrashItemSize::Entries(_) => (
+        crate::trashing::TrashItemSize::Entries(_) => (
             Mime::INODE_DIRECTORY,
             folder_icon_or_placeholder(&original_path, sizes.grid()),
             folder_icon_or_placeholder(&original_path, sizes.list()),
         ),
-        trash::TrashItemSize::Bytes(_) => {
+        crate::trashing::TrashItemSize::Bytes(_) => {
             // This passes remote = true so it does not read from the original path
             let mime = mime_for_path(&original_path, true);
             // The launcher icon is read from the copy inside the trash
@@ -1305,20 +1305,20 @@ fn item_from_trash_child(
     let original_parent = crate::trash::original_path_for_trash_child(&path)
         .and_then(|original| original.parent().map(Path::to_path_buf))
         .unwrap_or_default();
-    let entry = trash::TrashItem {
+    let entry = crate::trashing::TrashItem {
         id: path.as_os_str().to_os_string(),
         name: std::ffi::OsString::from(&name),
         original_parent,
         time_deleted: 0,
     };
     let size = if metadata.is_dir() {
-        trash::TrashItemSize::Entries(0)
+        crate::trashing::TrashItemSize::Entries(0)
     } else {
-        trash::TrashItemSize::Bytes(metadata.len())
+        crate::trashing::TrashItemSize::Bytes(metadata.len())
     };
     Some(item_from_trash_entry(
         entry,
-        trash::TrashItemMetadata { size },
+        crate::trashing::TrashItemMetadata { size },
         sizes,
     ))
 }
@@ -2342,8 +2342,8 @@ pub enum ItemMetadata {
         children_opt: Option<usize>,
     },
     Trash {
-        metadata: trash::TrashItemMetadata,
-        entry: trash::TrashItem,
+        metadata: crate::trashing::TrashItemMetadata,
+        entry: crate::trashing::TrashItem,
     },
     SimpleDir {
         entries: u64,
@@ -2365,8 +2365,8 @@ impl ItemMetadata {
         match self {
             Self::Path { metadata, .. } => metadata.is_dir(),
             Self::Trash { metadata, .. } => match metadata.size {
-                trash::TrashItemSize::Entries(_) => true,
-                trash::TrashItemSize::Bytes(_) => false,
+                crate::trashing::TrashItemSize::Entries(_) => true,
+                crate::trashing::TrashItemSize::Bytes(_) => false,
             },
             Self::SimpleDir { .. } => true,
             Self::SimpleFile { .. } => false,
@@ -3995,8 +3995,8 @@ impl TrashSizeInput {
         for item in items {
             if let ItemMetadata::Trash { metadata, entry } = &item.metadata {
                 match metadata.size {
-                    trash::TrashItemSize::Bytes(bytes) => input.files += bytes,
-                    trash::TrashItemSize::Entries(_) => {
+                    crate::trashing::TrashItemSize::Bytes(bytes) => input.files += bytes,
+                    crate::trashing::TrashItemSize::Entries(_) => {
                         input.folders.push(crate::trash::trash_item_path(entry))
                     }
                 }
@@ -7224,8 +7224,10 @@ impl Tab {
                             }
                         }
                         ItemMetadata::Trash { metadata, .. } => match metadata.size {
-                            trash::TrashItemSize::Entries(entries) => (true, entries as u64),
-                            trash::TrashItemSize::Bytes(bytes) => (false, bytes),
+                            crate::trashing::TrashItemSize::Entries(entries) => {
+                                (true, entries as u64)
+                            }
+                            crate::trashing::TrashItemSize::Bytes(bytes) => (false, bytes),
                         },
                         ItemMetadata::SimpleDir { entries } => (true, *entries),
                         ItemMetadata::SimpleFile { size } => (false, *size),
@@ -8479,10 +8481,10 @@ impl Tab {
                             }
                         }
                         ItemMetadata::Trash { metadata, .. } => match metadata.size {
-                            trash::TrashItemSize::Entries(entries) => {
+                            crate::trashing::TrashItemSize::Entries(entries) => {
                                 fl!("item-count", count = entries)
                             }
-                            trash::TrashItemSize::Bytes(bytes) => format_size(bytes),
+                            crate::trashing::TrashItemSize::Bytes(bytes) => format_size(bytes),
                         },
                         ItemMetadata::SimpleDir { entries } => fl!("item-count", count = entries),
                         ItemMetadata::SimpleFile { size } => format_size(*size),
@@ -10489,8 +10491,12 @@ mod tests {
 
     /// A trash entry whose `.trashinfo` is `root/info/<name>.trashinfo`, so
     /// its copy is `root/files/<name>`.
-    fn trashed(root: &std::path::Path, name: &str, size: trash::TrashItemSize) -> super::Item {
-        let entry = trash::TrashItem {
+    fn trashed(
+        root: &std::path::Path,
+        name: &str,
+        size: crate::trashing::TrashItemSize,
+    ) -> super::Item {
+        let entry = crate::trashing::TrashItem {
             id: root
                 .join("info")
                 .join(format!("{name}.trashinfo"))
@@ -10501,7 +10507,7 @@ mod tests {
         };
         super::item_from_trash_entry(
             entry,
-            trash::TrashItemMetadata { size },
+            crate::trashing::TrashItemMetadata { size },
             IconSizes::default(),
         )
     }
@@ -10517,8 +10523,8 @@ mod tests {
         fs::write(root.join("files/folder/sub/b"), [0; 6])?;
 
         let input = TrashSizeInput::new(&[
-            trashed(root, "file", trash::TrashItemSize::Bytes(7)),
-            trashed(root, "folder", trash::TrashItemSize::Entries(2)),
+            trashed(root, "file", crate::trashing::TrashItemSize::Bytes(7)),
+            trashed(root, "folder", crate::trashing::TrashItemSize::Entries(2)),
         ]);
         assert_eq!(input.files, 7);
         assert_eq!(input.folders, [Some(root.join("files/folder"))]);
@@ -10558,19 +10564,19 @@ mod tests {
         let root = fs.path();
         // An id with no trash root above it names no copy to walk
         let orphan = super::item_from_trash_entry(
-            trash::TrashItem {
+            crate::trashing::TrashItem {
                 id: "orphan.trashinfo".into(),
                 name: "orphan".into(),
                 original_parent: "/nonexistent".into(),
                 time_deleted: 0,
             },
-            trash::TrashItemMetadata {
-                size: trash::TrashItemSize::Entries(1),
+            crate::trashing::TrashItemMetadata {
+                size: crate::trashing::TrashItemSize::Entries(1),
             },
             IconSizes::default(),
         );
         let input = TrashSizeInput::new(&[
-            trashed(root, "file", trash::TrashItemSize::Bytes(7)),
+            trashed(root, "file", crate::trashing::TrashItemSize::Bytes(7)),
             orphan,
         ]);
         assert_eq!(input.folders, [None]);
@@ -10588,8 +10594,8 @@ mod tests {
         let fs = empty_fs()?;
         let root = fs.path();
         let input = TrashSizeInput::new(&[
-            trashed(root, "file", trash::TrashItemSize::Bytes(7)),
-            trashed(root, "gone", trash::TrashItemSize::Entries(1)),
+            trashed(root, "file", crate::trashing::TrashItemSize::Bytes(7)),
+            trashed(root, "gone", crate::trashing::TrashItemSize::Entries(1)),
         ]);
 
         assert_eq!(trash_total(&input)?, TrashSize::Known(7));
@@ -10604,7 +10610,7 @@ mod tests {
             trashed(
                 std::path::Path::new("/nonexistent"),
                 "file",
-                trash::TrashItemSize::Bytes(7),
+                crate::trashing::TrashItemSize::Bytes(7),
             )
         };
         let mut tab = Tab::new(
@@ -14171,14 +14177,14 @@ mod tests {
 
         let trashed = |original_parent: &str| {
             super::item_from_trash_entry(
-                trash::TrashItem {
+                crate::trashing::TrashItem {
                     id: "/t/info/a.txt.trashinfo".into(),
                     name: "a.txt".into(),
                     original_parent: original_parent.into(),
                     time_deleted: 0,
                 },
-                trash::TrashItemMetadata {
-                    size: trash::TrashItemSize::Bytes(1),
+                crate::trashing::TrashItemMetadata {
+                    size: crate::trashing::TrashItemSize::Bytes(1),
                 },
                 IconSizes::default(),
             )

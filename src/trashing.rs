@@ -14,6 +14,54 @@ use std::os::unix::ffi::{OsStrExt, OsStringExt};
 use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 
+/// One item in a trash.
+#[derive(Clone, Debug)]
+pub struct TrashItem {
+    /// Where its `.trashinfo` is, or for an item without one, where the item
+    /// is: unique among the items listed.
+    pub id: OsString,
+    /// Its name where it came from.
+    pub name: OsString,
+    /// The folder it came from; empty when unknown.
+    pub original_parent: PathBuf,
+    /// When it was trashed, in seconds since the Unix epoch.
+    pub time_deleted: i64,
+}
+
+impl TrashItem {
+    /// Where it came from, and goes back to when restored.
+    pub fn original_path(&self) -> PathBuf {
+        self.original_parent.join(&self.name)
+    }
+}
+
+/// Items are the same item when their ids are.
+impl PartialEq for TrashItem {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id
+    }
+}
+
+impl Eq for TrashItem {}
+
+impl std::hash::Hash for TrashItem {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.id.hash(state);
+    }
+}
+
+/// How big a trashed item is: a file's bytes, or a folder's entries.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum TrashItemSize {
+    Bytes(u64),
+    Entries(usize),
+}
+
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub struct TrashItemMetadata {
+    pub size: TrashItemSize,
+}
+
 /// A trash folder, holding `files/` and `info/`.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct Bin {
@@ -244,7 +292,7 @@ fn numbered(name: &OsStr, n: u32) -> OsString {
 
 /// Sends `path` to the trash on its own drive, made there when missing, and
 /// returns its entry. Fails when its drive has no trash that can be used.
-pub fn put(path: &Path) -> io::Result<trash::TrashItem> {
+pub fn put(path: &Path) -> io::Result<TrashItem> {
     let bin = bin_for(path, true)
         .ok_or_else(|| io::Error::new(io::ErrorKind::Unsupported, "its drive has no trash"))?;
     put_in(&bin, path)
@@ -253,7 +301,7 @@ pub fn put(path: &Path) -> io::Result<trash::TrashItem> {
 /// Sends `path` to `bin`: its `.trashinfo` first, under a name free in both
 /// `info/` and `files/`, then the item renamed beside it. A failed rename
 /// takes the `.trashinfo` back. Nothing is ever copied.
-pub(crate) fn put_in(bin: &Bin, path: &Path) -> io::Result<trash::TrashItem> {
+pub(crate) fn put_in(bin: &Bin, path: &Path) -> io::Result<TrashItem> {
     let name = path
         .file_name()
         .ok_or_else(|| io::Error::from(io::ErrorKind::InvalidInput))?;
@@ -298,7 +346,7 @@ pub(crate) fn put_in(bin: &Bin, path: &Path) -> io::Result<trash::TrashItem> {
             let _ = fs::remove_file(&info);
             return Err(err);
         }
-        return Ok(trash::TrashItem {
+        return Ok(TrashItem {
             id: info.into_os_string(),
             name: name.to_owned(),
             original_parent: path.parent().unwrap_or(path).to_path_buf(),
@@ -311,7 +359,7 @@ pub(crate) fn put_in(bin: &Bin, path: &Path) -> io::Result<trash::TrashItem> {
 /// Whether the place `item` came from is unknown: an entry of `files/`
 /// without a `.trashinfo`, or with one that cannot be read. It cannot be
 /// put back, only deleted.
-pub fn origin_unknown(item: &trash::TrashItem) -> bool {
+pub fn origin_unknown(item: &TrashItem) -> bool {
     item.original_parent.as_os_str().is_empty()
 }
 
@@ -379,7 +427,7 @@ pub(crate) fn origin_of(bin: &Bin, name: &OsStr) -> Option<PathBuf> {
 
 /// What one trash holds: each entry of its `files/`, with what its
 /// `.trashinfo` says, or with its origin unknown when there is none to read.
-pub fn list_bin(bin: &Bin) -> Vec<(trash::TrashItem, trash::TrashItemMetadata)> {
+pub fn list_bin(bin: &Bin) -> Vec<(TrashItem, TrashItemMetadata)> {
     let Ok(entries) = fs::read_dir(bin.root.join("files")) else {
         return Vec::new();
     };
@@ -389,15 +437,15 @@ pub fn list_bin(bin: &Bin) -> Vec<(trash::TrashItem, trash::TrashItemMetadata)> 
             let name = entry.file_name();
             let meta = fs::symlink_metadata(entry.path()).ok()?;
             let size = if meta.is_dir() {
-                trash::TrashItemSize::Entries(fs::read_dir(entry.path()).map_or(0, Iterator::count))
+                TrashItemSize::Entries(fs::read_dir(entry.path()).map_or(0, Iterator::count))
             } else {
-                trash::TrashItemSize::Bytes(meta.len())
+                TrashItemSize::Bytes(meta.len())
             };
             let mut info_name = name.clone();
             info_name.push(".trashinfo");
             let info = bin.root.join("info").join(info_name);
             let item = match read_info(&info, bin) {
-                Some((original, time_deleted)) => trash::TrashItem {
+                Some((original, time_deleted)) => TrashItem {
                     id: info.into_os_string(),
                     name: original
                         .file_name()
@@ -405,7 +453,7 @@ pub fn list_bin(bin: &Bin) -> Vec<(trash::TrashItem, trash::TrashItemMetadata)> 
                     original_parent: original.parent().map(Path::to_path_buf).unwrap_or_default(),
                     time_deleted,
                 },
-                None => trash::TrashItem {
+                None => TrashItem {
                     // A `.trashinfo` that cannot be read still goes with it
                     id: if fs::symlink_metadata(&info).is_ok() {
                         info.into_os_string()
@@ -417,7 +465,7 @@ pub fn list_bin(bin: &Bin) -> Vec<(trash::TrashItem, trash::TrashItemMetadata)> 
                     time_deleted: 0,
                 },
             };
-            Some((item, trash::TrashItemMetadata { size }))
+            Some((item, TrashItemMetadata { size }))
         })
         .collect()
 }
@@ -442,7 +490,7 @@ pub fn bins() -> Vec<Bin> {
 }
 
 /// Everything in every trash.
-pub fn list() -> Vec<(trash::TrashItem, trash::TrashItemMetadata)> {
+pub fn list() -> Vec<(TrashItem, TrashItemMetadata)> {
     bins().iter().flat_map(list_bin).collect()
 }
 
@@ -523,7 +571,7 @@ pub fn remove_stray_records(bins: &[Bin]) {
 /// Removes `item` from the trash for good: the item, then its `.trashinfo`
 /// when it has one. Failing part-way, the `.trashinfo` stays, and so does
 /// the entry in the trash.
-pub fn purge(item: &trash::TrashItem) -> io::Result<()> {
+pub fn purge(item: &TrashItem) -> io::Result<()> {
     let (files, info) = crate::operation::in_trash(item);
     match crate::operation::recursive::remove_tree(&files) {
         Err(err) if err.kind() != io::ErrorKind::NotFound => return Err(err),
@@ -709,11 +757,11 @@ mod tests {
         let (kept, kept_meta) = &listed[0];
         assert_eq!(kept.original_path(), item);
         assert!(kept.time_deleted > 0);
-        assert!(matches!(kept_meta.size, trash::TrashItemSize::Bytes(3)));
+        assert!(matches!(kept_meta.size, TrashItemSize::Bytes(3)));
         let (orphan, orphan_meta) = &listed[1];
         assert!(origin_unknown(orphan));
         assert_eq!(PathBuf::from(&orphan.id), bin.root.join("files/orphan"));
-        assert!(matches!(orphan_meta.size, trash::TrashItemSize::Entries(1)));
+        assert!(matches!(orphan_meta.size, TrashItemSize::Entries(1)));
     }
 
     #[test]
@@ -862,7 +910,7 @@ mod tests {
         let inner = bin.root.join("files/d/info/x.trashinfo");
         fs::create_dir_all(inner.parent().expect("parent")).expect("mkdir");
         fs::write(&inner, "x").expect("write");
-        let item = trash::TrashItem {
+        let item = TrashItem {
             id: inner.clone().into_os_string(),
             name: "x.trashinfo".into(),
             original_parent: PathBuf::new(),

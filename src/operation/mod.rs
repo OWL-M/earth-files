@@ -671,7 +671,7 @@ async fn copy_or_move(
 /// Where the trash keeps `item`: beside its `.trashinfo`, in the trash's
 /// `files` folder, or, for an entry inside a trashed folder, at its id.
 /// The `.trashinfo` comes second, when there is one.
-pub(crate) fn in_trash(item: &trash::TrashItem) -> (PathBuf, Option<PathBuf>) {
+pub(crate) fn in_trash(item: &crate::trashing::TrashItem) -> (PathBuf, Option<PathBuf>) {
     let id = PathBuf::from(&item.id);
     if is_trashinfo(&id)
         && let (Some(trash), Some(name)) = (id.parent().and_then(Path::parent), id.file_stem())
@@ -699,7 +699,7 @@ fn is_trashinfo(id: &Path) -> bool {
 /// as for any move, and so is a folder this user may not write to. An item
 /// all back leaves the trash, its `.trashinfo` with it.
 async fn restore(
-    items: Vec<trash::TrashItem>,
+    items: Vec<crate::trashing::TrashItem>,
     msg_tx: &Arc<TokioMutex<Sender<Message>>>,
     controller: Controller,
 ) -> Result<OperationSelection, OperationError> {
@@ -851,7 +851,7 @@ async fn empty(
 /// Removes items from the trash for good, asking about what this user may
 /// not remove: see [`Context::purge`].
 async fn purge(
-    items: Vec<trash::TrashItem>,
+    items: Vec<crate::trashing::TrashItem>,
     msg_tx: &Arc<TokioMutex<Sender<Message>>>,
     controller: Controller,
 ) -> Result<OperationSelection, OperationError> {
@@ -1135,7 +1135,7 @@ impl Operation {
                 for path in result
                     .trash_items
                     .iter()
-                    .map(trash::TrashItem::original_path)
+                    .map(crate::trashing::TrashItem::original_path)
                     .filter(|path| path.symlink_metadata().is_ok())
                 {
                     if !paths.contains(&path) {
@@ -1173,7 +1173,7 @@ impl Operation {
                 for path in result
                     .trash_items
                     .iter()
-                    .map(trash::TrashItem::original_path)
+                    .map(crate::trashing::TrashItem::original_path)
                 {
                     if !paths.contains(&path) {
                         paths.push(path);
@@ -1188,7 +1188,10 @@ impl Operation {
                 undo
             }
             Self::Restore { items } => vec![Self::Delete {
-                paths: items.iter().map(trash::TrashItem::original_path).collect(),
+                paths: items
+                    .iter()
+                    .map(crate::trashing::TrashItem::original_path)
+                    .collect(),
             }],
             Self::Extract { .. } if !created_only(result).is_empty() => vec![Self::Delete {
                 paths: created_only(result),
@@ -1474,7 +1477,7 @@ pub struct OperationSelection {
     /// afterwards: a Keep Both conflict gives the destination a different name.
     pub moved: Vec<(PathBuf, PathBuf)>,
     /// The trash entries a [`Operation::Delete`] created, for restoring them
-    pub trash_items: Vec<trash::TrashItem>,
+    pub trash_items: Vec<crate::trashing::TrashItem>,
     /// What a copy or move left out because the user chose to skip it: files
     /// it could not read, folders it could not list, and originals of a move
     /// it could not remove.
@@ -1512,7 +1515,7 @@ pub enum Operation {
     },
     /// Delete a path from the trash
     DeleteTrash {
-        items: Vec<trash::TrashItem>,
+        items: Vec<crate::trashing::TrashItem>,
     },
     /// Empty the trash
     EmptyTrash,
@@ -1567,7 +1570,7 @@ pub enum Operation {
     },
     /// Restore a path from the trash
     Restore {
-        items: Vec<trash::TrashItem>,
+        items: Vec<crate::trashing::TrashItem>,
     },
     /// Set executable and launch
     SetExecutableAndLaunch {
@@ -4165,7 +4168,7 @@ mod tests {
         );
         // What a copy replaced went to the trash: its copy goes there too,
         // then it comes back
-        let replaced = trash::TrashItem {
+        let replaced = crate::trashing::TrashItem {
             id: "/trash/info/one.trashinfo".into(),
             name: "one".into(),
             original_parent: "/dest".into(),
@@ -4294,7 +4297,7 @@ mod tests {
         fs::write(kept.join("lone"), b"L")?;
         fs::create_dir_all(path.join("to/d"))?;
         fs::write(path.join("to/d/c"), b"C")?;
-        let item = |id: PathBuf, parent: PathBuf| trash::TrashItem {
+        let item = |id: PathBuf, parent: PathBuf| crate::trashing::TrashItem {
             name: id.file_name().expect("name").to_owned(),
             id: id.into(),
             original_parent: parent,
@@ -4329,7 +4332,7 @@ mod tests {
         let op = Operation::Delete {
             paths: vec!["/a/one".into(), "/a/two".into(), "/a/three".into()],
         };
-        let trashed = |name: &str| trash::TrashItem {
+        let trashed = |name: &str| crate::trashing::TrashItem {
             id: format!("/trash/info/{name}.trashinfo").into(),
             name: name.into(),
             original_parent: "/a".into(),

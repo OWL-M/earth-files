@@ -38,7 +38,6 @@ taffy = { version = "0.14.0", features = ["grid"] }
 tempfile = "3"
 tikv-jemallocator = { version = "0.7", optional = true }
 tokio = { version = "1", features = ["process", "sync"] }
-trash = "5.2.6"
 url = "2.5"
 uzers = "0.12.2"
 # Wayland protocol support for `ui::dnd`. Required because this app only supports

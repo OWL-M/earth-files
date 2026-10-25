@@ -1,6 +1,7 @@
 // Copyright 2023 System76 <info@system76.com>
 // SPDX-License-Identifier: GPL-3.0-only
 
+use crate::trashing::TrashItem;
 use crate::ui::app::{self, Task};
 use crate::ui::clipboard;
 use crate::ui::iced::futures::{self, SinkExt};
@@ -41,7 +42,6 @@ use std::sync::{Arc, LazyLock, Mutex};
 use std::time::{self, Duration, Instant};
 use std::{env, fmt, process};
 use tokio::sync::mpsc;
-use trash::TrashItem;
 use xdg_kit::desktop_entry::Target;
 
 use crate::action_card::{ActionCard, Shown};
@@ -131,9 +131,7 @@ fn asks_before_ejecting(empty_unmount: bool, remote: bool) -> bool {
 
 /// The trash folders there are now, sorted, for the trash watcher.
 fn trash_bins() -> Vec<PathBuf> {
-    let mut bins: Vec<PathBuf> = Trash::folders()
-        .map(|bins| bins.into_iter().collect())
-        .unwrap_or_default();
+    let mut bins: Vec<PathBuf> = Trash::folders().into_iter().collect();
     bins.sort();
     bins
 }

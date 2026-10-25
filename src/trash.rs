@@ -39,7 +39,7 @@ pub(crate) fn percent_decode(s: &str) -> Option<PathBuf> {
 pub trait TrashExt {
     fn is_empty() -> bool;
 
-    fn folders() -> Result<HashSet<PathBuf>, trash::Error>;
+    fn folders() -> HashSet<PathBuf>;
 
     fn scan(sizes: IconSizes) -> Vec<Item>;
 
@@ -58,7 +58,7 @@ pub trait TrashExt {
 
 /// Where the trash keeps `item`: see [`crate::operation::in_trash`].
 /// `None` for an id that is no full path, which names no copy.
-pub fn trash_item_path(item: &trash::TrashItem) -> Option<PathBuf> {
+pub fn trash_item_path(item: &crate::trashing::TrashItem) -> Option<PathBuf> {
     Some(crate::operation::in_trash(item).0).filter(|path| path.is_absolute())
 }
 
@@ -88,7 +88,7 @@ static TRASH_FOLDERS: RwLock<Option<HashSet<PathBuf>>> = RwLock::new(None);
 /// Looks again for the trash folders, after drives were mounted or a delete
 /// may have made a drive's trash.
 pub fn refresh_folders() {
-    set_folders(Trash::folders().unwrap_or_default());
+    set_folders(Trash::folders());
 }
 
 /// Trash folders tests made, kept apart from [`TRASH_FOLDERS`]: tests run in
@@ -158,11 +158,11 @@ impl TrashExt for Trash {
         crate::trashing::is_empty()
     }
 
-    fn folders() -> Result<HashSet<PathBuf>, trash::Error> {
-        Ok(crate::trashing::bins()
+    fn folders() -> HashSet<PathBuf> {
+        crate::trashing::bins()
             .into_iter()
             .map(|bin| bin.root)
-            .collect())
+            .collect()
     }
 
     fn scan(sizes: IconSizes) -> Vec<Item> {
