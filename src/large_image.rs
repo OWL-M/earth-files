@@ -1,13 +1,14 @@
 use crate::ui::widget;
 use image::ImageReader;
 use std::collections::{HashMap, HashSet};
+use std::fs;
 use std::path::{Path, PathBuf};
 
 /// Bytes per pixel in RGBA format (Red, Green, Blue, Alpha = 4 bytes)
 pub const RGBA_BYTES_PER_PIXEL: u64 = 4;
 
 /// System memory reserve in MB to maintain for system stability (prevents thrashing)
-/// Note: RAM checking is currently only available on Linux via procfs.
+/// Note: RAM checking is currently only available on Linux, via /proc/meminfo.
 /// On Windows and macOS, only GPU buffer limits are enforced.
 const SYSTEM_MEMORY_RESERVE_MB: u64 = 500;
 
@@ -189,8 +190,6 @@ fn calculate_image_memory(width: u32, height: u32) -> Option<u64> {
 /// Check if there's sufficient system RAM to decode an image.
 /// Returns: (has_memory, error_message)
 fn check_ram_available(width: u32, height: u32) -> (bool, Option<String>) {
-    use procfs::Current;
-
     let Some(bytes_needed) = calculate_image_memory(width, height) else {
         let error_msg = format!(
             "Image dimensions too large: {}x{} causes overflow in memory calculation",
@@ -202,11 +201,11 @@ fn check_ram_available(width: u32, height: u32) -> (bool, Option<String>) {
 
     let mb_needed = bytes_needed / MB_TO_BYTES;
 
-    match procfs::Meminfo::current() {
+    match fs::read_to_string("/proc/meminfo") {
         Ok(meminfo) => {
             // MemAvailable includes reclaimable cache and is the best estimate of
             // actually available memory for new allocations
-            let available_kb = meminfo.mem_available.unwrap_or(0);
+            let available_kb = mem_available_kb(&meminfo).unwrap_or(0);
             let available_bytes = available_kb * 1024;
 
             // Maintain system reserve to prevent thrashing and OOM killer
@@ -231,6 +230,14 @@ fn check_ram_available(width: u32, height: u32) -> (bool, Option<String>) {
             (true, None)
         }
     }
+}
+
+/// The `MemAvailable` line of `/proc/meminfo`'s text, in kB.
+fn mem_available_kb(meminfo: &str) -> Option<u64> {
+    let line = meminfo
+        .lines()
+        .find_map(|line| line.strip_prefix("MemAvailable:"))?;
+    line.trim().strip_suffix("kB")?.trim().parse().ok()
 }
 
 pub fn check_memory_available(width: u32, height: u32) -> (bool, Option<String>) {
@@ -586,5 +593,15 @@ impl LargeImageManager {
             );
         }
         false
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn available_memory_is_read_from_meminfo() {
+        let meminfo = "MemTotal:       65536000 kB\nMemFree:         1000000 kB\nMemAvailable:   42407292 kB\n";
+        assert_eq!(super::mem_available_kb(meminfo), Some(42_407_292));
+        assert_eq!(super::mem_available_kb("MemTotal: 1 kB\n"), None);
     }
 }

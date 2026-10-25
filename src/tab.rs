@@ -740,34 +740,27 @@ pub fn fs_kind(metadata: &Metadata) -> FsKind {
 }
 
 fn read_fs_kinds() -> FxHashMap<u64, FsKind> {
-    let mut devices = FxHashMap::default();
-    {
-        match procfs::process::Process::myself() {
-            Ok(process) => match process.mountinfo() {
-                Ok(mount_infos) => {
-                    devices = FxHashMap::from_iter(mount_infos.iter().filter_map(|mount_info| {
-                        let mut parts = mount_info.majmin.split(':');
-                        let major_str = parts.next()?;
-                        let minor_str = parts.next()?;
-                        let major = major_str.parse::<libc::c_uint>().ok()?;
-                        let minor = minor_str.parse::<libc::c_uint>().ok()?;
-                        let dev = libc::makedev(major, minor);
-                        // Network and distributed filesystem types
-                        // Based on common remote filesystem types found in /proc/mounts
-                        let kind = fs_type_kind(&mount_info.fs_type);
-                        Some((dev, kind))
-                    }));
-                }
-                Err(err) => {
-                    log::warn!("failed to get mount info: {err}");
-                }
-            },
-            Err(err) => {
-                log::warn!("failed to get process info: {err}");
-            }
+    match fs::read_to_string("/proc/self/mountinfo") {
+        Ok(mountinfo) => fs_kinds_in(&mountinfo),
+        Err(err) => {
+            log::warn!("failed to read mount info: {err}");
+            FxHashMap::default()
         }
     }
-    devices
+}
+
+/// Each mounted device's kind, from `mountinfo`'s text: its `major:minor`
+/// third field, and the filesystem type first after the ` - ` separator.
+fn fs_kinds_in(mountinfo: &str) -> FxHashMap<u64, FsKind> {
+    mountinfo
+        .lines()
+        .filter_map(|line| {
+            let (major, minor) = line.split(' ').nth(2)?.split_once(':')?;
+            let dev = libc::makedev(major.parse().ok()?, minor.parse().ok()?);
+            let fs_type = line.split_once(" - ")?.1.split(' ').next()?;
+            Some((dev, fs_type_kind(fs_type)))
+        })
+        .collect()
 }
 
 fn get_desktop_file_display_name(path: &Path) -> Option<String> {
@@ -9962,6 +9955,21 @@ mod tests {
         let preview = super::preview_text(&text);
 
         assert_eq!(preview.chars().count(), super::TEXT_PREVIEW_LINE_CHARS);
+    }
+
+    /// Each mount's device number comes from its third field and its kind
+    /// from the type after the separator, however many optional fields
+    /// come before it.
+    #[test]
+    fn mount_kinds_are_read_from_mountinfo() {
+        let kinds = super::fs_kinds_in(concat!(
+            "42 1 254:0 / / rw,relatime shared:1 - ext4 /dev/mapper/primary rw\n",
+            "90 42 0:61 / /mnt/my\\040share rw shared:7 master:3 - cifs //nas/share rw\n",
+            "not a mount line\n",
+        ));
+        assert_eq!(kinds.len(), 2);
+        assert_eq!(kinds[&libc::makedev(254, 0)], super::FsKind::Local);
+        assert_eq!(kinds[&libc::makedev(0, 61)], super::FsKind::Remote);
     }
 
     #[test]

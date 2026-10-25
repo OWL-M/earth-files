@@ -64,7 +64,6 @@ rust-embed = "8"
 slotmap = "1.1.1"
 zip = "9"
 sha2 = "0.11"
-procfs = "0.18"
 jxl-oxide = { version = "0.12.5", features = ["image"] }
 filetime = "0.2"
 tracing = "0.1.44"
