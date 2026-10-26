@@ -488,8 +488,12 @@ fn context_menu_items(tab: &Tab, sources: &Sources) -> Vec<menu::Item<TabAction,
     // Nothing with no record of where it came from can be put back
     let mut any_unknown_origin = false;
     if let Some(items) = tab.items_opt() {
-        for item in items {
-            if item.selected {
+        for item in tab
+            .selected_indices()
+            .iter()
+            .filter_map(|&index| items.get(index))
+        {
+            {
                 selected += 1;
                 if item.metadata.is_dir() {
                     selected_mount_point += i32::from(item.is_mount_point);
@@ -948,8 +952,12 @@ pub fn dialog_menu(
 
     let mut selected_gallery = 0;
     if let Some(items) = tab.items_opt() {
-        for item in items {
-            if item.selected && item.can_gallery() {
+        for item in tab
+            .selected_indices()
+            .iter()
+            .filter_map(|&index| items.get(index))
+        {
+            if item.can_gallery() {
                 selected_gallery += 1;
             }
         }
@@ -1102,19 +1110,23 @@ pub fn menu_bar<'a>(
     let mut selected = 0;
     let mut selected_gallery = 0;
     let mut any_unknown_origin = false;
-    if let Some(items) = tab_opt.and_then(|tab| tab.items_opt()) {
-        for item in items {
-            if item.selected {
-                selected += 1;
-                if let ItemMetadata::Trash { entry, .. } = &item.metadata {
-                    any_unknown_origin |= crate::trashing::origin_unknown(entry);
-                }
-                if item.metadata.is_dir() {
-                    selected_dir += 1;
-                }
-                if item.can_gallery() {
-                    selected_gallery += 1;
-                }
+    if let Some(tab) = tab_opt
+        && let Some(items) = tab.items_opt()
+    {
+        for item in tab
+            .selected_indices()
+            .iter()
+            .filter_map(|&index| items.get(index))
+        {
+            selected += 1;
+            if let ItemMetadata::Trash { entry, .. } = &item.metadata {
+                any_unknown_origin |= crate::trashing::origin_unknown(entry);
+            }
+            if item.metadata.is_dir() {
+                selected_dir += 1;
+            }
+            if item.can_gallery() {
+                selected_gallery += 1;
             }
         }
     }

@@ -1954,6 +1954,8 @@ impl Application for App {
                     }
                 }
                 if adopted {
+                    // A refreshed file may sort elsewhere now
+                    self.tab.invalidate_order();
                     // Asked for after adopting, not before: a refreshed item
                     // may now be a type whose icon has never been resolved,
                     // and until it is adopted the tab still holds the old one.

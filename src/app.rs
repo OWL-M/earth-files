@@ -2788,7 +2788,11 @@ impl App {
             return (Vec::new(), None);
         };
         let mut types: Vec<&Mime> = Vec::new();
-        for item in items.iter().filter(|item| item.selected) {
+        for item in tab
+            .selected_indices()
+            .iter()
+            .filter_map(|&index| items.get(index))
+        {
             if item.metadata.is_dir() {
                 return (Vec::new(), None);
             }
@@ -2826,7 +2830,13 @@ impl App {
         // folder can be selected
         let mut count = 0;
         let mut targets: Vec<service_menu::Target> = Vec::new();
-        for item in items.iter().filter(|item| item.selected) {
+        // Kept by the tab: a pass over every item is milliseconds in a
+        // large folder
+        for item in tab
+            .selected_indices()
+            .iter()
+            .filter_map(|&index| items.get(index))
+        {
             count += 1;
             let target = service_menu::Target {
                 mime: &item.mime,
@@ -3976,7 +3986,10 @@ impl App {
                     && let Some(items) = tab.items_opt()
                 {
                     let preview_opt = {
-                        let mut selected = items.iter().filter(|item| item.selected);
+                        let selected_indices = tab.selected_indices();
+                        let mut selected = selected_indices
+                            .iter()
+                            .filter_map(|&index| items.get(index));
 
                         match (selected.next(), selected.next()) {
                             // At least two selected items
@@ -6449,6 +6462,8 @@ impl Application for App {
                             }
                         }
                         if any {
+                            // A refreshed file may sort elsewhere now
+                            tab.invalidate_order();
                             // Asked for after adopting, not before: a refreshed
                             // item may now be a type whose icon has never been
                             // resolved, and until it is adopted the tab still

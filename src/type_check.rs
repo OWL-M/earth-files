@@ -21,6 +21,9 @@ use crate::ui::widget;
 /// A file a name-first scan typed by name.
 #[derive(Clone, Debug)]
 pub struct Unchecked {
+    /// Where its item was in the listing when this was made, so the answer
+    /// finds it without a search
+    pub index: usize,
     pub path: PathBuf,
     pub name: String,
     /// The type its name gave
@@ -30,6 +33,8 @@ pub struct Unchecked {
 /// What reading one file found.
 #[derive(Clone, Debug)]
 pub struct Checked {
+    /// The [`Unchecked::index`] it answers
+    pub index: usize,
     pub path: PathBuf,
     /// Pixel size, for an image
     pub dims: Option<(u32, u32)>,
@@ -90,6 +95,7 @@ pub fn check(file: &Unchecked, sizes: IconSizes) -> Checked {
         }
     });
     Checked {
+        index: file.index,
         path: file.path.clone(),
         dims,
         retyped,
@@ -173,6 +179,7 @@ pub fn run(files: &[Unchecked], sizes: IconSizes, results: &mpsc::Sender<Vec<Che
                 file.path.display()
             );
             Checked {
+                index: file.index,
                 path: file.path.clone(),
                 dims: None,
                 retyped: None,
@@ -210,6 +217,7 @@ mod tests {
 
     fn unchecked(path: PathBuf) -> Unchecked {
         Unchecked {
+            index: 0,
             name: path
                 .file_name()
                 .map(|name| name.to_string_lossy().into_owned())

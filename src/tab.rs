@@ -25,13 +25,13 @@ use rustc_hash::FxHashMap;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::borrow::Cow;
-use std::cell::{Cell, OnceCell};
+use std::cell::{Cell, OnceCell, RefCell};
 use std::cmp::{Ordering, Reverse};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::error::Error;
 use std::fmt::{self, Display};
 use std::fs::{self, File, Metadata};
-use std::hash::Hash;
+use std::hash::{Hash, Hasher};
 use std::io::{self, BufRead, BufReader, Read};
 use std::os::unix::fs::MetadataExt;
 use std::path::{self, Path, PathBuf};
@@ -879,6 +879,106 @@ fn gvfs_dir_is_remote(dir: &Path) -> bool {
 /// Icons for a file item, using the launcher's own icon when `path` is a
 /// desktop entry. Returns whether it was one, so callers can also take the
 /// display name from the entry.
+/// Positions the content check takes as on screen before the listing has
+/// been drawn.
+const DEFAULT_SHOWN: usize = 64;
+
+/// What a layout was made for. While it holds, every item's position and
+/// rect are still where the layout put them, and a view need not visit
+/// them again.
+#[derive(Clone, Debug)]
+struct LayoutKey {
+    /// The kept order, by identity: a new order is a new one, so anything
+    /// that drops the order also drops the layout made from it
+    order: Arc<[usize]>,
+    show_hidden: bool,
+    columns: usize,
+    width: f32,
+    pitch: f32,
+}
+
+impl PartialEq for LayoutKey {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.order, &other.order)
+            && self.show_hidden == other.show_hidden
+            && self.columns == other.columns
+            && self.width == other.width
+            && self.pitch == other.pitch
+    }
+}
+
+/// How a view laid the listing out: the indices of the items it shows, in
+/// order, hidden ones left out while hidden, in rows of `columns` items
+/// starting `top` pixels down and `pitch` pixels apart.
+#[derive(Clone, Debug)]
+struct ShownLayout {
+    key: LayoutKey,
+    shown: Arc<[usize]>,
+    columns: usize,
+    top: f32,
+    pitch: f32,
+}
+
+impl ShownLayout {
+    /// The positions of `shown` whose rows meet `visible`, worked out from
+    /// the rows' geometry alone: what is on screen costs the same however
+    /// long the listing is.
+    fn visible(&self, visible: Rectangle) -> std::ops::Range<usize> {
+        if self.pitch <= 0.0 {
+            return 0..0;
+        }
+        #[allow(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            reason = "clamped at zero; a row number"
+        )]
+        let row = |y: f32| ((y - self.top) / self.pitch).max(0.0);
+        let len = self.shown.len();
+        // The first row starting above the top edge, to the last starting
+        // above the bottom one
+        let start = (row(visible.y).floor() as usize * self.columns).min(len);
+        let end = (row(visible.y + visible.height).ceil() as usize * self.columns).min(len);
+        start..end.max(start)
+    }
+}
+
+/// A content check job: the files to read, in order, and the key that says
+/// when it must be built again.
+#[derive(Clone, Debug)]
+struct TypeCheckWindow {
+    key: u64,
+    files: Arc<[crate::type_check::Unchecked]>,
+}
+
+/// The indices of `order` to check around `visible`: the visible positions,
+/// then a screenful below them, then a screenful above, nearest first; and
+/// the window of `order` they come from.
+///
+/// The window runs from the screenful above the one where the view starts to
+/// three screenfuls past it: what is shown spans at most two, so at least one
+/// more is below. Snapped that way, scrolling within a screenful leaves the
+/// window as it was. A screenful is the visible count rounded up to a power
+/// of two: a row scrolled half out of view changes that count by one, and
+/// would otherwise move the window back and forth.
+fn check_order(
+    order: &[usize],
+    visible: std::ops::Range<usize>,
+) -> (Vec<usize>, std::ops::Range<usize>) {
+    let len = order.len();
+    let visible = visible.start.min(len)..visible.end.min(len);
+    let page = visible.len().max(1).next_power_of_two();
+    let first = visible.start / page;
+    let start = first.saturating_sub(1) * page;
+    let end = ((first + 3) * page).min(len);
+    let indices = order[visible.clone()]
+        .iter()
+        .chain(&order[visible.end..end])
+        .chain(order[start..visible.start].iter().rev())
+        .copied()
+        .collect();
+    (indices, start..end)
+}
+
 /// File types and folder names whose icons still need resolving
 #[derive(Clone, Debug, Default)]
 pub struct IconWarmup {
@@ -903,16 +1003,31 @@ impl IconWarmup {
 /// Items showing a thumbnail or a desktop entry's own icon are left alone:
 /// theirs did not come from these caches.
 pub fn refresh_icons(items: &mut [Item], sizes: IconSizes) -> IconWarmup {
-    let mut mimes = std::collections::HashSet::new();
-    let mut folders = std::collections::HashSet::new();
+    let mut collect = IconCollect::default();
     for item in items {
+        collect.add(item, sizes);
+    }
+    collect.finish()
+}
+
+/// [`refresh_icons`] one item at a time, for callers that know which items
+/// changed and need not walk the whole listing.
+#[derive(Default)]
+pub struct IconCollect {
+    mimes: std::collections::HashSet<Mime>,
+    folders: std::collections::HashSet<&'static str>,
+}
+
+impl IconCollect {
+    /// Takes any icons the cache has for `item`, and notes what it lacks.
+    pub fn add(&mut self, item: &mut Item, sizes: IconSizes) {
         if item.mime == Mime::APPLICATION_X_DESKTOP
             || matches!(
                 item.thumbnail_opt,
                 Some(ItemThumbnail::Image(..) | ItemThumbnail::Svg(..))
             )
         {
-            continue;
+            return;
         }
         // The same lookups decide both what to draw now and what still needs
         // resolving. Asking twice would leave a gap in which another tab's
@@ -922,12 +1037,12 @@ pub fn refresh_icons(items: &mut [Item], sizes: IconSizes) -> IconWarmup {
         let sizes_wanted = [sizes.grid(), sizes.list()];
         if item.metadata.is_dir() {
             let Some(path) = item.path_opt() else {
-                continue;
+                return;
             };
             let name = folder_icon_name(path);
             let found = sizes_wanted.map(|size| try_folder_icon(name, size));
             if found.iter().any(Option::is_none) {
-                folders.insert(name);
+                self.folders.insert(name);
             }
             let [grid, list] = found;
             if let Some(handle) = grid {
@@ -946,7 +1061,7 @@ pub fn refresh_icons(items: &mut [Item], sizes: IconSizes) -> IconWarmup {
                 .iter()
                 .any(|state| matches!(state, crate::mime_icon::CachedIcon::Unknown))
             {
-                mimes.insert(item.mime.clone());
+                self.mimes.insert(item.mime.clone());
             }
             let [grid, list] = found;
             if let crate::mime_icon::CachedIcon::Found(handle) = grid {
@@ -957,9 +1072,14 @@ pub fn refresh_icons(items: &mut [Item], sizes: IconSizes) -> IconWarmup {
             }
         }
     }
-    IconWarmup {
-        mimes: mimes.into_iter().collect(),
-        folders: folders.into_iter().collect(),
+
+    /// What the items added still lack.
+    #[must_use]
+    pub fn finish(self) -> IconWarmup {
+        IconWarmup {
+            mimes: self.mimes.into_iter().collect(),
+            folders: self.folders.into_iter().collect(),
+        }
     }
 }
 
@@ -2280,12 +2400,122 @@ pub enum Message {
     HighlightDeactivate(usize),
     HighlightActivate(usize),
     DirectorySize(PathBuf, DirSize),
-    DirectoryChildren(PathBuf, usize),
+    /// A folder's entry count: where its item was when asked, its path, and
+    /// the count.
+    DirectoryChildren(usize, PathBuf, usize),
     Checksums(PathBuf, ChecksumState),
     CalculateChecksums(PathBuf),
     CopyChecksum(String),
     ImageDecoded(PathBuf, u32, u32, Vec<u8>, Option<(u32, u32)>, u64), // path, width, height, pixels, display_size, generation
 }
+
+impl Message {
+    /// Whether handling this leaves alone everything the listing is sorted
+    /// by: names, types, sizes, dates and which items there are. The ones
+    /// that sometimes change it say so themselves, for the sort in use.
+    /// Anything only shown or asked for -- menus, popups, the gallery, the
+    /// path field, the settings, zoom, the window, a file dragged over the
+    /// list -- keeps it: sorting a large folder again for a right-click or
+    /// each step of a drag would hold the frames up. A setting the order
+    /// does depend on, folders first, is in its key; a drop changes the
+    /// listing only through the rescan that follows it.
+    fn keeps_order(&self) -> bool {
+        matches!(
+            self,
+            Self::AutoScroll(_)
+                | Self::CalculateChecksums(_)
+                | Self::Checksums(..)
+                | Self::Click(_)
+                | Self::ClickRelease(_)
+                | Self::Config(_)
+                | Self::DirectoryChildren(..)
+                | Self::DirectorySize(..)
+                | Self::Dnd(_)
+                | Self::DndAncestor(..)
+                | Self::DoubleClick(_)
+                | Self::Drag(_)
+                | Self::DragEnd
+                | Self::DragFiles(_)
+                | Self::DragHoverElapsed(_)
+                | Self::EditLocation(_)
+                | Self::EditLocationComplete(_)
+                | Self::EditLocationEnable
+                | Self::EditLocationStalePressed
+                | Self::EditLocationTab
+                | Self::Gallery(_)
+                | Self::GalleryNext
+                | Self::GalleryPrevious
+                | Self::GalleryToggle
+                | Self::HighlightActivate(_)
+                | Self::HighlightDeactivate(_)
+                | Self::IconsReady
+                | Self::ImageDecoded(..)
+                | Self::ItemDown
+                | Self::ItemLeft
+                | Self::ItemPageDown
+                | Self::ItemPageUp
+                | Self::ItemRight
+                | Self::ItemUp
+                | Self::LocationContextMenuIndex(_)
+                | Self::MiddleClick(_)
+                | Self::RequestDetails(..)
+                | Self::Resize(_)
+                | Self::RightClick(..)
+                | Self::RightClickBackground
+                | Self::Scroll(_)
+                | Self::ScrollRestore
+                | Self::ScrollTab(_)
+                | Self::ScrollToFocused
+                | Self::SelectAll
+                | Self::SelectFirst
+                | Self::SelectLast
+                | Self::Surface(_)
+                | Self::TabComplete(..)
+                | Self::Thumbnail(..)
+                | Self::TrashSize(..)
+                | Self::TypesChecked(..)
+                | Self::WindowDrag
+                | Self::WindowToggleMaximize
+                | Self::ZoomIn
+                | Self::ZoomOut
+        )
+    }
+}
+
+impl Message {
+    /// Whether handling this leaves the kept selection right: it changes
+    /// nothing selected, or only through methods that keep it themselves,
+    /// as the arrows do through [`Tab::select_position`].
+    fn keeps_selection(&self) -> bool {
+        matches!(
+            self,
+            Self::Checksums(..)
+                | Self::ItemDown
+                | Self::ItemLeft
+                | Self::ItemPageDown
+                | Self::ItemPageUp
+                | Self::ItemRight
+                | Self::ItemUp
+                | Self::DirectoryChildren(..)
+                | Self::DirectorySize(..)
+                | Self::HighlightActivate(_)
+                | Self::HighlightDeactivate(_)
+                | Self::IconsReady
+                | Self::ImageDecoded(..)
+                | Self::Resize(_)
+                | Self::Scroll(_)
+                | Self::ScrollRestore
+                | Self::ScrollTab(_)
+                | Self::Thumbnail(..)
+                | Self::TrashSize(..)
+                | Self::TypesChecked(..)
+        )
+    }
+}
+
+/// What a kept order was sorted for: the sort options, the listing and its
+/// length.
+type SortKey = ((HeadingOptions, bool, bool), u64, usize);
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum LocationMenuAction {
@@ -3729,12 +3959,22 @@ pub struct Tab {
     /// listing that asked for it, and applying it to a later one would put
     /// back a snapshot the newer scan has already superseded.
     listing: u64,
-    /// The files of this listing still typed by name only, in the order the
-    /// content check reads them. Worked out once per listing, the first time
-    /// the subscription asks, because the subscription is asked for after
-    /// every update and sorting a large folder that often would cost more
-    /// than the check saves; forgotten by [`Self::new_listing`].
-    type_check_order: OnceCell<Arc<[crate::type_check::Unchecked]>>,
+    /// How the view last laid the listing out, which says what is on
+    /// screen at any scroll. Set by the list and grid views; forgotten by
+    /// [`Self::new_listing`], as its indices are the old listing's.
+    shown_layout: RefCell<Option<ShownLayout>>,
+    /// The last content check job, kept while its key holds: the
+    /// subscription is asked for after every update, and building the job
+    /// clones a path per file.
+    type_check_job: RefCell<Option<TypeCheckWindow>>,
+    /// The listing's order as last sorted, kept until something it depends
+    /// on may have changed: see [`Self::column_sort`].
+    sort_cache: RefCell<Option<(SortKey, Arc<[usize]>)>>,
+    /// The selected items' indices: see [`Self::selected_indices`].
+    selection_cache: RefCell<Option<Arc<[usize]>>>,
+    /// The items that may be highlighted, so taking every highlight away
+    /// need not visit every item: see [`Self::dehighlight_all`].
+    highlight_marks: Vec<usize>,
     /// How much a Trash listing holds; worked out afresh for each listing.
     trash_size: TrashSize,
     /// What working that out needs, taken from the listing once.
@@ -4073,7 +4313,11 @@ impl Tab {
             scans: 0,
             item_filter: None,
             refresh_batch: 0,
-            type_check_order: OnceCell::new(),
+            shown_layout: RefCell::new(None),
+            type_check_job: RefCell::new(None),
+            sort_cache: RefCell::new(None),
+            selection_cache: RefCell::new(None),
+            highlight_marks: Vec::new(),
             trash_size: TrashSize::Calculating,
             trash_size_input: OnceCell::new(),
             refreshed_at: FxHashMap::default(),
@@ -4173,34 +4417,95 @@ impl Tab {
             .unwrap_or_default()
     }
 
-    /// The files of this listing typed by name only and not yet checked, in
-    /// the order they are shown -- hidden ones last while hidden files are not
-    /// shown -- so the first screen is checked first. `None` once everything
-    /// is checked, which ends the content check's subscription.
-    fn unchecked_files(&self) -> Option<Arc<[crate::type_check::Unchecked]>> {
+    /// The items on screen now, in the order shown, with their indices.
+    /// Worked out from the last view's layout and the current scroll rather
+    /// than kept from the view, because iced asks for the subscription
+    /// before it draws: a scroll would otherwise be seen only at the update
+    /// after it, which may never come.
+    fn visible_items(&self) -> Vec<(usize, &Item)> {
+        let (Some(items), Some(layout)) =
+            (self.items_opt.as_ref(), self.shown_layout.borrow().clone())
+        else {
+            return Vec::new();
+        };
+        let visible = layout.visible(self.visible_rect(self.size_opt.get().unwrap_or_default()));
+        layout.shown[visible]
+            .iter()
+            .filter_map(|&index| Some((index, items.get(index)?)))
+            .collect()
+    }
+
+    /// The content check to run for what is shown: the unchecked files on
+    /// screen, a screenful below and above them, then any selected ones.
+    /// `None` when none of those is left unchecked, which ends the check's
+    /// subscription until the view moves or the selection changes.
+    fn type_check_job(&self) -> Option<TypeCheckWindow> {
         let items = self.items_opt.as_ref()?;
-        if items.iter().all(|item| item.type_checked) {
-            return None;
-        }
-        let order = self.type_check_order.get_or_init(|| {
-            let mut shown = self.column_sort().unwrap_or_default();
-            if !self.config.show_hidden {
-                // Stable, so the shown order holds within each part
-                shown.sort_by_key(|(_, item)| item.hidden);
+        let show_hidden = self.config.show_hidden;
+        let wanted = |item: &Item| {
+            !item.type_checked && (show_hidden || !item.hidden) && item.path_opt().is_some()
+        };
+
+        let layout = self.shown_layout.borrow().clone();
+        let before_view;
+        let (order, visible): (&[usize], std::ops::Range<usize>) = match layout.as_ref() {
+            Some(layout) => (
+                &layout.shown,
+                layout.visible(self.visible_rect(self.size_opt.get().unwrap_or_default())),
+            ),
+            // Not drawn yet: the top of the listing as it will be shown
+            None => {
+                before_view = self
+                    .column_sort()
+                    .unwrap_or_default()
+                    .into_iter()
+                    .map(|(index, _)| index)
+                    .collect::<Vec<_>>();
+                let visible = 0..DEFAULT_SHOWN.min(before_view.len());
+                (&before_view, visible)
             }
-            shown
-                .into_iter()
-                .filter(|(_, item)| !item.type_checked)
-                .filter_map(|(_, item)| {
+        };
+        let (window, range) = check_order(order, visible);
+
+        // Everything the job depends on, so it is built again only when one
+        // of them changes: not when its own answers arrive, and not while
+        // the view scrolls within the same window
+        let mut key = rustc_hash::FxHasher::default();
+        show_hidden.hash(&mut key);
+        order[range].hash(&mut key);
+        let selected = self.selected_indices();
+        selected.hash(&mut key);
+        let key = key.finish();
+
+        let mut cached = self.type_check_job.borrow_mut();
+        if cached.as_ref().is_none_or(|job| job.key != key) {
+            let in_window: rustc_hash::FxHashSet<usize> = window.iter().copied().collect();
+            let files = window
+                .iter()
+                .copied()
+                .chain(
+                    selected
+                        .iter()
+                        .copied()
+                        .filter(|index| !in_window.contains(index)),
+                )
+                .filter_map(|index| {
+                    let item = items.get(index).filter(|item| wanted(item))?;
                     Some(crate::type_check::Unchecked {
+                        index,
                         path: item.path_opt()?.clone(),
                         name: item.name.clone(),
                         mime: item.mime.clone(),
                     })
                 })
-                .collect()
-        });
-        Some(Arc::clone(order))
+                .collect();
+            *cached = Some(TypeCheckWindow { key, files });
+        }
+        let job = cached.as_ref()?;
+        job.files
+            .iter()
+            .any(|file| items.get(file.index).is_some_and(wanted))
+            .then(|| job.clone())
     }
 
     /// Note a new set of items, and forget what was being re-read for the old
@@ -4209,8 +4514,9 @@ impl Tab {
     fn new_listing(&mut self) {
         self.listing = self.listing.wrapping_add(1);
         // The content check of the old listing ends with its subscription;
-        // the new one is ordered afresh
-        self.type_check_order = OnceCell::new();
+        // the new one starts from what the new listing shows
+        self.shown_layout = RefCell::new(None);
+        self.type_check_job = RefCell::new(None);
         // So is the trash's size
         self.trash_size = TrashSize::Calculating;
         self.trash_size_input = OnceCell::new();
@@ -4390,6 +4696,8 @@ impl Tab {
     }
 
     pub fn set_items(&mut self, mut items: Vec<Item>) {
+        // What the menus read of the selection is worked out again
+        self.forget_selection();
         let marks = self.selection_marks();
         self.new_listing();
         let highlighted = self
@@ -4408,12 +4716,15 @@ impl Tab {
         }
         self.items_opt = Some(items);
         self.restore_selection_marks(marks);
+        // The old listing's notes name other items
+        self.highlight_marks.clear();
         if let Some(i) = highlighted
             .zip(self.items_opt.as_mut())
             .and_then(|(h, items)| items.get_mut(h))
         {
             i.highlighted = true;
         }
+        self.highlight_marks.extend(highlighted);
     }
 
     pub fn cut_selected(&mut self) {
@@ -4455,6 +4766,8 @@ impl Tab {
     }
 
     pub fn select_all(&mut self) {
+        // What the menus read of the selection is worked out again
+        self.forget_selection();
         if let Some(ref mut items) = self.items_opt {
             for item in items.iter_mut() {
                 if !self.config.show_hidden && item.hidden {
@@ -4536,6 +4849,8 @@ impl Tab {
     }
 
     pub fn select_none(&mut self) -> bool {
+        // What the menus read of the selection is worked out again
+        self.forget_selection();
         self.anchor_selection(None);
         let mut had_selection = false;
         if let Some(ref mut items) = self.items_opt {
@@ -4583,6 +4898,8 @@ impl Tab {
 
     /// Selects the result shown first, as a click on it would.
     fn select_search_top(&mut self) {
+        // What the menus read of the selection is worked out again
+        self.forget_selection();
         let show_hidden = self.config.show_hidden;
         // A folder chooser selects folders only, as a click in it does
         let folders_only = matches!(&self.mode, Mode::Dialog(dialog) if dialog.is_dir());
@@ -4618,6 +4935,8 @@ impl Tab {
     }
 
     pub fn select_name(&mut self, name: &str) {
+        // What the menus read of the selection is worked out again
+        self.forget_selection();
         let mut found = None;
         if let Some(ref mut items) = self.items_opt {
             for (i, item) in items.iter_mut().enumerate() {
@@ -4641,6 +4960,8 @@ impl Tab {
 
     /// [`Self::select_by_prefix`], leaving the shift range alone.
     fn select_by_prefix_only(&mut self, prefix: &str) -> bool {
+        // What the menus read of the selection is worked out again
+        self.forget_selection();
         self.search_select = SearchSelect::Off;
         let prefix_lower = prefix.to_lowercase();
         let focus = self.select_focus.take();
@@ -4750,6 +5071,8 @@ impl Tab {
     }
 
     pub fn select_paths(&mut self, paths: Vec<PathBuf>) {
+        // What the menus read of the selection is worked out again
+        self.forget_selection();
         let mut found = None;
         if let Some(ref mut items) = self.items_opt {
             for (i, item) in items.iter_mut().enumerate() {
@@ -4786,6 +5109,12 @@ impl Tab {
             }
         }
 
+        if let Some(found) = self.select_laid_out(start, end, (row, col), mod_shift) {
+            return found;
+        }
+
+        // What the menus read of the selection is worked out again
+        self.forget_selection();
         let mut found = false;
         if let Some(ref mut items) = self.items_opt {
             for (i, item) in items.iter_mut().enumerate() {
@@ -4821,6 +5150,8 @@ impl Tab {
     }
 
     pub fn select_rect(&mut self, rect: Rectangle, mod_ctrl: bool, mod_shift: bool) {
+        // What the menus read of the selection is worked out again
+        self.forget_selection();
         if let Some(ref mut items) = self.items_opt {
             for item in items.iter_mut() {
                 let was_overlapped = item.overlaps_drag_rect;
@@ -4963,6 +5294,9 @@ impl Tab {
                 item.highlighted = Some(i) == target;
             }
         }
+        // Nothing else is highlighted now
+        self.highlight_marks.clear();
+        self.highlight_marks.extend(target);
     }
 
     pub fn select_focus_id(&self) -> Option<widget::Id> {
@@ -4977,12 +5311,25 @@ impl Tab {
         item.pos_opt.get()
     }
 
+    /// Takes every highlight away. Every place that highlights an item
+    /// notes it in `highlight_marks`, so only those are visited: each arrow
+    /// press does this, and a pass over every item is milliseconds in a
+    /// large folder.
     fn dehighlight_all(&mut self) {
         if let Some(items) = self.items_opt.as_mut() {
-            for item in items.iter_mut() {
-                item.highlighted = false;
+            for index in self.highlight_marks.drain(..) {
+                if let Some(item) = items.get_mut(index) {
+                    item.highlighted = false;
+                }
             }
+            // A highlight made without a note shows here
+            #[cfg(test)]
+            assert!(
+                items.iter().all(|item| !item.highlighted),
+                "a highlight was left unnoted"
+            );
         }
+        self.highlight_marks.clear();
     }
 
     /// Whether the list can follow a drawer slide by moving its right column
@@ -5124,11 +5471,11 @@ impl Tab {
     fn select_first_pos_opt(&self) -> Option<(usize, usize)> {
         let items = self.items_opt.as_ref()?;
         let mut first = None;
-        for item in items {
-            if !item.selected {
-                continue;
-            }
-
+        for item in self
+            .selected_indices()
+            .iter()
+            .filter_map(|&index| items.get(index))
+        {
             let (row, col) = match item.pos_opt.get() {
                 Some(some) => some,
                 None => continue,
@@ -5146,14 +5493,85 @@ impl Tab {
         first
     }
 
+    /// [`Self::select_position`] through the current layout: the items
+    /// from `start` to `end` are selected and the one at `target` focused,
+    /// touching only them and what was selected before, rather than every
+    /// item. `None` when there is no layout of the current order to go by.
+    fn select_laid_out(
+        &mut self,
+        start: (usize, usize),
+        end: (usize, usize),
+        target: (usize, usize),
+        mod_shift: bool,
+    ) -> Option<bool> {
+        let layout = self.shown_layout.borrow().clone()?;
+        let current = self
+            .sort_cache
+            .borrow()
+            .as_ref()
+            .is_some_and(|(_, order)| Arc::ptr_eq(order, &layout.key.order));
+        if !current {
+            return None;
+        }
+        // What was selected, to be unselected: kept from the last press
+        let previous = self.selected_indices();
+        let items = self.items_opt.as_mut()?;
+        let (cols, len) = (layout.columns.max(1), layout.shown.len());
+        // A column past the row's end comes after the whole row, as the
+        // positions compare
+        let first = |(row, col): (usize, usize)| {
+            if col >= cols {
+                (row + 1) * cols
+            } else {
+                row * cols + col
+            }
+        };
+        let last = |(row, col): (usize, usize)| {
+            if col >= cols {
+                (row + 1) * cols
+            } else {
+                row * cols + col + 1
+            }
+        };
+        let range = first(start).min(len)..last(end).min(len);
+
+        for &index in previous.iter() {
+            if let Some(item) = items.get_mut(index) {
+                item.selected = false;
+            }
+        }
+        let mut selected: Vec<usize> = layout.shown[range.clone()].to_vec();
+        for &index in &selected {
+            items[index].selected = true;
+        }
+        let target = (target.1 < cols)
+            .then(|| target.0 * cols + target.1)
+            .filter(|position| range.contains(position));
+        if let Some(position) = target {
+            let i = layout.shown[position];
+            self.select_focus = Some(i);
+            // With no starting point yet, the item reached is one
+            let anchor = if mod_shift {
+                self.select_range.map_or(i, |(anchor, _)| anchor)
+            } else {
+                i
+            };
+            self.select_range = Some((anchor, i));
+        }
+        // What it selected is known: kept, so the next press need not look
+        selected.sort_unstable();
+        self.selection_cache.replace(Some(selected.into()));
+        Some(target.is_some())
+    }
+
     fn select_last_pos_opt(&self) -> Option<(usize, usize)> {
         let items = self.items_opt.as_ref()?;
         let mut last = None;
-        for item in items {
-            if !item.selected {
-                continue;
-            }
-
+        for item in self
+            .selected_indices()
+            .iter()
+            .filter_map(|&index| items.get(index))
+        {
             let (row, col) = match item.pos_opt.get() {
                 Some(some) => some,
                 None => continue,
@@ -5260,6 +5678,8 @@ impl Tab {
     /// until the rescan replaces it, instead of going blank for a frame. The
     /// kept listing has nothing selected, as the rescan's own would not.
     pub fn change_location_keeping_listing(&mut self, location: &Location) {
+        // What the menus read of the selection is worked out again
+        self.forget_selection();
         let kept = if self.location.lists_same_as(location) {
             self.items_opt.take()
         } else {
@@ -5287,6 +5707,8 @@ impl Tab {
     /// The folder names are the ones the last rescan read from the
     /// filesystem, so the title and path bar do not change either.
     pub fn switch_search(&mut self, location: &Location) {
+        // What the menus read of the selection is worked out again
+        self.forget_selection();
         let names: Vec<String> = self
             .location_ancestors
             .iter()
@@ -5428,6 +5850,68 @@ impl Tab {
     }
 
     pub fn update(&mut self, message: Message, modifiers: Modifiers) -> Vec<Command> {
+        // Sorting a large folder takes tens of milliseconds, and the view
+        // asks for the order every frame. It is kept across the messages
+        // that cannot change what it sorts by; any other may have, before
+        // or while it is handled.
+        let keeps_order = message.keeps_order();
+        if !keeps_order {
+            self.invalidate_order();
+        }
+        if !message.keeps_selection() {
+            self.forget_selection();
+        }
+        let commands = self.update_inner(message, modifiers);
+        if !keeps_order {
+            self.invalidate_order();
+        }
+        commands
+    }
+
+    /// Forgets the kept order, for a change to what it sorts by.
+    pub(crate) fn invalidate_order(&self) {
+        self.sort_cache.replace(None);
+    }
+
+    /// The indices of the selected items, in listing order.
+    ///
+    /// The menus are made on every frame and each asks what is selected;
+    /// in a large folder a pass over every item is milliseconds, so the
+    /// answer is kept. Everything that changes the selection forgets it
+    /// first: [`Self::update`], except for the messages that keep it, and
+    /// each method that selects.
+    pub fn selected_indices(&self) -> Arc<[usize]> {
+        let fresh = || -> Arc<[usize]> {
+            self.items_opt.as_ref().map_or_else(
+                || Arc::from([]),
+                |items| {
+                    items
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, item)| item.selected)
+                        .map(|(index, _)| index)
+                        .collect()
+                },
+            )
+        };
+        let cached = self.selection_cache.borrow().clone();
+        if let Some(cached) = cached {
+            // Anything that selects without forgetting shows here
+            #[cfg(test)]
+            assert_eq!(*cached, *fresh(), "a stale selection was kept");
+            return cached;
+        }
+        let indices = fresh();
+        self.selection_cache.replace(Some(Arc::clone(&indices)));
+        indices
+    }
+
+    /// Forgets the kept selection, for a change to it.
+    pub(crate) fn forget_selection(&self) {
+        self.selection_cache.replace(None);
+    }
+
+    fn update_inner(&mut self, message: Message, modifiers: Modifiers) -> Vec<Command> {
         let mut commands = Vec::new();
         let mut cd = None;
         let mut history_i_opt = None;
@@ -5714,11 +6198,7 @@ impl Tab {
                     }
                 }
                 // Unhighlight all items when config changes
-                if let Some(ref mut items) = self.items_opt {
-                    for item in items.iter_mut() {
-                        item.highlighted = false;
-                    }
-                }
+                self.dehighlight_all();
             }
             Message::ContextAction(action) => {
                 commands.push(Command::Action(action));
@@ -6163,8 +6643,9 @@ impl Tab {
                 } else if self.gallery {
                     commands.append(&mut self.update(Message::GalleryNext, modifiers));
                 } else {
-                    if let Some((row, col)) =
-                        self.select_focus_pos_opt().or(self.select_last_pos_opt())
+                    if let Some((row, col)) = self
+                        .select_focus_pos_opt()
+                        .or_else(|| self.select_last_pos_opt())
                     {
                         if self.select_focus.is_none() {
                             // Select last item in current selection to focus it.
@@ -6200,7 +6681,9 @@ impl Tab {
             }
             Message::ItemPageDown => {
                 self.dehighlight_all();
-                if let Some((row, col)) = self.select_focus_pos_opt().or(self.select_last_pos_opt())
+                if let Some((row, col)) = self
+                    .select_focus_pos_opt()
+                    .or_else(|| self.select_last_pos_opt())
                 {
                     if self.select_focus.is_none() {
                         self.select_position(row, col, mod_shift);
@@ -6243,8 +6726,9 @@ impl Tab {
             }
             Message::ItemPageUp => {
                 self.dehighlight_all();
-                if let Some((row, col)) =
-                    self.select_focus_pos_opt().or(self.select_first_pos_opt())
+                if let Some((row, col)) = self
+                    .select_focus_pos_opt()
+                    .or_else(|| self.select_first_pos_opt())
                 {
                     if self.select_focus.is_none() {
                         self.select_position(row, col, mod_shift);
@@ -6290,8 +6774,9 @@ impl Tab {
                 if self.gallery {
                     commands.append(&mut self.update(Message::GalleryPrevious, modifiers));
                 } else {
-                    if let Some((row, col)) =
-                        self.select_focus_pos_opt().or(self.select_first_pos_opt())
+                    if let Some((row, col)) = self
+                        .select_focus_pos_opt()
+                        .or_else(|| self.select_first_pos_opt())
                     {
                         if self.select_focus.is_none() {
                             // Select first item in current selection to focus it.
@@ -6349,8 +6834,9 @@ impl Tab {
                 if self.gallery {
                     commands.append(&mut self.update(Message::GalleryNext, modifiers));
                 } else {
-                    if let Some((row, col)) =
-                        self.select_focus_pos_opt().or(self.select_last_pos_opt())
+                    if let Some((row, col)) = self
+                        .select_focus_pos_opt()
+                        .or_else(|| self.select_last_pos_opt())
                     {
                         if self.select_focus.is_none() {
                             // Select last item in current selection to focus it.
@@ -6393,8 +6879,9 @@ impl Tab {
                 } else if self.gallery {
                     commands.append(&mut self.update(Message::GalleryPrevious, modifiers));
                 } else {
-                    if let Some((row, col)) =
-                        self.select_focus_pos_opt().or(self.select_first_pos_opt())
+                    if let Some((row, col)) = self
+                        .select_focus_pos_opt()
+                        .or_else(|| self.select_first_pos_opt())
                     {
                         if self.select_focus.is_none() {
                             // Select first item in current selection to focus it.
@@ -6594,12 +7081,15 @@ impl Tab {
                 self.watch_drag = true;
                 if let Some(item) = self.items_opt.as_mut().and_then(|f| f.get_mut(i)) {
                     item.highlighted = false;
+                    // Notes stay as few as the highlights
+                    self.highlight_marks.retain(|&mark| mark != i);
                 }
             }
             Message::HighlightActivate(i) => {
                 self.watch_drag = true;
                 if let Some(item) = self.items_opt.as_mut().and_then(|f| f.get_mut(i)) {
                     item.highlighted = true;
+                    self.highlight_marks.push(i);
                 }
             }
             Message::Resize(viewport) => {
@@ -6742,6 +7232,15 @@ impl Tab {
                     }
                 }
                 self.restore_selection_marks(marks);
+                // Inserted results moved the items after them
+                self.highlight_marks = self.items_opt.as_ref().map_or_else(Vec::new, |items| {
+                    items
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, item)| item.highlighted)
+                        .map(|(index, _)| index)
+                        .collect()
+                });
                 self.follow_search_top(follow_top);
                 if finished {
                     self.search_context = None;
@@ -6880,28 +7379,52 @@ impl Tab {
                 if listing == self.listing
                     && let Some(items) = self.items_opt.as_mut()
                 {
-                    let mut checked: FxHashMap<PathBuf, crate::type_check::Checked> = checked
-                        .into_iter()
-                        .map(|check| (check.path.clone(), check))
-                        .collect();
+                    let sizes = self.config.icon_sizes;
+                    let mut collect = IconCollect::default();
                     let mut retyped = false;
-                    for item in items.iter_mut() {
-                        // Every answer in this batch has found its item
-                        if checked.is_empty() {
-                            break;
-                        }
+                    // A desktop entry shown by its own name
+                    let mut reordered = false;
+                    for check in checked {
+                        // Where the job found it, unless the listing changed
+                        // under it since: then it is looked for by its path
+                        let index = if items
+                            .get(check.index)
+                            .is_some_and(|item| item.path_opt() == Some(&check.path))
+                        {
+                            Some(check.index)
+                        } else {
+                            items
+                                .iter()
+                                .position(|item| item.path_opt() == Some(&check.path))
+                        };
+                        let Some(item) = index.and_then(|index| items.get_mut(index)) else {
+                            continue;
+                        };
                         // Checked since by other means: a refresh reads the
                         // file by content, and is newer than this answer
                         if item.type_checked {
                             continue;
                         }
-                        if let Some(check) = item.path_opt().and_then(|path| checked.remove(path)) {
-                            retyped |= item.take_check(check);
+                        let renamed = check
+                            .retyped
+                            .as_ref()
+                            .is_some_and(|retyped| retyped.display_name.is_some());
+                        if item.take_check(check) {
+                            collect.add(item, sizes);
+                            retyped = true;
+                            reordered |= renamed;
                         }
                     }
+                    // A new type moves a file when sorting by type; a new
+                    // name, when sorting by name
+                    let sort = self.sort_options().0;
+                    if (retyped && sort == HeadingOptions::Type)
+                        || (reordered && sort == HeadingOptions::Name)
+                    {
+                        self.invalidate_order();
+                    }
                     if retyped {
-                        let sizes = self.config.icon_sizes;
-                        let warmup = refresh_icons(items, sizes);
+                        let warmup = collect.finish();
                         if !warmup.is_empty() {
                             commands.push(Command::WarmIcons(warmup, sizes));
                         }
@@ -7052,22 +7575,33 @@ impl Tab {
                     }
                 }
             }
-            Message::DirectoryChildren(path, children) => {
+            Message::DirectoryChildren(index, path, children) => {
                 if let Some(ref mut items) = self.items_opt {
-                    for item in items.iter_mut() {
-                        if item.path_opt() == Some(&path) {
-                            match &mut item.metadata {
-                                ItemMetadata::Path { children_opt, .. } => {
-                                    *children_opt = Some(children);
-                                }
-                                #[cfg(feature = "gvfs")]
-                                ItemMetadata::GvfsPath { children_opt, .. } => {
-                                    *children_opt = Some(children);
-                                }
-                                _ => {}
+                    // Where it was asked about, unless the listing changed
+                    // since: then it is looked for by its path
+                    let index = if items
+                        .get(index)
+                        .is_some_and(|item| item.path_opt() == Some(&path))
+                    {
+                        Some(index)
+                    } else {
+                        items.iter().position(|item| item.path_opt() == Some(&path))
+                    };
+                    if let Some(item) = index.and_then(|index| items.get_mut(index)) {
+                        match &mut item.metadata {
+                            ItemMetadata::Path { children_opt, .. } => {
+                                *children_opt = Some(children);
                             }
-                            break;
+                            #[cfg(feature = "gvfs")]
+                            ItemMetadata::GvfsPath { children_opt, .. } => {
+                                *children_opt = Some(children);
+                            }
+                            _ => {}
                         }
+                    }
+                    // Folders sort by how many entries they hold
+                    if self.sort_options().0 == HeadingOptions::Size {
+                        self.invalidate_order();
                     }
                 }
             }
@@ -7195,7 +7729,60 @@ impl Tab {
             .unwrap_or_default()
     }
 
+    /// The items in the order shown, sorted as the tab is. The order is kept
+    /// while the sort options, the listing and its length hold and nothing
+    /// has called [`Self::invalidate_order`]: scrolling redraws every frame
+    /// and must not sort the folder again each time.
     fn column_sort(&self) -> Option<Vec<(usize, &Item)>> {
+        let items = self.items_opt.as_ref()?;
+        let order = self.sorted_order()?;
+        Some(order.iter().map(|&index| (index, &items[index])).collect())
+    }
+
+    /// The layout `key` gives, made by `lay_out` only when the last one was
+    /// made for something else.
+    fn laid_out(
+        &self,
+        key: LayoutKey,
+        lay_out: impl FnOnce(LayoutKey) -> ShownLayout,
+    ) -> ShownLayout {
+        if let Some(layout) = self.shown_layout.borrow().as_ref()
+            && layout.key == key
+        {
+            return layout.clone();
+        }
+        let layout = lay_out(key);
+        self.shown_layout.replace(Some(layout.clone()));
+        layout
+    }
+
+    /// The indices of [`Self::column_sort`], kept: see there.
+    fn sorted_order(&self) -> Option<Arc<[usize]>> {
+        let items = self.items_opt.as_ref()?;
+        let key = (self.sort_options(), self.listing, items.len());
+        let cached = self
+            .sort_cache
+            .borrow()
+            .as_ref()
+            .filter(|(cached, _)| *cached == key)
+            .map(|(_, order)| Arc::clone(order));
+        let order = match cached {
+            Some(order) => order,
+            None => {
+                let order: Arc<[usize]> = self
+                    .sort_items()?
+                    .into_iter()
+                    .map(|(index, _)| index)
+                    .collect();
+                self.sort_cache.replace(Some((key, Arc::clone(&order))));
+                order
+            }
+        };
+        Some(order)
+    }
+
+    /// Sorts the items afresh: see [`Self::column_sort`].
+    fn sort_items(&self) -> Option<Vec<(usize, &Item)>> {
         let check_reverse = |ord: Ordering, sort: bool| {
             if sort { ord } else { ord.reverse() }
         };
@@ -8179,140 +8766,153 @@ impl Tab {
             .padding(space_xxs.into());
 
         let mut column = widget::Column::with_capacity(2);
-        if let Some(items) = self.column_sort() {
-            let mut count = 0;
-            let mut col = 0;
-            let mut row = 0;
-            let mut hidden = 0;
-            let mut grid_elements = Vec::new();
-            for &(i, item) in &items {
-                if !show_hidden && item.hidden {
-                    item.pos_opt.set(None);
-                    item.rect_opt.set(None);
-                    hidden += 1;
-                    continue;
-                }
-                item.pos_opt.set(Some((row, col)));
-                let item_rect = Rectangle::new(
-                    Point::new(
-                        (col * (item_width + column_spacing as usize) + space_xxs as usize) as f32,
-                        (row * (item_height + grid_spacing as usize) + space_xxs as usize) as f32,
-                    ),
-                    Size::new(item_width as f32, item_height as f32),
-                );
-                item.rect_opt.set(Some(item_rect));
-
-                while grid_elements.len() <= row {
-                    grid_elements.push(Vec::new());
-                }
-
-                // Only build elements if visible (for performance)
-                if item_rect.intersects(&visible_rect) {
-                    let faded = item.faded();
-                    let mut name = Item::grid_display_name(&item.display_name);
-                    // A cut name takes the button's dimmed colour
-                    if faded && !item.cut {
-                        name = name.class(theme::Text::Custom(faded_text_style));
+        if let Some(items) = self.items_opt.as_ref()
+            && let Some(order) = self.sorted_order()
+        {
+            let pitch = item_height + grid_spacing as usize;
+            let column_pitch = item_width + column_spacing as usize;
+            let key = LayoutKey {
+                order: Arc::clone(&order),
+                show_hidden,
+                columns: cols,
+                width: column_pitch as f32,
+                pitch: pitch as f32,
+            };
+            // Every item's place, for the keyboard, selection and drops,
+            // worked out only when the order or the geometry changed: a
+            // scroll moves none of them
+            let layout = self.laid_out(key, |key| {
+                let mut shown = Vec::with_capacity(order.len());
+                for &i in order.iter() {
+                    let item = &items[i];
+                    if !show_hidden && item.hidden {
+                        item.pos_opt.set(None);
+                        item.rect_opt.set(None);
+                        continue;
                     }
-                    let buttons: Vec<Element<Message>> = vec![
-                        widget::button::custom(
-                            widget::icon::icon(item.icon_handle_grid.clone())
-                                .content_fit(ContentFit::Contain)
-                                .size(icon_sizes.grid())
-                                .opacity(if faded { FADED_OPACITY } else { 1.0 }),
-                        )
-                        .padding(space_xxxs)
-                        .class(button_style(
-                            item.selected,
-                            item.highlighted,
-                            item.cut,
-                            false,
-                            false,
-                        ))
-                        .into(),
-                        widget::tooltip(
-                            widget::button::custom(name)
-                                .id(item.button_id.clone())
-                                .padding([0, space_xxxs])
-                                .class(button_style(
-                                    item.selected,
-                                    item.highlighted,
-                                    item.cut,
-                                    true,
-                                    true,
-                                )),
-                            widget::text::body(&item.name),
-                            widget::tooltip::Position::Bottom,
-                        )
-                        .into(),
-                    ];
-
-                    let mut column = widget::Column::with_capacity(buttons.len())
-                        .align_x(Alignment::Center)
-                        .height(Length::Fixed(item_height as f32))
-                        .width(Length::Fixed(item_width as f32));
-                    for button in buttons {
-                        column = column.push(
-                            mouse_area::MouseArea::new(button)
-                                .on_right_press_no_capture()
-                                .on_right_press(move |point_opt| {
-                                    Message::RightClick(point_opt, Some(i))
-                                }),
-                        );
-                    }
-
-                    let mouse_area = crate::mouse_area::MouseArea::new(column)
-                        .on_press(move |_| Message::Click(Some(i)))
-                        .on_drag(move |_| Message::DragFiles(i))
-                        .on_double_click(move |_| Message::DoubleClick(Some(i)))
-                        .on_release(move |_| Message::ClickRelease(Some(i)))
-                        .on_middle_press(move |_| Message::MiddleClick(i))
-                        .on_enter(move || Message::HighlightActivate(i))
-                        .on_exit(move || Message::HighlightDeactivate(i));
-                    grid_elements[row].push(Element::from(mouse_area));
-                } else {
-                    // Add a spacer if the row is empty, so scroll works
-                    if grid_elements[row].is_empty() {
-                        grid_elements[row].push(Element::from(
-                            widget::Column::with_capacity(0)
-                                .width(Length::Fill)
-                                .height(Length::Fixed(item_height as f32)),
-                        ));
-                    }
+                    let (row, col) = (shown.len() / cols, shown.len() % cols);
+                    item.pos_opt.set(Some((row, col)));
+                    item.rect_opt.set(Some(Rectangle::new(
+                        Point::new(
+                            (col * column_pitch + space_xxs as usize) as f32,
+                            (row * pitch + space_xxs as usize) as f32,
+                        ),
+                        Size::new(item_width as f32, item_height as f32),
+                    )));
+                    shown.push(i);
                 }
-
-                count += 1;
-                col += 1;
-                if col >= cols {
-                    col = 0;
-                    row += 1;
+                ShownLayout {
+                    key,
+                    shown: shown.into(),
+                    columns: cols,
+                    top: f32::from(space_xxs),
+                    pitch: pitch as f32,
                 }
-            }
+            });
 
-            for row_elements in grid_elements {
-                for element in row_elements {
-                    grid = grid.push(element);
-                }
-                grid = grid.insert_row();
-            }
-
+            let count = layout.shown.len();
             if count == 0 {
-                return (self.empty_view(hidden > 0), false);
+                return (self.empty_view(!items.is_empty()), false);
             }
+            let rows = count.div_ceil(cols);
 
-            column = column.push(grid);
+            // Only the rows on screen are built; those above and below are
+            // a spacer each
+            let visible = layout.visible(visible_rect);
+            if visible.is_empty() {
+                // Nothing on screen: the whole grid's height, padding and
+                // all
+                let height = 2 * space_xxs as usize + rows * pitch - grid_spacing as usize;
+                column = column.push(space::vertical().height(Length::Fixed(height as f32)));
+            } else {
+                let (first, last) = (visible.start / cols, (visible.end - 1) / cols);
+                let mut keys = Vec::with_capacity(visible.len());
+                if first > 0 {
+                    column = column
+                        .push(space::vertical().height(Length::Fixed((first * pitch) as f32)));
+                }
+                for row in first..=last {
+                    for &i in &layout.shown[row * cols..((row + 1) * cols).min(count)] {
+                        let item = &items[i];
+                        let faded = item.faded();
+                        let mut name = Item::grid_display_name(&item.display_name);
+                        // A cut name takes the button's dimmed colour
+                        if faded && !item.cut {
+                            name = name.class(theme::Text::Custom(faded_text_style));
+                        }
+                        let buttons: Vec<Element<Message>> = vec![
+                            widget::button::custom(
+                                widget::icon::icon(item.icon_handle_grid.clone())
+                                    .content_fit(ContentFit::Contain)
+                                    .size(icon_sizes.grid())
+                                    .opacity(if faded { FADED_OPACITY } else { 1.0 }),
+                            )
+                            .padding(space_xxxs)
+                            .class(button_style(
+                                item.selected,
+                                item.highlighted,
+                                item.cut,
+                                false,
+                                false,
+                            ))
+                            .into(),
+                            widget::tooltip(
+                                widget::button::custom(name)
+                                    .id(item.button_id.clone())
+                                    .padding([0, space_xxxs])
+                                    .class(button_style(
+                                        item.selected,
+                                        item.highlighted,
+                                        item.cut,
+                                        true,
+                                        true,
+                                    )),
+                                widget::text::body(&item.name),
+                                widget::tooltip::Position::Bottom,
+                            )
+                            .into(),
+                        ];
+
+                        let mut column = widget::Column::with_capacity(buttons.len())
+                            .align_x(Alignment::Center)
+                            .height(Length::Fixed(item_height as f32))
+                            .width(Length::Fixed(item_width as f32));
+                        for button in buttons {
+                            column = column.push(
+                                mouse_area::MouseArea::new(button)
+                                    .on_right_press_no_capture()
+                                    .on_right_press(move |point_opt| {
+                                        Message::RightClick(point_opt, Some(i))
+                                    }),
+                            );
+                        }
+
+                        let mouse_area = crate::mouse_area::MouseArea::new(column)
+                            .on_press(move |_| Message::Click(Some(i)))
+                            .on_drag(move |_| Message::DragFiles(i))
+                            .on_double_click(move |_| Message::DoubleClick(Some(i)))
+                            .on_release(move |_| Message::ClickRelease(Some(i)))
+                            .on_middle_press(move |_| Message::MiddleClick(i))
+                            .on_enter(move || Message::HighlightActivate(i))
+                            .on_exit(move || Message::HighlightDeactivate(i));
+                        keys.push(i as u64);
+                        grid = grid.push(mouse_area);
+                    }
+                    grid = grid.insert_row();
+                }
+                // Each item's state is its own, whichever place it takes
+                column = column.push(widget::keyed_children(keys, grid));
+                if last + 1 < rows {
+                    column = column.push(
+                        space::vertical().height(Length::Fixed(((rows - last - 1) * pitch) as f32)),
+                    );
+                }
+            }
 
             // Pad the content to the bottom of the view so the whole view is scrollable
             {
-                let mut max_bottom = 0;
-                for (_, item) in items {
-                    if let Some(rect) = item.rect_opt.get() {
-                        let bottom = (rect.y + rect.height).ceil() as usize;
-                        if bottom > max_bottom {
-                            max_bottom = bottom;
-                        }
-                    }
-                }
+                // The last row's bottom edge
+                let max_bottom = space_xxs as usize + (rows - 1) * pitch + item_height;
 
                 // Room under the last row for the corner card, counted as
                 // content so scrolling may reach it
@@ -8415,226 +9015,261 @@ impl Tab {
 
         let visible_rect = self.visible_rect(self.size_opt.get().unwrap_or_default());
 
-        if let Some(items) = self.column_sort() {
-            let mut count = 0;
-            let mut hidden = 0;
-            for (i, item) in items {
-                if item.hidden && !show_hidden {
-                    item.pos_opt.set(None);
-                    item.rect_opt.set(None);
-                    hidden += 1;
-                    continue;
+        if let Some(items) = self.items_opt.as_ref()
+            && let Some(order) = self.sorted_order()
+        {
+            let pitch = f32::from(row_height);
+            let width = size.width - f32::from(2 * space_s);
+            let key = LayoutKey {
+                order: Arc::clone(&order),
+                show_hidden,
+                columns: 1,
+                width,
+                pitch,
+            };
+            // Every item's place, for the keyboard, selection and drops,
+            // worked out only when the order or the geometry changed: a
+            // scroll moves none of them
+            let layout = self.laid_out(key, |key| {
+                let mut shown = Vec::with_capacity(order.len());
+                for &i in order.iter() {
+                    let item = &items[i];
+                    if item.hidden && !show_hidden {
+                        item.pos_opt.set(None);
+                        item.rect_opt.set(None);
+                        continue;
+                    }
+                    let row = shown.len();
+                    item.pos_opt.set(Some((row, 0)));
+                    #[allow(clippy::cast_precision_loss, reason = "a row number")]
+                    item.rect_opt.set(Some(Rectangle::new(
+                        Point::new(f32::from(space_s), row as f32 * pitch),
+                        Size::new(width, pitch),
+                    )));
+                    shown.push(i);
                 }
+                ShownLayout {
+                    key,
+                    shown: shown.into(),
+                    columns: 1,
+                    top: 0.0,
+                    pitch,
+                }
+            });
 
-                item.pos_opt.set(Some((count, 0)));
-                let item_rect = Rectangle::new(
-                    Point::new(f32::from(space_s), y),
-                    Size::new(size.width - f32::from(2 * space_s), f32::from(row_height)),
-                );
-                item.rect_opt.set(Some(item_rect));
+            if layout.shown.is_empty() {
+                return (self.empty_view(!items.is_empty()), false);
+            }
 
-                // Only build elements if visible (for performance)
-                let button_row = if item_rect.intersects(&visible_rect) {
-                    let modified_text = match &item.metadata {
-                        ItemMetadata::Path { metadata, .. } => match metadata.modified() {
-                            Ok(time) => self.format_time(time).to_string(),
-                            Err(_) => String::new(),
-                        },
-                        // Nothing says when, for what is inside a trashed
-                        // folder or has no `.trashinfo`
-                        ItemMetadata::Trash { entry, .. } if entry.time_deleted == 0 => {
-                            String::new()
-                        }
-                        ItemMetadata::Trash { entry, .. } => FormatTime::from_secs(
-                            entry.time_deleted,
-                            &self.date_time_formatter,
-                            &self.time_formatter,
-                        )
-                        .map(|t| t.to_string())
-                        .unwrap_or_default(),
-                        #[cfg(feature = "gvfs")]
-                        ItemMetadata::GvfsPath { .. } => match item.metadata.modified() {
-                            Some(mtime) => self.format_time(mtime).to_string(),
-                            None => String::new(),
-                        },
-                        _ => String::new(),
-                    };
-
-                    let size_text = match &item.metadata {
-                        ItemMetadata::Path {
-                            metadata,
-                            children_opt,
-                        } => {
-                            if metadata.is_dir() {
-                                children_opt.map_or_else(String::new, |children| {
-                                    fl!("item-count", count = children)
-                                })
-                            } else {
-                                format_size(metadata.len())
-                            }
-                        }
-                        ItemMetadata::Trash { metadata, .. } => match metadata.size {
-                            crate::trashing::TrashItemSize::Entries(entries) => {
-                                fl!("item-count", count = entries)
-                            }
-                            crate::trashing::TrashItemSize::Bytes(bytes) => format_size(bytes),
-                        },
-                        ItemMetadata::SimpleDir { entries } => fl!("item-count", count = entries),
-                        ItemMetadata::SimpleFile { size } => format_size(*size),
-                        #[cfg(feature = "gvfs")]
-                        ItemMetadata::GvfsPath {
-                            size_opt,
-                            children_opt,
-                            is_dir,
-                            ..
-                        } => {
-                            if *is_dir {
-                                // Children are not counted on remote filesystems
-                                children_opt.map_or_else(String::new, |children| {
-                                    fl!("item-count", count = children)
-                                })
-                            } else {
-                                format_size(size_opt.unwrap_or_default())
-                            }
-                        }
-                    };
-
-                    let type_text =
-                        crate::file_category::FileCategory::of(item.metadata.is_dir(), &item.mime)
-                            .to_string();
-
-                    let (mut second_line, right_text) = if is_search {
-                        (self.search_folder_text(item), modified_text)
-                    } else {
-                        list_details(sort_name, &type_text, &size_text, &modified_text)
-                    };
-                    if !right_shown {
-                        second_line = line_with_right(&right_text, &second_line);
-                    }
-
-                    let mut name = Item::list_display_name(item.display_name.clone());
-                    if sort_name == HeadingOptions::Name && !is_search {
-                        name = name.font(crate::ui::font::semibold());
-                    }
-                    // A selected or cut row's button sets the text colour
-                    // (on the accent fill, or dimmed), so its details take
-                    // that colour instead of their own
-                    let own_colours = !item.selected && !item.cut;
-                    let faded = item.faded();
-                    if faded && own_colours {
-                        name = name.class(theme::Text::Custom(faded_text_style));
-                    }
-                    let dim = if !own_colours {
-                        theme::Text::Default
-                    } else if faded {
-                        theme::Text::Custom(faded_dim_text_style)
-                    } else {
-                        theme::Text::Custom(dim_text_style)
-                    };
-                    let text = widget::Column::with_capacity(2)
-                        .width(Length::Fill)
-                        .push(name)
-                        .push(
-                            widget::ellipsize::caption(
-                                second_line,
-                                widget::EllipsizeMode::Middle(1),
-                            )
-                            .class(dim),
-                        );
-
-                    // The right column is dim like the details under the
-                    // name, whatever the list is sorted by
-                    let right: Element<'_, Message> = widget::text::body(right_text)
-                        .width(Length::Fixed(right_width))
-                        .align_x(text::Alignment::Right)
-                        .wrapping(text::Wrapping::None)
-                        .class(dim)
-                        .into();
-
-                    let mut cells: Vec<Element<'_, Message>> = vec![
-                        widget::icon::icon(item.icon_handle_list.clone())
-                            .content_fit(ContentFit::Contain)
-                            .size(icon_size)
-                            .opacity(if faded { FADED_OPACITY } else { 1.0 })
-                            .into(),
-                        text.into(),
-                    ];
-                    if right_shown {
-                        if let Some(slide) = column_slide {
-                            // The name is held at its narrow width (its width with
-                            // the drawer in the layout) and the right column
-                            // slides over the gap as one texture, never over the
-                            // name. The spacer brings one more row gap with it,
-                            // so it is one gap short of `extent`.
-                            debug_assert!(
-                                slide.extent >= f32::from(space_xs),
-                                "a drawer narrower than a gap"
-                            );
-                            cells.push(
-                                space::horizontal()
-                                    .width(Length::Fixed(slide.extent - f32::from(space_xs)))
-                                    .into(),
-                            );
-                            cells.push(
-                                cached(TextureCache::new(), right)
-                                    .translate(slide.offset.clone())
-                                    .into(),
-                            );
-                        } else {
-                            cells.push(right);
-                        }
-                    }
-                    let row = widget::Row::with_children(cells)
-                        .height(Length::Fixed(f32::from(row_height)))
-                        .align_y(Alignment::Center)
-                        .spacing(space_xs.to_pixels());
-
-                    let mouse_area = crate::mouse_area::MouseArea::new(
-                        widget::button::custom(row)
-                            .width(Length::Fill)
-                            .id(item.button_id.clone())
-                            .padding([0, space_xs])
-                            .class(button_style(
-                                item.selected,
-                                item.highlighted,
-                                item.cut,
-                                true,
-                                false,
-                            )),
+            // Only the rows on screen are built; those above and below are
+            // a spacer each
+            let visible = layout.visible(visible_rect);
+            #[allow(clippy::cast_precision_loss, reason = "row counts")]
+            let rows_height = |rows: usize| rows as f32 * pitch;
+            // The spacers' keys, apart from every item's
+            const ABOVE: u64 = u64::MAX;
+            const BELOW: u64 = u64::MAX - 1;
+            let mut keys = Vec::with_capacity(visible.len() + 2);
+            let mut rows_column = widget::Column::with_capacity(visible.len() + 2);
+            if visible.start > 0 {
+                keys.push(ABOVE);
+                rows_column = rows_column
+                    .push(space::vertical().height(Length::Fixed(rows_height(visible.start))));
+            }
+            for count in visible.clone() {
+                let i = layout.shown[count];
+                let item = &items[i];
+                let modified_text = match &item.metadata {
+                    ItemMetadata::Path { metadata, .. } => match metadata.modified() {
+                        Ok(time) => self.format_time(time).to_string(),
+                        Err(_) => String::new(),
+                    },
+                    // Nothing says when, for what is inside a trashed
+                    // folder or has no `.trashinfo`
+                    ItemMetadata::Trash { entry, .. } if entry.time_deleted == 0 => String::new(),
+                    ItemMetadata::Trash { entry, .. } => FormatTime::from_secs(
+                        entry.time_deleted,
+                        &self.date_time_formatter,
+                        &self.time_formatter,
                     )
-                    .on_press(move |_| Message::Click(Some(i)))
-                    .on_drag(move |_| Message::DragFiles(i))
-                    .on_double_click(move |_| Message::DoubleClick(Some(i)))
-                    .on_release(move |_| Message::ClickRelease(Some(i)))
-                    .on_middle_press(move |_| Message::MiddleClick(i))
-                    .on_enter(move || Message::HighlightActivate(i))
-                    .on_exit(move || Message::HighlightDeactivate(i))
-                    .on_right_press_no_capture()
-                    .on_right_press(move |point_opt| Message::RightClick(point_opt, Some(i)));
-
-                    // Every other row is striped; hover and selection paint
-                    // over the stripe
-                    let row: Element<'_, Message> = if count % 2 == 1 {
-                        widget::container(mouse_area).style(stripe_style).into()
-                    } else {
-                        mouse_area.into()
-                    };
-                    row
-                } else {
-                    widget::Column::with_capacity(0)
-                        .width(Length::Fill)
-                        .height(Length::Fixed(f32::from(row_height)))
-                        .into()
+                    .map(|t| t.to_string())
+                    .unwrap_or_default(),
+                    #[cfg(feature = "gvfs")]
+                    ItemMetadata::GvfsPath { .. } => match item.metadata.modified() {
+                        Some(mtime) => self.format_time(mtime).to_string(),
+                        None => String::new(),
+                    },
+                    _ => String::new(),
                 };
 
-                count += 1;
-                y += f32::from(row_height);
-                column = column.push(button_row);
-            }
+                let size_text = match &item.metadata {
+                    ItemMetadata::Path {
+                        metadata,
+                        children_opt,
+                    } => {
+                        if metadata.is_dir() {
+                            children_opt.map_or_else(String::new, |children| {
+                                fl!("item-count", count = children)
+                            })
+                        } else {
+                            format_size(metadata.len())
+                        }
+                    }
+                    ItemMetadata::Trash { metadata, .. } => match metadata.size {
+                        crate::trashing::TrashItemSize::Entries(entries) => {
+                            fl!("item-count", count = entries)
+                        }
+                        crate::trashing::TrashItemSize::Bytes(bytes) => format_size(bytes),
+                    },
+                    ItemMetadata::SimpleDir { entries } => fl!("item-count", count = entries),
+                    ItemMetadata::SimpleFile { size } => format_size(*size),
+                    #[cfg(feature = "gvfs")]
+                    ItemMetadata::GvfsPath {
+                        size_opt,
+                        children_opt,
+                        is_dir,
+                        ..
+                    } => {
+                        if *is_dir {
+                            // Children are not counted on remote filesystems
+                            children_opt.map_or_else(String::new, |children| {
+                                fl!("item-count", count = children)
+                            })
+                        } else {
+                            format_size(size_opt.unwrap_or_default())
+                        }
+                    }
+                };
 
-            if count == 0 {
-                return (self.empty_view(hidden > 0), false);
+                let type_text =
+                    crate::file_category::FileCategory::of(item.metadata.is_dir(), &item.mime)
+                        .to_string();
+
+                let (mut second_line, right_text) = if is_search {
+                    (self.search_folder_text(item), modified_text)
+                } else {
+                    list_details(sort_name, &type_text, &size_text, &modified_text)
+                };
+                if !right_shown {
+                    second_line = line_with_right(&right_text, &second_line);
+                }
+
+                let mut name = Item::list_display_name(item.display_name.clone());
+                if sort_name == HeadingOptions::Name && !is_search {
+                    name = name.font(crate::ui::font::semibold());
+                }
+                // A selected or cut row's button sets the text colour
+                // (on the accent fill, or dimmed), so its details take
+                // that colour instead of their own
+                let own_colours = !item.selected && !item.cut;
+                let faded = item.faded();
+                if faded && own_colours {
+                    name = name.class(theme::Text::Custom(faded_text_style));
+                }
+                let dim = if !own_colours {
+                    theme::Text::Default
+                } else if faded {
+                    theme::Text::Custom(faded_dim_text_style)
+                } else {
+                    theme::Text::Custom(dim_text_style)
+                };
+                let text = widget::Column::with_capacity(2)
+                    .width(Length::Fill)
+                    .push(name)
+                    .push(
+                        widget::ellipsize::caption(second_line, widget::EllipsizeMode::Middle(1))
+                            .class(dim),
+                    );
+
+                // The right column is dim like the details under the
+                // name, whatever the list is sorted by
+                let right: Element<'_, Message> = widget::text::body(right_text)
+                    .width(Length::Fixed(right_width))
+                    .align_x(text::Alignment::Right)
+                    .wrapping(text::Wrapping::None)
+                    .class(dim)
+                    .into();
+
+                let mut cells: Vec<Element<'_, Message>> = vec![
+                    widget::icon::icon(item.icon_handle_list.clone())
+                        .content_fit(ContentFit::Contain)
+                        .size(icon_size)
+                        .opacity(if faded { FADED_OPACITY } else { 1.0 })
+                        .into(),
+                    text.into(),
+                ];
+                if right_shown {
+                    if let Some(slide) = column_slide {
+                        // The name is held at its narrow width (its width with
+                        // the drawer in the layout) and the right column
+                        // slides over the gap as one texture, never over the
+                        // name. The spacer brings one more row gap with it,
+                        // so it is one gap short of `extent`.
+                        debug_assert!(
+                            slide.extent >= f32::from(space_xs),
+                            "a drawer narrower than a gap"
+                        );
+                        cells.push(
+                            space::horizontal()
+                                .width(Length::Fixed(slide.extent - f32::from(space_xs)))
+                                .into(),
+                        );
+                        cells.push(
+                            cached(TextureCache::new(), right)
+                                .translate(slide.offset.clone())
+                                .into(),
+                        );
+                    } else {
+                        cells.push(right);
+                    }
+                }
+                let row = widget::Row::with_children(cells)
+                    .height(Length::Fixed(f32::from(row_height)))
+                    .align_y(Alignment::Center)
+                    .spacing(space_xs.to_pixels());
+
+                let mouse_area = crate::mouse_area::MouseArea::new(
+                    widget::button::custom(row)
+                        .width(Length::Fill)
+                        .id(item.button_id.clone())
+                        .padding([0, space_xs])
+                        .class(button_style(
+                            item.selected,
+                            item.highlighted,
+                            item.cut,
+                            true,
+                            false,
+                        )),
+                )
+                .on_press(move |_| Message::Click(Some(i)))
+                .on_drag(move |_| Message::DragFiles(i))
+                .on_double_click(move |_| Message::DoubleClick(Some(i)))
+                .on_release(move |_| Message::ClickRelease(Some(i)))
+                .on_middle_press(move |_| Message::MiddleClick(i))
+                .on_enter(move || Message::HighlightActivate(i))
+                .on_exit(move || Message::HighlightDeactivate(i))
+                .on_right_press_no_capture()
+                .on_right_press(move |point_opt| Message::RightClick(point_opt, Some(i)));
+
+                // Every other row is striped; hover and selection paint
+                // over the stripe
+                let row: Element<'_, Message> = if count % 2 == 1 {
+                    widget::container(mouse_area).style(stripe_style).into()
+                } else {
+                    mouse_area.into()
+                };
+                keys.push(i as u64);
+                rows_column = rows_column.push(row);
             }
+            let below = layout.shown.len() - visible.end;
+            if below > 0 {
+                keys.push(BELOW);
+                rows_column =
+                    rows_column.push(space::vertical().height(Length::Fixed(rows_height(below))));
+            }
+            // Each row's state is its item's, whichever place it takes
+            column = column.push(widget::keyed_children(keys, rows_column));
+            y = rows_height(layout.shown.len());
 
             // Cache content height for scroll clamping on next frame, with
             // the room kept under the last row for the corner card
@@ -8777,8 +9412,9 @@ impl Tab {
         );
 
         let selected_items: Vec<&Item> = self.items_opt().map_or(Vec::new(), |items| {
-            items
+            self.selected_indices()
                 .iter()
+                .filter_map(|&index| items.get(index))
                 .filter(|item| {
                     if item.selected {
                         item.location_opt
@@ -9065,22 +9701,25 @@ impl Tab {
         // worker. Keyed by the listing (the app adds the tab), so a rescan or
         // closing the tab drops it, and with it the receiver the worker checks
         // before each file.
-        if let Some(files) = self.unchecked_files() {
+        if let Some(job) = self.type_check_job() {
             struct TypeCheckJob {
                 listing: u64,
+                key: u64,
                 files: Arc<[crate::type_check::Unchecked]>,
                 sizes: IconSizes,
             }
             impl Hash for TypeCheckJob {
                 fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
                     self.listing.hash(state);
+                    self.key.hash(state);
                 }
             }
 
             subscriptions.push(Subscription::run_with(
                 TypeCheckJob {
                     listing: self.listing,
-                    files,
+                    key: job.key,
+                    files: job.files,
                     sizes: self.config.icon_sizes,
                 },
                 |job| {
@@ -9164,10 +9803,13 @@ impl Tab {
 
         if let Some(items) = &self.items_opt {
             let visible_rect = self.visible_rect(self.size_opt.get().unwrap_or_default());
+            // Only what is on screen is counted or thumbnailed, so only that
+            // is looked at
+            let visible = self.visible_items();
 
             // Count the children of visible directories in the background. Doing it while
             // scanning costs one directory listing per entry, which stalls remote filesystems.
-            for item in items {
+            for &(index, item) in &visible {
                 let uncounted_dir = match &item.metadata {
                     ItemMetadata::Path {
                         metadata,
@@ -9195,17 +9837,20 @@ impl Tab {
                     continue;
                 };
 
-                struct ChildrenWrapper(PathBuf);
+                /// The folder to count, and where its item was when asked,
+                /// so the answer finds it without a search. Keyed by the
+                /// path alone: a move of the item does not restart the count.
+                struct ChildrenWrapper(usize, PathBuf);
                 impl Hash for ChildrenWrapper {
                     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-                        self.0.hash(state);
+                        self.1.hash(state);
                     }
                 }
 
                 subscriptions.push(Subscription::run_with(
-                    ChildrenWrapper(path),
-                    |ChildrenWrapper(path)| {
-                        let path = path.clone();
+                    ChildrenWrapper(index, path),
+                    |ChildrenWrapper(index, path)| {
+                        let (index, path) = (*index, path.clone());
                         stream::channel(
                             1,
                             move |mut output: futures::channel::mpsc::Sender<_>| async move {
@@ -9223,7 +9868,7 @@ impl Tab {
                                                 0
                                             }
                                         };
-                                        Message::DirectoryChildren(path, children)
+                                        Message::DirectoryChildren(index, path, children)
                                     })
                                     .await
                                     .unwrap()
@@ -9240,7 +9885,7 @@ impl Tab {
                 ));
             }
 
-            for item in items {
+            for &(_, item) in &visible {
                 if !item.wants_thumbnail() {
                     // Already thumbnailed, or its type is still a guess from
                     // its name
@@ -9388,8 +10033,11 @@ impl Tab {
             if preview {
                 // Load directory size for selected items
 
-                let mut selected_items: Vec<&Item> =
-                    items.iter().filter(|item| item.selected).collect();
+                let mut selected_items: Vec<&Item> = self
+                    .selected_indices()
+                    .iter()
+                    .filter_map(|&index| items.get(index))
+                    .collect();
 
                 if selected_items.is_empty()
                     && let Some(p) = self.parent_item_opt.as_ref()
@@ -11165,7 +11813,7 @@ mod tests {
         );
 
         let listing = tab.listing();
-        let files = tab.unchecked_files().expect("the photo is unchecked");
+        let files = unchecked_files(&tab).expect("the photo is unchecked");
         assert_eq!(files.len(), 1);
         let checked = crate::type_check::check(&files[0], IconSizes::default());
 
@@ -11190,19 +11838,17 @@ mod tests {
             Some((4, 2))
         );
         assert!(photo.wants_thumbnail(), "checked, and no thumbnail yet");
-        assert!(tab.unchecked_files().is_none(), "nothing is left to check");
+        assert!(unchecked_files(&tab).is_none(), "nothing is left to check");
         Ok(())
     }
 
-    /// Files are checked in the order they are shown, hidden ones last when
-    /// they are not shown, and folders not at all.
-    #[test]
-    fn unchecked_files_come_in_the_order_shown() -> io::Result<()> {
-        let fs = empty_fs()?;
-        for name in ["b.txt", ".h.txt", "a.txt"] {
-            fs::write(fs.path().join(name), b"x")?;
-        }
-        fs::create_dir(fs.path().join("dir"))?;
+    /// What the content check would read now.
+    fn unchecked_files(tab: &Tab) -> Option<std::sync::Arc<[crate::type_check::Unchecked]>> {
+        tab.type_check_job().map(|job| job.files)
+    }
+
+    /// A tab listing `fs` by name first, sorted by name.
+    fn name_first_tab(fs: &TempDir) -> Tab {
         let location = Location::Path(fs.path().to_owned());
         let (_parent, items, _) = location.try_scan(IconSizes::default(), Typing::NameFirst);
         let mut tab = Tab::new(
@@ -11216,25 +11862,500 @@ mod tests {
         tab.sort_name = HeadingOptions::Name;
         tab.sort_direction = true;
         tab.set_items(items);
+        tab
+    }
 
-        let files = tab.unchecked_files().expect("the files are unchecked");
+    /// A folder of `count` files named `f000` and on, typed by name only.
+    fn folder_of_files(count: usize) -> io::Result<TempDir> {
+        let fs = empty_fs()?;
+        for n in 0..count {
+            fs::write(fs.path().join(format!("f{n:03}.txt")), b"x")?;
+        }
+        Ok(fs)
+    }
+
+    /// Lays the listing out as the list view would, in item order, ten
+    /// pixels a row, and scrolls it so the positions `visible` are on
+    /// screen.
+    fn show(tab: &mut Tab, visible: std::ops::Range<usize>) {
+        let items = tab.items_opt().expect("populated");
+        for (row, item) in items.iter().enumerate() {
+            item.rect_opt.set(Some(super::Rectangle::new(
+                super::Point::new(0.0, row as f32 * 10.0),
+                super::Size::new(100.0, 10.0),
+            )));
+        }
+        let count = items.len();
+        tab.content_height_opt.set(Some(count as f32 * 10.0));
+        tab.size_opt
+            .set(Some(super::Size::new(100.0, visible.len() as f32 * 10.0)));
+        tab.scroll_opt = Some(super::AbsoluteOffset {
+            x: 0.0,
+            y: visible.start as f32 * 10.0,
+        });
+        tab.shown_layout.replace(Some(super::ShownLayout {
+            key: super::LayoutKey {
+                order: std::sync::Arc::from([]),
+                show_hidden: false,
+                columns: 1,
+                width: 0.0,
+                pitch: 0.0,
+            },
+            shown: (0..count).collect(),
+            columns: 1,
+            top: 0.0,
+            pitch: 10.0,
+        }));
+    }
+
+    /// Before anything is drawn, files are checked in the order they will be
+    /// shown, folders not at all, and hidden ones not while hidden.
+    #[test]
+    fn unchecked_files_come_in_the_order_shown() -> io::Result<()> {
+        let fs = empty_fs()?;
+        for name in ["b.txt", ".h.txt", "a.txt"] {
+            fs::write(fs.path().join(name), b"x")?;
+        }
+        fs::create_dir(fs.path().join("dir"))?;
+        let mut tab = name_first_tab(&fs);
+
+        let files = unchecked_files(&tab).expect("the files are unchecked");
         let names: Vec<&str> = files.iter().map(|file| file.name.as_str()).collect();
-        assert_eq!(names, ["a.txt", "b.txt", ".h.txt"]);
+        assert_eq!(names, ["a.txt", "b.txt"]);
 
-        // The order is fixed for the listing: a new sort does not reorder
-        // what is still waiting
+        // A new sort is the order shown from then on
         tab.sort_direction = false;
-        let files = tab.unchecked_files().expect("the files are unchecked");
+        let files = unchecked_files(&tab).expect("the files are unchecked");
         let names: Vec<&str> = files.iter().map(|file| file.name.as_str()).collect();
-        assert_eq!(names, ["a.txt", "b.txt", ".h.txt"]);
+        assert_eq!(names, ["b.txt", "a.txt"]);
 
-        // A new listing is ordered afresh
+        // Shown hidden files are checked where they are shown
+        tab.config.show_hidden = true;
+        tab.sort_direction = true;
+        let files = unchecked_files(&tab).expect("the files are unchecked");
+        let names: Vec<&str> = files.iter().map(|file| file.name.as_str()).collect();
+        assert_eq!(names, [".h.txt", "a.txt", "b.txt"]);
+        Ok(())
+    }
+
+    /// The window: what is on screen, a screenful below it, then a screenful
+    /// above it nearest first, snapped to whole screenfuls.
+    #[test]
+    fn the_check_reads_around_what_is_on_screen() {
+        let order: Vec<usize> = (100..200).collect();
+        let (indices, range) = super::check_order(&order, 40..48);
+        assert_eq!(range, 32..64);
+        let expected: Vec<usize> = (140..148).chain(148..164).chain((132..140).rev()).collect();
+        assert_eq!(indices, expected);
+
+        // A screenful is rounded up to a power of two: 7 or 8 rows on screen
+        // give the same window
+        assert_eq!(super::check_order(&order, 41..48).1, 32..64);
+        // Clamped to the listing
+        assert_eq!(super::check_order(&order, 96..100).1, 92..100);
+        assert_eq!(super::check_order(&order, 0..0).1, 0..3);
+    }
+
+    /// Scrolling within the window keeps the job, so its worker carries on;
+    /// leaving it makes a new one for the files there.
+    #[test]
+    fn the_check_follows_the_view_a_window_at_a_time() -> io::Result<()> {
+        let fs = folder_of_files(100)?;
+        let mut tab = name_first_tab(&fs);
+
+        show(&mut tab, 40..48);
+        let first = tab.type_check_job().expect("files are unchecked");
+        assert_eq!(first.files.len(), 32);
+        assert_eq!(first.files[0].index, 40);
+        show(&mut tab, 42..50);
+        let scrolled = tab.type_check_job().expect("files are unchecked");
+        assert_eq!(scrolled.key, first.key, "the window had not moved");
+        assert_eq!(scrolled.files[0].index, 40, "the job was rebuilt");
+
+        show(&mut tab, 60..68);
+        let moved = tab.type_check_job().expect("files are unchecked");
+        assert_ne!(moved.key, first.key);
+        assert_eq!(moved.files[0].index, 60);
+        Ok(())
+    }
+
+    /// iced asks for the subscription after an update and before it draws,
+    /// so a scroll must move the window by itself: the view after it may be
+    /// the last thing that happens.
+    #[test]
+    fn a_scroll_moves_the_window_before_the_view_redraws() -> io::Result<()> {
+        let fs = folder_of_files(100)?;
+        let mut tab = name_first_tab(&fs);
+        show(&mut tab, 0..8);
+        let top = tab.type_check_job().expect("files are unchecked");
+        assert_eq!(top.files[0].index, 0);
+
+        // As `Message::Scroll` leaves it; nothing is drawn in between
+        tab.scroll_opt = Some(super::AbsoluteOffset { x: 0.0, y: 800.0 });
+        let scrolled = tab.type_check_job().expect("files are unchecked");
+        assert_ne!(scrolled.key, top.key);
+        assert_eq!(scrolled.files[0].index, 80);
+        Ok(())
+    }
+
+    fn shown_names(tab: &Tab) -> Vec<String> {
+        tab.column_sort()
+            .into_iter()
+            .flatten()
+            .map(|(_, item)| item.display_name.clone())
+            .collect()
+    }
+
+    /// The order is sorted once and kept while only order-keeping messages
+    /// arrive; any other forgets it, so a change made meanwhile shows.
+    #[test]
+    fn the_order_is_kept_until_something_may_have_changed_it() -> io::Result<()> {
+        let fs = empty_fs()?;
+        for name in ["a", "b", "c"] {
+            fs::write(fs.path().join(name), b"x")?;
+        }
+        let mut tab = name_first_tab(&fs);
+        assert_eq!(shown_names(&tab), ["a", "b", "c"]);
+
+        // Renamed behind the cache's back, as nothing in the tab would do
+        for item in tab.items_opt.as_mut().expect("populated") {
+            if item.display_name == "a" {
+                item.display_name = "z".to_owned();
+            }
+        }
+        tab.update(Message::HighlightActivate(0), Modifiers::empty());
+        assert_eq!(shown_names(&tab), ["z", "b", "c"], "the order was not kept");
+
+        // Nor across a menu, the zoom or the settings it changes: nothing
+        // they do moves a file
+        tab.update(Message::RightClickBackground, Modifiers::empty());
+        tab.update(Message::ZoomIn, Modifiers::empty());
+        let mut config = tab.config;
+        config.icon_sizes = IconSizes::default();
+        tab.update(Message::Config(config), Modifiers::empty());
+        assert_eq!(shown_names(&tab), ["z", "b", "c"], "the order was not kept");
+
+        tab.update(
+            Message::OpenInNewTab(fs.path().join("b")),
+            Modifiers::empty(),
+        );
+        assert_eq!(
+            shown_names(&tab),
+            ["b", "c", "z"],
+            "a stale order outlived it"
+        );
+
+        // A new sort is a new order, without being told
+        tab.sort_direction = false;
+        assert_eq!(shown_names(&tab), ["z", "c", "b"]);
+        Ok(())
+    }
+
+    /// The kept selection is forgotten by everything that selects: a kept
+    /// answer that is stale fails the check inside `selected_indices`.
+    #[test]
+    fn every_way_of_selecting_forgets_the_kept_selection() -> io::Result<()> {
+        let fs = empty_fs()?;
+        for name in ["a", "b", "c"] {
+            fs::write(fs.path().join(name), b"x")?;
+        }
+        let mut tab = name_first_tab(&fs);
+        let path = fs.path().join("b");
+        let count = |tab: &Tab| tab.selected_indices().len();
+        assert_eq!(count(&tab), 0);
+
+        tab.select_all();
+        assert_eq!(count(&tab), 3);
+        tab.select_none();
+        assert_eq!(count(&tab), 0);
+        tab.select_paths(vec![path.clone()]);
+        assert_eq!(count(&tab), 1);
+        tab.select_name("c");
+        assert_eq!(count(&tab), 1);
+        tab.update(Message::SelectAll, Modifiers::empty());
+        assert_eq!(count(&tab), 3);
+        // Kept across a message that leaves the selection alone
+        tab.update(Message::HighlightActivate(0), Modifiers::empty());
+        assert_eq!(count(&tab), 3);
+        tab.update(Message::Click(None), Modifiers::empty());
+        assert_eq!(count(&tab), 0);
+        // A new listing keeps what was selected, by location
+        tab.select_paths(vec![path]);
+        assert_eq!(count(&tab), 1);
         let (_parent, items, _) =
             Location::Path(fs.path().to_owned()).try_scan(IconSizes::default(), Typing::NameFirst);
         tab.set_items(items);
-        let files = tab.unchecked_files().expect("the files are unchecked");
-        let names: Vec<&str> = files.iter().map(|file| file.name.as_str()).collect();
-        assert_eq!(names, ["b.txt", "a.txt", ".h.txt"]);
+        assert_eq!(count(&tab), 1);
+        Ok(())
+    }
+
+    /// Selecting with the keyboard through the layout picks exactly what the
+    /// walk over every item picks, in a list and in a grid, with and without
+    /// shift.
+    #[test]
+    fn keyboard_selection_through_the_layout_matches_the_walk() -> io::Result<()> {
+        use crate::ui::iced::Size;
+
+        let fs = folder_of_files(37)?;
+        for grid in [false, true] {
+            let tab_for = |fast: bool| {
+                let mut tab = name_first_tab(&fs);
+                if grid {
+                    tab.config.view = super::View::Grid;
+                }
+                tab.size_opt.set(Some(Size::new(700.0, 400.0)));
+                drop(if grid {
+                    tab.grid_view()
+                } else {
+                    tab.list_view(None)
+                });
+                if !fast {
+                    tab.shown_layout.replace(None);
+                }
+                tab
+            };
+            let (mut fast, mut walk) = (tab_for(true), tab_for(false));
+            if grid {
+                let columns = fast.shown_layout.borrow().as_ref().map(|l| l.columns);
+                assert!(columns > Some(2), "the grid has a few columns: {columns:?}");
+            }
+            let shift = Modifiers::SHIFT;
+            let presses = [
+                (Message::ItemDown, Modifiers::empty()),
+                (Message::ItemDown, Modifiers::empty()),
+                (Message::ItemRight, Modifiers::empty()),
+                (Message::ItemDown, shift),
+                (Message::ItemDown, shift),
+                (Message::ItemRight, shift),
+                (Message::ItemUp, shift),
+                (Message::ItemPageDown, Modifiers::empty()),
+                (Message::ItemPageDown, shift),
+                (Message::ItemLeft, Modifiers::empty()),
+                (Message::ItemPageUp, shift),
+                (Message::ItemUp, Modifiers::empty()),
+                (Message::ItemPageDown, Modifiers::empty()),
+                (Message::ItemPageDown, Modifiers::empty()),
+                (Message::ItemPageDown, Modifiers::empty()),
+                (Message::ItemDown, Modifiers::empty()),
+                (Message::ItemRight, Modifiers::empty()),
+                (Message::ItemLeft, shift),
+            ];
+            for (n, (press, modifiers)) in presses.into_iter().enumerate() {
+                let label = format!("{press:?}");
+                fast.update(press.clone(), modifiers);
+                walk.update(press, modifiers);
+                assert_eq!(
+                    selected_names(&fast),
+                    selected_names(&walk),
+                    "grid {grid}, press {n} ({label})"
+                );
+                assert_eq!(
+                    fast.select_focus, walk.select_focus,
+                    "grid {grid}, press {n}"
+                );
+                assert_eq!(
+                    fast.select_range, walk.select_range,
+                    "grid {grid}, press {n}"
+                );
+            }
+            assert!(
+                fast.shown_layout.borrow().is_some(),
+                "the fast tab lost its layout"
+            );
+        }
+        Ok(())
+    }
+
+    /// Settings keep the order, except the one it is sorted by: folders
+    /// first is part of what the order was sorted for.
+    #[test]
+    fn folders_first_from_the_settings_sorts_again() -> io::Result<()> {
+        let fs = empty_fs()?;
+        fs::write(fs.path().join("a"), b"x")?;
+        fs::create_dir(fs.path().join("b"))?;
+        let mut tab = name_first_tab(&fs);
+        let mut config = tab.config;
+        config.folders_first = true;
+        tab.update(Message::Config(config), Modifiers::empty());
+        assert_eq!(shown_names(&tab), ["b", "a"]);
+        config.folders_first = false;
+        tab.update(Message::Config(config), Modifiers::empty());
+        assert_eq!(shown_names(&tab), ["a", "b"]);
+        Ok(())
+    }
+
+    /// What is on screen follows from the rows' geometry: rows that start
+    /// above the bottom edge and end below the top one.
+    #[test]
+    fn the_rows_on_screen_follow_from_the_layout() {
+        let list = super::ShownLayout {
+            key: super::LayoutKey {
+                order: std::sync::Arc::from([]),
+                show_hidden: false,
+                columns: 1,
+                width: 0.0,
+                pitch: 10.0,
+            },
+            shown: (0..100).collect(),
+            columns: 1,
+            top: 0.0,
+            pitch: 10.0,
+        };
+        use crate::ui::iced::{Point, Rectangle, Size};
+        let rect =
+            |y: f32, height: f32| Rectangle::new(Point::new(0.0, y), Size::new(100.0, height));
+        assert_eq!(list.visible(rect(400.0, 80.0)), 40..48);
+        assert_eq!(list.visible(rect(405.0, 80.0)), 40..49, "two half rows");
+        assert_eq!(list.visible(rect(990.0, 80.0)), 99..100, "clamped");
+
+        let grid = super::ShownLayout {
+            key: super::LayoutKey {
+                order: std::sync::Arc::from([]),
+                show_hidden: false,
+                columns: 4,
+                width: 0.0,
+                pitch: 100.0,
+            },
+            shown: (0..95).collect(),
+            columns: 4,
+            top: 4.0,
+            pitch: 100.0,
+        };
+        assert_eq!(grid.visible(rect(0.0, 250.0)), 0..12);
+        assert_eq!(
+            grid.visible(rect(2100.0, 250.0)),
+            80..95,
+            "the last row is short"
+        );
+    }
+
+    /// A count finds its folder where it was asked about, or by its path
+    /// once the listing has moved it; and only a sort by size is redone.
+    #[test]
+    fn a_folder_count_finds_its_item_and_resorts_only_by_size() -> io::Result<()> {
+        let fs = empty_fs()?;
+        for name in ["a", "b"] {
+            fs::create_dir(fs.path().join(name))?;
+        }
+        let mut tab = name_first_tab(&fs);
+        let items = tab.items_opt().expect("populated").clone();
+        let index_of = |name: &str| {
+            items
+                .iter()
+                .position(|item| item.name == name)
+                .expect("listed")
+        };
+        let (a, b) = (index_of("a"), index_of("b"));
+        let path_of = |index: usize| items[index].path_opt().expect("a path").clone();
+        let (a_path, b_path) = (path_of(a), path_of(b));
+        let children =
+            |tab: &Tab, index: usize| match &tab.items_opt().expect("populated")[index].metadata {
+                ItemMetadata::Path { children_opt, .. } => *children_opt,
+                _ => None,
+            };
+
+        tab.update(Message::DirectoryChildren(a, a_path, 3), Modifiers::empty());
+        assert_eq!(children(&tab, a), Some(3));
+        // Asked about at a's place, answered for b
+        tab.update(Message::DirectoryChildren(a, b_path, 9), Modifiers::empty());
+        assert_eq!(children(&tab, b), Some(9));
+        assert_eq!(
+            children(&tab, a),
+            Some(3),
+            "the answer went to the wrong item"
+        );
+
+        tab.sort_name = HeadingOptions::Size;
+        let _ = tab.column_sort();
+        assert!(tab.sort_cache.borrow().is_some());
+        tab.update(
+            Message::DirectoryChildren(a, path_of(a), 1),
+            Modifiers::empty(),
+        );
+        assert!(
+            tab.sort_cache.borrow().is_none(),
+            "sizes moved, the order stayed"
+        );
+
+        tab.sort_name = HeadingOptions::Name;
+        let _ = tab.column_sort();
+        tab.update(
+            Message::DirectoryChildren(a, path_of(a), 2),
+            Modifiers::empty(),
+        );
+        assert!(tab.sort_cache.borrow().is_some(), "a name sort was redone");
+        Ok(())
+    }
+
+    /// A selected file is checked wherever it is, after the window, so what
+    /// waits for the check -- "Open with" -- is offered for it.
+    #[test]
+    fn a_selected_file_is_checked_outside_the_window() -> io::Result<()> {
+        let fs = folder_of_files(100)?;
+        let mut tab = name_first_tab(&fs);
+        show(&mut tab, 0..8);
+        tab.items_opt.as_mut().expect("populated")[90].selected = true;
+
+        let files = unchecked_files(&tab).expect("files are unchecked");
+        assert_eq!(files.len(), 25);
+        assert_eq!(files.last().map(|file| file.index), Some(90));
+        Ok(())
+    }
+
+    /// Nothing left unchecked in the window: no job, so no worker, until the
+    /// view moves.
+    #[test]
+    fn a_checked_window_has_no_job() -> io::Result<()> {
+        let fs = folder_of_files(100)?;
+        let mut tab = name_first_tab(&fs);
+        show(&mut tab, 0..8);
+        let job = tab.type_check_job().expect("files are unchecked");
+        let listing = tab.listing();
+        let checked = job
+            .files
+            .iter()
+            .map(|file| crate::type_check::check(file, IconSizes::default()))
+            .collect();
+        tab.update(Message::TypesChecked(listing, checked), Modifiers::empty());
+        assert!(tab.type_check_job().is_none());
+
+        show(&mut tab, 50..58);
+        assert!(tab.type_check_job().is_some());
+        Ok(())
+    }
+
+    /// An answer whose index no longer points at its file -- the listing
+    /// changed under the job -- still finds it by its path.
+    #[test]
+    fn a_stale_index_falls_back_to_the_path() -> io::Result<()> {
+        let fs = folder_with_unnamed_jpeg()?;
+        fs::write(fs.path().join("a.txt"), b"x")?;
+        let mut tab = name_first_tab(&fs);
+        let listing = tab.listing();
+        let files = unchecked_files(&tab).expect("files are unchecked");
+        let photo = files
+            .iter()
+            .find(|file| file.name == "photo")
+            .expect("the photo is unchecked");
+        let mut checked = crate::type_check::check(photo, IconSizes::default());
+        checked.index = (photo.index + 1) % 2;
+
+        tab.update(
+            Message::TypesChecked(listing, vec![checked]),
+            Modifiers::empty(),
+        );
+        let items = tab.items_opt().expect("populated");
+        let photo = items
+            .iter()
+            .find(|item| item.name == "photo")
+            .expect("listed");
+        assert!(photo.type_checked);
+        assert_eq!(photo.mime, Mime::from_static("image/jpeg"));
+        let other = items
+            .iter()
+            .find(|item| item.name == "a.txt")
+            .expect("listed");
+        assert!(!other.type_checked, "the answer went to the wrong item");
         Ok(())
     }
 
@@ -11255,7 +12376,7 @@ mod tests {
         );
         tab.set_items(items);
         let listing = tab.listing();
-        let files = tab.unchecked_files().expect("the photo is unchecked");
+        let files = unchecked_files(&tab).expect("the photo is unchecked");
         let checked = crate::type_check::check(&files[0], IconSizes::default());
 
         {
@@ -11300,6 +12421,7 @@ mod tests {
             .expect("the scan should list it");
         let path = photo.path_opt().expect("a local file").clone();
         let file = crate::type_check::Unchecked {
+            index: 0,
             path: path.clone(),
             name: photo.name.clone(),
             mime: photo.mime.clone(),
@@ -11317,6 +12439,7 @@ mod tests {
         let mut kept = photo.clone();
         kept.thumbnail_opt = Some(ItemThumbnail::NotImage);
         assert!(!kept.take_check(crate::type_check::Checked {
+            index: 0,
             path,
             dims: None,
             retyped: None,

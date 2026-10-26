@@ -78,6 +78,9 @@ pub use icon::{Icon, icon};
 pub mod id_container;
 pub use id_container::{IdContainer, id_container};
 
+pub mod keyed_children;
+pub use keyed_children::{KeyedChildren, keyed_children};
+
 pub mod layer_container;
 pub use layer_container::{LayerContainer, layer_container};
 
