@@ -16,16 +16,24 @@
 //!
 //! Programmatic scrolling is instant with [`super::scroll_to`] and glides with
 //! [`super::glide_to`].
+//!
+//! The scrollbar is [`Smooth`]'s own; iced's is hidden. iced keeps its handle
+//! only 2 px long, which over a folder like `/nix/store` all but disappears,
+//! and fixes its thickness when the view is built. Here the handle is never
+//! shorter than [`MIN_HANDLE`], and the bar rests thin and widens on a spring
+//! while the pointer is over it or drags it.
 
 use std::time::{Duration, Instant};
 
-use iced::widget::scrollable::{AbsoluteOffset, Direction, RelativeOffset, Scrollable, Viewport};
+use iced::widget::scrollable::{
+    AbsoluteOffset, Catalog, Direction, RelativeOffset, Scrollable, Scrollbar, Status, Viewport,
+};
 use iced_core::event::Event;
 use iced_core::widget::operation::scrollable::Scrollable as ScrollableState;
 use iced_core::widget::{Id, Operation, Tree, tree};
 use iced_core::{
-    Clipboard, Element, Layout, Length, Rectangle, Shell, Size, Vector, Widget, keyboard, layout,
-    mouse, overlay, renderer, window,
+    Clipboard, Element, Layout, Length, Point, Rectangle, Renderer as _, Shell, Size, Vector,
+    Widget, keyboard, layout, mouse, overlay, renderer, touch, window,
 };
 use iced_exwlshell::gesture::{self as frames, Gesture, GestureReceiver, Source, Stop};
 use iced_texture_cache::iced_animate::{Decay, Spring, SpringParams};
@@ -56,17 +64,54 @@ const MIN_COAST_SPEED: f32 = 60.0;
 /// motion where it stopped instead of landing it in one step.
 const MAX_FRAME: f32 = 1.0 / 15.0;
 
+/// How thick a bar is at rest.
+const BAR_THIN: f32 = 4.0;
+
+/// How thick a bar is under the pointer or while dragged. The pointer finds it
+/// across this whole width even while it is thin.
+const BAR_WIDE: f32 = 8.0;
+
+/// How a bar widens and narrows.
+const BAR_SPRING: SpringParams = SpringParams::new(0.0, Duration::from_millis(150));
+
+/// The shortest a handle gets, so it stays visible and easy to grab over
+/// very long content.
+const MIN_HANDLE: f32 = 32.0;
+
+/// Which way a [`Smooth`] scrolls, and so which edge its bar is on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Axis {
+    /// The bar is on the right.
+    Vertical,
+    /// The bar is along the bottom.
+    Horizontal,
+}
+
 /// iced's [`Scrollable`] with smooth wheel, track, touchpad and programmatic
 /// scrolling. See the [module documentation](self).
 #[allow(missing_debug_implementations)]
 pub struct Smooth<'a, Message> {
     inner: Scrollable<'a, Message, Theme, Renderer>,
     id: Option<Id>,
+    axis: Axis,
+    /// How far the bar sits in from the edge it is on.
+    margin: f32,
+    class: <Theme as Catalog>::Class<'a>,
 }
 
 impl<'a, Message> Smooth<'a, Message> {
-    pub(super) fn new(inner: Scrollable<'a, Message, Theme, Renderer>) -> Self {
-        Self { inner, id: None }
+    pub(super) fn new(inner: Scrollable<'a, Message, Theme, Renderer>, axis: Axis) -> Self {
+        let direction = match axis {
+            Axis::Vertical => Direction::Vertical(Scrollbar::hidden()),
+            Axis::Horizontal => Direction::Horizontal(Scrollbar::hidden()),
+        };
+        Self {
+            inner: inner.direction(direction),
+            id: None,
+            axis,
+            margin: 0.0,
+            class: <Theme as Catalog>::default(),
+        }
     }
 
     /// Sets the [`Id`], which [`super::scroll_to`] and [`super::glide_to`] target.
@@ -99,20 +144,18 @@ impl<'a, Message> Smooth<'a, Message> {
         self
     }
 
-    /// Sets the [`Direction`] and its scrollbars.
+    /// Sets how far the bar sits in from the edge it is on.
     #[must_use]
-    pub fn direction(mut self, direction: impl Into<Direction>) -> Self {
-        self.inner = self.inner.direction(direction);
+    pub fn bar_margin(mut self, margin: f32) -> Self {
+        self.margin = margin;
         self
     }
 
     /// Sets the style class.
     #[must_use]
-    pub fn class(
-        mut self,
-        class: impl Into<<Theme as iced::widget::scrollable::Catalog>::Class<'a>>,
-    ) -> Self {
-        self.inner = self.inner.class(class);
+    pub fn class(mut self, class: impl Into<<Theme as Catalog>::Class<'a>>) -> Self {
+        self.class = class.into();
+        self.inner = self.inner.class(self.class);
         self
     }
 
@@ -231,6 +274,15 @@ struct State {
     samples: Vec<Sample>,
     gestures: GestureReceiver,
     request: GlideRequest,
+    /// How thick the bar is drawn, between [`BAR_THIN`] and [`BAR_WIDE`].
+    thickness: Spring,
+    /// When the thickness last advanced, while it is changing.
+    thickness_frame: Option<Instant>,
+    /// Where along the handle the pointer holds it, `0.0..=1.0`, while the
+    /// handle is dragged.
+    grabbed: Option<f32>,
+    /// The offset and extent the last event left, which the bar is drawn by.
+    shown: Option<Extent>,
 }
 
 impl Default for State {
@@ -243,6 +295,10 @@ impl Default for State {
             samples: Vec::new(),
             gestures: GestureReceiver::new(),
             request: GlideRequest::default(),
+            thickness: Spring::new(BAR_SPRING, BAR_THIN),
+            thickness_frame: None,
+            grabbed: None,
+            shown: None,
         }
     }
 }
@@ -259,6 +315,66 @@ impl State {
         self.motion = Motion::Idle;
         self.last_frame = None;
     }
+
+    /// Notes a touchpad movement that moved the offset by `moved`, so the
+    /// list can coast on when the fingers lift. Only the list the fingers
+    /// moved owns the gesture: every list sees the event, and the last to
+    /// claim it gets the stop.
+    fn record_finger_move(&mut self, moved: Vector) {
+        let frame = frames::current();
+        if frame.and_then(|frame| frame.source) != Some(Source::Finger) || !self.gestures.claim() {
+            return;
+        }
+        let received = Instant::now();
+        // A new gesture starts a new record.
+        if self
+            .samples
+            .last()
+            .is_some_and(|last| received - last.received > Duration::from_millis(500))
+        {
+            self.samples.clear();
+        }
+        self.samples.push(Sample {
+            time: frame.and_then(|frame| frame.time),
+            received,
+            moved,
+        });
+    }
+
+    /// Widens the bar while the pointer is over it or drags its handle, and
+    /// narrows it otherwise. Returns whether the thickness has to move.
+    fn hover(&mut self, over_bar: bool) -> bool {
+        let target = if over_bar || self.grabbed.is_some() {
+            BAR_WIDE
+        } else {
+            BAR_THIN
+        };
+        if self.thickness.target() == target {
+            return false;
+        }
+        self.thickness.set_target(target);
+        self.thickness_frame.get_or_insert_with(Instant::now);
+        true
+    }
+
+    /// Advances the thickness to `now`. Returns whether it is still moving.
+    fn tick_thickness(&mut self, now: Instant) -> bool {
+        let Some(last) = self.thickness_frame else {
+            return false;
+        };
+        let dt = now
+            .saturating_duration_since(last)
+            .as_secs_f32()
+            .min(MAX_FRAME);
+        self.thickness.tick(dt);
+        if self.thickness.is_settled_within(0.05) {
+            self.thickness.snap();
+            self.thickness_frame = None;
+            return false;
+        }
+        self.thickness_frame = Some(now);
+        true
+    }
 }
 
 /// The inner scrollable's offset and extent.
@@ -274,6 +390,139 @@ impl Extent {
             offset.x.clamp(0.0, self.max.x),
             offset.y.clamp(0.0, self.max.y),
         )
+    }
+}
+
+/// Where a scrollbar and its handle are, for one layout and offset.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct Bar {
+    axis: Axis,
+    /// The strip along the edge where the pointer finds the bar.
+    lane: Rectangle,
+    /// The edge, across the axis, the bar is drawn in from.
+    edge: f32,
+    /// Where the track starts along the axis, and how long it is.
+    start: f32,
+    length: f32,
+    /// Where the handle starts along the axis, and how long it is.
+    handle_start: f32,
+    handle_length: f32,
+    /// The most the scrollable's offset can be along the axis.
+    max: f32,
+}
+
+impl Bar {
+    /// The bar of a scrollable at `bounds`, or `None` when its content fits
+    /// and there is nothing to scroll.
+    fn new(axis: Axis, margin: f32, bounds: Rectangle, extent: Extent) -> Option<Self> {
+        let lane_width = BAR_WIDE + 2.0 * margin;
+        let (lane, edge, start, length, offset, max) = match axis {
+            Axis::Vertical => (
+                Rectangle {
+                    x: bounds.x + bounds.width - lane_width,
+                    width: lane_width,
+                    ..bounds
+                },
+                bounds.x + bounds.width - margin,
+                bounds.y,
+                bounds.height,
+                extent.offset.y,
+                extent.max.y,
+            ),
+            Axis::Horizontal => (
+                Rectangle {
+                    y: bounds.y + bounds.height - lane_width,
+                    height: lane_width,
+                    ..bounds
+                },
+                bounds.y + bounds.height - margin,
+                bounds.x,
+                bounds.width,
+                extent.offset.x,
+                extent.max.x,
+            ),
+        };
+        if max <= 0.0 || length <= 0.0 {
+            return None;
+        }
+        let handle_length = (length * length / (length + max))
+            .max(MIN_HANDLE)
+            .min(length);
+        let handle_start = start + (offset / max).clamp(0.0, 1.0) * (length - handle_length);
+        Some(Self {
+            axis,
+            lane,
+            edge,
+            start,
+            length,
+            handle_start,
+            handle_length,
+            max,
+        })
+    }
+
+    /// How far along the axis `point` is.
+    fn along(&self, point: Point) -> f32 {
+        match self.axis {
+            Axis::Vertical => point.y,
+            Axis::Horizontal => point.x,
+        }
+    }
+
+    /// A rectangle `thickness` thick, drawn in from the edge, over `start` and
+    /// `length` along the axis.
+    fn rectangle(&self, thickness: f32, start: f32, length: f32) -> Rectangle {
+        match self.axis {
+            Axis::Vertical => Rectangle {
+                x: self.edge - thickness,
+                y: start,
+                width: thickness,
+                height: length,
+            },
+            Axis::Horizontal => Rectangle {
+                x: start,
+                y: self.edge - thickness,
+                width: length,
+                height: thickness,
+            },
+        }
+    }
+
+    fn track(&self, thickness: f32) -> Rectangle {
+        self.rectangle(thickness, self.start, self.length)
+    }
+
+    fn handle(&self, thickness: f32) -> Rectangle {
+        self.rectangle(thickness, self.handle_start, self.handle_length)
+    }
+
+    /// Whether `point`, inside the lane, is on the handle rather than the
+    /// empty track.
+    fn is_on_handle(&self, point: Point) -> bool {
+        let along = self.along(point);
+        (self.handle_start..=self.handle_start + self.handle_length).contains(&along)
+    }
+
+    /// Where along the handle `point` is, `0.0..=1.0`.
+    fn grab_at(&self, point: Point) -> f32 {
+        ((self.along(point) - self.handle_start) / self.handle_length).clamp(0.0, 1.0)
+    }
+
+    /// The offset that puts the handle's start at `handle_start`.
+    fn offset_for(&self, handle_start: f32) -> f32 {
+        let room = self.length - self.handle_length;
+        if room <= 0.0 {
+            return 0.0;
+        }
+        ((handle_start - self.start) / room).clamp(0.0, 1.0) * self.max
+    }
+
+    /// `offset` along the axis, with the other axis left at `from`.
+    fn vector(&self, from: Vector, offset: f32) -> Vector {
+        match self.axis {
+            Axis::Vertical => Vector::new(from.x, offset),
+            Axis::Horizontal => Vector::new(offset, from.y),
+        }
     }
 }
 
@@ -402,6 +651,17 @@ impl<Message> Smooth<'_, Message> {
     fn place(&mut self, tree: &mut Tree, layout: Layout<'_>, renderer: &Renderer, offset: Vector) {
         self.inner
             .operate(tree, layout, renderer, &mut Place(Some(offset)));
+    }
+
+    /// The bar as the last event left it.
+    fn bar(&self, state: &State, layout: Layout<'_>) -> Option<Bar> {
+        Bar::new(self.axis, self.margin, layout.bounds(), state.shown?)
+    }
+
+    fn is_over_bar(&self, state: &State, layout: Layout<'_>, cursor: mouse::Cursor) -> bool {
+        self.bar(state, layout)
+            .and_then(|bar| cursor.position_over(bar.lane))
+            .is_some()
     }
 }
 
@@ -563,6 +823,116 @@ impl<Message> Widget<Message, Theme, Renderer> for Smooth<'_, Message> {
             state.modifiers = *modifiers;
         }
 
+        if let Event::Window(window::Event::RedrawRequested(now)) = event
+            && state.tick_thickness(*now)
+        {
+            shell.request_redraw();
+        }
+        let bar = Bar::new(self.axis, self.margin, layout.bounds(), extent);
+        if bar.is_none() {
+            state.grabbed = None;
+        }
+        if let Some(bar) = bar {
+            let over = cursor.position_over(bar.lane);
+            // A finger works the bar as the left button does.
+            let pressed = match event {
+                Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) => over,
+                Event::Touch(touch::Event::FingerPressed { position, .. }) => {
+                    bar.lane.contains(*position).then_some(*position)
+                }
+                _ => None,
+            };
+            let moved_to = match event {
+                Event::Mouse(mouse::Event::CursorMoved { position })
+                | Event::Touch(touch::Event::FingerMoved { position, .. }) => Some(*position),
+                _ => None,
+            };
+            let released = matches!(
+                event,
+                Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left))
+                    | Event::Touch(
+                        touch::Event::FingerLifted { .. } | touch::Event::FingerLost { .. }
+                    )
+            );
+            if let Some(point) = pressed {
+                if bar.is_on_handle(point) {
+                    state.cancel();
+                    state.grabbed = Some(bar.grab_at(point));
+                } else {
+                    // A click on the empty track glides the handle's middle
+                    // to it, as iced jumps it there.
+                    let to = bar.offset_for(bar.along(point) - bar.handle_length / 2.0);
+                    state.start(
+                        state
+                            .motion
+                            .glide(extent.offset, bar.vector(extent.offset, to)),
+                    );
+                }
+                state.hover(true);
+                state.shown = Some(extent);
+                shell.capture_event();
+                shell.request_redraw();
+                return;
+            }
+            if let (Some(position), Some(grabbed)) = (moved_to, state.grabbed) {
+                let to = bar.offset_for(bar.along(position) - grabbed * bar.handle_length);
+                let offset = bar.vector(extent.offset, to);
+                self.place(inner_tree, inner_layout, renderer, offset);
+                state.shown = Some(Extent { offset, ..extent });
+                shell.capture_event();
+                shell.request_redraw();
+                return;
+            }
+            if released && state.grabbed.is_some() {
+                state.grabbed = None;
+                state.hover(over.is_some());
+                shell.capture_event();
+                shell.request_redraw();
+                return;
+            }
+            // The wheel over the bar scrolls this list, and nothing under
+            // the bar sees it, as iced's own bar did. A list that cannot
+            // move that way leaves the event to the one around it.
+            if let (Event::Mouse(mouse::Event::WheelScrolled { delta }), Some(_)) = (event, over) {
+                let moved = match *delta {
+                    mouse::ScrollDelta::Lines { x, y } => {
+                        let from = state.motion.target().unwrap_or(extent.offset);
+                        let to = extent.clamp(from + notch(Vector::new(x, y), state.modifiers));
+                        if to != from {
+                            state.start(state.motion.glide(extent.offset, to));
+                            state.shown = Some(extent);
+                        }
+                        to != from
+                    }
+                    mouse::ScrollDelta::Pixels { x, y } => {
+                        let offset = extent.clamp(extent.offset - Vector::new(x, y));
+                        if offset != extent.offset {
+                            state.cancel();
+                            state.record_finger_move(offset - extent.offset);
+                            self.place(inner_tree, inner_layout, renderer, offset);
+                            state.shown = Some(Extent { offset, ..extent });
+                        }
+                        offset != extent.offset
+                    }
+                };
+                if moved {
+                    shell.capture_event();
+                    shell.request_redraw();
+                }
+                return;
+            }
+        }
+        let over_bar = bar.and_then(|bar| cursor.position_over(bar.lane)).is_some();
+        if state.hover(over_bar) {
+            shell.request_redraw();
+        }
+        // What is under the bar does not see the pointer.
+        let cursor = if over_bar {
+            mouse::Cursor::Unavailable
+        } else {
+            cursor
+        };
+
         if let Some(request) = state.request.0.take() {
             let from = state.motion.position().unwrap_or(extent.offset);
             let to = state.motion.target().unwrap_or(from);
@@ -687,61 +1057,21 @@ impl<Message> Widget<Message, Theme, Renderer> for Smooth<'_, Message> {
             Event::Mouse(mouse::Event::WheelScrolled {
                 delta: mouse::ScrollDelta::Pixels { .. },
             }) => {
-                let frame = frames::current();
                 if has_moved {
                     state.cancel();
+                    state.record_finger_move(moved);
                 }
-                // Only the list the fingers moved owns the gesture: every list
-                // sees the event, and the last to claim it gets the stop.
-                if has_moved
-                    && frame.and_then(|frame| frame.source) == Some(Source::Finger)
-                    && state.gestures.claim()
-                {
-                    let received = Instant::now();
-                    // A new gesture starts a new record.
-                    if state
-                        .samples
-                        .last()
-                        .is_some_and(|last| received - last.received > Duration::from_millis(500))
-                    {
-                        state.samples.clear();
-                    }
-                    state.samples.push(Sample {
-                        time: frame.and_then(|frame| frame.time),
-                        received,
-                        moved,
-                    });
-                }
-            }
-            Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left))
-                if moved.x.abs() > SETTLED || moved.y.abs() > SETTLED =>
-            {
-                // A click on the empty track, which iced answers by jumping
-                // and grabbing the scroller. Glide there instead, and let go of
-                // the scroller: the click was not the start of a drag.
-                self.place(inner_tree, inner_layout, renderer, displayed.offset);
-                self.inner.update(
-                    inner_tree,
-                    &Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)),
-                    inner_layout,
-                    mouse::Cursor::Unavailable,
-                    renderer,
-                    clipboard,
-                    shell,
-                    viewport,
-                );
-                state.start(state.motion.glide(displayed.offset, after.offset));
-                shell.request_redraw();
             }
             Event::Mouse(mouse::Event::ButtonPressed(_)) if cursor.is_over(layout.bounds()) => {
                 state.cancel();
             }
             Event::Window(window::Event::RedrawRequested(_)) => {}
-            // Anything else that moved the offset — the scroller dragged, the
-            // content resized — takes over from the motion.
+            // Anything else that moved the offset — the content resized, say —
+            // takes over from the motion.
             _ if has_moved => state.cancel(),
             _ => {}
         }
+        state.shown = self.probe(inner_tree, inner_layout, renderer);
     }
 
     fn mouse_interaction(
@@ -752,6 +1082,10 @@ impl<Message> Widget<Message, Theme, Renderer> for Smooth<'_, Message> {
         viewport: &Rectangle,
         renderer: &Renderer,
     ) -> mouse::Interaction {
+        let state = tree.state.downcast_ref::<State>();
+        if state.grabbed.is_some() || self.is_over_bar(state, layout, cursor) {
+            return mouse::Interaction::None;
+        }
         self.inner.mouse_interaction(
             &tree.children[0],
             layout.children().next().unwrap(),
@@ -771,15 +1105,74 @@ impl<Message> Widget<Message, Theme, Renderer> for Smooth<'_, Message> {
         cursor: mouse::Cursor,
         viewport: &Rectangle,
     ) {
+        let state = tree.state.downcast_ref::<State>();
+        let bar = self.bar(state, layout);
+        let over_bar = self.is_over_bar(state, layout, cursor);
         self.inner.draw(
             &tree.children[0],
             renderer,
             theme,
             style,
             layout.children().next().unwrap(),
-            cursor,
+            if over_bar || state.grabbed.is_some() {
+                mouse::Cursor::Unavailable
+            } else {
+                cursor
+            },
             viewport,
         );
+
+        let (Some(bar), Some(visible)) = (bar, layout.bounds().intersection(viewport)) else {
+            return;
+        };
+        let vertical = self.axis == Axis::Vertical;
+        let status = if state.grabbed.is_some() {
+            Status::Dragged {
+                is_horizontal_scrollbar_dragged: !vertical,
+                is_vertical_scrollbar_dragged: vertical,
+                is_horizontal_scrollbar_disabled: false,
+                is_vertical_scrollbar_disabled: false,
+            }
+        } else if over_bar {
+            Status::Hovered {
+                is_horizontal_scrollbar_hovered: !vertical,
+                is_vertical_scrollbar_hovered: vertical,
+                is_horizontal_scrollbar_disabled: false,
+                is_vertical_scrollbar_disabled: false,
+            }
+        } else {
+            Status::Active {
+                is_horizontal_scrollbar_disabled: false,
+                is_vertical_scrollbar_disabled: false,
+            }
+        };
+        let style = theme.style(&self.class, status);
+        let rail = if vertical {
+            style.vertical_rail
+        } else {
+            style.horizontal_rail
+        };
+        let thickness = state.thickness.position();
+        renderer.with_layer(visible, |renderer| {
+            if let Some(background) = rail.background {
+                renderer.fill_quad(
+                    renderer::Quad {
+                        bounds: bar.track(thickness),
+                        border: rail.border,
+                        ..renderer::Quad::default()
+                    },
+                    background,
+                );
+            }
+            renderer.fill_quad(
+                renderer::Quad {
+                    bounds: bar.handle(thickness),
+                    border: rail.scroller.border,
+                    ..renderer::Quad::default()
+                },
+                rail.scroller.background,
+            );
+        });
     }
 
     fn overlay<'b>(
@@ -995,23 +1388,245 @@ mod tests {
         assert_eq!(h.offset(), 300.0);
     }
 
-    #[test]
-    fn a_click_on_the_track_glides_and_does_not_grab_the_scroller() {
-        let mut h = Harness::new();
-        // The bar is the 8 px on the right; the scroller is its top 10 px.
-        h.cursor = mouse::Cursor::Available(Point::new(96.0, 95.0));
+    fn press_at(h: &mut Harness, x: f32, y: f32) {
+        h.cursor = mouse::Cursor::Available(Point::new(x, y));
         h.send(Event::Mouse(mouse::Event::ButtonPressed(
             mouse::Button::Left,
         )));
+    }
+
+    fn move_to(h: &mut Harness, x: f32, y: f32) {
+        h.cursor = mouse::Cursor::Available(Point::new(x, y));
+        h.send(Event::Mouse(mouse::Event::CursorMoved {
+            position: Point::new(x, y),
+        }));
+    }
+
+    #[test]
+    fn a_click_on_the_track_glides_and_does_not_grab_the_scroller() {
+        let mut h = Harness::new();
+        // The bar is the 8 px on the right; the handle is its top 32 px. A
+        // click at 50 centres the handle there: its start at 34 of the 68 it
+        // can travel, half of 900.
+        h.frame();
+        press_at(&mut h, 96.0, 50.0);
         assert_eq!(h.offset(), 0.0, "no jump");
 
-        h.cursor = mouse::Cursor::Available(Point::new(96.0, 20.0));
-        h.send(Event::Mouse(mouse::Event::CursorMoved {
-            position: Point::new(96.0, 20.0),
-        }));
+        move_to(&mut h, 96.0, 20.0);
         assert_eq!(h.offset(), 0.0, "the scroller is not being dragged");
 
-        assert_eq!(*h.settle().last().unwrap(), 900.0);
+        assert_eq!(*h.settle().last().unwrap(), 450.0);
+    }
+
+    #[test]
+    fn dragging_the_handle_keeps_it_under_the_pointer() {
+        let mut h = Harness::new();
+        h.frame();
+        press_at(&mut h, 96.0, 10.0);
+        // 34 px down is half the 68 the handle can travel.
+        move_to(&mut h, 96.0, 44.0);
+        assert_eq!(h.offset(), 450.0, "instant, no glide");
+        // Past the end, the handle stops at it.
+        move_to(&mut h, 30.0, 400.0);
+        assert_eq!(h.offset(), 900.0);
+        h.send(Event::Mouse(mouse::Event::ButtonReleased(
+            mouse::Button::Left,
+        )));
+        move_to(&mut h, 96.0, 10.0);
+        assert_eq!(h.offset(), 900.0, "let go");
+    }
+
+    #[test]
+    fn a_finger_drags_the_handle() {
+        let mut h = Harness::new();
+        h.frame();
+        let finger = touch::Finger(0);
+        h.send(Event::Touch(touch::Event::FingerPressed {
+            id: finger,
+            position: Point::new(96.0, 10.0),
+        }));
+        h.send(Event::Touch(touch::Event::FingerMoved {
+            id: finger,
+            position: Point::new(96.0, 44.0),
+        }));
+        assert_eq!(h.offset(), 450.0);
+        h.send(Event::Touch(touch::Event::FingerLost {
+            id: finger,
+            position: Point::new(96.0, 44.0),
+        }));
+        h.send(Event::Touch(touch::Event::FingerMoved {
+            id: finger,
+            position: Point::new(96.0, 10.0),
+        }));
+        assert_eq!(h.offset(), 450.0, "a lost finger lets go");
+    }
+
+    /// The list over a wheel area, under the bar too, that takes every notch.
+    fn list_over_a_wheel_area() -> Element<'static, (), Theme, Renderer> {
+        use crate::ui::widget::space;
+        use iced::widget::mouse_area;
+
+        super::super::vertical(
+            mouse_area(
+                space::vertical()
+                    .width(Length::Fill)
+                    .height(Length::Fixed(1000.0)),
+            )
+            .on_scroll(|_| ()),
+        )
+        .id(Id::new("list"))
+        .width(Length::Fixed(SIZE.width))
+        .height(Length::Fixed(SIZE.height))
+        .into()
+    }
+
+    #[test]
+    fn the_wheel_over_the_bar_scrolls_and_does_not_reach_the_content() {
+        let mut h = Harness::new();
+        h.view = list_over_a_wheel_area;
+        h.frame();
+        h.cursor = mouse::Cursor::Available(Point::new(96.0, 50.0));
+        h.wheel(-1.0);
+        assert_eq!(h.published, 0, "the content under the bar saw nothing");
+        assert_eq!(*h.settle().last().unwrap(), 60.0);
+    }
+
+    #[test]
+    fn the_wheel_over_the_bar_at_the_end_is_left_to_the_list_around() {
+        let mut h = Harness::new();
+        h.view = list_over_a_wheel_area;
+        h.operate(&mut Place(Some(Vector::new(0.0, 900.0))));
+        h.frame();
+        h.cursor = mouse::Cursor::Available(Point::new(96.0, 50.0));
+        let cursor = h.cursor;
+        let mut messages = Vec::new();
+        let status = h.with_ui(|ui, renderer| {
+            ui.update(
+                &[Event::Mouse(mouse::Event::WheelScrolled {
+                    delta: mouse::ScrollDelta::Lines { x: 0.0, y: -1.0 },
+                })],
+                cursor,
+                renderer,
+                &mut clipboard::Null,
+                &mut messages,
+            )
+            .1
+        });
+        assert_eq!(status, vec![iced_core::event::Status::Ignored]);
+        assert!(messages.is_empty(), "the content under the bar saw nothing");
+        assert_eq!(h.offset(), 900.0);
+    }
+
+    fn extent(offset: f32, max: f32) -> Extent {
+        Extent {
+            offset: Vector::new(0.0, offset),
+            max: Vector::new(0.0, max),
+        }
+    }
+
+    const BOUNDS: Rectangle = Rectangle {
+        x: 0.0,
+        y: 0.0,
+        width: 100.0,
+        height: 100.0,
+    };
+
+    #[test]
+    fn the_handle_never_gets_shorter_than_its_minimum() {
+        let bar = Bar::new(Axis::Vertical, 0.0, BOUNDS, extent(0.0, 1_000_000.0)).unwrap();
+        assert_eq!(bar.handle_length, MIN_HANDLE);
+        // Where the content is only a little longer, it is in proportion.
+        let bar = Bar::new(Axis::Vertical, 0.0, BOUNDS, extent(0.0, 25.0)).unwrap();
+        assert_eq!(bar.handle_length, 80.0);
+        // Content that fits has no bar.
+        assert!(Bar::new(Axis::Vertical, 0.0, BOUNDS, extent(0.0, 0.0)).is_none());
+    }
+
+    #[test]
+    fn at_the_end_of_the_content_the_handle_is_at_the_end_of_the_track() {
+        let bar = Bar::new(
+            Axis::Vertical,
+            0.0,
+            BOUNDS,
+            extent(1_000_000.0, 1_000_000.0),
+        )
+        .unwrap();
+        assert_eq!(bar.handle_start + bar.handle_length, 100.0);
+        assert_eq!(bar.offset_for(bar.handle_start), 1_000_000.0);
+    }
+
+    #[test]
+    fn a_bar_grows_in_from_its_edge() {
+        let bar = Bar::new(Axis::Vertical, 5.0, BOUNDS, extent(0.0, 900.0)).unwrap();
+        assert_eq!(
+            bar.lane.x, 82.0,
+            "the pointer finds the wide bar and its margins"
+        );
+        assert_eq!(bar.handle(BAR_THIN).x, 91.0);
+        assert_eq!(bar.handle(BAR_WIDE).x, 87.0);
+        assert_eq!(
+            bar.handle(BAR_WIDE).x + BAR_WIDE,
+            95.0,
+            "the outer edge stays put"
+        );
+
+        let bar = Bar::new(
+            Axis::Horizontal,
+            0.0,
+            BOUNDS,
+            Extent {
+                offset: Vector::ZERO,
+                max: Vector::new(900.0, 0.0),
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            bar.handle(BAR_THIN),
+            Rectangle::new(Point::new(0.0, 96.0), Size::new(32.0, 4.0))
+        );
+    }
+
+    /// Ticks the thickness until it settles, returning every value seen.
+    fn settle_thickness(state: &mut State) -> Vec<f32> {
+        let mut now = Instant::now();
+        let mut seen = vec![state.thickness.position()];
+        for _ in 0..100 {
+            now += Duration::from_millis(16);
+            let moving = state.tick_thickness(now);
+            seen.push(state.thickness.position());
+            if !moving {
+                return seen;
+            }
+        }
+        panic!("never settled: {seen:?}");
+    }
+
+    #[test]
+    fn the_bar_widens_under_the_pointer_and_narrows_after() {
+        let mut state = State::default();
+        assert_eq!(state.thickness.position(), BAR_THIN);
+        assert!(state.hover(true));
+        assert!(!state.hover(true), "already widening");
+        let seen = settle_thickness(&mut state);
+        assert_eq!(*seen.last().unwrap(), BAR_WIDE);
+        assert!(
+            seen.iter().any(|&t| t > BAR_THIN && t < BAR_WIDE),
+            "animates: {seen:?}"
+        );
+
+        assert!(state.hover(false));
+        assert_eq!(*settle_thickness(&mut state).last().unwrap(), BAR_THIN);
+    }
+
+    #[test]
+    fn the_bar_stays_wide_while_dragged() {
+        let mut state = State::default();
+        state.hover(true);
+        state.grabbed = Some(0.5);
+        assert!(!state.hover(false), "the pointer left the bar mid-drag");
+        assert_eq!(state.thickness.target(), BAR_WIDE);
+        state.grabbed = None;
+        assert!(state.hover(false));
     }
 
     #[test]

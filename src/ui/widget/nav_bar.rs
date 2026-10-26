@@ -213,16 +213,11 @@ impl<'a, Message: Clone + 'static> From<NavBar<'a, Message>>
             .apply(scrollable)
             // Held clear of the panel's trailing edge, so the bar and the
             // divider drawn on that edge are not on top of each other
-            .direction(iced::widget::scrollable::Direction::Vertical(
-                iced::widget::scrollable::Scrollbar::new()
-                    .width(8.0)
-                    .scroller_width(8.0)
-                    .margin(SCROLLBAR_MARGIN),
-            ))
+            .bar_margin(SCROLLBAR_MARGIN)
             .class(crate::ui::theme::style::iced::Scrollable::Minimal)
             .height(Length::Fill)
             .apply(container)
-            // iced insets a scrollbar from the sides but not from the ends,
+            // The bar is inset from the sides but not from the ends,
             // so the scrollable is held off the top and bottom instead. The
             // panel's background still reaches them: it is painted here.
             .padding(Padding::ZERO.top(SCROLLBAR_MARGIN).bottom(SCROLLBAR_MARGIN))

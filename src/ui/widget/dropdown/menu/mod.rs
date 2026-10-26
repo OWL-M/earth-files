@@ -13,7 +13,6 @@ pub use appearance::{Appearance, StyleSheet};
 use crate::ui::widget::icon;
 use crate::ui::widget::wrapper::RcWrapper;
 use iced::widget::Container;
-use iced::widget::scrollable::Scrollable;
 use iced_core::event::Event;
 use iced_core::layout::{self, Layout};
 use iced_core::text::{self, Text};
@@ -186,7 +185,7 @@ impl<'a, Message: Clone + 'a> Overlay<'a, Message> {
             close_on_selected,
         } = menu;
 
-        let mut container = Container::new(Scrollable::new(
+        let mut container = Container::new(crate::ui::widget::scrollable::vertical(
             Container::new(List {
                 options,
                 icons,
