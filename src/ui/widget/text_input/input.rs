@@ -575,6 +575,16 @@ where
         }
     }
 
+    /// The field's bounds, as `draw` takes them: past the label, if there is
+    /// one.
+    fn field_bounds(&self, layout: Layout<'_>) -> Rectangle {
+        let mut nodes = layout.children();
+        if self.label.is_some() {
+            nodes.next();
+        }
+        nodes.next().map_or(layout.bounds(), |field| field.bounds())
+    }
+
     /// Set the drag threshold.
     pub fn drag_threshold(mut self, drag_threshold: f32) -> Self {
         self.drag_threshold = drag_threshold;
@@ -906,6 +916,19 @@ where
             );
         }
 
+        // Nothing else redraws when the pointer comes onto or leaves the
+        // field, and without a redraw the hover look would wait for something
+        // that does. The field is what `draw` checks: not the label or the
+        // helper text.
+        if let Event::Mouse(mouse::Event::CursorMoved { .. } | mouse::Event::CursorLeft) = event {
+            let is_hovered = cursor_position.is_over(self.field_bounds(layout));
+            let state = tree.state.downcast_mut::<State>();
+            if is_hovered != state.is_hovered {
+                state.is_hovered = is_hovered;
+                shell.request_redraw();
+            }
+        }
+
         let text_layout = self.text_layout(layout);
         let mut trailing_icon_layout = None;
         let font = self.font.unwrap_or_else(|| renderer.default_font());
@@ -972,6 +995,8 @@ where
             if let Some(on_unfocus) = self.on_unfocus.as_ref() {
                 shell.publish(on_unfocus.clone());
             }
+            // Out of its focused look
+            shell.request_redraw();
             return;
         }
 
@@ -2777,6 +2802,9 @@ pub struct State {
     /// Whether the left button or a finger went down on this input and has not
     /// been released yet.
     pressed: bool,
+    /// Whether the pointer was over this input at the last event, so it
+    /// redraws in its hover look as the pointer comes and goes.
+    is_hovered: bool,
     is_pasting: Option<Value>,
     last_click: Option<mouse::Click>,
     cursor: Cursor,
@@ -2862,6 +2890,7 @@ impl State {
             double_click_select_delimiter: None,
             dragging_state: None,
             pressed: false,
+            is_hovered: false,
             is_pasting: None,
             last_click: None,
             cursor: Cursor::default(),
@@ -3315,6 +3344,7 @@ mod tests {
     }
 
     struct Harness {
+        view: fn() -> Element<'static, Msg, crate::ui::Theme, crate::ui::Renderer>,
         renderer: crate::ui::Renderer,
         cache: Option<Cache>,
         cursor: mouse::Cursor,
@@ -3323,6 +3353,7 @@ mod tests {
     impl Harness {
         fn new() -> Self {
             Self {
+                view,
                 renderer: iced_texture_cache::testing::headless_tiny_skia(),
                 cache: Some(Cache::default()),
                 cursor: mouse::Cursor::Unavailable,
@@ -3331,7 +3362,7 @@ mod tests {
 
         fn send(&mut self, event: Event) -> (event::Status, Vec<Msg>) {
             let cache = self.cache.take().unwrap();
-            let mut ui = UserInterface::build(view(), WINDOW, cache, &mut self.renderer);
+            let mut ui = UserInterface::build((self.view)(), WINDOW, cache, &mut self.renderer);
             let mut messages = Vec::new();
             let (_, statuses) = ui.update(
                 &[event],
@@ -3342,6 +3373,28 @@ mod tests {
             );
             self.cache = Some(ui.into_cache());
             (statuses[0], messages)
+        }
+
+        /// Sends `event` and returns whether the interface asked to be
+        /// redrawn for it.
+        fn redraws(&mut self, event: Event) -> bool {
+            let cache = self.cache.take().unwrap();
+            let mut ui = UserInterface::build((self.view)(), WINDOW, cache, &mut self.renderer);
+            let (state, _) = ui.update(
+                &[event],
+                self.cursor,
+                &mut self.renderer,
+                &mut clipboard::Null,
+                &mut Vec::new(),
+            );
+            self.cache = Some(ui.into_cache());
+            matches!(
+                state,
+                iced_runtime::user_interface::State::Updated {
+                    redraw_request: window::RedrawRequest::NextFrame,
+                    ..
+                }
+            )
         }
 
         fn move_to(&mut self, position: Point) {
@@ -3389,5 +3442,81 @@ mod tests {
         let (status, messages) = h.release();
         assert_eq!(status, event::Status::Captured);
         assert!(messages.is_empty(), "{messages:?}");
+    }
+
+    /// The hover look needs a redraw as the pointer comes onto the input and
+    /// as it leaves, and not for moves that stay on one side.
+    #[test]
+    fn the_pointer_coming_and_going_redraws_the_input() {
+        let mut h = Harness::new();
+        h.cursor = mouse::Cursor::Available(OVER_AREA);
+        assert!(!h.redraws(Event::Mouse(mouse::Event::CursorMoved {
+            position: OVER_AREA,
+        })));
+
+        h.cursor = mouse::Cursor::Available(OVER_INPUT);
+        assert!(h.redraws(Event::Mouse(mouse::Event::CursorMoved {
+            position: OVER_INPUT,
+        })));
+        let beside = Point::new(OVER_INPUT.x + 10.0, OVER_INPUT.y);
+        h.cursor = mouse::Cursor::Available(beside);
+        assert!(!h.redraws(Event::Mouse(mouse::Event::CursorMoved { position: beside })));
+
+        h.cursor = mouse::Cursor::Unavailable;
+        assert!(h.redraws(Event::Mouse(mouse::Event::CursorLeft)));
+    }
+
+    /// Where nothing is laid out, below the area.
+    const OVER_NOTHING: Point = Point::new(50.0, 350.0);
+
+    #[test]
+    fn a_click_outside_redraws_the_input_out_of_its_focused_look() {
+        let mut h = Harness::new();
+        h.move_to(OVER_INPUT);
+        h.press();
+        h.release();
+        h.cursor = mouse::Cursor::Available(OVER_NOTHING);
+        assert!(h.redraws(Event::Mouse(mouse::Event::ButtonPressed(
+            mouse::Button::Left,
+        ))));
+    }
+
+    /// An input with a label above its field.
+    fn labelled() -> Element<'static, Msg, crate::ui::Theme, crate::ui::Renderer> {
+        text_input("", "abc")
+            .label("Label")
+            .on_input(Msg::Input)
+            .into()
+    }
+
+    #[test]
+    fn moving_between_the_label_and_the_field_redraws_the_input() {
+        let mut h = Harness::new();
+        h.view = labelled;
+        // The label's box and the field's, as the input lays them out
+        let (label, field) = {
+            let mut element = labelled();
+            let mut tree = Tree::new(&element);
+            let node = element.as_widget_mut().layout(
+                &mut tree,
+                &h.renderer,
+                &Limits::new(Size::ZERO, WINDOW),
+            );
+            (node.children()[0].bounds(), node.children()[1].bounds())
+        };
+        assert!(
+            label.y + label.height <= field.y,
+            "the label is above the field"
+        );
+
+        h.move_to(label.center());
+        h.cursor = mouse::Cursor::Available(field.center());
+        assert!(h.redraws(Event::Mouse(mouse::Event::CursorMoved {
+            position: field.center(),
+        })));
+        h.cursor = mouse::Cursor::Available(label.center());
+        assert!(h.redraws(Event::Mouse(mouse::Event::CursorMoved {
+            position: label.center(),
+        })));
     }
 }

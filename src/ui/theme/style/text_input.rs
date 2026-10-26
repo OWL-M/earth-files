@@ -309,7 +309,25 @@ impl StyleSheet for Theme {
                 selected_fill: palette.accent_color().to_color(),
                 label_color: label_color.to_color(),
             },
-            TextInput::Search | TextInput::ExpandableSearch => Appearance {
+            // On the field itself, as on hover: an offset ring would stand
+            // apart from it, rounded on a larger box
+            TextInput::Search => Appearance {
+                background: background.into(),
+                border_radius: corner.radius_xl.to_radius(),
+                border_width: 2.0,
+                border_offset: None,
+                border_color: palette.accent.base.to_color(),
+                icon_color: None,
+                text_color: None,
+                placeholder_color: {
+                    let color: Color = container.on.to_color();
+                    color.blend_alpha(background, 0.7)
+                },
+                selected_text_color: palette.on_accent_color().to_color(),
+                selected_fill: palette.accent_color().to_color(),
+                label_color: label_color.to_color(),
+            },
+            TextInput::ExpandableSearch => Appearance {
                 background: background.into(),
                 border_radius: corner.radius_xl.to_radius(),
                 border_width: 2.0,
