@@ -8,7 +8,7 @@ mod scrollable;
 mod smooth;
 
 pub use scrollable::{horizontal, scrollable, vertical};
-pub use smooth::Smooth;
+pub use smooth::{Smooth, set_kinetic_wheel};
 
 pub use iced::widget::scrollable::{AbsoluteOffset, RelativeOffset, Viewport};
 

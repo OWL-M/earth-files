@@ -2941,6 +2941,7 @@ impl App {
         self.core.set_nav_bar_width(self.config.nav_bar_width);
         crate::ui::theme::set_density(self.config.density);
         crate::ui::theme::set_header_size(self.config.header_size);
+        crate::ui::widget::scrollable::set_kinetic_wheel(self.config.kinetic_wheel);
         self.update_nav_model();
         // Tabs are collected first to placate the borrowck
         let tabs: Box<[_]> = self.tab_model.iter().collect();

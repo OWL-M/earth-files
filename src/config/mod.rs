@@ -225,6 +225,9 @@ pub struct Config {
     /// Ejecting a drive from the app first asks to empty its trash, when
     /// that holds anything. Off, the drive's trash stays as it is.
     pub empty_unmount: bool,
+    /// A mouse wheel spun fast coasts on after its last notch, slowing as a
+    /// touchpad flick does. Off, every notch moves one step and stops.
+    pub kinetic_wheel: bool,
 }
 
 impl Config {
@@ -278,6 +281,7 @@ impl Default for Config {
             key_binds: FxOrderMap::default(),
             delete_i_am_stupid: false,
             empty_unmount: true,
+            kinetic_wheel: false,
         }
     }
 }
@@ -405,6 +409,16 @@ mod tests {
         assert!(config.empty_unmount);
         let config: Config = ron::from_str("(empty_unmount: false)").expect("parse");
         assert!(!config.empty_unmount);
+    }
+
+    /// Off unless the config file turns it on
+    #[test]
+    fn kinetic_wheel_scrolling_is_off_by_default() {
+        assert!(!Config::default().kinetic_wheel);
+        let config: Config = ron::from_str("()").expect("parse");
+        assert!(!config.kinetic_wheel);
+        let config: Config = ron::from_str("(kinetic_wheel: true)").expect("parse");
+        assert!(config.kinetic_wheel);
     }
 
     #[test]

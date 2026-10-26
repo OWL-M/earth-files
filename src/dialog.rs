@@ -1008,6 +1008,7 @@ impl App {
     fn update_config(&mut self) -> Task<Message> {
         crate::ui::theme::set_density(self.flags.config.density);
         crate::ui::theme::set_header_size(self.flags.config.header_size);
+        crate::ui::widget::scrollable::set_kinetic_wheel(self.flags.config.kinetic_wheel);
         self.core.set_nav_bar_width(self.flags.config.nav_bar_width);
         self.core.window.show_context = self.flags.config.dialog.show_details;
         let config = self.flags.config.dialog_tab();

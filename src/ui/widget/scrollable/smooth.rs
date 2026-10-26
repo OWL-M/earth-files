@@ -17,12 +17,17 @@
 //! Programmatic scrolling is instant with [`super::scroll_to`] and glides with
 //! [`super::glide_to`].
 //!
+//! With kinetic wheel scrolling on ([`set_kinetic_wheel`]), a wheel spun fast
+//! coasts on after its last notch at the speed it was spun, as a touchpad
+//! flick does. Notches slower than that still glide one step each.
+//!
 //! The scrollbar is [`Smooth`]'s own; iced's is hidden. iced keeps its handle
 //! only 2 px long, which over a folder like `/nix/store` all but disappears,
 //! and fixes its thickness when the view is built. Here the handle is never
 //! shorter than [`MIN_HANDLE`], and the bar rests thin and widens on a spring
 //! while the pointer is over it or drags it.
 
+use std::cell::Cell;
 use std::time::{Duration, Instant};
 
 use iced::widget::scrollable::{
@@ -63,6 +68,64 @@ const MIN_COAST_SPEED: f32 = 60.0;
 /// A frame longer than this is advanced as this, so a stall resumes the
 /// motion where it stopped instead of landing it in one step.
 const MAX_FRAME: f32 = 1.0 / 15.0;
+
+/// How far back the notches of one spin of the wheel reach.
+const SPIN_WINDOW: Duration = Duration::from_millis(250);
+
+/// A spin covering at least this much within [`SPIN_WINDOW`] is fast, and
+/// coasts: three notches.
+const SPIN_DISTANCE: f32 = 180.0;
+
+/// The fastest a spin coasts, in pixels per second. Notches arriving
+/// together would otherwise give a speed of their distance over no time.
+const MAX_SPIN_SPEED: f32 = 6000.0;
+
+thread_local! {
+    /// Whether a fast spin of the wheel coasts. The interface runs on one
+    /// thread; per thread, tests do not switch it for each other.
+    static KINETIC_WHEEL: Cell<bool> = const { Cell::new(false) };
+}
+
+/// Turns kinetic wheel scrolling on or off, for every [`Smooth`] on this
+/// thread. See the [module documentation](self).
+pub fn set_kinetic_wheel(on: bool) {
+    KINETIC_WHEEL.set(on);
+}
+
+/// One wheel notch: when it came, and how far it moves the offset.
+#[derive(Debug, Clone, Copy)]
+struct Notch {
+    received: Instant,
+    moved: Vector,
+}
+
+/// The speed of the spin `notches` make up, newest last, if they cover
+/// [`SPIN_DISTANCE`] within [`SPIN_WINDOW`] of `now`. The first notch only
+/// marks when the spin started: its own movement came before it.
+fn spin_velocity(notches: &[Notch], now: Instant) -> Option<Vector> {
+    let recent: Vec<&Notch> = notches
+        .iter()
+        .filter(|notch| now.saturating_duration_since(notch.received) <= SPIN_WINDOW)
+        .collect();
+    let (first, rest) = recent.split_first()?;
+    let covered = recent
+        .iter()
+        .fold(Vector::ZERO, |sum, notch| sum + notch.moved);
+    if covered.x.hypot(covered.y) < SPIN_DISTANCE || rest.is_empty() {
+        return None;
+    }
+    let moved = rest
+        .iter()
+        .fold(Vector::ZERO, |sum, notch| sum + notch.moved);
+    let span = now.saturating_duration_since(first.received).as_secs_f32();
+    let speed = moved.x.hypot(moved.y);
+    let scale = if span <= 0.0 || speed / span > MAX_SPIN_SPEED {
+        MAX_SPIN_SPEED / speed
+    } else {
+        1.0 / span
+    };
+    Some(moved * scale)
+}
 
 /// How thick a bar is at rest.
 const BAR_THIN: f32 = 4.0;
@@ -283,6 +346,9 @@ struct State {
     grabbed: Option<f32>,
     /// The offset and extent the last event left, which the bar is drawn by.
     shown: Option<Extent>,
+    /// The wheel's recent notches in one direction, newest last, while
+    /// kinetic wheel scrolling is on.
+    notches: Vec<Notch>,
 }
 
 impl Default for State {
@@ -299,6 +365,7 @@ impl Default for State {
             thickness_frame: None,
             grabbed: None,
             shown: None,
+            notches: Vec::new(),
         }
     }
 }
@@ -311,9 +378,58 @@ impl State {
         self.motion = motion;
     }
 
+    /// Stops the motion, interrupted: a notch after it starts a new spin.
     fn cancel(&mut self) {
+        self.finish();
+        self.notches.clear();
+    }
+
+    /// Stops the motion, which has come to rest on its own. The spin it was
+    /// part of goes on.
+    fn finish(&mut self) {
         self.motion = Motion::Idle;
         self.last_frame = None;
+    }
+
+    /// Moves on for a wheel notch of `moved`, with the list showing
+    /// `displayed`: a glide to `to` or, in a fast spin with kinetic wheel
+    /// scrolling on, a coast at the spin's speed, never slower than one
+    /// already going that way.
+    fn notch(&mut self, displayed: Vector, moved: Vector, to: Vector) {
+        if KINETIC_WHEEL.get() {
+            let now = Instant::now();
+            let same_way = |a: Vector, b: Vector| a.x * b.x + a.y * b.y > 0.0;
+            // A notch the other way starts a new spin.
+            if self
+                .notches
+                .last()
+                .is_some_and(|last| !same_way(last.moved, moved))
+            {
+                self.notches.clear();
+            }
+            self.notches
+                .retain(|notch| now.saturating_duration_since(notch.received) <= SPIN_WINDOW);
+            self.notches.push(Notch {
+                received: now,
+                moved,
+            });
+            if let Some(velocity) = spin_velocity(&self.notches, now) {
+                let current = self.motion.velocity();
+                let keep = |spin: f32, current: f32| {
+                    if spin * current > 0.0 && current.abs() > spin.abs() {
+                        current
+                    } else {
+                        spin
+                    }
+                };
+                self.start(Motion::Coast {
+                    x: Decay::new(displayed.x, keep(velocity.x, current.x), FRICTION),
+                    y: Decay::new(displayed.y, keep(velocity.y, current.y), FRICTION),
+                });
+                return;
+            }
+        }
+        self.start(self.motion.glide(displayed, to));
     }
 
     /// Notes a touchpad movement that moved the offset by `moved`, so the
@@ -896,10 +1012,11 @@ impl<Message> Widget<Message, Theme, Renderer> for Smooth<'_, Message> {
             if let (Event::Mouse(mouse::Event::WheelScrolled { delta }), Some(_)) = (event, over) {
                 let moved = match *delta {
                     mouse::ScrollDelta::Lines { x, y } => {
+                        let moved = notch(Vector::new(x, y), state.modifiers);
                         let from = state.motion.target().unwrap_or(extent.offset);
-                        let to = extent.clamp(from + notch(Vector::new(x, y), state.modifiers));
+                        let to = extent.clamp(from + moved);
                         if to != from {
-                            state.start(state.motion.glide(extent.offset, to));
+                            state.notch(extent.offset, moved, to);
                             state.shown = Some(extent);
                         }
                         to != from
@@ -974,7 +1091,7 @@ impl<Message> Widget<Message, Theme, Renderer> for Smooth<'_, Message> {
                 state.last_frame = Some(*now);
                 shell.request_redraw();
             } else {
-                state.cancel();
+                state.finish();
             }
         }
 
@@ -1050,7 +1167,7 @@ impl<Message> Widget<Message, Theme, Renderer> for Smooth<'_, Message> {
                 if has_moved && let Some(notch) = notched {
                     let from = state.motion.target().unwrap_or(displayed.offset);
                     let to = after.clamp(from + notch);
-                    state.start(state.motion.glide(displayed.offset, to));
+                    state.notch(displayed.offset, notch, to);
                     shell.request_redraw();
                 }
             }
@@ -1339,6 +1456,108 @@ mod tests {
         h.frame();
         h.wheel(-1.0);
         assert_eq!(*h.settle().last().unwrap(), 180.0);
+    }
+
+    /// Four notches down within a fraction of a second.
+    fn spin(h: &mut Harness) {
+        for _ in 0..4 {
+            h.wheel(-1.0);
+            std::thread::sleep(Duration::from_millis(15));
+        }
+    }
+
+    #[test]
+    fn without_kinetic_scrolling_a_fast_spin_lands_on_its_notches() {
+        set_kinetic_wheel(false);
+        let mut h = Harness::new();
+        spin(&mut h);
+        assert_eq!(*h.settle().last().unwrap(), 240.0);
+    }
+
+    #[test]
+    fn with_kinetic_scrolling_a_fast_spin_coasts_on() {
+        set_kinetic_wheel(true);
+        let mut h = Harness::new();
+        spin(&mut h);
+        let seen = h.settle();
+        assert!(
+            *seen.last().unwrap() > 240.0,
+            "carried past its notches: {seen:?}"
+        );
+        assert!(
+            seen.windows(2).all(|w| w[1] >= w[0]),
+            "never backs up: {seen:?}"
+        );
+        set_kinetic_wheel(false);
+    }
+
+    #[test]
+    fn with_kinetic_scrolling_slow_notches_still_step() {
+        set_kinetic_wheel(true);
+        let mut h = Harness::new();
+        for _ in 0..3 {
+            h.wheel(-1.0);
+            std::thread::sleep(SPIN_WINDOW + Duration::from_millis(20));
+        }
+        assert_eq!(*h.settle().last().unwrap(), 180.0);
+        set_kinetic_wheel(false);
+    }
+
+    #[test]
+    fn with_kinetic_scrolling_a_notch_back_glides() {
+        set_kinetic_wheel(true);
+        let mut h = Harness::new();
+        spin(&mut h);
+        h.frame();
+        h.frame();
+        let reached = h.offset();
+        h.wheel(1.0);
+        let landed = *h.settle().last().unwrap();
+        assert!(
+            (landed - (reached - 60.0)).abs() <= 1.0,
+            "one notch back from {reached}: {landed}"
+        );
+        set_kinetic_wheel(false);
+    }
+
+    #[test]
+    fn with_kinetic_scrolling_a_click_ends_the_spin() {
+        set_kinetic_wheel(true);
+        let mut h = Harness::new();
+        h.wheel(-1.0);
+        h.wheel(-1.0);
+        h.send(Event::Mouse(mouse::Event::ButtonPressed(
+            mouse::Button::Left,
+        )));
+        h.send(Event::Mouse(mouse::Event::ButtonReleased(
+            mouse::Button::Left,
+        )));
+        let stopped = h.offset();
+        // A third notch at once would make a spin, were the first two kept
+        h.wheel(-1.0);
+        assert_eq!(*h.settle().last().unwrap(), stopped + 60.0);
+        set_kinetic_wheel(false);
+    }
+
+    #[test]
+    fn a_spin_takes_its_speed_from_the_notches_after_the_first() {
+        let start = Instant::now();
+        let notch = |ms: u64| Notch {
+            received: start + Duration::from_millis(ms),
+            moved: Vector::new(0.0, 60.0),
+        };
+        let now = start + Duration::from_millis(100);
+        // 120 px over 0.1 s
+        let velocity = spin_velocity(&[notch(0), notch(50), notch(100)], now).unwrap();
+        assert!((velocity.y - 1200.0).abs() < 1.0, "{velocity:?}");
+        // Two notches are not a spin
+        assert!(spin_velocity(&[notch(50), notch(100)], now).is_none());
+        // Notches older than the window do not count
+        let later = start + Duration::from_millis(400);
+        assert!(spin_velocity(&[notch(0), notch(50), notch(100)], later).is_none());
+        // Notches at once coast at the most
+        let at_once = [notch(100), notch(100), notch(100)];
+        assert_eq!(spin_velocity(&at_once, now).unwrap().y, MAX_SPIN_SPEED);
     }
 
     #[test]
