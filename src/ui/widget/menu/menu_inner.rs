@@ -941,8 +941,10 @@ impl<'b, Message: Clone + 'static> Menu<'b, Message> {
 
             Mouse(ButtonPressed(Left)) | Touch(FingerPressed { .. }) => {
                 let group_press = press_group(self, overlay_cursor, renderer, shell);
+                let folder_press = !group_press && presses_folder(self);
                 self.tree.inner.with_data_mut(|data| {
                     data.group_press = group_press;
+                    data.folder_press = folder_press;
                     data.pressed = true;
                     data.view_cursor = view_cursor;
                 });
@@ -983,6 +985,16 @@ impl<'b, Message: Clone + 'static> Menu<'b, Message> {
                 return new_root;
             }
 
+            // A touch the compositor took back ends its press and chooses
+            // nothing
+            Touch(touch::Event::FingerLost { .. }) => {
+                self.tree.inner.with_data_mut(|state| {
+                    state.pressed = false;
+                    state.group_press = false;
+                    state.folder_press = false;
+                });
+            }
+
             Mouse(ButtonReleased(_)) | Touch(FingerLifted { .. }) => {
                 self.tree.inner.with_data_mut(|state| {
                     state.pressed = false;
@@ -998,8 +1010,10 @@ impl<'b, Message: Clone + 'static> Menu<'b, Message> {
                         return;
                     }
 
-                    // The release of a press for a group is the group's
-                    if std::mem::take(&mut state.group_press) {
+                    // The release of a press for a group is the group's, and of
+                    // one on a folder the folder's
+                    let folder_press = std::mem::take(&mut state.folder_press);
+                    if std::mem::take(&mut state.group_press) || folder_press {
                         return;
                     }
 
@@ -1043,12 +1057,17 @@ impl<'b, Message: Clone + 'static> Menu<'b, Message> {
                             .distance(view_cursor.position().unwrap_or_default())
                             < 2.0
                     {
-                        let is_inside = state.menu_states[..=if self.is_overlay {
+                        // Only the menus laid out so far: a lift can come
+                        // before the first is
+                        let deepest = if self.is_overlay {
                             state.active_root.len().saturating_sub(1)
                         } else {
                             self.depth
-                        }]
+                        };
+                        let is_inside = state
+                            .menu_states
                             .iter()
+                            .take(deepest + 1)
                             .any(|ms| ms.menu_bounds.check_bounds.contains(overlay_cursor));
                         let mut needs_reset = false;
                         needs_reset |= self.close_condition.click_inside
@@ -3170,6 +3189,31 @@ fn presses_group<Message>(
         }
         _ => false,
     }
+}
+
+/// Whether the row the press is on is a folder: its rows open on it, and it
+/// runs nothing itself.
+fn presses_folder<Message: Clone>(menu: &Menu<'_, Message>) -> bool {
+    menu.tree.inner.with_data(|state| {
+        let depth = if menu.is_overlay {
+            state.menu_states.len().saturating_sub(1)
+        } else {
+            menu.depth
+        };
+        if state.active_root.len() <= depth {
+            return false;
+        }
+        let Some(index) = state.menu_states.get(depth).and_then(|ms| ms.index) else {
+            return false;
+        };
+        rows_at(&menu.menu_roots, &state.active_root, depth)
+            .get(index)
+            .is_some_and(|row| {
+                !row.children.is_empty()
+                    && !row.pressable
+                    && matches!(row.child_open, ChildOpen::Row)
+            })
+    })
 }
 
 /// A press on a group row's count, or on a group row that runs nothing:

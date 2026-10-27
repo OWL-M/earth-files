@@ -1816,6 +1816,28 @@ where
         } else {
             state.close_pressed
         };
+        // So does every release, or a lost finger or pointer, end the press
+        // on an item: one let go of over another row, or outside, must not
+        // wait there for a release that began somewhere else.
+        let pressed_item = if is_lifted(event)
+            || matches!(
+                event,
+                Event::Mouse(mouse::Event::CursorLeft)
+                    | Event::Touch(touch::Event::FingerLost { .. })
+            ) {
+            state.pressed_item.take()
+        } else {
+            state.pressed_item
+        };
+        // And every middle release ends a middle press on a tab
+        let middle_clicked = if matches!(
+            event,
+            Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Middle))
+        ) {
+            state.middle_clicked.take()
+        } else {
+            state.middle_clicked
+        };
 
         if cursor_position.is_over(my_bounds) {
             // Check for clicks on the previous and next tab buttons, when tabs are collapsed.
@@ -1904,14 +1926,11 @@ where
                                     if let Event::Mouse(mouse::Event::ButtonReleased(
                                         mouse::Button::Middle,
                                     )) = event
+                                        && middle_clicked == Some(Item::Tab(key))
                                     {
-                                        if state.middle_clicked == Some(Item::Tab(key)) {
-                                            shell.publish(on_close(key));
-                                            shell.capture_event();
-                                            return;
-                                        }
-
-                                        state.middle_clicked = None;
+                                        shell.publish(on_close(key));
+                                        shell.capture_event();
+                                        return;
                                     }
                                 }
                             }
@@ -1982,13 +2001,17 @@ where
                         }
 
                         if let Some(on_activate) = self.on_activate.as_ref() {
+                            // A lift with another finger still down is part of
+                            // a two-finger tap, which asks for the context menu
                             if is_pressed(event) {
                                 state.pressed_item = Some(Item::Tab(key));
-                            } else if is_lifted(event) && self.button_is_pressed(state, key) {
+                            } else if is_lifted(event)
+                                && pressed_item == Some(Item::Tab(key))
+                                && !(touch_lifted(event) && fingers_pressed > 1)
+                            {
                                 shell.publish(on_activate(key));
                                 state.set_focused();
                                 state.focused_item = Item::Tab(key);
-                                state.pressed_item = None;
                                 shell.capture_event();
                                 return;
                             }
@@ -3289,6 +3312,119 @@ mod tests {
             &mut published,
         );
         (published, statuses)
+    }
+
+    /// What the activation tests' button publishes.
+    #[derive(Clone, Debug, PartialEq)]
+    enum Pick {
+        Activate(segmented_button::Entity),
+        Context(segmented_button::Entity),
+        Close(segmented_button::Entity),
+    }
+
+    /// Sends each batch of `events`, with the cursor at its point, to a
+    /// button over `model` that activates, closes, and has a context menu per
+    /// entity, and returns what it published.
+    fn send_batches(
+        model: &segmented_button::SingleSelectModel,
+        batches: &[(Point, Vec<Event>)],
+    ) -> Vec<Pick> {
+        let mut cache = iced_runtime::user_interface::Cache::default();
+        let mut renderer = iced_texture_cache::testing::headless_tiny_skia();
+        let mut published = Vec::new();
+        for (cursor, events) in batches {
+            let menus = model
+                .order
+                .iter()
+                .map(|_| menu::Tree::new(crate::ui::Element::from(crate::ui::widget::text("item"))))
+                .collect::<Vec<_>>();
+            let button =
+                SegmentedButton::<TestVariant, segmented_button::SingleSelect, _>::new(model)
+                    .on_activate(Pick::Activate)
+                    .on_close(Pick::Close)
+                    .on_context(Pick::Context)
+                    .context_menu(Some(vec![menu::Tree::with_children(
+                        crate::ui::Element::from(crate::ui::widget::Row::new()),
+                        menus,
+                    )]));
+            let mut ui = iced_runtime::user_interface::UserInterface::build(
+                crate::ui::Element::from(button),
+                Size::new(300.0, 30.0),
+                cache,
+                &mut renderer,
+            );
+            let _ = ui.update(
+                events,
+                mouse::Cursor::Available(*cursor),
+                &mut renderer,
+                &mut iced_core::clipboard::Null,
+                &mut published,
+            );
+            cache = ui.into_cache();
+        }
+        published
+    }
+
+    const FIRST: Point = Point::new(50.0, 15.0);
+    const SECOND: Point = Point::new(150.0, 15.0);
+
+    /// A press let go of over another entry is over: a later release over
+    /// the entry pressed, from a gesture that began somewhere else, does not
+    /// complete it.
+    #[test]
+    fn a_press_let_go_elsewhere_is_over() {
+        let (model, _ids) = sample_model();
+        let left = Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left));
+        let let_go = Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left));
+        let published = send_batches(
+            &model,
+            &[
+                (FIRST, vec![left]),
+                (SECOND, vec![let_go.clone()]),
+                (FIRST, vec![let_go]),
+            ],
+        );
+        assert_eq!(published, []);
+    }
+
+    /// So is a middle press let go of outside the bar: a later middle release
+    /// over its tab does not close it.
+    #[test]
+    fn a_middle_press_let_go_elsewhere_is_over() {
+        let (mut model, ids) = sample_model();
+        model.closable_set(ids[0], true);
+        let middle = Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Middle));
+        let let_go = Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Middle));
+        let published = send_batches(
+            &model,
+            &[
+                (FIRST, vec![middle]),
+                (Point::new(50.0, 100.0), vec![let_go.clone()]),
+                (FIRST, vec![let_go]),
+            ],
+        );
+        assert!(!published.contains(&Pick::Close(ids[0])), "{published:?}");
+    }
+
+    /// A two-finger tap on an entry asks for its context menu, and does not
+    /// activate it on either lift.
+    #[test]
+    fn a_two_finger_tap_opens_the_menu_without_activating() {
+        let (model, ids) = sample_model();
+        let finger = |id, event: fn(touch::Finger, Point) -> touch::Event| {
+            Event::Touch(event(touch::Finger(id), FIRST))
+        };
+        let pressed = |id, position| touch::Event::FingerPressed { id, position };
+        let lifted = |id, position| touch::Event::FingerLifted { id, position };
+        let published = send_batches(
+            &model,
+            &[
+                (FIRST, vec![finger(1, pressed), finger(2, pressed)]),
+                (FIRST, vec![finger(1, lifted)]),
+                (FIRST, vec![finger(2, lifted)]),
+            ],
+        );
+        assert_eq!(published, [Pick::Context(ids[0])]);
     }
 
     /// The centre of the first entity's close button in a 300x30 button over

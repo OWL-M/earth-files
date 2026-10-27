@@ -445,6 +445,9 @@ pub enum Message {
     ExtractTo(Option<Entity>),
     ExtractToResult(DialogResult),
     Key(window::Id, Modifiers, Key, Physical, Option<SmolStr>),
+    /// The mouse's Back (`false`) or Forward (`true`) button, pressed where
+    /// nothing took it.
+    HistoryButton(window::Id, bool),
     LaunchUrl(String),
     MaybeExit,
     ModifiersChanged(window::Id, Modifiers),
@@ -2974,10 +2977,13 @@ impl App {
     }
 
     fn update_nav_model(&mut self) {
-        // Entities are renumbered by the rebuild, so an open sidebar context
+        // The rebuild gives every entry a new id, so an open sidebar context
         // menu no longer refers to anything
         self.nav_bar_context_id = segmented_button::Entity::null();
-        let mut nav_model = segmented_button::ModelBuilder::default();
+        // Rebuilt in the same model, so no id held from before (an eject
+        // button still being pressed) is given to another entry
+        let mut nav_model =
+            segmented_button::ModelBuilder::reuse(std::mem::take(&mut self.nav_model));
 
         // Recents sits among the pinned entries, wherever it was dragged to.
         let recents_at = crate::config::sidebar::recents_index(
@@ -5350,6 +5356,18 @@ impl Application for App {
                     return dialog.update(dialog_message);
                 }
             }
+            Message::HistoryButton(window_id, forward) => {
+                if self.core.main_window_id() == Some(window_id) {
+                    return self.update(Message::TabMessage(
+                        None,
+                        if forward {
+                            tab::Message::GoNext
+                        } else {
+                            tab::Message::GoPrevious
+                        },
+                    ));
+                }
+            }
             Message::Key(window_id, modifiers, key, physical_key, text) => {
                 if self.core.main_window_id() == Some(window_id) {
                     let entity = self.tab_model.active();
@@ -6867,6 +6885,8 @@ impl Application for App {
             }
             Message::TabActivate(entity) => {
                 let mut tasks = vec![];
+                // Scrolling at the edge belongs to a gesture in the tab left
+                self.auto_scroll_speed = None;
 
                 // Activate new tab
                 self.tab_model.activate(entity);
@@ -6920,6 +6940,11 @@ impl Application for App {
                 let mut tasks = Vec::with_capacity(2);
 
                 let entity = entity_opt.unwrap_or_else(|| self.tab_model.active());
+                // A second close of a tab already gone would count the tab
+                // left behind as the last one, and close the window
+                if !self.tab_model.contains_item(entity) {
+                    return Task::none();
+                }
 
                 // If the last tab is closed, close the window
                 // Otherwise, activate closest item
@@ -9197,6 +9222,15 @@ impl Application for App {
                 Event::Keyboard(KeyEvent::ModifiersChanged(modifiers)) => {
                     Some(Message::ModifiersChanged(window_id, modifiers))
                 }
+                // Over the header or the sidebar as over the list, which
+                // takes its own
+                Event::Mouse(crate::ui::iced::mouse::Event::ButtonPressed(
+                    button @ (crate::ui::iced::mouse::Button::Back
+                    | crate::ui::iced::mouse::Button::Forward),
+                )) if status == event::Status::Ignored => Some(Message::HistoryButton(
+                    window_id,
+                    button == crate::ui::iced::mouse::Button::Forward,
+                )),
                 Event::Window(WindowEvent::Focused) => Some(Message::WindowFocusChanged(true)),
                 Event::Window(WindowEvent::Unfocused) => Some(Message::WindowFocusChanged(false)),
                 Event::Window(WindowEvent::CloseRequested) => Some(Message::WindowClose),

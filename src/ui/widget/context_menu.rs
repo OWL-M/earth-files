@@ -1304,6 +1304,164 @@ mod tests {
         assert_eq!(messages, [Msg::Selected]);
     }
 
+    /// A popup menu holding one folder, File, with Open in it, laid out as
+    /// `create_popup` lays it out: the menu, its state, and the middle of
+    /// its surface, over the folder.
+    fn folder_menu() -> (
+        crate::ui::widget::menu::Menu<'static, Msg>,
+        MenuBarState,
+        Size,
+        Point,
+    ) {
+        use crate::ui::widget::menu::Item;
+
+        #[derive(Clone, Copy, PartialEq, Eq)]
+        struct Act;
+        impl crate::ui::widget::menu::action::MenuAction for Act {
+            type Message = Msg;
+            fn message(&self) -> Msg {
+                Msg::Selected
+            }
+        }
+
+        let mut roots = vec![menu::Tree::with_children(
+            crate::ui::Element::from(crate::ui::widget::Row::new()),
+            menu::items(
+                &std::collections::HashMap::new(),
+                vec![Item::Folder(
+                    "File".to_owned(),
+                    vec![Item::Button("Open".to_owned(), None, Act)],
+                )],
+            ),
+        )];
+        roots.iter_mut().for_each(menu::Tree::set_index);
+
+        let renderer = iced_texture_cache::testing::headless_tiny_skia();
+        let tree = MenuBarState::default();
+        tree.inner.with_data_mut(|d| {
+            d.open = true;
+            menu_roots_diff(&roots, &mut d.tree);
+        });
+        let bounds = iced::Rectangle::new(INSIDE, Size::new(1.0, 1.0));
+        let mut menu = popup_menu(
+            roots,
+            tree.clone(),
+            ItemWidth::Uniform(200),
+            bounds,
+            window::Id::unique(),
+            None,
+        );
+        init_root_menu(
+            &mut menu,
+            &renderer,
+            &mut iced_core::Shell::new(&mut Vec::new()),
+            INSIDE,
+            WINDOW,
+            Vector::new(0., 0.),
+            bounds,
+            -bounds.height,
+        );
+        let size = menu
+            .layout(
+                &renderer,
+                iced_core::layout::Limits::NONE.min_width(1.).min_height(1.),
+            )
+            .size();
+        let surface = Size::new(size.width.ceil() + 2.0, size.height.ceil() + 2.0);
+        let middle = Point::new(surface.width / 2.0, surface.height / 2.0);
+        (menu, tree, surface, middle)
+    }
+
+    /// Sends `events` to `menu`, on a surface of `size`, with the pointer at
+    /// `at`.
+    fn send_to_menu(
+        menu: crate::ui::widget::menu::Menu<'static, Msg>,
+        size: Size,
+        at: Point,
+        events: &[Event],
+    ) -> Vec<Msg> {
+        let mut renderer = iced_texture_cache::testing::headless_tiny_skia();
+        let mut ui = UserInterface::build(
+            crate::ui::widget::container(menu).center(Length::Fill),
+            size,
+            Cache::default(),
+            &mut renderer,
+        );
+        let mut messages = Vec::new();
+        let _ = ui.update(
+            events,
+            mouse::Cursor::Available(at),
+            &mut renderer,
+            &mut clipboard::Null,
+            &mut messages,
+        );
+        messages
+    }
+
+    /// A click on a folder leaves the menu open on what it holds: the
+    /// release that ends it chooses nothing, so closes nothing.
+    #[test]
+    fn a_click_on_a_folder_leaves_the_menu_open() {
+        for (press, release) in [
+            (
+                Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)),
+                Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)),
+            ),
+            (
+                Event::Touch(touch::Event::FingerPressed {
+                    id: Finger(1),
+                    position: Point::ORIGIN,
+                }),
+                Event::Touch(touch::Event::FingerLifted {
+                    id: Finger(1),
+                    position: Point::ORIGIN,
+                }),
+            ),
+        ] {
+            let (menu, tree, size, middle) = folder_menu();
+            send_to_menu(
+                menu,
+                size,
+                middle,
+                &[
+                    Event::Mouse(mouse::Event::CursorMoved { position: middle }),
+                    press,
+                    release,
+                ],
+            );
+            assert!(
+                tree.inner.with_data(|d| d.open),
+                "the click closed the menu"
+            );
+        }
+    }
+
+    /// A touch the compositor takes back ends its press: the menu goes on
+    /// following the pointer instead of waiting for a lift that never comes.
+    #[test]
+    fn a_lost_touch_ends_the_menus_press() {
+        let (menu, tree, size, middle) = folder_menu();
+        send_to_menu(
+            menu,
+            size,
+            middle,
+            &[
+                Event::Touch(touch::Event::FingerPressed {
+                    id: Finger(1),
+                    position: middle,
+                }),
+                Event::Touch(touch::Event::FingerLost {
+                    id: Finger(1),
+                    position: middle,
+                }),
+            ],
+        );
+        assert!(
+            !tree.inner.with_data(|d| d.pressed),
+            "the press is still held"
+        );
+    }
+
     /// A popup menu of Open, Copy (with Copy path and Copy to folded under
     /// it) and Paste, laid out as `create_popup` lays it out: what the
     /// surface shows, its size, and the state to look at.

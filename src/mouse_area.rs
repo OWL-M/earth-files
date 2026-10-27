@@ -29,6 +29,7 @@ pub struct MouseArea<'a, Message> {
     on_double_click: Option<Box<dyn Fn(Option<Point>) -> Message + 'a>>,
     on_press: Option<Box<dyn Fn(Option<Point>) -> Message + 'a>>,
     on_drag_end: Option<Box<dyn Fn(Option<Point>) -> Message + 'a>>,
+    on_last_drag: Option<Box<dyn Fn(Option<Rectangle>) -> Message + 'a>>,
     on_release: Option<Box<dyn Fn(Option<Point>) -> Message + 'a>>,
     on_resize: Option<Box<dyn Fn(Rectangle) -> Message + 'a>>,
     on_right_press: Option<Box<dyn Fn(Option<Point>) -> Message + 'a>>,
@@ -45,6 +46,9 @@ pub struct MouseArea<'a, Message> {
     on_enter: Option<Box<dyn Fn() -> Message + 'a>>,
     on_exit: Option<Box<dyn Fn() -> Message + 'a>>,
     show_drag_rect: bool,
+    touch_taps: bool,
+    identity: Option<Id>,
+    scroll_first: bool,
 }
 
 impl<'a, Message> MouseArea<'a, Message> {
@@ -100,6 +104,15 @@ impl<'a, Message> MouseArea<'a, Message> {
         self
     }
 
+    /// The message to emit with the rectangle a drag ends on, as
+    /// [`Self::on_drag`] would, just before [`Self::on_drag_end`]: whether or
+    /// not `on_drag` is set at the time, the last of the gesture is not lost.
+    #[must_use]
+    pub fn on_last_drag(mut self, message: impl Fn(Option<Rectangle>) -> Message + 'a) -> Self {
+        self.on_last_drag = Some(Box::new(message));
+        self
+    }
+
     /// The message to emit on a double click.
     #[must_use]
     pub fn on_double_click(mut self, message: impl Fn(Option<Point>) -> Message + 'a) -> Self {
@@ -111,6 +124,24 @@ impl<'a, Message> MouseArea<'a, Message> {
     #[must_use]
     pub fn on_press(mut self, message: impl Fn(Option<Point>) -> Message + 'a) -> Self {
         self.on_press = Some(Box::new(message));
+        self
+    }
+
+    /// Leave a finger dragging over this area to the scrollable around it: a
+    /// finger neither presses nor drags here, and a tap, a touch that hardly
+    /// moved, is a click on its lift, a second tap a double click.
+    #[must_use]
+    pub fn touch_taps(mut self) -> Self {
+        self.touch_taps = true;
+        self
+    }
+
+    /// What this area stands for, such as the item it shows: a tap touched
+    /// down while it stood for something else, before the view was rebuilt,
+    /// is no tap on it.
+    #[must_use]
+    pub fn identity(mut self, identity: Id) -> Self {
+        self.identity = Some(identity);
         self
     }
 
@@ -217,6 +248,15 @@ impl<'a, Message> MouseArea<'a, Message> {
         self
     }
 
+    /// Offer the wheel to [`Self::on_scroll`] before the content. Around a
+    /// scrollable, a wheel turn it answers never reaches the scrollable, which
+    /// otherwise keeps the wheel from its content for a while after scrolling.
+    #[must_use]
+    pub fn scroll_first(mut self) -> Self {
+        self.scroll_first = true;
+        self
+    }
+
     /// The message to emit when a mouse enters the area.
     #[must_use]
     pub fn on_enter(mut self, message: impl Fn() -> Message + 'a) -> Self {
@@ -283,7 +323,14 @@ struct State {
     dnd_generation: Option<u64>,
     prev_click: Option<(mouse::Click, Instant)>,
     viewport: Option<Rectangle>,
+    /// The finger touching down here, where it did, and what the area stood
+    /// for then, while it may still be a tap. See [`MouseArea::touch_taps`].
+    tap: Option<(touch::Finger, Point, Option<Id>)>,
 }
+
+/// How far a finger may move, in logical pixels, and still tap rather than
+/// scroll.
+const TAP_SLOP: f32 = 8.0;
 
 impl State {
     /// Where the cursor is for the purposes of a drag: where it last was
@@ -365,6 +412,7 @@ impl<'a, Message> MouseArea<'a, Message> {
             interaction: None,
             on_dnd: None,
             on_drag_end: None,
+            on_last_drag: None,
             on_double_click: None,
             on_press: None,
             on_release: None,
@@ -383,6 +431,9 @@ impl<'a, Message> MouseArea<'a, Message> {
             on_exit: None,
             on_scroll: None,
             show_drag_rect: false,
+            touch_taps: false,
+            identity: None,
+            scroll_first: false,
         }
     }
 }
@@ -445,6 +496,19 @@ where
         shell: &mut Shell<'_, Message>,
         viewport: &Rectangle,
     ) {
+        if self.scroll_first
+            && let Event::Mouse(mouse::Event::WheelScrolled { delta }) = event
+            && cursor.is_over(layout.bounds())
+            && let Some(message) = self
+                .on_scroll
+                .as_ref()
+                .and_then(|on_scroll| on_scroll(*delta))
+        {
+            shell.publish(message);
+            shell.capture_event();
+            return;
+        }
+
         self.content.as_widget_mut().update(
             &mut tree.children[0],
             event,
@@ -457,6 +521,18 @@ where
         );
 
         if shell.is_event_captured() {
+            // A tap the content took the lift of is over here too, or the
+            // next touch would be taken for a second finger
+            if self.touch_taps
+                && let Event::Touch(
+                    touch::Event::FingerLifted { id, .. } | touch::Event::FingerLost { id, .. },
+                ) = event
+            {
+                let state = tree.state.downcast_mut::<State>();
+                if state.tap.as_ref().is_some_and(|(finger, ..)| finger == id) {
+                    state.tap = None;
+                }
+            }
             return;
         }
 
@@ -720,6 +796,70 @@ fn update<Message: Clone>(
         }
     }
 
+    // Fingers that only tap, leaving their drags to the scrollable
+    if widget.touch_taps
+        && let Event::Touch(touch_event) = event
+    {
+        match *touch_event {
+            touch::Event::FingerPressed { id, position } => {
+                // A second finger makes it something other than a tap
+                state.tap = (state.tap.is_none() && cursor.is_over(layout_bounds))
+                    .then(|| (id, position, widget.identity.clone()));
+            }
+            touch::Event::FingerMoved { id, position } => {
+                if state.tap.as_ref().is_some_and(|(finger, from, _)| {
+                    *finger == id && from.distance(position) > TAP_SLOP
+                }) {
+                    state.tap = None;
+                }
+            }
+            touch::Event::FingerLifted { id, position } => {
+                if let Some((finger, from, identity)) = state.tap.take()
+                    && finger == id
+                    && from.distance(position) <= TAP_SLOP
+                    && identity == widget.identity
+                    && let Some(at) = cursor.position_in(layout_bounds)
+                {
+                    let on_click = match state.click(at).kind() {
+                        click::Kind::Double => widget.on_double_click.as_ref(),
+                        click::Kind::Single | click::Kind::Triple => widget.on_press.as_ref(),
+                    };
+                    let mut taken = false;
+                    for message in [on_click, widget.on_release.as_ref()].into_iter().flatten() {
+                        shell.publish(message(Some(at)));
+                        taken = true;
+                    }
+                    if taken {
+                        shell.capture_event();
+                    }
+                }
+            }
+            touch::Event::FingerLost { .. } => state.tap = None,
+        }
+        return;
+    }
+
+    // A gesture that ends, however it ends, takes the scrolling at the edge
+    // with it: a release outside the list would otherwise leave it running
+    // with nothing to stop it.
+    if matches!(
+        event,
+        Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left) | mouse::Event::CursorLeft)
+            | Event::Touch(touch::Event::FingerLifted { .. } | touch::Event::FingerLost { .. })
+    ) && state.last_auto_scroll.take().is_some()
+        && let Some(message) = widget.on_auto_scroll.as_ref()
+    {
+        shell.publish(message(None));
+    }
+    // Nor does a press survive the pointer or the finger being taken away,
+    // wherever it is now: a later release is not its own
+    if matches!(
+        event,
+        Event::Mouse(mouse::Event::CursorLeft) | Event::Touch(touch::Event::FingerLost { .. })
+    ) {
+        state.pressed = false;
+    }
+
     // Whether the press this release completes happened in this area. Retained
     // double-click history is not evidence of that: an item clicked a moment
     // ago would otherwise claim the release of a rubber-band selection that
@@ -776,15 +916,23 @@ fn update<Message: Clone>(
 
     let distance_dragged = state.drag_distance(cursor);
     if released && distance_dragged > 1.0 {
+        if let Some(message) = widget.on_last_drag.as_ref()
+            && let Some(drag_rect) = state.drag_rect(cursor)
+        {
+            shell.publish(message(in_area(drag_rect, layout_bounds)));
+        }
         state.drag_initiated = None;
         state.prev_click = None;
         shell.request_redraw();
         if let Some(message) = widget.on_drag_end.as_ref() {
             shell.publish(message(cursor.position_in(layout_bounds)));
         }
-    } else if matches!(event, Event::Mouse(mouse::Event::CursorLeft)) {
-        // End the gesture when the compositor takes the pointer grab; no button release
-        // will arrive here.
+    } else if matches!(
+        event,
+        Event::Mouse(mouse::Event::CursorLeft) | Event::Touch(touch::Event::FingerLost { .. })
+    ) {
+        // End the gesture when the compositor takes the pointer grab, or cancels the
+        // touch; no button release or lift will arrive here.
         //
         // The header bar's `on_drag` requests an interactive move
         // (`xdg_toplevel.move`). The compositor takes the grab and sends
@@ -803,18 +951,10 @@ fn update<Message: Clone>(
         state.pressed = false;
     }
 
-    let recent_click = state
-        .prev_click
-        .as_ref()
-        .is_some_and(|(_, i)| Instant::now().duration_since(*i) <= DOUBLE_CLICK_DURATION);
+    // However long the press was held: the release of a Ctrl-click that
+    // deselects, or of a click that narrows the selection or opens, is the
+    // same release after a pause
     if released && pressed_here && state.prev_click.is_some() {
-        if !recent_click {
-            state.prev_click = None;
-            // A press held without moving is over too: otherwise later pointer
-            // movement would still report a drag
-            state.drag_initiated = None;
-            return;
-        }
         if state.drag_initiated.take().is_some() {
             shell.request_redraw();
         }
@@ -952,13 +1092,7 @@ fn update<Message: Clone>(
     }
 
     if let Some((message, drag_rect)) = widget.on_drag.as_ref().zip(state.drag_rect(cursor)) {
-        shell.publish(message(drag_rect.intersection(&layout_bounds).map(
-            |mut rect| {
-                rect.x -= layout_bounds.x;
-                rect.y -= layout_bounds.y;
-                rect
-            },
-        )));
+        shell.publish(message(in_area(drag_rect, layout_bounds)));
     }
 
     if let Some(message) = widget.on_drag_delta.as_ref()
@@ -970,6 +1104,15 @@ fn update<Message: Clone>(
     }
 }
 
+/// The part of `drag_rect` over the area at `bounds`, relative to it.
+fn in_area(drag_rect: Rectangle, bounds: Rectangle) -> Option<Rectangle> {
+    drag_rect.intersection(&bounds).map(|mut rect| {
+        rect.x -= bounds.x;
+        rect.y -= bounds.y;
+        rect
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use std::time::Instant;
@@ -977,13 +1120,40 @@ mod tests {
     use super::{MouseArea, State, update};
     use crate::ui::iced_core::event::Event;
     use crate::ui::iced_core::mouse::{self, Cursor};
-    use crate::ui::iced_core::{Layout, Point, Rectangle, Shell, Size, layout, window};
+    use crate::ui::iced_core::{Layout, Point, Rectangle, Shell, Size, layout, touch, window};
     use crate::ui::widget::space;
 
     #[derive(Clone, Debug, PartialEq)]
     enum Msg {
         Drag(Option<Rectangle>),
         Release,
+        Press,
+        DoubleClick,
+        AutoScroll(Option<f32>),
+        LastDrag(Option<Rectangle>),
+        DragEnd,
+    }
+
+    const FINGER: touch::Finger = touch::Finger(1);
+
+    fn finger(event: fn(touch::Finger, Point) -> touch::Event, at: Point) -> Event {
+        Event::Touch(event(FINGER, at))
+    }
+
+    fn finger_pressed(id: touch::Finger, position: Point) -> touch::Event {
+        touch::Event::FingerPressed { id, position }
+    }
+
+    fn finger_moved(id: touch::Finger, position: Point) -> touch::Event {
+        touch::Event::FingerMoved { id, position }
+    }
+
+    fn finger_lifted(id: touch::Finger, position: Point) -> touch::Event {
+        touch::Event::FingerLifted { id, position }
+    }
+
+    fn finger_lost(id: touch::Finger, position: Point) -> touch::Event {
+        touch::Event::FingerLost { id, position }
     }
 
     const AREA: Size = Size::new(200.0, 200.0);
@@ -1249,6 +1419,252 @@ mod tests {
         assert!(
             published.is_empty(),
             "a release with no press of its own is not this area's: {published:?}"
+        );
+    }
+
+    /// A click held still for longer than a double click takes is released
+    /// all the same: the release is what deselects a Ctrl-click, narrows a
+    /// selection to the item, or opens it with single-click opening.
+    #[test]
+    fn a_click_held_still_is_still_released() {
+        let mut widget = MouseArea::new(space::vertical()).on_release(|_| Msg::Release);
+        let mut state = State::default();
+
+        let at = Point::new(10.0, 10.0);
+        feed(&mut widget, &mut state, &moved_to(at), at);
+        feed(&mut widget, &mut state, &pressed(), at);
+        // Held a second before letting go
+        let (_, pressed_at) = state.prev_click.as_mut().unwrap();
+        *pressed_at -= std::time::Duration::from_secs(1);
+
+        assert_eq!(
+            feed(&mut widget, &mut state, &released(), at),
+            [Msg::Release]
+        );
+    }
+
+    /// Letting go outside the list ends the scrolling at its edge: no
+    /// movement comes after the release to stop it.
+    #[test]
+    fn releasing_stops_the_edge_scroll() {
+        let mut widget = MouseArea::new(space::vertical())
+            .on_drag(Msg::Drag)
+            .on_auto_scroll(Msg::AutoScroll);
+        let mut state = State::default();
+
+        let at = Point::new(10.0, 10.0);
+        feed(&mut widget, &mut state, &moved_to(at), at);
+        feed(&mut widget, &mut state, &pressed(), at);
+        let below = Point::new(10.0, AREA.height + 50.0);
+        let published = feed(&mut widget, &mut state, &moved_to(below), below);
+        assert!(
+            published.contains(&Msg::AutoScroll(Some(50.0))),
+            "past the bottom it scrolls: {published:?}"
+        );
+
+        let published = feed(&mut widget, &mut state, &released(), below);
+        assert!(
+            published.contains(&Msg::AutoScroll(None)),
+            "the release stops it: {published:?}"
+        );
+    }
+
+    /// A touch the compositor cancels ends its gesture: what moves next does
+    /// not drag on from it, and no later release is its click.
+    #[test]
+    fn a_lost_finger_ends_its_gesture() {
+        let mut widget = MouseArea::new(space::vertical())
+            .on_press(|_| Msg::Press)
+            .on_drag(Msg::Drag)
+            .on_release(|_| Msg::Release);
+        let mut state = State::default();
+
+        let at = Point::new(10.0, 10.0);
+        feed(&mut widget, &mut state, &finger(finger_pressed, at), at);
+        feed(&mut widget, &mut state, &finger(finger_lost, at), at);
+
+        let away = Point::new(80.0, 80.0);
+        assert_eq!(feed(&mut widget, &mut state, &moved_to(away), away), []);
+        assert_eq!(feed(&mut widget, &mut state, &released(), away), []);
+    }
+
+    /// A finger dragged over the list is left to the scrollable: it neither
+    /// presses nor drags here. One that hardly moves taps, a click on its
+    /// lift, and a second tap is a double click.
+    #[test]
+    fn a_finger_taps_and_leaves_drags_to_scrolling() {
+        let mut widget = MouseArea::new(space::vertical())
+            .touch_taps()
+            .on_press(|_| Msg::Press)
+            .on_double_click(|_| Msg::DoubleClick)
+            .on_drag(Msg::Drag)
+            .on_release(|_| Msg::Release);
+        let mut state = State::default();
+
+        let at = Point::new(10.0, 10.0);
+        let far = Point::new(10.0, 60.0);
+        assert_eq!(
+            feed(&mut widget, &mut state, &finger(finger_pressed, at), at),
+            []
+        );
+        assert_eq!(
+            feed(&mut widget, &mut state, &finger(finger_moved, far), far),
+            []
+        );
+        assert_eq!(
+            feed(&mut widget, &mut state, &finger(finger_lifted, far), far),
+            []
+        );
+
+        let near = Point::new(12.0, 13.0);
+        feed(&mut widget, &mut state, &finger(finger_pressed, at), at);
+        feed(&mut widget, &mut state, &finger(finger_moved, near), near);
+        assert_eq!(
+            feed(&mut widget, &mut state, &finger(finger_lifted, near), near),
+            [Msg::Press, Msg::Release]
+        );
+
+        feed(&mut widget, &mut state, &finger(finger_pressed, at), at);
+        assert_eq!(
+            feed(&mut widget, &mut state, &finger(finger_lifted, at), at),
+            [Msg::DoubleClick, Msg::Release]
+        );
+    }
+
+    /// The rectangle a drag ends on is reported, even while `on_drag` is left
+    /// off between reports: the selection is what was last dragged over.
+    #[test]
+    fn the_last_rectangle_is_reported_at_the_release() {
+        let mut state = State::default();
+        let at = Point::new(10.0, 10.0);
+        let mut watching = MouseArea::new(space::vertical()).on_drag(Msg::Drag);
+        feed(&mut watching, &mut state, &moved_to(at), at);
+        feed(&mut watching, &mut state, &pressed(), at);
+
+        let mut resting = MouseArea::new(space::vertical())
+            .on_last_drag(Msg::LastDrag)
+            .on_drag_end(|_| Msg::DragEnd);
+        let to = Point::new(60.0, 40.0);
+        assert_eq!(feed(&mut resting, &mut state, &moved_to(to), to), []);
+        assert_eq!(
+            feed(&mut resting, &mut state, &released(), to),
+            [
+                Msg::LastDrag(Some(Rectangle::new(at, Size::new(50.0, 30.0)))),
+                Msg::DragEnd
+            ]
+        );
+    }
+
+    /// An area that takes the wheel first takes it before its content: a
+    /// scrollable inside, keeping the wheel from what it scrolls right after
+    /// a scroll, does not stop Ctrl and the wheel zooming.
+    #[test]
+    fn the_wheel_reaches_an_area_that_takes_it_first() {
+        use crate::ui::iced_core::clipboard;
+        use crate::ui::iced_runtime::user_interface::{Cache, UserInterface};
+
+        let view = || -> crate::ui::Element<'static, Msg> {
+            let inner = MouseArea::new(space::vertical().width(AREA.width).height(AREA.height))
+                .on_scroll(|_| Some(Msg::Release));
+            MouseArea::new(inner)
+                .scroll_first()
+                .on_scroll(|_| Some(Msg::Press))
+                .into()
+        };
+        let mut renderer = iced_texture_cache::testing::headless_tiny_skia();
+        let mut ui = UserInterface::build(view(), AREA, Cache::default(), &mut renderer);
+        let mut messages = Vec::new();
+        let _ = ui.update(
+            &[Event::Mouse(mouse::Event::WheelScrolled {
+                delta: mouse::ScrollDelta::Lines { x: 0.0, y: 1.0 },
+            })],
+            Cursor::Available(Point::new(10.0, 10.0)),
+            &mut renderer,
+            &mut clipboard::Null,
+            &mut messages,
+        );
+        assert_eq!(messages, [Msg::Press]);
+    }
+
+    /// A tap on an item, whose lift the item takes, is over for the list
+    /// around it too: the next tap, on the list's background, is a tap there
+    /// and not taken for a second finger.
+    #[test]
+    fn a_tap_taken_by_an_item_is_over_for_the_list() {
+        use crate::ui::iced_core::clipboard;
+        use crate::ui::iced_runtime::user_interface::{Cache, UserInterface};
+
+        let view = || -> crate::ui::Element<'static, Msg> {
+            let item = MouseArea::new(space::vertical().width(AREA.width).height(50.0))
+                .touch_taps()
+                .on_press(|_| Msg::DoubleClick);
+            let list = crate::ui::widget::Column::new()
+                .push(item)
+                .push(space::vertical().width(AREA.width).height(150.0));
+            MouseArea::new(list)
+                .touch_taps()
+                .on_press(|_| Msg::Press)
+                .on_release(|_| Msg::Release)
+                .into()
+        };
+        let mut renderer = iced_texture_cache::testing::headless_tiny_skia();
+        let mut cache = Cache::default();
+        let mut tap = |at: Point| {
+            let mut messages = Vec::new();
+            for event in [
+                touch::Event::FingerPressed {
+                    id: FINGER,
+                    position: at,
+                },
+                touch::Event::FingerLifted {
+                    id: FINGER,
+                    position: at,
+                },
+            ] {
+                let mut ui =
+                    UserInterface::build(view(), AREA, std::mem::take(&mut cache), &mut renderer);
+                let _ = ui.update(
+                    &[Event::Touch(event)],
+                    Cursor::Available(at),
+                    &mut renderer,
+                    &mut clipboard::Null,
+                    &mut messages,
+                );
+                cache = ui.into_cache();
+            }
+            messages
+        };
+
+        assert_eq!(tap(Point::new(10.0, 10.0)), [Msg::DoubleClick]);
+        assert_eq!(tap(Point::new(10.0, 150.0)), [Msg::Press, Msg::Release]);
+    }
+
+    /// A tap whose item was replaced under the finger, the listing refreshed
+    /// between touch-down and lift, clicks neither the old item nor the new.
+    #[test]
+    fn a_tap_on_an_item_replaced_meanwhile_clicks_nothing() {
+        use crate::ui::widget::Id;
+
+        let area = |identity: &'static str| {
+            MouseArea::new(space::vertical())
+                .touch_taps()
+                .identity(Id::new(identity))
+                .on_press(|_| Msg::Press)
+                .on_release(|_| Msg::Release)
+        };
+        let at = Point::new(10.0, 10.0);
+        let mut state = State::default();
+        feed(&mut area("a"), &mut state, &finger(finger_pressed, at), at);
+        assert_eq!(
+            feed(&mut area("b"), &mut state, &finger(finger_lifted, at), at),
+            []
+        );
+
+        // Still the same item: a tap
+        feed(&mut area("b"), &mut state, &finger(finger_pressed, at), at);
+        assert_eq!(
+            feed(&mut area("b"), &mut state, &finger(finger_lifted, at), at),
+            [Msg::Press, Msg::Release]
         );
     }
 }

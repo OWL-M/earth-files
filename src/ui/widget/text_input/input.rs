@@ -1045,9 +1045,12 @@ where
         ) {
             let state = tree.state.downcast_ref::<State>();
             if let Some(click_position) = state.context_menu_position {
+                // A password is not copied or cut, from the menu any more than
+                // from the keyboard
                 let selected_text = state
                     .cursor()
                     .selection(&state.tracked_value)
+                    .filter(|_| !self.is_secure)
                     .map(|(start, end)| state.tracked_value.select(start, end).to_string());
                 let has_selection = selected_text.is_some();
                 let has_text = !state.tracked_value.is_empty();
@@ -1711,15 +1714,12 @@ pub fn update<'a, Message: Clone + 'static>(
                         if cursor.is_over(selection_bounds) && (on_input.is_some() || manage_value)
                         {
                             state.dragging_state = Some(DraggingState::PrepareDnd(cursor_position));
-                            shell.capture_event();
-                            return;
+                        } else {
+                            // Clear the selection and place the cursor at the
+                            // click, where a drag selects from
+                            update_cache(state, value);
+                            state.setting_selection(value, text_layout.bounds(), target);
                         }
-                        // clear selection and place cursor at click position
-                        update_cache(state, value);
-                        state.setting_selection(value, text_layout.bounds(), target);
-                        state.dragging_state = None;
-                        shell.capture_event();
-                        return;
                     }
                     (None, click::Kind::Single, _) => {
                         state.setting_selection(value, text_layout.bounds(), target);
@@ -1766,8 +1766,10 @@ pub fn update<'a, Message: Clone + 'static>(
                 }
 
                 // Focus on click of the text input, and ensure that the input is writable.
-                if matches!(state.dragging_state, None | Some(DraggingState::Selection))
-                    && (!state.is_focused() || (is_editable_variant && state.is_read_only))
+                if matches!(
+                    state.dragging_state,
+                    None | Some(DraggingState::Selection | DraggingState::PrepareDnd(_))
+                ) && (!state.is_focused() || (is_editable_variant && state.is_read_only))
                 {
                     if !state.is_focused()
                         && let Some(on_focus) = on_focus
@@ -3257,6 +3259,11 @@ impl<Message: Clone + 'static> crate::ui::widget::text::HasSelectableText
 {
     fn selected_text(&self, tree: &WidgetTree) -> Option<String> {
         let state = tree.state.downcast_ref::<State>();
+        // A password is not copied or cut, from the menu any more than from
+        // the keyboard
+        if state.is_secure {
+            return None;
+        }
         let (start, end) = state.cursor().selection(&state.tracked_value)?;
         Some(state.tracked_value.select(start, end).to_string())
     }
@@ -3518,5 +3525,61 @@ mod tests {
         assert!(h.redraws(Event::Mouse(mouse::Event::CursorMoved {
             position: label.center(),
         })));
+    }
+
+    fn typed(text: &str) -> Event {
+        Event::Keyboard(keyboard::Event::KeyPressed {
+            key: keyboard::Key::Character(text.into()),
+            modified_key: keyboard::Key::Character(text.into()),
+            physical_key: keyboard::key::Physical::Code(keyboard::key::Code::KeyX),
+            location: keyboard::Location::Standard,
+            modifiers: keyboard::Modifiers::empty(),
+            text: Some(text.into()),
+            repeat: false,
+        })
+    }
+
+    /// The input left with its text selected, and clicked again beside the
+    /// selection, takes the keyboard: the click is not lost to the selection.
+    #[test]
+    fn a_click_beside_a_kept_selection_focuses_the_input() {
+        let mut h = Harness::new();
+        h.move_to(OVER_INPUT);
+        for _ in 0..2 {
+            h.press();
+            h.release();
+        }
+        // Another widget takes the click, and the selection stays
+        h.move_to(OVER_AREA);
+        h.press();
+        h.release();
+        assert_eq!(h.send(typed("x")).1, [], "the input let go of the keyboard");
+
+        // Not where the double click was, so a single click
+        h.move_to(Point::new(OVER_INPUT.x + 20.0, OVER_INPUT.y));
+        h.press();
+        h.release();
+        let (_, messages) = h.send(typed("x"));
+        assert!(
+            messages
+                .iter()
+                .any(|message| matches!(message, Msg::Input(_))),
+            "the click did not focus the input: {messages:?}"
+        );
+    }
+
+    /// A password's selection is not handed to the context menu to copy or
+    /// cut, any more than to the keyboard.
+    #[test]
+    fn a_password_selection_is_not_offered_to_the_menu() {
+        use crate::ui::widget::text::HasSelectableText;
+
+        let input = text_input::<Msg>("", "secret").password();
+        let mut tree = Tree::new(&input as &dyn Widget<Msg, crate::ui::Theme, crate::ui::Renderer>);
+        input.diff(&mut tree);
+        let state = tree.state.downcast_mut::<State>();
+        state.cursor.select_all(&Value::new("secret"));
+
+        assert_eq!(input.selected_text(&tree), None);
     }
 }

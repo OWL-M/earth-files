@@ -63,6 +63,10 @@ use crate::{FxOrderMap, fl, menu, mime_app, mouse_area};
 use iced_texture_cache::{TextureCache, cached};
 
 pub const DOUBLE_CLICK_DURATION: Duration = Duration::from_millis(500);
+
+/// How long a rectangle selection over blank space, where no item is crossed
+/// to report it, goes without updating the selection at most.
+pub const DRAG_REARM: Duration = Duration::from_millis(50);
 pub const TYPE_SELECT_TIMEOUT: Duration = Duration::from_millis(1000);
 const MAX_SEARCH_LATENCY: Duration = Duration::from_millis(20);
 const THUMBNAIL_SIZE: u32 = (ICON_SIZE_GRID as u32) * (ICON_SCALE_MAX as u32);
@@ -2350,6 +2354,8 @@ pub enum Message {
     /// [`Tab::drag_hover_generation`].
     DragHoverElapsed(u64),
     DragEnd,
+    /// The rectangle selection may report again; see [`DRAG_REARM`].
+    DragRearm,
     EditLocation(Option<EditLocation>),
     EditLocationComplete(usize),
     EditLocationEnable,
@@ -2441,6 +2447,7 @@ impl Message {
                 | Self::DoubleClick(_)
                 | Self::Drag(_)
                 | Self::DragEnd
+                | Self::DragRearm
                 | Self::DragFiles(_)
                 | Self::DragHoverElapsed(_)
                 | Self::EditLocation(_)
@@ -2504,6 +2511,7 @@ impl Message {
                 | Self::ItemUp
                 | Self::DirectoryChildren(..)
                 | Self::DirectorySize(..)
+                | Self::DragRearm
                 | Self::HighlightActivate(_)
                 | Self::HighlightDeactivate(_)
                 | Self::IconsReady
@@ -3906,6 +3914,10 @@ pub struct Tab {
     /// item a second time. In single-click mode the first release has already
     /// opened it, and a double click is still two presses and two releases.
     opened_by_this_click: bool,
+    /// What the press a release will complete was on, so a listing changed
+    /// in between, putting another item under the pointer, does not hand the
+    /// click to that item.
+    pressed_on: Option<Location>,
     /// An item pressed while already selected. The press keeps the rest of
     /// the selection, so it can be dragged as a whole; if the release comes
     /// on the same item with no drag started in between, the selection
@@ -4350,6 +4362,7 @@ impl Tab {
             select_range: None,
             clicked: None,
             opened_by_this_click: false,
+            pressed_on: None,
             narrow_on_release: None,
             last_right_click: None,
             search_context: None,
@@ -5148,6 +5161,19 @@ impl Tab {
             }
         }
         found
+    }
+
+    /// Where the item at `i` is, if there is one.
+    fn location_at(&self, i: Option<usize>) -> Option<Location> {
+        self.items_opt.as_ref()?.get(i?)?.location_opt.clone()
+    }
+
+    /// Forgets which items the last rectangle crossed, so the next one
+    /// toggles only what it crosses itself.
+    fn clear_drag_overlaps(&mut self) {
+        for item in self.items_opt.iter_mut().flatten() {
+            item.overlaps_drag_rect = false;
+        }
     }
 
     pub fn select_rect(&mut self, rect: Rectangle, mod_ctrl: bool, mod_shift: bool) {
@@ -5949,54 +5975,64 @@ impl Tab {
                 commands.push(Command::AutoScroll(auto_scroll));
             }
             Message::ClickRelease(click_i_opt) => {
-                // Single click to open, once per click sequence: the release
-                // that completes a double click must not open it again
-                let already_opened = std::mem::take(&mut self.opened_by_this_click);
-                if !mod_ctrl && self.config.single_click && !already_opened {
-                    let mut paths_to_open = Vec::new();
-                    if let Some(ref mut items) = self.items_opt {
-                        for (i, item) in items.iter_mut().enumerate() {
-                            if Some(i) == click_i_opt {
-                                if let Some(location) = &item.location_opt {
-                                    if item.metadata.is_dir() {
-                                        cd = Some(location.clone());
-                                    } else if let Some(path) = location.path_opt() {
-                                        paths_to_open.push(path.clone());
+                'release: {
+                    // Single click to open, once per click sequence: the release
+                    // that completes a double click must not open it again
+                    let already_opened = std::mem::take(&mut self.opened_by_this_click);
+                    // Something else now where the press was is not clicked: the
+                    // press, and all it was waiting to do, is dropped
+                    if std::mem::take(&mut self.pressed_on) != self.location_at(click_i_opt) {
+                        self.clicked = None;
+                        self.narrow_on_release = None;
+                        break 'release;
+                    }
+                    // Ctrl and Shift choose what is selected; they do not open
+                    if !mod_ctrl && !mod_shift && self.config.single_click && !already_opened {
+                        let mut paths_to_open = Vec::new();
+                        if let Some(ref mut items) = self.items_opt {
+                            for (i, item) in items.iter_mut().enumerate() {
+                                if Some(i) == click_i_opt {
+                                    if let Some(location) = &item.location_opt {
+                                        if item.metadata.is_dir() {
+                                            cd = Some(location.clone());
+                                        } else if let Some(path) = location.path_opt() {
+                                            paths_to_open.push(path.clone());
+                                        } else {
+                                            log::warn!("no path for item {item:?}");
+                                        }
                                     } else {
-                                        log::warn!("no path for item {item:?}");
+                                        log::warn!("no location for item {item:?}");
                                     }
-                                } else {
-                                    log::warn!("no location for item {item:?}");
                                 }
                             }
                         }
-                    }
-                    if !paths_to_open.is_empty() {
-                        commands.push(Command::OpenFile(paths_to_open));
-                    }
-                }
-
-                if let Some(narrow_to) = self.narrow_on_release.take()
-                    && click_i_opt == Some(narrow_to)
-                    && let Some(ref mut items) = self.items_opt
-                {
-                    for (i, item) in items.iter_mut().enumerate() {
-                        item.selected = i == narrow_to;
-                    }
-                    self.select_range = Some((narrow_to, narrow_to));
-                }
-
-                if click_i_opt != self.clicked.take()
-                    && let Some(ref mut items) = self.items_opt
-                {
-                    for (i, item) in items.iter_mut().enumerate() {
-                        if mod_ctrl && Some(i) == click_i_opt && item.selected {
-                            item.selected = false;
+                        if !paths_to_open.is_empty() {
+                            commands.push(Command::OpenFile(paths_to_open));
                         }
                     }
-                    if !items.iter().any(|item| item.selected) {
-                        // The last one toggled off
-                        self.anchor_selection(None);
+
+                    if let Some(narrow_to) = self.narrow_on_release.take()
+                        && click_i_opt == Some(narrow_to)
+                        && let Some(ref mut items) = self.items_opt
+                    {
+                        for (i, item) in items.iter_mut().enumerate() {
+                            item.selected = i == narrow_to;
+                        }
+                        self.select_range = Some((narrow_to, narrow_to));
+                    }
+
+                    if click_i_opt != self.clicked.take()
+                        && let Some(ref mut items) = self.items_opt
+                    {
+                        for (i, item) in items.iter_mut().enumerate() {
+                            if mod_ctrl && Some(i) == click_i_opt && item.selected {
+                                item.selected = false;
+                            }
+                        }
+                        if !items.iter().any(|item| item.selected) {
+                            // The last one toggled off
+                            self.anchor_selection(None);
+                        }
                     }
                 }
             }
@@ -6033,13 +6069,18 @@ impl Tab {
                     }
                 }
             }
+            Message::DragRearm => {
+                self.watch_drag = true;
+            }
             Message::DragEnd => {
                 self.clicked = None;
                 self.watch_drag = true;
+                self.clear_drag_overlaps();
                 // A rectangle may have changed the selection under the anchor
                 self.settle_anchor();
             }
             Message::DoubleClick(click_i_opt) => {
+                self.pressed_on = self.location_at(click_i_opt);
                 // In single-click mode the first release already opened this
                 // item, so the double click adds nothing but must still stop
                 // the release behind it from opening it a third time
@@ -6066,6 +6107,12 @@ impl Tab {
             Message::Click(click_i_opt) => {
                 self.dismiss_edit_location();
                 self.narrow_on_release = None;
+                self.pressed_on = self.location_at(click_i_opt);
+                // A new click sequence: a double click whose release never
+                // came does not stop this one opening
+                self.opened_by_this_click = false;
+                // Nor does an earlier rectangle say what this one crosses
+                self.clear_drag_overlaps();
                 if click_i_opt.is_none() {
                     self.clicked = click_i_opt;
                 }
@@ -6274,7 +6321,18 @@ impl Tab {
                 }
             }
             Message::Drag(rect_opt) => {
-                self.watch_drag = false;
+                // Not every pixel of the gesture rebuilds the view: the next
+                // report waits for the pointer to cross onto or off an item,
+                // the list to scroll, or this to pass
+                if std::mem::replace(&mut self.watch_drag, false) {
+                    commands.push(Command::Iced(
+                        crate::ui::Task::future(async {
+                            tokio::time::sleep(DRAG_REARM).await;
+                        })
+                        .map(|()| Message::DragRearm)
+                        .into(),
+                    ));
+                }
                 self.narrow_on_release = None;
                 if let Some(rect) = rect_opt {
                     if self.mode.multiple() {
@@ -8891,6 +8949,8 @@ impl Tab {
                         }
 
                         let mouse_area = crate::mouse_area::MouseArea::new(column)
+                            .touch_taps()
+                            .identity(item.button_id.clone())
                             .on_press(move |_| Message::Click(Some(i)))
                             .on_drag(move |_| Message::DragFiles(i))
                             .on_double_click(move |_| Message::DoubleClick(Some(i)))
@@ -8943,10 +9003,12 @@ impl Tab {
         }
 
         let mut mouse_area = mouse_area::MouseArea::new(column.width(Length::Fill))
+            .touch_taps()
             .on_dnd(Message::Dnd)
             .on_press(|_| Message::Click(None))
             .on_auto_scroll(Message::AutoScroll)
             .on_drag_end(|_| Message::DragEnd)
+            .on_last_drag(Message::Drag)
             .show_drag_rect(self.mode.multiple())
             .on_release(|_| Message::ClickRelease(None));
         if self.watch_drag {
@@ -9244,6 +9306,8 @@ impl Tab {
                             false,
                         )),
                 )
+                .touch_taps()
+                .identity(item.button_id.clone())
                 .on_press(move |_| Message::Click(Some(i)))
                 .on_drag(move |_| Message::DragFiles(i))
                 .on_double_click(move |_| Message::DoubleClick(Some(i)))
@@ -9303,10 +9367,12 @@ impl Tab {
         }
         let mut mouse_area = mouse_area::MouseArea::new(column.padding([0, space_s]))
             .with_id(Id::new("list-view"))
+            .touch_taps()
             .on_dnd(Message::Dnd)
             .on_press(|_| Message::Click(None))
             .on_auto_scroll(Message::AutoScroll)
             .on_drag_end(|_| Message::DragEnd)
+            .on_last_drag(Message::Drag)
             .show_drag_rect(self.mode.multiple())
             .on_release(|_| Message::ClickRelease(None));
         if self.watch_drag {
@@ -9335,12 +9401,12 @@ impl Tab {
         let item_view: Element<'a, Message> =
             widget::container(item_view).width(Length::Fill).into();
         let mouse_area = mouse_area::MouseArea::new(item_view)
+            .touch_taps()
             .on_press(move |_point_opt| Message::Click(None))
             .on_release(|_| Message::ClickRelease(None))
             .on_resize(Message::Resize)
             .on_back_press(move |_point_opt| Message::GoPrevious)
             .on_forward_press(move |_point_opt| Message::GoNext)
-            .on_scroll(|delta| respond_to_scroll_direction(delta, modifiers))
             .on_right_press(|_| Message::RightClickBackground);
 
         let items_area: Element<'_, Message> = if can_scroll {
@@ -9359,6 +9425,12 @@ impl Tab {
         } else {
             mouse_area.into()
         };
+        // Ctrl with the wheel zooms, and only outside the scrollable does it
+        // also do so right after a scroll
+        let items_area: Element<'_, Message> = mouse_area::MouseArea::new(items_area)
+            .scroll_first()
+            .on_scroll(|delta| respond_to_scroll_direction(delta, modifiers))
+            .into();
 
         // Wrap the scrollable, not its content, so the popup anchors in window coordinates
         let mut context_menu = widget::context_menu(
@@ -14825,6 +14897,139 @@ mod tests {
             opens(false)?,
             1,
             "double-click mode opened it more than once"
+        );
+        Ok(())
+    }
+
+    /// A tab in single-click mode listing `names`, files all, and where each
+    /// is in its items.
+    fn single_click_tab(fs: &TempDir, names: &[&str]) -> io::Result<(Tab, Vec<usize>)> {
+        for name in names {
+            fs::write(fs.path().join(name), b"x")?;
+        }
+        let location = Location::Path(fs.path().to_owned());
+        let (_parent, items) = location.scan(IconSizes::default());
+        let mut tab = Tab::new(
+            location,
+            TabConfig::default(),
+            ThumbCfg::default(),
+            None,
+            std::borrow::Cow::Borrowed("Undefined"),
+            None,
+        );
+        tab.set_items(items);
+        tab.config.single_click = true;
+        let at = |tab: &Tab, name: &str| {
+            tab.items_opt
+                .as_deref()
+                .and_then(|items| items.iter().position(|item| item.name == name))
+        };
+        let positions = names.iter().filter_map(|name| at(&tab, name)).collect();
+        Ok((tab, positions))
+    }
+
+    /// What `commands` open.
+    fn opened(commands: &[super::Command]) -> Vec<PathBuf> {
+        commands
+            .iter()
+            .filter_map(|command| match command {
+                super::Command::OpenFile(paths) => Some(paths.clone()),
+                _ => None,
+            })
+            .flatten()
+            .collect()
+    }
+
+    /// Shift chooses a range and Ctrl toggles: in single-click mode neither
+    /// opens the item they end on.
+    #[test]
+    fn selecting_with_modifiers_opens_nothing() -> io::Result<()> {
+        let fs = empty_fs()?;
+        let (mut tab, at) = single_click_tab(&fs, &["a.txt", "b.txt"])?;
+        for modifiers in [Modifiers::SHIFT, Modifiers::CTRL] {
+            let mut commands = tab.update(Message::Click(Some(at[1])), modifiers);
+            commands.extend(tab.update(Message::ClickRelease(Some(at[1])), modifiers));
+            assert_eq!(opened(&commands), Vec::<PathBuf>::new(), "{modifiers:?}");
+        }
+        Ok(())
+    }
+
+    /// A double click whose release never came (the pointer was taken away)
+    /// does not keep the next, separate click from opening its item.
+    #[test]
+    fn a_double_click_cut_short_does_not_stop_the_next_click() -> io::Result<()> {
+        let fs = empty_fs()?;
+        let (mut tab, at) = single_click_tab(&fs, &["a.txt", "b.txt"])?;
+        tab.update(Message::Click(Some(at[0])), Modifiers::empty());
+        tab.update(Message::ClickRelease(Some(at[0])), Modifiers::empty());
+        tab.update(Message::DoubleClick(Some(at[0])), Modifiers::empty());
+
+        let mut commands = tab.update(Message::Click(Some(at[1])), Modifiers::empty());
+        commands.extend(tab.update(Message::ClickRelease(Some(at[1])), Modifiers::empty()));
+        assert_eq!(opened(&commands), [fs.path().join("b.txt")]);
+        Ok(())
+    }
+
+    /// The listing refreshed between a press and its release, putting another
+    /// item where the pressed one was: the release clicks neither.
+    #[test]
+    fn a_refresh_does_not_pass_a_click_to_another_item() -> io::Result<()> {
+        let fs = empty_fs()?;
+        let (mut tab, at) = single_click_tab(&fs, &["a.txt", "b.txt"])?;
+        let pressed = at[0];
+        tab.update(Message::Click(Some(pressed)), Modifiers::empty());
+
+        fs::remove_file(fs.path().join("a.txt"))?;
+        let (_parent, items) = tab.location.scan(IconSizes::default());
+        tab.set_items(items);
+        assert_eq!(
+            tab.items_opt
+                .as_deref()
+                .and_then(|items| items.get(pressed))
+                .map(|item| item.name.as_str()),
+            Some("b.txt"),
+            "another item is now where the pressed one was"
+        );
+
+        let commands = tab.update(Message::ClickRelease(Some(pressed)), Modifiers::empty());
+        assert_eq!(opened(&commands), Vec::<PathBuf>::new());
+        Ok(())
+    }
+
+    /// A Ctrl rectangle toggles what it crosses, and nothing the rectangle
+    /// before it crossed.
+    #[test]
+    fn a_ctrl_rectangle_toggles_only_what_it_crosses() -> io::Result<()> {
+        use crate::ui::iced::{Point, Rectangle, Size};
+
+        let fs = empty_fs()?;
+        let (mut tab, at) = single_click_tab(&fs, &["a.txt", "b.txt"])?;
+        let rect = |y: f32| Rectangle::new(Point::new(0.0, y), Size::new(100.0, 10.0));
+        for (&i, y) in at.iter().zip([0.0, 20.0]) {
+            tab.items_opt.as_ref().unwrap()[i]
+                .rect_opt
+                .set(Some(rect(y)));
+        }
+        let selected = |tab: &Tab| -> Vec<bool> {
+            at.iter()
+                .map(|&i| tab.items_opt.as_ref().unwrap()[i].selected)
+                .collect()
+        };
+
+        // Over a alone
+        tab.update(Message::Click(None), Modifiers::empty());
+        tab.update(Message::Drag(Some(rect(0.0))), Modifiers::empty());
+        tab.update(Message::DragEnd, Modifiers::empty());
+        assert_eq!(selected(&tab), [true, false]);
+
+        // Then with Ctrl over b alone
+        tab.update(Message::Click(None), Modifiers::CTRL);
+        tab.update(Message::Drag(Some(rect(20.0))), Modifiers::CTRL);
+        tab.update(Message::DragEnd, Modifiers::CTRL);
+        assert_eq!(
+            selected(&tab),
+            [true, true],
+            "a was toggled by a rectangle not over it"
         );
         Ok(())
     }

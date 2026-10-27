@@ -23,6 +23,15 @@ impl<SelectionMode: Default> ModelBuilder<SelectionMode>
 where
     Model<SelectionMode>: Selectable,
 {
+    /// Starts from `model`, emptied. Its items' ids are never given out
+    /// again, so anything still holding one, such as a press waiting for its
+    /// release, cannot find a new item under it.
+    #[must_use]
+    pub fn reuse(mut model: Model<SelectionMode>) -> Self {
+        model.clear();
+        Self(model)
+    }
+
     /// Inserts a new item and its associated data into the model.
     #[must_use]
     pub fn insert(
@@ -150,5 +159,32 @@ where
     pub fn with_id(self, func: impl FnOnce(Entity)) -> Self {
         func(self.id);
         self
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::ui::widget::segmented_button::{Model, ModelBuilder, SingleSelectModel};
+
+    /// An entry's id is not given to another when the model is built again:
+    /// a press still held on the old one must not find a new entry under it.
+    #[test]
+    fn a_reused_model_gives_out_no_old_id() {
+        let mut ids = Vec::new();
+        let model: SingleSelectModel = Model::builder()
+            .insert(|b| b.text("A").with_id(|id| ids.push(id)))
+            .insert(|b| b.text("B").with_id(|id| ids.push(id)))
+            .insert(|b| b.text("C").with_id(|id| ids.push(id)))
+            .build();
+
+        // A goes: B and C are built again
+        let model = ModelBuilder::reuse(model)
+            .insert(|b| b.text("B"))
+            .insert(|b| b.text("C"))
+            .build();
+        for id in ids {
+            assert!(!model.contains_item(id), "an old id names a new entry");
+        }
+        assert_eq!(model.iter().count(), 2);
     }
 }

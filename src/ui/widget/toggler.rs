@@ -293,15 +293,27 @@ impl<'a, Message> Widget<Message, crate::ui::Theme, crate::ui::Renderer> for Tog
             | Event::Touch(touch::Event::FingerPressed { .. }) => {
                 if cursor_position.is_over(layout.bounds()) {
                     state.is_pressed = true;
+                    state.pressed_by = match event {
+                        Event::Touch(touch::Event::FingerPressed { id, .. }) => Some(*id),
+                        _ => None,
+                    };
                     shell.capture_event();
                 }
             }
             // Only a release that completes this toggler's own press toggles,
             // and only that release is captured; any other belongs to the
-            // widget that got its press.
+            // widget that got its press, or to another finger.
             Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left))
             | Event::Touch(touch::Event::FingerLifted { .. }) => {
-                if std::mem::take(&mut state.is_pressed) {
+                // The cursor follows the fingers too, and is moved with
+                // content that scrolls, as the event's position is not
+                let released = match event {
+                    Event::Touch(touch::Event::FingerLifted { id, .. }) => {
+                        state.pressed_by == Some(*id)
+                    }
+                    _ => state.pressed_by.is_none(),
+                };
+                if released && std::mem::take(&mut state.is_pressed) {
                     if cursor_position.is_over(layout.bounds()) {
                         shell.publish((on_toggle)(!self.is_toggled));
                         state.anim.changed(self.duration);
@@ -310,8 +322,10 @@ impl<'a, Message> Widget<Message, crate::ui::Theme, crate::ui::Renderer> for Tog
                     shell.capture_event();
                 }
             }
-            Event::Touch(touch::Event::FingerLost { .. }) => {
-                state.is_pressed = false;
+            Event::Touch(touch::Event::FingerLost { id, .. }) => {
+                if state.pressed_by == Some(*id) {
+                    state.is_pressed = false;
+                }
             }
             Event::Window(window::Event::RedrawRequested(now)) => {
                 state.anim.anim_done(self.duration);
@@ -509,6 +523,9 @@ pub struct State {
     hovered: bool,
     /// Whether the current press started over the toggler.
     is_pressed: bool,
+    /// The finger that pressed, or `None` for the pointer: only it may
+    /// complete or cancel the press.
+    pressed_by: Option<touch::Finger>,
 }
 
 #[cfg(test)]
@@ -640,5 +657,60 @@ mod tests {
 
         assert_eq!(ui.press(BUTTON), []);
         assert_eq!(ui.release(TOGGLER), [Msg::Button]);
+    }
+
+    /// Only the finger that pressed completes the press, or cancels it:
+    /// another lifted, or taken back by the compositor, is not it.
+    #[test]
+    fn only_the_finger_that_pressed_completes_its_press() {
+        for (at, done) in [(TOGGLER, Msg::Toggled(true)), (BUTTON, Msg::Button)] {
+            let mut ui = Harness::new();
+            let (a, b) = (touch::Finger(1), touch::Finger(2));
+            let touch = |event| Event::Touch(event);
+
+            assert_eq!(
+                ui.send(
+                    touch(touch::Event::FingerPressed {
+                        id: a,
+                        position: at
+                    }),
+                    at
+                ),
+                []
+            );
+            assert_eq!(
+                ui.send(
+                    touch(touch::Event::FingerLifted {
+                        id: b,
+                        position: at
+                    }),
+                    at
+                ),
+                []
+            );
+            assert_eq!(
+                ui.send(
+                    touch(touch::Event::FingerLost {
+                        id: b,
+                        position: at
+                    }),
+                    at
+                ),
+                []
+            );
+            // In content scrolled by 200 px: the cursor is moved with it, the
+            // event's position is not
+            let raw = Point::new(at.x, at.y + 200.0);
+            assert_eq!(
+                ui.send(
+                    touch(touch::Event::FingerLifted {
+                        id: a,
+                        position: raw
+                    }),
+                    at
+                ),
+                [done]
+            );
+        }
     }
 }

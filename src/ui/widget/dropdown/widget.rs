@@ -534,7 +534,7 @@ pub fn update<
             if state.keyboard_modifiers.command() && cursor.is_over(layout.bounds()) && !is_open {
                 let next_index = selected.map(|index| index + 1).unwrap_or_default();
 
-                if selections.len() < next_index {
+                if next_index < selections.len() {
                     shell.publish((on_selected)(next_index));
                 }
 
@@ -794,5 +794,30 @@ mod tests {
 
         let _ = click(&mut renderer, cache, ON_BUTTON, &mut messages);
         assert_eq!(messages, vec![Msg::Pressed]);
+    }
+
+    /// Ctrl with the wheel over a closed dropdown picks the next choice.
+    #[test]
+    fn ctrl_and_the_wheel_pick_the_next_choice() {
+        let mut renderer = iced_texture_cache::testing::headless_tiny_skia();
+        let mut messages = Vec::new();
+        let mut cache = Cache::default();
+        for event in [
+            Event::Keyboard(keyboard::Event::ModifiersChanged(keyboard::Modifiers::CTRL)),
+            Event::Mouse(mouse::Event::WheelScrolled {
+                delta: mouse::ScrollDelta::Lines { x: 0.0, y: -1.0 },
+            }),
+        ] {
+            let mut ui = UserInterface::build(view(), WINDOW, cache, &mut renderer);
+            let _ = ui.update(
+                &[event],
+                mouse::Cursor::Available(ON_DROPDOWN),
+                &mut renderer,
+                &mut clipboard::Null,
+                &mut messages,
+            );
+            cache = ui.into_cache();
+        }
+        assert_eq!(messages, [Msg::Selected(0)]);
     }
 }

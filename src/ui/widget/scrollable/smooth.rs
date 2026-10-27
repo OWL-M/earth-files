@@ -344,6 +344,9 @@ struct State {
     /// Where along the handle the pointer holds it, `0.0..=1.0`, while the
     /// handle is dragged.
     grabbed: Option<f32>,
+    /// The finger holding the handle, or `None` for the pointer: no other
+    /// finger moves or lets go of it.
+    grabbed_by: Option<touch::Finger>,
     /// The offset and extent the last event left, which the bar is drawn by.
     shown: Option<Extent>,
     /// The wheel's recent notches in one direction, newest last, while
@@ -364,6 +367,7 @@ impl Default for State {
             thickness: Spring::new(BAR_SPRING, BAR_THIN),
             thickness_frame: None,
             grabbed: None,
+            grabbed_by: None,
             shown: None,
             notches: Vec::new(),
         }
@@ -781,25 +785,42 @@ impl<Message> Smooth<'_, Message> {
     }
 }
 
-/// Takes every gesture delivered since the last call and returns their stops
-/// as one: the latest time, and each axis any of them stopped. Swipes, pinches
-/// and holds are dropped.
-fn take_stop(gestures: &mut GestureReceiver) -> Option<Stop> {
-    let mut merged: Option<Stop> = None;
+/// What the gestures delivered since the last look ask of the motion.
+#[derive(Default)]
+struct Gestures {
+    /// The stops since the last hold, as one: the latest time, and each axis
+    /// any of them stopped.
+    stop: Option<Stop>,
+    /// Fingers were put down after the last stop: whatever is moving stops.
+    held: bool,
+}
+
+/// Takes every gesture delivered since the last call. A hold drops the stops
+/// before it, whose coast the fingers have caught. Swipes and pinches are
+/// dropped.
+fn take_gestures(gestures: &mut GestureReceiver) -> Gestures {
+    let mut taken = Gestures::default();
     while let Some(gesture) = gestures.take() {
-        let Gesture::Stop(stop) = gesture else {
-            continue;
-        };
-        match &mut merged {
-            None => merged = Some(stop),
-            Some(earlier) => {
-                earlier.time = stop.time.or(earlier.time);
-                earlier.axes.x |= stop.axes.x;
-                earlier.axes.y |= stop.axes.y;
+        match gesture {
+            Gesture::Stop(stop) => {
+                taken.held = false;
+                match &mut taken.stop {
+                    None => taken.stop = Some(stop),
+                    Some(earlier) => {
+                        earlier.time = stop.time.or(earlier.time);
+                        earlier.axes.x |= stop.axes.x;
+                        earlier.axes.y |= stop.axes.y;
+                    }
+                }
             }
+            Gesture::Hold(_) => {
+                taken.stop = None;
+                taken.held = true;
+            }
+            _ => {}
         }
     }
-    merged
+    taken
 }
 
 /// The speed the fingers had when they lifted at `lifted` (compositor
@@ -951,29 +972,47 @@ impl<Message> Widget<Message, Theme, Renderer> for Smooth<'_, Message> {
         if let Some(bar) = bar {
             let over = cursor.position_over(bar.lane);
             // A finger works the bar as the left button does.
-            let pressed = match event {
-                Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) => over,
-                Event::Touch(touch::Event::FingerPressed { position, .. }) => {
-                    bar.lane.contains(*position).then_some(*position)
+            let (pressed, by) = match event {
+                Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) => (over, None),
+                Event::Touch(touch::Event::FingerPressed { id, position }) => {
+                    (bar.lane.contains(*position).then_some(*position), Some(*id))
+                }
+                _ => (None, None),
+            };
+            // Only what holds the handle moves it and lets it go
+            let moved_to = match event {
+                Event::Mouse(mouse::Event::CursorMoved { position })
+                    if state.grabbed_by.is_none() =>
+                {
+                    Some(*position)
+                }
+                Event::Touch(touch::Event::FingerMoved { id, position })
+                    if state.grabbed_by == Some(*id) =>
+                {
+                    Some(*position)
                 }
                 _ => None,
             };
-            let moved_to = match event {
-                Event::Mouse(mouse::Event::CursorMoved { position })
-                | Event::Touch(touch::Event::FingerMoved { position, .. }) => Some(*position),
-                _ => None,
+            let released = match event {
+                Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)) => {
+                    state.grabbed_by.is_none()
+                }
+                Event::Touch(
+                    touch::Event::FingerLifted { id, .. } | touch::Event::FingerLost { id, .. },
+                ) => state.grabbed_by == Some(*id),
+                _ => false,
             };
-            let released = matches!(
-                event,
-                Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left))
-                    | Event::Touch(
-                        touch::Event::FingerLifted { .. } | touch::Event::FingerLost { .. }
-                    )
-            );
+            // A finger holding the handle keeps it: another pressing the bar
+            // meanwhile is taken, and does nothing
+            if pressed.is_some() && state.grabbed.is_some() && state.grabbed_by.is_some() {
+                shell.capture_event();
+                return;
+            }
             if let Some(point) = pressed {
                 if bar.is_on_handle(point) {
                     state.cancel();
                     state.grabbed = Some(bar.grab_at(point));
+                    state.grabbed_by = by;
                 } else {
                     // A click on the empty track glides the handle's middle
                     // to it, as iced jumps it there.
@@ -1061,7 +1100,15 @@ impl<Message> Widget<Message, Theme, Renderer> for Smooth<'_, Message> {
             shell.request_redraw();
         }
 
-        if let Some(stop) = take_stop(&mut state.gestures) {
+        let gestures = take_gestures(&mut state.gestures);
+        if gestures.held {
+            // Fingers resting on the touchpad catch a coast, as they would
+            // a sheet sliding under them
+            if matches!(state.motion, Motion::Coast { .. }) {
+                state.cancel();
+            }
+        }
+        if let Some(stop) = gestures.stop {
             let samples = std::mem::take(&mut state.samples);
             if let Some(velocity) = lift_velocity(&samples, stop.time, Instant::now()) {
                 let velocity = Vector::new(
@@ -1678,6 +1725,47 @@ mod tests {
             position: Point::new(96.0, 10.0),
         }));
         assert_eq!(h.offset(), 450.0, "a lost finger lets go");
+    }
+
+    /// Only the finger holding the handle moves it or lets it go: another
+    /// finger moving, lifting or being lost elsewhere does nothing to it.
+    #[test]
+    fn another_finger_leaves_the_handle_alone() {
+        let mut h = Harness::new();
+        h.frame();
+        let (holding, other) = (touch::Finger(0), touch::Finger(1));
+        let at = |y| Point::new(96.0, y);
+        h.send(Event::Touch(touch::Event::FingerPressed {
+            id: holding,
+            position: at(10.0),
+        }));
+        h.send(Event::Touch(touch::Event::FingerMoved {
+            id: holding,
+            position: at(44.0),
+        }));
+        assert_eq!(h.offset(), 450.0);
+
+        h.send(Event::Touch(touch::Event::FingerPressed {
+            id: other,
+            position: at(44.0),
+        }));
+        h.send(Event::Touch(touch::Event::FingerMoved {
+            id: other,
+            position: at(10.0),
+        }));
+        assert_eq!(h.offset(), 450.0, "another finger moved the handle");
+        h.send(Event::Touch(touch::Event::FingerLifted {
+            id: other,
+            position: at(10.0),
+        }));
+        h.send(Event::Touch(touch::Event::FingerMoved {
+            id: holding,
+            position: at(30.0),
+        }));
+        assert!(
+            h.offset() < 450.0,
+            "another finger's lift let go of the handle"
+        );
     }
 
     /// The list over a wheel area, under the bar too, that takes every notch.

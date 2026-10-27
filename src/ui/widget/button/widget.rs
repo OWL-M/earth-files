@@ -609,6 +609,9 @@ impl<'a, Message: Clone + 'a> From<Button<'a, Message>> for crate::ui::Element<'
 pub struct State {
     is_hovered: bool,
     is_pressed: bool,
+    /// The finger that pressed, or `None` for the pointer: only it may
+    /// complete or cancel the press.
+    pressed_by: Option<touch::Finger>,
     is_focused: bool,
 }
 
@@ -669,6 +672,10 @@ pub fn update<'a, Message: Clone>(
 
                 if cursor.is_over(bounds) {
                     state.is_pressed = true;
+                    state.pressed_by = match event {
+                        Event::Touch(touch::Event::FingerPressed { id, .. }) => Some(*id),
+                        _ => None,
+                    };
                     shell.request_redraw();
 
                     if let Some(on_press_down) = on_press_down {
@@ -682,9 +689,21 @@ pub fn update<'a, Message: Clone>(
         }
         Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left))
         | Event::Touch(touch::Event::FingerLifted { .. }) => {
+            let state = state();
+            // Whether the release ends this button's own press: another
+            // finger letting go does not. Where it is comes from the cursor,
+            // which follows the fingers too and, unlike the event's position,
+            // is moved with content that scrolls
+            let released = match event {
+                Event::Touch(touch::Event::FingerLifted { id, .. }) => {
+                    state.pressed_by == Some(*id)
+                }
+                _ => state.pressed_by.is_none(),
+            };
+            if !released {
+                return;
+            }
             if let Some(on_press) = on_press {
-                let state = state();
-
                 if state.is_pressed {
                     state.is_pressed = false;
 
@@ -697,12 +716,9 @@ pub fn update<'a, Message: Clone>(
 
                     shell.capture_event();
                 }
-            } else if on_press_down.is_some() {
-                let state = state();
-                if state.is_pressed {
-                    state.is_pressed = false;
-                    shell.request_redraw();
-                }
+            } else if on_press_down.is_some() && state.is_pressed {
+                state.is_pressed = false;
+                shell.request_redraw();
             }
         }
         Event::Keyboard(keyboard::Event::KeyPressed { key, .. }) => {
@@ -728,12 +744,19 @@ pub fn update<'a, Message: Clone>(
         }
         Event::Touch(touch::Event::FingerLost { .. }) | Event::Mouse(mouse::Event::CursorLeft) => {
             let state = state();
+            // Only the loss of what pressed cancels the press
+            let cancelled = match event {
+                Event::Touch(touch::Event::FingerLost { id, .. }) => state.pressed_by == Some(*id),
+                _ => state.pressed_by.is_none(),
+            };
 
-            if state.is_hovered || state.is_pressed {
+            if state.is_hovered || (cancelled && state.is_pressed) {
                 shell.request_redraw();
             }
             state.is_hovered = false;
-            state.is_pressed = false;
+            if cancelled {
+                state.is_pressed = false;
+            }
         }
         _ => {}
     }

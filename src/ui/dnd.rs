@@ -284,9 +284,18 @@ impl Shared {
     }
 }
 
-/// The MIME types a `wl_data_offer` advertised, filled in by its own
-/// `wl_data_offer::offer` events before the `selection`/`enter` that names it.
-type OfferMimes = Arc<Mutex<Vec<String>>>;
+/// What a `wl_data_offer` advertised, filled in by its own events before the
+/// `selection`/`enter` that names it.
+#[derive(Default)]
+struct OfferInfo {
+    /// The MIME types, from its `offer` events.
+    mimes: Mutex<Vec<String>>,
+    /// What the source allows done with it, from `source_actions`: a drag
+    /// offer's only.
+    source_actions: Mutex<Option<DndAction>>,
+}
+
+type OfferMimes = Arc<OfferInfo>;
 
 /// What a `wl_data_source` we created is for. Carried as the proxy's user data
 /// so a `send` can be answered without a lookup, and so a source that has
@@ -610,8 +619,9 @@ pub fn local_payload() -> Option<LocalPayload> {
 /// where a move, the action preferred at `enter`, could have it treat what it
 /// dragged as gone. Those that check it (wlroots, Mutter, Smithay) refuse a
 /// `finish` on an offer with no type accepted or an action of none or ask; a
-/// drop is only ever made on an offer with a type accepted and an action of
-/// copy or move, and a copy or move stays possible after preferring a copy.
+/// drop is only ever made on an offer with a type accepted, and only a source
+/// that allows a copy has its offer finished, as a copy alone. One that only
+/// moves is not finished at all; see [`end_dropped`].
 ///
 /// Does nothing when nothing dropped is waiting, so it is safe on any drop.
 /// It must not be called for a drop something else is about to read with
@@ -645,15 +655,38 @@ fn finish_if_unclaimed(drop: u64) {
 
 /// The body of [`finish_drop_unread`], under the caller's lock.
 fn finish_dropped_offer(shared: &mut Shared) {
-    let Some((offer, _)) = shared.dropped_offer.take() else {
+    let Some((offer, info)) = shared.dropped_offer.take() else {
         return;
     };
-    if offer.version() >= 3 {
-        offer.set_actions(DndAction::Copy | DndAction::Move, DndAction::Copy);
-    }
-    end_offer(&offer);
+    end_dropped(&offer, &info);
     let _ = shared.conn.as_ref().map(Connection::flush);
     log::debug!("finished a drop without reading it");
+}
+
+/// End a dropped offer so that its source cannot take it as moved: read or
+/// not, whatever is done with the files is done here, by an operation that
+/// may yet fail, and the drag is over long before it ends.
+///
+/// A source that allows a copy is told it was one: the actions offered
+/// leave nothing else, and the offer is finished as [`end_offer`] says it
+/// must be. A source that allows only a move would be told the move was
+/// done, which may have it delete what it dragged, so its offer is not
+/// finished, only destroyed, and the drop is cancelled for it instead.
+fn end_dropped(offer: &WlDataOffer, info: &OfferInfo) {
+    let copies = info
+        .source_actions
+        .lock()
+        .unwrap()
+        .is_some_and(|actions| actions.contains(DndAction::Copy));
+    if offer.version() >= 3 && !copies {
+        log::debug!("a drop whose source only moves is cancelled, not finished");
+        offer.destroy();
+        return;
+    }
+    if offer.version() >= 3 {
+        offer.set_actions(DndAction::Copy, DndAction::Copy);
+    }
+    end_offer(offer);
 }
 
 /// Finish and destroy a dropped offer, however its read went.
@@ -848,10 +881,11 @@ pub fn read_drop(allowed: &[String]) -> Option<(Vec<u8>, String)> {
             return None;
         };
         match receive(&shared, Some(&offer), allowed, "read_drop") {
-            Some((read_fd, mime, conn)) => (offer.0, read_fd, mime, conn),
+            Some((read_fd, mime, conn)) => (offer, read_fd, mime, conn),
             None => {
-                end_offer(&offer.0);
-                let _ = shared.conn.as_ref().map(Connection::flush);
+                // Nothing was received, so nothing may be treated as moved
+                shared.dropped_offer = Some(offer);
+                finish_dropped_offer(&mut shared);
                 return None;
             }
         }
@@ -859,10 +893,11 @@ pub fn read_drop(allowed: &[String]) -> Option<(Vec<u8>, String)> {
 
     let result = read_to_end_bounded(read_fd, READ_TIMEOUT);
 
-    // Finished whether or not the read worked: a drop that fails to read is
-    // over all the same, and left unfinished it would keep the drag going;
-    // see `end_offer`.
-    end_offer(&offer);
+    // Ended whether or not the read worked: a drop that fails to read is over
+    // all the same, and left open it would keep the drag going; see
+    // `end_offer`. Never as a move, read or not; see `end_dropped`.
+    let (offer, info) = offer;
+    end_dropped(&offer, &info);
     let _ = conn.flush();
 
     match result {
@@ -895,7 +930,7 @@ fn receive(
         return None;
     };
 
-    let offered = mimes.lock().unwrap().clone();
+    let offered = mimes.mimes.lock().unwrap().clone();
     let Some(mime) = allowed
         .iter()
         .find(|wanted| offered.contains(wanted))
@@ -1189,7 +1224,7 @@ impl Dispatch<WlDataDevice, ()> for State {
                 shared.retired_offer = shared.selection_offer.take().map(|(offer, _)| offer);
                 shared.selection_offer = id.map(|offer| {
                     let mimes = offer.data::<OfferMimes>().cloned().unwrap_or_default();
-                    log::debug!("clipboard offers {:?}", mimes.lock().unwrap());
+                    log::debug!("clipboard offers {:?}", mimes.mimes.lock().unwrap());
                     (offer, mimes)
                 });
             }
@@ -1203,7 +1238,7 @@ impl Dispatch<WlDataDevice, ()> for State {
                 let mut files = false;
                 if let Some(offer) = id.clone() {
                     let mimes = offer.data::<OfferMimes>().cloned().unwrap_or_default();
-                    let offered = mimes.lock().unwrap().clone();
+                    let offered = mimes.mimes.lock().unwrap().clone();
                     // `accept` is what makes the compositor consider the drop
                     // valid, and it also names the MIME type `read_drop` will
                     // ask for, so a file list wins over anything else the
@@ -1334,8 +1369,14 @@ impl Dispatch<WlDataOffer, OfferMimes> for State {
         // The advertisement arrives as one event per type, before the
         // `selection` or `enter` that names the offer, so it is collected on the
         // offer's own user data rather than against any current selection.
-        if let wl_data_offer::Event::Offer { mime_type } = event {
-            mimes.lock().unwrap().push(mime_type);
+        match event {
+            wl_data_offer::Event::Offer { mime_type } => {
+                mimes.mimes.lock().unwrap().push(mime_type);
+            }
+            wl_data_offer::Event::SourceActions { source_actions } => {
+                *mimes.source_actions.lock().unwrap() = source_actions.into_result().ok();
+            }
+            _ => {}
         }
     }
 }
@@ -1379,10 +1420,12 @@ impl Dispatch<WlDataSource, SourceRole> for State {
                 SourceRole::Drag(_),
             ) => {
                 let mut shared = shared().lock().unwrap();
-                shared.bump(|drag| drag.ended = true);
                 // The compositor is done with this source, whichever slot still
-                // holds it; see `end_drag`.
+                // holds it; see `end_drag`. Only the current one's drag ends
+                // here: a retired source's drag was ended when it was retired,
+                // and the drag on now may be another.
                 if shared.source.as_ref() == Some(source) {
+                    shared.bump(|drag| drag.ended = true);
                     shared.source = None;
                 }
                 if shared.retired_source.as_ref() == Some(source) {

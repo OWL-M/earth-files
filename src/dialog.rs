@@ -2195,8 +2195,19 @@ impl Application for App {
                                 crate::ui::action::app(Message::TabMessage(tab_message))
                             }));
                         }
-                        tab::Command::OpenFile(_item_path) => {
+                        tab::Command::OpenFile(item_paths) => {
                             if self.flags.kind.save() {
+                                // What was opened is what is saved over, however
+                                // it was opened: a middle click selects no name
+                                if let DialogKind::SaveFile { filename } = &mut self.flags.kind
+                                    && let [path] = item_paths.as_slice()
+                                    && let Some(name) = path.file_name()
+                                {
+                                    *filename = name.to_string_lossy().into_owned();
+                                    self.save_dir_opt = path.parent().map(|parent| {
+                                        (self.tab.navigation(), parent.to_path_buf())
+                                    });
+                                }
                                 commands.push(self.update(Message::Save(false)));
                             } else {
                                 commands.push(self.update(Message::Open));
