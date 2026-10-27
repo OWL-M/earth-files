@@ -199,15 +199,13 @@ impl Controller {
         }
     }
 
-    /// Returns when state is neither paused, cancelled, nor failed.
+    /// Returns when the state is no longer paused: running again, or
+    /// cancelled or failed, which no resume can undo.
     ///
     /// Use this to resume futures.
     pub async fn until_unpaused(&self) {
         loop {
-            if !matches!(
-                self.state(),
-                ControllerState::Paused | ControllerState::Cancelled | ControllerState::Failed
-            ) {
+            if !self.is_paused() {
                 return;
             }
 
@@ -258,6 +256,20 @@ mod tests {
         controller.pause();
         controller.unpause();
         assert_eq!(controller.state(), ControllerState::Running);
+    }
+
+    /// A cancel while paused ends the wait for a resume, which can never
+    /// come
+    #[test]
+    fn a_cancel_while_paused_ends_the_wait_to_resume() {
+        let controller = Controller::default();
+        controller.pause();
+        let mut waiting = std::pin::pin!(controller.until_unpaused());
+        let waker = std::task::Waker::noop();
+        let mut cx = std::task::Context::from_waker(waker);
+        assert!(waiting.as_mut().poll(&mut cx).is_pending());
+        controller.cancel();
+        assert!(waiting.as_mut().poll(&mut cx).is_ready());
     }
 
     #[test]

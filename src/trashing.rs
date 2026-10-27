@@ -133,6 +133,16 @@ fn usable(root: &Path, make: bool) -> bool {
     }
 }
 
+/// Whether the home trash at `root` can take an entry: its `files/` and
+/// `info/` this user may write to, or make. Made first when `make`. Checked
+/// as a drive's trash is, or one that cannot take anything is offered and
+/// fails only once the delete runs, where deleting for good is not offered.
+/// A link is followed: some keep their home trash elsewhere.
+fn home_usable(root: &Path, make: bool) -> bool {
+    let room = |dir: &Path| existing(dir).is_some_and(writable);
+    (!make || make_bin(root).is_ok()) && room(&root.join("files")) && room(&root.join("info"))
+}
+
 /// Whether `shared` is a `.Trash` the spec lets every user keep a trash in:
 /// a folder, not a link, with the sticky bit.
 fn sticky(shared: &Path) -> bool {
@@ -253,7 +263,7 @@ pub fn bin_for(path: &Path, make: bool) -> Option<Bin> {
             .and_then(|at| mount_among(&at, &mounts))
             .is_some_and(|(home_top, _)| home_top == top)
     {
-        return (!make || make_bin(&home.root).is_ok()).then_some(home);
+        return home_usable(&home.root, make).then_some(home);
     }
     if !takes_a_trash(&fs_type) {
         return None;
@@ -427,15 +437,42 @@ pub(crate) fn origin_of(bin: &Bin, name: &OsStr) -> Option<PathBuf> {
 
 /// What one trash holds: each entry of its `files/`, with what its
 /// `.trashinfo` says, or with its origin unknown when there is none to read.
-pub fn list_bin(bin: &Bin) -> Vec<(TrashItem, TrashItemMetadata)> {
-    let Ok(entries) = fs::read_dir(bin.root.join("files")) else {
-        return Vec::new();
+/// A `files/` or an entry that cannot be read fails it: taken for empty, it
+/// would be left behind by an emptying that says it is done.
+pub fn list_bin(bin: &Bin) -> io::Result<Vec<(TrashItem, TrashItemMetadata)>> {
+    let mut failed = None;
+    let listed = read_bin(bin, &mut failed);
+    failed.map_or(Ok(listed), Err)
+}
+
+/// [`list_bin`], leaving out what cannot be read, the first failure kept in
+/// `failed`.
+fn read_bin(bin: &Bin, failed: &mut Option<io::Error>) -> Vec<(TrashItem, TrashItemMetadata)> {
+    let mut fail = |err: io::Error| {
+        failed.get_or_insert(err);
+    };
+    let entries = match fs::read_dir(bin.root.join("files")) {
+        Ok(entries) => entries,
+        // No `files/` holds nothing
+        Err(err) if err.kind() == io::ErrorKind::NotFound => return Vec::new(),
+        Err(err) => {
+            fail(err);
+            return Vec::new();
+        }
     };
     entries
-        .filter_map(Result::ok)
         .filter_map(|entry| {
+            let entry = entry.map_err(&mut fail).ok()?;
             let name = entry.file_name();
-            let meta = fs::symlink_metadata(entry.path()).ok()?;
+            let meta = match fs::symlink_metadata(entry.path()) {
+                Ok(meta) => meta,
+                // Gone since it was listed
+                Err(err) if err.kind() == io::ErrorKind::NotFound => return None,
+                Err(err) => {
+                    fail(err);
+                    return None;
+                }
+            };
             let size = if meta.is_dir() {
                 TrashItemSize::Entries(fs::read_dir(entry.path()).map_or(0, Iterator::count))
             } else {
@@ -490,8 +527,19 @@ pub fn bins() -> Vec<Bin> {
 }
 
 /// Everything in every trash.
+/// What cannot be read is left out, to show the rest.
 pub fn list() -> Vec<(TrashItem, TrashItemMetadata)> {
-    bins().iter().flat_map(list_bin).collect()
+    bins()
+        .iter()
+        .flat_map(|bin| {
+            let mut failed = None;
+            let listed = read_bin(bin, &mut failed);
+            if let Some(err) = failed {
+                log::warn!("failed to read all of {}: {err}", bin.root.display());
+            }
+            listed
+        })
+        .collect()
 }
 
 /// Whether no trash holds anything in its `files/`.
@@ -571,9 +619,9 @@ pub fn remove_stray_records(bins: &[Bin]) {
 /// Removes `item` from the trash for good: the item, then its `.trashinfo`
 /// when it has one. Failing part-way, the `.trashinfo` stays, and so does
 /// the entry in the trash.
-pub fn purge(item: &TrashItem) -> io::Result<()> {
+pub fn purge(item: &TrashItem, go_on: &dyn Fn() -> io::Result<()>) -> io::Result<()> {
     let (files, info) = crate::operation::in_trash(item);
-    match crate::operation::recursive::remove_tree(&files) {
+    match crate::operation::recursive::remove_tree_checked(&files, go_on) {
         Err(err) if err.kind() != io::ErrorKind::NotFound => return Err(err),
         _ => {}
     }
@@ -594,6 +642,41 @@ mod tests {
 
     fn bin_in(top: &Path) -> Bin {
         drive_bin(top, true).expect("made")
+    }
+
+    /// A trash whose `files/` cannot be read is not taken for empty
+    #[test]
+    fn a_trash_that_cannot_be_read_fails_its_listing() {
+        let top = drive();
+        let bin = bin_in(top.path());
+        fs::write(bin.root.join("files/a"), "a").expect("write");
+        assert_eq!(list_bin(&bin).expect("listed").len(), 1);
+        fs::set_permissions(bin.root.join("files"), fs::Permissions::from_mode(0o000))
+            .expect("chmod");
+        let unreadable = fs::read_dir(bin.root.join("files")).is_err();
+        let listed = list_bin(&bin);
+        fs::set_permissions(bin.root.join("files"), fs::Permissions::from_mode(0o700))
+            .expect("chmod");
+        if unreadable {
+            listed.expect_err("not empty, unread");
+        }
+    }
+
+    /// A home trash this user cannot write to is no trash: the delete
+    /// asks about deleting for good instead
+    #[test]
+    fn a_home_trash_not_writable_is_not_used() {
+        let data = drive();
+        let root = data.path().join("Trash");
+        assert!(home_usable(&root, false), "missing, it can be made");
+        make_bin(&root).expect("made");
+        assert!(home_usable(&root, false));
+        fs::set_permissions(root.join("files"), fs::Permissions::from_mode(0o500)).expect("chmod");
+        if crate::operation::cannot_write(&root.join("files")).is_some() {
+            assert!(!home_usable(&root, false));
+            assert!(!home_usable(&root, true));
+        }
+        fs::set_permissions(root.join("files"), fs::Permissions::from_mode(0o700)).expect("chmod");
     }
 
     #[test]
@@ -751,7 +834,7 @@ mod tests {
         fs::create_dir(bin.root.join("files/orphan")).expect("mkdir");
         fs::write(bin.root.join("files/orphan/a"), "a").expect("write");
 
-        let mut listed = list_bin(&bin);
+        let mut listed = list_bin(&bin).expect("listed");
         listed.sort_by(|a, b| a.0.name.cmp(&b.0.name));
         assert_eq!(listed.len(), 2);
         let (kept, kept_meta) = &listed[0];
@@ -770,7 +853,7 @@ mod tests {
         let bin = bin_in(top.path());
         fs::write(bin.root.join("files/x"), "x").expect("write");
         fs::write(bin.root.join("info/x.trashinfo"), "junk").expect("write");
-        let listed = list_bin(&bin);
+        let listed = list_bin(&bin).expect("listed");
         assert!(origin_unknown(&listed[0].0));
         assert_eq!(
             PathBuf::from(&listed[0].0.id),
@@ -783,8 +866,8 @@ mod tests {
         let top = drive();
         let bin = bin_in(top.path());
         fs::create_dir_all(bin.root.join("files/o/deep")).expect("mkdir");
-        let (orphan, _) = list_bin(&bin).pop().expect("listed");
-        purge(&orphan).expect("purged");
+        let (orphan, _) = list_bin(&bin).expect("listed").pop().expect("listed");
+        purge(&orphan, &|| Ok(())).expect("purged");
         assert_eq!(fs::read_dir(bin.root.join("files")).expect("ls").count(), 0);
     }
 
@@ -795,7 +878,7 @@ mod tests {
         let item = top.path().join("f");
         fs::write(&item, "x").expect("write");
         let trashed = put_in(&bin, &item).expect("trashed");
-        purge(&trashed).expect("purged");
+        purge(&trashed, &|| Ok(())).expect("purged");
         assert!(!bin.root.join("files/f").exists());
         assert!(!bin.root.join("info/f.trashinfo").exists());
     }
@@ -811,7 +894,7 @@ mod tests {
         // The folder's contents cannot be removed
         let kept = bin.root.join("files/d");
         fs::set_permissions(&kept, fs::Permissions::from_mode(0o555)).expect("chmod");
-        let purged = purge(&trashed);
+        let purged = purge(&trashed, &|| Ok(()));
         fs::set_permissions(&kept, fs::Permissions::from_mode(0o755)).expect("chmod");
         purged.expect_err("could not remove");
         assert!(bin.root.join("info/d.trashinfo").exists());
@@ -881,6 +964,7 @@ mod tests {
         put_in(&bin, &item).expect("trashed");
         fs::write(bin.root.join("files/report.trashinfo"), "orphan").expect("write");
         let (orphan, _) = list_bin(&bin)
+            .expect("listed")
             .into_iter()
             .find(|(item, _)| origin_unknown(item))
             .expect("listed");
@@ -888,7 +972,7 @@ mod tests {
             crate::operation::in_trash(&orphan),
             (bin.root.join("files/report.trashinfo"), None)
         );
-        purge(&orphan).expect("purged");
+        purge(&orphan, &|| Ok(())).expect("purged");
         assert!(!bin.root.join("files/report.trashinfo").exists());
         assert!(
             bin.root.join("files/report").exists(),

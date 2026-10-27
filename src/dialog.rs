@@ -476,8 +476,15 @@ impl<M: Send + 'static> Dialog<M> {
 
 #[derive(Clone, Debug)]
 enum DialogPage {
-    NewFolder { parent: PathBuf, name: String },
-    Replace { filename: String },
+    NewFolder {
+        parent: PathBuf,
+        name: String,
+        /// Why the last try to make it failed.
+        error: Option<String>,
+    },
+    Replace {
+        filename: String,
+    },
 }
 
 #[derive(Clone, Debug)]
@@ -515,6 +522,8 @@ enum Message {
     /// A folder the chooser asked for now exists, tagged with where the
     /// chooser had been sent when it was asked for.
     NewFolderCreated(u64, PathBuf),
+    /// Making the folder `name` in `parent` failed, for the reason given.
+    NewFolderFailed(PathBuf, String, String),
     NotifyEvents(Vec<DebouncedEvent>),
     NotifyWatcher(WatcherWrapper),
     Open,
@@ -1305,10 +1314,19 @@ impl Application for App {
         let dialog_page = self.dialog_pages.front()?;
 
         let dialog = match dialog_page {
-            DialogPage::NewFolder { parent, name } => {
+            DialogPage::NewFolder {
+                parent,
+                name,
+                error,
+            } => {
                 let mut dialog = widget::dialog().title(fl!("create-new-folder"));
 
-                let complete_maybe = if name.is_empty() {
+                let complete_maybe = if let Some(error) = error {
+                    // Asked again with the reason: a new name, or the same
+                    // once the cause is seen to, tries again
+                    dialog = dialog.tertiary_action(widget::text::body(error.as_str()));
+                    Some(Message::DialogComplete)
+                } else if name.is_empty() {
                     None
                 } else if name == "." || name == ".." {
                     dialog = dialog.tertiary_action(widget::text::body(fl!(
@@ -1355,6 +1373,7 @@ impl Application for App {
                                     Message::DialogUpdate(DialogPage::NewFolder {
                                         parent: parent.clone(),
                                         name,
+                                        error: None,
                                     })
                                 })
                                 .on_submit_maybe(complete_maybe.map(|maybe| move |_| maybe.clone()))
@@ -1579,8 +1598,8 @@ impl Application for App {
             Message::DialogComplete => {
                 if let Some(dialog_page) = self.dialog_pages.pop_front() {
                     match dialog_page {
-                        DialogPage::NewFolder { parent, name } => {
-                            let path = parent.join(name);
+                        DialogPage::NewFolder { parent, name, .. } => {
+                            let path = parent.join(&name);
                             // Created off the event loop, and navigated into
                             // only once it exists. On a slow or remote
                             // destination the `mkdir` alone can take long
@@ -1592,19 +1611,20 @@ impl Application for App {
                                     move || fs::create_dir(&path)
                                 })
                                 .await;
-                                match created {
-                                    Ok(Ok(())) => crate::ui::action::app(
-                                        Message::NewFolderCreated(navigation, path),
-                                    ),
-                                    Ok(Err(err)) => {
-                                        log::warn!("failed to create {}: {}", path.display(), err);
-                                        crate::ui::action::none()
+                                let err = match created {
+                                    Ok(Ok(())) => {
+                                        return crate::ui::action::app(Message::NewFolderCreated(
+                                            navigation, path,
+                                        ));
                                     }
-                                    Err(err) => {
-                                        log::warn!("failed to create {}: {}", path.display(), err);
-                                        crate::ui::action::none()
-                                    }
-                                }
+                                    Ok(Err(err)) => crate::operation::failure_text(&path, &err),
+                                    Err(err) => err.to_string(),
+                                };
+                                log::warn!("failed to create {}: {err}", path.display());
+                                // Not only logged: the name comes back with
+                                // the reason, rather than the dialog closing
+                                // as if it had worked
+                                crate::ui::action::app(Message::NewFolderFailed(parent, name, err))
                             });
                         }
                         DialogPage::Replace { .. } => {
@@ -1792,9 +1812,18 @@ impl Application for App {
                     self.dialog_pages.push_back(DialogPage::NewFolder {
                         parent: path.clone(),
                         name: String::new(),
+                        error: None,
                     });
                     return widget::text_input::focus(self.dialog_text_input.clone());
                 }
+            }
+            Message::NewFolderFailed(parent, name, error) => {
+                self.dialog_pages.push_front(DialogPage::NewFolder {
+                    parent,
+                    name,
+                    error: Some(error),
+                });
+                return widget::text_input::focus(self.dialog_text_input.clone());
             }
             Message::NewFolderCreated(navigation, path) => {
                 // Created either way, but only entered if the chooser has not

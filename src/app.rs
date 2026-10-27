@@ -2370,7 +2370,7 @@ impl App {
                 // The payload stays: a failed operation can be retried from
                 // the dialog, and retrying a paste whose bytes were dropped
                 // would write an empty file and call it a success. It is
-                // released when the retry succeeds, or dropped with the entry
+                // released when the retry succeeds, or when its row is closed
                 self.failed_operations
                     .insert(id, (op, controller, err.to_string()));
             }
@@ -5023,10 +5023,29 @@ impl Application for App {
                             item,
                             root,
                         } => {
-                            // The id the emptying is about to get
-                            self.unmount_after
-                                .insert(self.pending_operation_id, (mounter_key, item));
-                            tasks.push(self.operation(Operation::EmptyDriveTrash { root }));
+                            // Only the drive asked about: gone since, another
+                            // may be mounted at its place, and its trash is
+                            // not the one the user agreed to empty
+                            let same_drive =
+                                self.mounter_items.get(&mounter_key).is_some_and(|items| {
+                                    items.iter().any(|now| {
+                                        now.id() == item.id()
+                                            && now.is_mounted()
+                                            && now.path().is_some_and(|path| path == root)
+                                    })
+                                });
+                            if same_drive {
+                                // The id the emptying is about to get
+                                self.unmount_after
+                                    .insert(self.pending_operation_id, (mounter_key, item));
+                                tasks.push(self.operation(Operation::EmptyDriveTrash { root }));
+                            } else {
+                                log::warn!(
+                                    "{} is no longer mounted at {}: its trash is left alone",
+                                    item.name(),
+                                    root.display()
+                                );
+                            }
                         }
                         // Enter gives the default answer, Skip
                         // Enter keeps waiting
@@ -5191,7 +5210,10 @@ impl Application for App {
                             from, parent, name, ..
                         } => {
                             let to = parent.join(name);
-                            tasks.push(self.operation(Operation::Rename { from, to }));
+                            // The name left as it was: nothing to rename
+                            if to != from {
+                                tasks.push(self.operation(Operation::Rename { from, to }));
+                            }
                         }
                         DialogPage::BatchRename { parent, .. } => {
                             let preview = std::mem::take(&mut self.batch_rename_preview);
@@ -6364,6 +6386,11 @@ impl Application for App {
                 }
             }
             Message::RetryFailed(id) => {
+                // Closed, its row may still be sliding out under the
+                // pointer, but a paste's bytes went with it
+                if self.progress.is_dismissed(&progress::Key::Operation(id)) {
+                    return Task::none();
+                }
                 if let Some((operation, _, _)) = self.failed_operations.remove(&id) {
                     // The retry starts a row of its own
                     self.progress.remove(&progress::Key::Operation(id));
@@ -6398,7 +6425,14 @@ impl Application for App {
                 Outcome::Cancelled => self.progress.remove(&key),
             },
             Message::ProgressDismiss(row) => {
-                self.progress.dismiss(row, Instant::now());
+                // A failed operation's row was its only Try again: closed, the
+                // bytes a paste carried for it are no longer needed
+                if let Some(progress::Key::Operation(id)) =
+                    self.progress.dismiss(row, Instant::now())
+                    && let Some((op, _, _)) = self.failed_operations.get_mut(id)
+                {
+                    op.release_payload();
+                }
             }
             Message::ProgressHover(row, over) => {
                 self.progress.hover(row, over, Instant::now());
@@ -7138,17 +7172,22 @@ impl Application for App {
                                 }
                             }));
                         }
-                        tab::Command::SetPermissions(path, mode) => {
-                            commands.push(self.operation(Operation::SetPermissions { path, mode }));
+                        tab::Command::SetPermissions(path, mode, mask) => {
+                            commands.push(self.operation(Operation::SetPermissions {
+                                path,
+                                mode,
+                                mask,
+                            }));
                         }
                         tab::Command::SetMultiplePermissions(permissions) => {
                             commands.push(
                                 self.join_operations(
                                     permissions
                                         .into_iter()
-                                        .map(|(path, mode)| Operation::SetPermissions {
+                                        .map(|(path, mode, mask)| Operation::SetPermissions {
                                             path,
                                             mode,
+                                            mask,
                                         })
                                         .collect(),
                                 ),

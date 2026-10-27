@@ -215,7 +215,7 @@ pub enum Method {
 mod check;
 mod delete;
 
-pub(crate) use delete::remove_tree;
+pub(crate) use delete::remove_tree_checked;
 
 /// What a copy or move does with the trash, for what it replaces: the real
 /// one, or in tests a stand-in that leaves the user's own alone.
@@ -323,6 +323,9 @@ pub struct Context {
     skip_blocked: bool,
     /// The files copied since the last flush to disk.
     written: Vec<PathBuf>,
+    /// The folders made, with the mode of the one each copies: made open to
+    /// this user alone, they get it once all they hold is in.
+    made_dirs: Vec<(PathBuf, u32)>,
     /// What the user decided, before the operation ran, for each
     /// destination that was already taken.
     decided: std::collections::HashMap<PathBuf, ReplaceResult>,
@@ -505,6 +508,7 @@ impl Context {
             remaining_conflicts: 0,
             skip_blocked: false,
             written: Vec::new(),
+            made_dirs: Vec::new(),
             decided: std::collections::HashMap::new(),
             free_space: super::free_space,
             done: Vec::new(),
@@ -792,13 +796,39 @@ impl Context {
         let mut not_back = Vec::new();
         for item in std::mem::take(&mut self.op_sel.trash_items) {
             let (path, restore) = (item.original_path(), self.trash.restore);
-            let restored = compio::runtime::spawn_blocking(move || restore(item)).await;
+            let restored = compio::runtime::spawn_blocking({
+                let item = item.clone();
+                move || restore(item)
+            })
+            .await;
             if !matches!(restored, Ok(Ok(()))) {
                 log::warn!("failed to bring back {} from the trash", path.display());
                 not_back.push(path);
+                // Still in the trash: its record stays, to undo
+                self.op_sel.trash_items.push(item);
             }
         }
         not_back
+    }
+
+    /// The error for a rollback that left `not_back` where it was, named;
+    /// what stayed in the trash goes with it, to bring back on undo.
+    pub(super) fn rollback_failed(&self, not_back: &[PathBuf]) -> OperationError {
+        let more = not_back.len() - 1;
+        let name = not_back[0].file_name().map_or_else(
+            || not_back[0].display().to_string(),
+            |name| name.to_string_lossy().into_owned(),
+        );
+        OperationError {
+            partial: Box::new(OperationSelection {
+                trash_items: self.op_sel.trash_items.clone(),
+                ..OperationSelection::default()
+            }),
+            ..OperationError::from_err(
+                fl!("rollback-failed", name = name, more = more),
+                &self.controller,
+            )
+        }
     }
 
     /// Whether everything going into the folders of `room` fits, added up
@@ -916,17 +946,21 @@ impl Context {
             }
             // What could not be put back is the user's to see: as a
             // failure, with its names, not a quiet cancel
-            let more = not_back.len() - 1;
-            let name = not_back[0].file_name().map_or_else(
-                || not_back[0].display().to_string(),
-                |name| name.to_string_lossy().into_owned(),
-            );
-            return Err(OperationError::from_err(
-                fl!("rollback-failed", name = name, more = more),
-                &self.controller,
-            ));
+            return Err(self.rollback_failed(&not_back));
         }
-        result
+        // Failed: what got done before, a move's plain renames among it,
+        // stays done, to undo, where the failure did not already say
+        result.map_err(|mut err| {
+            let done = &self.op_sel;
+            if err.partial.is_empty()
+                && !(done.created.is_empty()
+                    && done.moved.is_empty()
+                    && done.trash_items.is_empty())
+            {
+                err.partial = Box::new(done.clone());
+            }
+            err
+        })
     }
 
     /// Puts back what the steps that ran did, newest first, then the whole
@@ -1522,7 +1556,14 @@ impl Context {
             if let Err(err) = self.trash_replaced(&item.to_parent, false).await {
                 let reason = super::failure_text(&item.to_parent, &*err);
                 self.untrash().await;
-                return Err(OperationError::from_err(reason, &self.controller));
+                // What stayed in the trash goes with it, to bring back on undo
+                return Err(OperationError {
+                    partial: Box::new(OperationSelection {
+                        trash_items: self.op_sel.trash_items.clone(),
+                        ..OperationSelection::default()
+                    }),
+                    ..OperationError::from_err(reason, &self.controller)
+                });
             }
         }
 
@@ -1780,11 +1821,33 @@ impl Context {
             }
         }
 
+        self.give_made_dirs_modes().await?;
         if !flushed || !self.written.is_empty() {
             self.flush(&target_dirs).await?;
         }
 
         Ok(true)
+    }
+
+    /// Gives each folder made the mode of the folder it copies, deepest
+    /// first: one that takes away writing comes after all it holds is in.
+    async fn give_made_dirs_modes(&mut self) -> Result<(), OperationError> {
+        let mut made = std::mem::take(&mut self.made_dirs);
+        made.sort_by_key(|(path, _)| std::cmp::Reverse(path.components().count()));
+        compio::runtime::spawn_blocking(move || {
+            use std::os::unix::fs::PermissionsExt;
+            for (path, mode) in made {
+                if let Err(err) = fs::set_permissions(&path, fs::Permissions::from_mode(mode)) {
+                    return Err((path, err));
+                }
+            }
+            Ok(())
+        })
+        .await
+        .map_err(super::wrap_compio_spawn_error)?
+        .map_err(|(path, err): (PathBuf, std::io::Error)| {
+            OperationError::from_err(super::failure_text(&path, &err), &self.controller)
+        })
     }
 
     /// Flushes to disk the files written since the last flush, and the
@@ -2166,7 +2229,31 @@ impl Op {
                 }
             }
             OpKind::Mkdir => {
-                compio::fs::create_dir_all(&self.to).await?;
+                // Open to this user alone while it fills: what a private
+                // folder holds never stands in one anyone may read
+                let (from, to) = (self.from.clone(), self.to.clone());
+                let made = compio::runtime::spawn_blocking(move || -> std::io::Result<_> {
+                    use std::os::unix::fs::{DirBuilderExt, MetadataExt};
+                    if let Some(parent) = to.parent() {
+                        fs::create_dir_all(parent)?;
+                    }
+                    match fs::DirBuilder::new().mode(0o700).create(&to) {
+                        Ok(()) => Ok(Some(fs::symlink_metadata(&from)?.mode() & 0o7777)),
+                        // A folder there already is merged into, as it is;
+                        // anything else in its place is not a folder to fill
+                        Err(err)
+                            if err.kind() == std::io::ErrorKind::AlreadyExists && to.is_dir() =>
+                        {
+                            Ok(None)
+                        }
+                        Err(err) => Err(err),
+                    }
+                })
+                .await
+                .map_err(|err| std::io::Error::other(format!("{err:?}")))??;
+                if let Some(mode) = made {
+                    ctx.made_dirs.push((self.to.clone(), mode));
+                }
             }
             OpKind::Remove => match compio::fs::remove_file(&self.from).await {
                 Ok(()) => {}
@@ -2583,6 +2670,12 @@ impl Op {
                     _ = pause_tx.send(true);
                     ctx.controller.until_unpaused().await;
                     _ = pause_tx.send(false);
+                    // Cancelled while paused: as for a cancel seen running
+                    if let Err(state) = ctx.controller.check().await {
+                        return Err::<(), GioCopyError>(GioCopyError::Controller(
+                            OperationError::from_state(state, &ctx.controller),
+                        ));
+                    }
                 }
             }
         }

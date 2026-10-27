@@ -20,6 +20,7 @@ pub use notifiers::*;
 mod notifiers;
 
 pub use self::reader::OpReader;
+pub(crate) use self::root::proto::rename_no_replace;
 pub mod reader;
 
 use self::recursive::{Context, Method};
@@ -132,6 +133,83 @@ async fn extract_archive(
 }
 
 /// Create a unique hidden directory inside `to` to stage an extraction in.
+/// Whether nothing is at `path`: not found, rather than unreadable, which
+/// may be put right before a retry.
+fn surely_gone(path: &Path) -> bool {
+    path.symlink_metadata()
+        .is_err_and(|err| err.kind() == io::ErrorKind::NotFound)
+}
+
+/// The turn of one permission change to a file, held until it is dropped.
+struct PermissionsTurn(PathBuf);
+
+/// The files whose permissions are being changed now.
+static PERMISSIONS_CHANGING: std::sync::Mutex<Vec<PathBuf>> = std::sync::Mutex::new(Vec::new());
+/// Wakes the changes waiting for their turn.
+static PERMISSIONS_FREED: std::sync::Condvar = std::sync::Condvar::new();
+
+impl PermissionsTurn {
+    /// Waits until no other change to `path` runs, and takes the turn.
+    fn take(path: &Path) -> Self {
+        let mut changing = PERMISSIONS_CHANGING
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        while changing.iter().any(|other| other == path) {
+            changing = PERMISSIONS_FREED
+                .wait(changing)
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+        }
+        changing.push(path.to_path_buf());
+        Self(path.to_path_buf())
+    }
+}
+
+impl Drop for PermissionsTurn {
+    fn drop(&mut self) {
+        let mut changing = PERMISSIONS_CHANGING
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        changing.retain(|other| *other != self.0);
+        PERMISSIONS_FREED.notify_all();
+    }
+}
+
+/// A new folder in `to` to extract an archive into, named `dir_name`, or
+/// numbered when that is taken. Made here, so it is the extraction's own
+/// and nothing else's, to take away again should the extraction fail. A
+/// name that is not one of its own, such as `..` from `...zip`, gives way
+/// to `fallback`, the archive's name.
+fn extract_dir(
+    to: &Path,
+    dir_name: &str,
+    fallback: &str,
+    controller: &Controller,
+) -> Result<PathBuf, OperationError> {
+    let dir_name = if matches!(dir_name, "" | "." | "..") {
+        fallback
+    } else {
+        dir_name
+    };
+    let copy = fl!("copy_noun");
+    for n in 0..=MAX_UNIQUE_ATTEMPTS {
+        let name = if n == 0 {
+            dir_name.to_string()
+        } else {
+            format!("{dir_name} ({copy} {n})")
+        };
+        let path = to.join(name);
+        match fs::create_dir(&path) {
+            Ok(()) => return Ok(path),
+            Err(err) if err.kind() == io::ErrorKind::AlreadyExists => {}
+            Err(err) => return Err(OperationError::from_err(err, controller)),
+        }
+    }
+    Err(OperationError::from_err(
+        io::Error::from(io::ErrorKind::AlreadyExists),
+        controller,
+    ))
+}
+
 fn staging_dir(
     to: &Path,
     dir_name: &str,
@@ -832,15 +910,18 @@ async fn empty(
     controller: Controller,
 ) -> Result<OperationSelection, OperationError> {
     let (listed, bins) = compio::runtime::spawn_blocking(move || {
-        let items: Vec<_> = bins
-            .iter()
-            .flat_map(crate::trashing::list_bin)
-            .map(|(item, _)| item)
-            .collect();
-        (items, bins)
+        let mut items = Vec::new();
+        for bin in &bins {
+            match crate::trashing::list_bin(bin) {
+                Ok(listed) => items.extend(listed.into_iter().map(|(item, _)| item)),
+                Err(err) => return Err((bin.root.join("files"), err)),
+            }
+        }
+        Ok((items, bins))
     })
     .await
-    .map_err(wrap_compio_spawn_error)?;
+    .map_err(wrap_compio_spawn_error)?
+    .map_err(|(path, err)| OperationError::from_err(failure_text(&path, &err), &controller))?;
     let result = purge(listed, msg_tx, controller).await?;
     compio::runtime::spawn_blocking(move || crate::trashing::remove_stray_records(&bins))
         .await
@@ -1125,7 +1206,7 @@ impl Operation {
             // replaced or merged into existing files is still recoverable
             // The copies go to the trash, those that replaced files too; then
             // the replaced files come back from it, in their place
-            Self::Copy { .. }
+            Self::Copy { .. } | Self::Extract { .. }
                 if !created_only(result).is_empty() || !result.trash_items.is_empty() =>
             {
                 let mut paths = created_only(result);
@@ -1187,15 +1268,6 @@ impl Operation {
                 }
                 undo
             }
-            Self::Restore { items } => vec![Self::Delete {
-                paths: items
-                    .iter()
-                    .map(crate::trashing::TrashItem::original_path)
-                    .collect(),
-            }],
-            Self::Extract { .. } if !created_only(result).is_empty() => vec![Self::Delete {
-                paths: created_only(result),
-            }],
             Self::Compress { to, .. } => vec![Self::Delete {
                 paths: vec![to.clone()],
             }],
@@ -1233,6 +1305,55 @@ impl Operation {
                     .cloned()
                     .collect(),
             },
+            // An item whose original is gone was moved whole. Not every
+            // item in `done.moved`: a folder is noted there as soon as it is
+            // made at the destination, before what it holds follows
+            Self::Move {
+                paths,
+                to,
+                cross_device_copy,
+            } if !done.moved.is_empty() => Self::Move {
+                paths: paths
+                    .iter()
+                    .filter(|path| !surely_gone(path))
+                    .cloned()
+                    .collect(),
+                to: to.clone(),
+                cross_device_copy: *cross_device_copy,
+            },
+            // The renames that went through are done: their sources are gone
+            Self::BatchRename { renames } => Self::BatchRename {
+                renames: renames
+                    .iter()
+                    .filter(|(_, to)| !done.selected.contains(to))
+                    .cloned()
+                    .collect(),
+            },
+            // What is gone already needs no deleting, and would fail the
+            // check before anything else is tried
+            Self::PermanentlyDelete { paths } => Self::PermanentlyDelete {
+                paths: paths
+                    .iter()
+                    .filter(|path| !surely_gone(path))
+                    .cloned()
+                    .collect(),
+            },
+            // The archives all extracted are left out
+            Self::Extract {
+                paths,
+                to,
+                password,
+                as_folder,
+            } => Self::Extract {
+                paths: paths
+                    .iter()
+                    .filter(|path| !done.ignored.contains(path))
+                    .cloned()
+                    .collect(),
+                to: to.clone(),
+                password: password.clone(),
+                as_folder: *as_folder,
+            },
             _ => self.clone(),
         }
     }
@@ -1253,15 +1374,18 @@ impl Operation {
     /// Whether everything this operation acts on is still where it expects
     /// it, so an undo made from it can run.
     pub fn is_applicable(&self) -> bool {
+        // The entry itself, not what a link at it points to: a dangling
+        // link is there to rename, move or delete
+        let there = |path: &PathBuf| path.symlink_metadata().is_ok();
         match self {
-            Self::Rename { from, .. } => from.exists(),
-            Self::BatchRename { renames } => renames.iter().all(|(from, _)| from.exists()),
+            Self::Rename { from, .. } => there(from),
+            Self::BatchRename { renames } => renames.iter().all(|(from, _)| there(from)),
             // Not `to.is_dir()`: a move that emptied a folder removes it, and
             // undoing that move has to put the folder back. Only a destination
-            // taken by a file is out of reach.
-            Self::Move { paths, to, .. } => !to.is_file() && paths.iter().all(|p| p.exists()),
-            Self::PermanentlyDelete { paths } => paths.iter().all(|p| p.exists()),
-            Self::Delete { paths } => paths.iter().all(|p| p.exists()),
+            // taken by something else than a folder is out of reach.
+            Self::Move { paths, to, .. } => !(there(to) && !to.is_dir()) && paths.iter().all(there),
+            Self::PermanentlyDelete { paths } => paths.iter().all(there),
+            Self::Delete { paths } => paths.iter().all(there),
             Self::Restore { items } => !items.is_empty(),
             _ => true,
         }
@@ -1315,52 +1439,6 @@ fn numbered_path(base: &Path, n: usize) -> PathBuf {
     }
 }
 
-/// Rename `from` to `to`, refusing to replace anything already at `to`.
-///
-/// `renameat2` makes the check and the rename one step, so nothing can appear
-/// at the destination in between. Kernels and filesystems that do not support
-/// the flag answer `EINVAL`, `ENOSYS` or `EOPNOTSUPP`; there we fall back to
-/// looking first, which leaves a small window but still never overwrites the
-/// file we can see. The check is on the link itself, so a dangling symlink at
-/// the destination counts as occupied.
-pub(crate) fn rename_no_replace(from: &Path, to: &Path) -> io::Result<()> {
-    use std::ffi::CString;
-    use std::os::unix::ffi::OsStrExt;
-
-    let from_c = CString::new(from.as_os_str().as_bytes())
-        .map_err(|err| io::Error::new(io::ErrorKind::InvalidInput, err))?;
-    let to_c = CString::new(to.as_os_str().as_bytes())
-        .map_err(|err| io::Error::new(io::ErrorKind::InvalidInput, err))?;
-
-    // SAFETY: both pointers come from CStrings that outlive the call
-    let status = unsafe {
-        libc::renameat2(
-            libc::AT_FDCWD,
-            from_c.as_ptr(),
-            libc::AT_FDCWD,
-            to_c.as_ptr(),
-            libc::RENAME_NOREPLACE,
-        )
-    };
-    if status == 0 {
-        return Ok(());
-    }
-
-    let err = io::Error::last_os_error();
-    match err.raw_os_error() {
-        Some(libc::EINVAL | libc::ENOSYS | libc::EOPNOTSUPP) => {
-            if fs::symlink_metadata(to).is_ok() {
-                return Err(io::Error::new(
-                    io::ErrorKind::AlreadyExists,
-                    format!("{} already exists", to.display()),
-                ));
-            }
-            fs::rename(from, to)
-        }
-        _ => Err(err),
-    }
-}
-
 pub fn copy_unique_path(from: &Path, to: &Path) -> PathBuf {
     // List of compound extensions to check
     const COMPOUND_EXTENSIONS: &[&str] = &[
@@ -1377,44 +1455,40 @@ pub fn copy_unique_path(from: &Path, to: &Path) -> PathBuf {
         ".tar.pz",
     ];
 
+    use std::ffi::{OsStr, OsString};
+    use std::os::unix::ffi::OsStrExt;
+
     let mut to = to.to_owned();
-    if let Some(file_name) = from.file_name().and_then(|name| name.to_str()) {
-        let (stem, ext) = if from.is_dir() {
-            (file_name.to_string(), None)
+    // In bytes, not as text: a name that is not UTF-8 still gets a name of
+    // its own, rather than `to` itself standing for the copy
+    if let Some(file_name) = from.file_name() {
+        let (stem, ext): (&OsStr, Option<&OsStr>) = if from.is_dir() {
+            (file_name, None)
         } else {
-            let file_name = file_name.to_string();
+            let bytes = file_name.as_bytes();
             COMPOUND_EXTENSIONS
                 .iter()
-                .copied()
-                .find(|&ext| file_name.ends_with(ext))
+                .find(|ext| bytes.len() > ext.len() && bytes.ends_with(ext.as_bytes()))
                 .map(|ext| {
                     (
-                        file_name.strip_suffix(ext).unwrap().to_string(),
-                        Some(ext[1..].to_string()),
+                        OsStr::from_bytes(&bytes[..bytes.len() - ext.len()]),
+                        Some(OsStr::from_bytes(&ext.as_bytes()[1..])),
                     )
                 })
-                .unwrap_or_else(|| {
-                    from.file_stem()
-                        .and_then(|s| s.to_str())
-                        .map_or((file_name, None), |stem| {
-                            (
-                                stem.to_string(),
-                                from.extension()
-                                    .and_then(|e| e.to_str())
-                                    .map(str::to_string),
-                            )
-                        })
-                })
+                .unwrap_or_else(|| (from.file_stem().unwrap_or(file_name), from.extension()))
         };
 
         for n in 0.. {
             let new_name = if n == 0 {
-                file_name.to_string()
+                file_name.to_owned()
             } else {
-                match ext {
-                    Some(ref ext) => format!("{} ({} {}).{}", stem, fl!("copy_noun"), n, ext),
-                    None => format!("{} ({} {})", stem, fl!("copy_noun"), n),
+                let mut new_name = OsString::from(stem);
+                new_name.push(format!(" ({} {})", fl!("copy_noun"), n));
+                if let Some(ext) = ext {
+                    new_name.push(".");
+                    new_name.push(ext);
                 }
+                new_name
             };
 
             to.push(&new_name);
@@ -1492,6 +1566,26 @@ impl OperationSelection {
             && self.created.is_empty()
             && self.moved.is_empty()
             && self.trash_items.is_empty()
+    }
+
+    /// `other` added to this: what an earlier step did, and then a later.
+    pub fn absorb(&mut self, other: OperationSelection) {
+        self.ignored.extend(other.ignored);
+        self.selected.extend(other.selected);
+        self.created.extend(other.created);
+        self.moved.extend(other.moved);
+        self.trash_items.extend(other.trash_items);
+        self.skipped.extend(other.skipped);
+    }
+}
+
+impl OperationError {
+    /// This error, with `done` before what it says was done: a failure in a
+    /// later step still leaves the earlier ones to undo, and not to redo.
+    fn after(mut self, mut done: OperationSelection) -> Self {
+        done.absorb(std::mem::take(&mut self.partial));
+        self.partial = Box::new(done);
+        self
     }
 }
 
@@ -1576,10 +1670,14 @@ pub enum Operation {
     SetExecutableAndLaunch {
         path: PathBuf,
     },
-    /// Set permissions
+    /// Set permissions: the bits of `mode` in `mask`, the rest left as the
+    /// file has them when this runs. `mode` is read from a listing that
+    /// may be out of date, and a second change made before it is read
+    /// again must not take back the first.
     SetPermissions {
         path: PathBuf,
         mode: u32,
+        mask: u32,
     },
 }
 
@@ -1759,7 +1857,7 @@ impl Operation {
             Self::SetExecutableAndLaunch { path } => {
                 fl!("setting-executable-and-launching", name = file_name(path))
             }
-            Self::SetPermissions { path, mode } => {
+            Self::SetPermissions { path, mode, .. } => {
                 fl!(
                     "setting-permissions",
                     name = file_name(path),
@@ -1826,7 +1924,7 @@ impl Operation {
             Self::SetExecutableAndLaunch { path } => {
                 fl!("set-executable-and-launched", name = file_name(path))
             }
-            Self::SetPermissions { path, mode } => {
+            Self::SetPermissions { path, mode, .. } => {
                 fl!(
                     "set-permissions",
                     name = file_name(path),
@@ -1918,7 +2016,9 @@ impl Operation {
 
                         let mut paths = paths;
                         for path in &paths.clone() {
-                            if path.is_dir() {
+                            // A link to a folder is stored as a link: what it
+                            // points at is not what was selected
+                            if path.symlink_metadata().is_ok_and(|meta| meta.is_dir()) {
                                 let new_paths_it = ignore::WalkBuilder::new(path)
                                     .standard_filters(false)
                                     .build();
@@ -1986,13 +2086,48 @@ impl Operation {
                                     let relative_path = path
                                         .strip_prefix(&relative_root)
                                         .map_err(|e| OperationError::from_err(e, &controller))?;
-                                    archive
-                                        .append_path_with_name(path, relative_path)
+                                    let meta = fs::symlink_metadata(path)
+                                        .map_err(|e| OperationError::from_err(e, &controller))?;
+                                    if !meta.is_file() {
+                                        archive
+                                            .append_path_with_name(path, relative_path)
+                                            .map_err(|e| OperationError::from_err(e, &controller))?;
+                                        continue;
+                                    }
+                                    // A file read through the controller, so a
+                                    // large one still pauses, stops and shows
+                                    // how far it is
+                                    let mut header = tar::Header::new_gnu();
+                                    header.set_metadata(&meta);
+                                    let mut reader = OpReader::part(
+                                        fs::File::open(path).map_err(|e| {
+                                            OperationError::from_err(e, &controller)
+                                        })?,
+                                        meta.len(),
+                                        controller.clone(),
+                                        i,
+                                        total_paths,
+                                    );
+                                    let appended =
+                                        archive.append_data(&mut header, relative_path, &mut reader);
+                                    if appended.is_err() && controller.is_cancelled() {
+                                        return Err(OperationError::from_state(
+                                            ControllerState::Cancelled,
+                                            &controller,
+                                        ));
+                                    }
+                                    appended
                                         .map_err(|e| OperationError::from_err(e, &controller))?;
                                 }
 
+                                // Every layer finished and flushed by hand, its
+                                // errors kept: dropped, each would lose them
+                                // and leave a cut-off archive taken for whole
                                 archive
-                                    .finish()
+                                    .into_inner()
+                                    .and_then(flate2::write::GzEncoder::finish)
+                                    .and_then(|out| out.into_inner().map_err(io::IntoInnerError::into_error))
+                                    .and_then(|file| file.sync_all())
                                     .map_err(|e| OperationError::from_err(e, &controller))?;
                             }
                             ArchiveType::Zip => {
@@ -2121,6 +2256,9 @@ impl Operation {
 
                                 archive
                                     .finish()
+                                    .map_err(io::Error::from)
+                                    .and_then(|out| out.into_inner().map_err(io::IntoInnerError::into_error))
+                                    .and_then(|file| file.sync_all())
                                     .map_err(|e| OperationError::from_err(e, &controller))?;
                             }
                         }
@@ -2171,10 +2309,14 @@ impl Operation {
                     let total_paths = paths.len();
                     let mut op_sel = OperationSelection::default();
                     for (i, path) in paths.iter().enumerate() {
-                        controller
-                            .check()
-                            .await
-                            .map_err(|s| OperationError::from_state(s, &controller))?;
+                        // What the archives before got done stays done, to
+                        // undo, and to leave out of a retry
+                        let done = || op_sel.clone();
+                        if let Err(state) = controller.check().await {
+                            return Err(
+                                OperationError::from_state(state, &controller).after(done())
+                            );
+                        }
 
                         controller.set_progress((i as f32) / total_paths as f32);
 
@@ -2182,17 +2324,32 @@ impl Operation {
                             continue;
                         };
                         let dir_name = get_directory_name(file_name).to_string();
-                        op_sel.ignored.push(path.clone());
 
                         if as_folder {
-                            let mut new_dir = to.join(&dir_name);
-                            if new_dir.exists()
-                                && let Some(new_dir_parent) = new_dir.parent()
+                            let new_dir = extract_dir(&to, &dir_name, file_name, &controller)
+                                .map_err(|err| err.after(done()))?;
+                            if let Err(err) = extract_archive(
+                                path.clone(),
+                                new_dir.clone(),
+                                &password,
+                                &controller,
+                            )
+                            .await
                             {
-                                new_dir = copy_unique_path(&new_dir, new_dir_parent);
+                                // The folder was made for it, so it is ours:
+                                // half an archive goes with it. Aborted,
+                                // what was done stays, to undo
+                                let mut done = done();
+                                if controller.is_aborted() {
+                                    done.created.push(new_dir.clone());
+                                } else {
+                                    let _ = compio::runtime::spawn_blocking(move || {
+                                        fs::remove_dir_all(new_dir)
+                                    })
+                                    .await;
+                                }
+                                return Err(err.after(done));
                             }
-                            extract_archive(path.clone(), new_dir.clone(), &password, &controller)
-                                .await?;
                             op_sel.created.push(new_dir.clone());
                             op_sel.selected.push(new_dir);
                         } else {
@@ -2200,7 +2357,8 @@ impl Operation {
                             // then move the entries into place. The move goes through the
                             // same replace dialog as copy/move, so existing files are never
                             // overwritten silently.
-                            let staging = staging_dir(&to, &dir_name, &controller)?;
+                            let staging = staging_dir(&to, &dir_name, &controller)
+                                .map_err(|err| err.after(done()))?;
                             let result = async {
                                 extract_archive(
                                     path.clone(),
@@ -2241,6 +2399,7 @@ impl Operation {
                                             failure_text(&path, &err),
                                             &controller,
                                         )
+                                        .after(moved.clone())
                                     })?;
                                 // Entries moved by a plain rename are not in the selection
                                 for entry in entries {
@@ -2251,7 +2410,7 @@ impl Operation {
                                         }
                                     }
                                 }
-                                Ok::<_, OperationError>((moved.selected, moved.created))
+                                Ok::<_, OperationError>(moved)
                             }
                             .await;
                             // Skipped or cancelled entries stay in the staging
@@ -2267,11 +2426,15 @@ impl Operation {
                             .await;
                             // Only what the move actually created may be undone:
                             // entries the user skipped, and directories that were
-                            // merged into, were already the user's
-                            let (selected, created) = result?;
-                            op_sel.selected.extend(selected);
-                            op_sel.created.extend(created);
+                            // merged into, were already the user's. What it
+                            // replaced is in the trash, to come back on undo
+                            let moved = result.map_err(|err| err.after(done()))?;
+                            op_sel.selected.extend(moved.selected);
+                            op_sel.created.extend(moved.created);
+                            op_sel.trash_items.extend(moved.trash_items);
                         }
+                        // The archive done: a retry leaves it out
+                        op_sel.ignored.push(path.clone());
                     }
 
                     Ok::<_, OperationError>(op_sel)
@@ -2409,14 +2572,41 @@ impl Operation {
                             Err(err) => return Err(OperationError::from_err(err, &controller)),
                         }
                     };
+                    // In pieces, so a large paste still pauses, stops and
+                    // shows how far it is
+                    const PIECE: usize = 4 * 1024 * 1024;
                     let mut file = file;
-                    let compio::BufResult(result, _) =
-                        compio::io::AsyncWriteAtExt::write_all_at(&mut file, data.to_vec(), 0)
-                            .await;
-                    result.map_err(|e| OperationError::from_err(e, &controller))?;
-                    file.sync_all()
-                        .await
-                        .map_err(|e| OperationError::from_err(e, &controller))?;
+                    let written = async {
+                        let mut at = 0;
+                        while at < data.len() {
+                            controller
+                                .check()
+                                .await
+                                .map_err(|s| OperationError::from_state(s, &controller))?;
+                            let piece = data[at..].len().min(PIECE);
+                            let compio::BufResult(result, _) =
+                                compio::io::AsyncWriteAtExt::write_all_at(
+                                    &mut file,
+                                    data[at..at + piece].to_vec(),
+                                    at as u64,
+                                )
+                                .await;
+                            result.map_err(|e| OperationError::from_err(e, &controller))?;
+                            at += piece;
+                            controller.set_progress(at as f32 / data.len() as f32);
+                        }
+                        file.sync_all()
+                            .await
+                            .map_err(|e| OperationError::from_err(e, &controller))
+                    }
+                    .await;
+                    if let Err(err) = written {
+                        // Made by this paste, under a name no one had: cut
+                        // short, it is no copy of the clipboard, and goes
+                        drop(file);
+                        let _ = compio::fs::remove_file(&target).await;
+                        return Err(err);
+                    }
                     Result::<_, OperationError>::Ok(OperationSelection {
                         ignored: Vec::new(),
                         selected: vec![target.clone()],
@@ -2504,22 +2694,27 @@ impl Operation {
                     let total = renames.len();
                     let mut op_sel = OperationSelection::default();
                     for (i, (from, to)) in renames.into_iter().enumerate() {
-                        controller
-                            .check()
-                            .await
-                            .map_err(|s| OperationError::from_state(s, &controller))?;
+                        // The renames before stay done, to undo, and to
+                        // leave out of a retry
+                        if let Err(state) = controller.check().await {
+                            return Err(
+                                OperationError::from_state(state, &controller).after(op_sel)
+                            );
+                        }
                         controller.set_progress((i as f32) / (total as f32));
                         // Never replace: the preview that produced this list
                         // is a snapshot, the folder may have changed since,
                         // and on a remote folder the preview does not check
                         // destinations at all
-                        compio::runtime::spawn_blocking({
+                        let renamed = compio::runtime::spawn_blocking({
                             let (from, to) = (from.clone(), to.clone());
                             move || rename_no_replace(&from, &to)
                         })
                         .await
-                        .map_err(wrap_compio_spawn_error)?
-                        .map_err(|e| OperationError::from_err(e, &controller))?;
+                        .map_err(wrap_compio_spawn_error)?;
+                        if let Err(err) = renamed {
+                            return Err(OperationError::from_err(err, &controller).after(op_sel));
+                        }
                         op_sel.ignored.push(from);
                         op_sel.selected.push(to);
                     }
@@ -2560,7 +2755,7 @@ impl Operation {
                 .map_err(|e| OperationError::from_err(e, &controller))?;
                 Ok(OperationSelection::default())
             }
-            Self::SetPermissions { path, mode } => {
+            Self::SetPermissions { path, mode, mask } => {
                 controller
                     .check()
                     .await
@@ -2572,7 +2767,19 @@ impl Operation {
                     let controller = controller_clone;
                     let path = path_clone;
                     use std::os::unix::fs::PermissionsExt;
-                    let perms = fs::Permissions::from_mode(mode);
+                    // One change at a time to a file: each reads what the
+                    // one before left, so changes made in quick succession
+                    // all hold. Other files do not wait on it
+                    let _one = PermissionsTurn::take(&path);
+                    // Cancelled while it waited its turn: nothing changes
+                    if controller.is_cancelled() || controller.is_failed() {
+                        return Err(OperationError::from_state(controller.state(), &controller));
+                    }
+                    let now = fs::metadata(&path)
+                        .map_err(|e| OperationError::from_err(e, &controller))?
+                        .permissions()
+                        .mode();
+                    let perms = fs::Permissions::from_mode((now & !mask & 0o7777) | (mode & mask));
                     fs::set_permissions(&path, perms)
                         .map_err(|e| OperationError::from_err(e, &controller))?;
 
@@ -2674,6 +2881,30 @@ mod tests {
             to: here.clone(),
         };
         assert!(copy.without_no_op_moves().is_some());
+    }
+
+    /// A name that is not UTF-8 still gets a copy's name of its own, never
+    /// the folder it is copied into
+    #[test]
+    fn a_copy_of_a_name_not_utf8_gets_its_own_name() -> io::Result<()> {
+        use std::os::unix::ffi::OsStrExt;
+        let fs = empty_fs()?;
+        let path = fs.path();
+        let name = std::ffi::OsStr::from_bytes(b"bad\xff");
+        fs::create_dir(path.join(name))?;
+        let file = std::ffi::OsStr::from_bytes(b"f\xff.tar.gz");
+        fs::write(path.join(file), b"")?;
+
+        let copy = super::copy_unique_path(&path.join(name), path);
+        let mut want = name.to_owned();
+        want.push(format!(" ({} 1)", fl!("copy_noun")));
+        assert_eq!(copy, path.join(want));
+
+        let copy = super::copy_unique_path(&path.join(file), path);
+        let mut want = std::ffi::OsStr::from_bytes(b"f\xff").to_owned();
+        want.push(format!(" ({} 1).tar.gz", fl!("copy_noun")));
+        assert_eq!(copy, path.join(want));
+        Ok(())
     }
 
     /// Simple wrapper around `[Operation::Copy]`
@@ -3314,6 +3545,96 @@ mod tests {
         assert_eq!(asked, [Blocked::Read(locked)]);
         assert!(!shm.path().join("folder").exists(), "nothing left behind");
         assert_eq!(fs::read(from.join("a.txt"))?, b"A");
+        Ok(())
+    }
+
+    /// A dangling link renamed is still there to rename back
+    #[test(compio::test)]
+    async fn a_renamed_dangling_link_can_be_undone() -> io::Result<()> {
+        let fs = empty_fs()?;
+        let path = fs.path();
+        std::os::unix::fs::symlink(path.join("nowhere"), path.join("a"))?;
+        let rename = Operation::Rename {
+            from: path.join("a"),
+            to: path.join("b"),
+        };
+        let result = perform(rename.clone(), ReplaceResult::Cancel)
+            .await
+            .expect("renamed");
+        run_undo(rename.undo(&result)).await.expect("undone");
+        assert!(path.join("a").symlink_metadata()?.is_symlink());
+        Ok(())
+    }
+
+    /// A copied folder keeps its mode: a private one stays private, a
+    /// read-only one is read-only once filled
+    #[test(compio::test)]
+    async fn a_copied_folder_keeps_its_mode() -> io::Result<()> {
+        use std::os::unix::fs::PermissionsExt;
+        let fs = empty_fs()?;
+        let path = fs.path();
+        fs::create_dir_all(path.join("private/locked"))?;
+        fs::write(path.join("private/locked/a"), b"A")?;
+        fs::set_permissions(
+            path.join("private/locked"),
+            fs::Permissions::from_mode(0o555),
+        )?;
+        fs::set_permissions(path.join("private"), fs::Permissions::from_mode(0o700))?;
+        fs::create_dir(path.join("to"))?;
+
+        operation_copy(vec![path.join("private")], path.join("to"))
+            .await
+            .expect("copied");
+        let mode = |p: &str| -> io::Result<u32> {
+            Ok(fs::metadata(path.join(p))?.permissions().mode() & 0o7777)
+        };
+        assert_eq!(mode("to/private")?, 0o700);
+        assert_eq!(mode("to/private/locked")?, 0o555);
+        assert_eq!(fs::read(path.join("to/private/locked/a"))?, b"A");
+        // So the temporary folder can go
+        fs::set_permissions(
+            path.join("private/locked"),
+            fs::Permissions::from_mode(0o755),
+        )?;
+        fs::set_permissions(
+            path.join("to/private/locked"),
+            fs::Permissions::from_mode(0o755),
+        )?;
+        Ok(())
+    }
+
+    /// Permission changes made from one out-of-date mode each keep the
+    /// other's, and one made through a link from the link's own mode
+    /// changes only the part asked for
+    #[test(compio::test)]
+    async fn permission_changes_take_only_the_bits_they_change() -> io::Result<()> {
+        use std::os::unix::fs::PermissionsExt;
+        let fs = empty_fs()?;
+        let path = fs.path();
+        let file = path.join("f");
+        fs::write(&file, b"f")?;
+        fs::set_permissions(&file, fs::Permissions::from_mode(0o600))?;
+        let set = |path: PathBuf, mode, mask| Operation::SetPermissions { path, mode, mask };
+        // Both from the mode listed before either ran
+        perform(set(file.clone(), 0o100640, 0o070), ReplaceResult::Cancel)
+            .await
+            .expect("group set");
+        perform(set(file.clone(), 0o100604, 0o007), ReplaceResult::Cancel)
+            .await
+            .expect("other set");
+        assert_eq!(fs::metadata(&file)?.permissions().mode() & 0o7777, 0o644);
+
+        // A link's own mode is 0777; taking away Other's from it leaves the
+        // target's group as it was
+        fs::set_permissions(&file, fs::Permissions::from_mode(0o600))?;
+        std::os::unix::fs::symlink(&file, path.join("link"))?;
+        perform(
+            set(path.join("link"), 0o120770, 0o007),
+            ReplaceResult::Cancel,
+        )
+        .await
+        .expect("other set through the link");
+        assert_eq!(fs::metadata(&file)?.permissions().mode() & 0o7777, 0o600);
         Ok(())
     }
 
@@ -4244,6 +4565,20 @@ mod tests {
             .is_empty(),
             "a trash operation with no recorded entries cannot be undone"
         );
+        assert!(
+            Operation::Restore {
+                items: vec![crate::trashing::TrashItem {
+                    id: "/trash/info/one.trashinfo".into(),
+                    name: "one".into(),
+                    original_parent: "/a".into(),
+                    time_deleted: 1,
+                }]
+            }
+            .undo(&OperationSelection::default())
+            .is_empty(),
+            "a restore that brought nothing back, every item skipped, has \
+             nothing to undo: what holds its place is someone else's"
+        );
     }
 
     /// A file a copy replaced is in the trash, and the restore its undo
@@ -4352,6 +4687,83 @@ mod tests {
             op.remaining(&OperationSelection::default()),
             op,
             "a failure before anything was trashed retries everything"
+        );
+    }
+
+    /// A retry after a failure part-way leaves out what was done: renames
+    /// that went through, archives extracted, items moved, and what is
+    /// already gone for good
+    #[test]
+    fn a_retry_leaves_out_what_was_done() {
+        let done = OperationSelection {
+            selected: vec!["/a/x2".into()],
+            ignored: vec!["/a/one.zip".into()],
+            moved: vec![("/a/one".into(), "/b/one".into())],
+            ..Default::default()
+        };
+        let batch = Operation::BatchRename {
+            renames: vec![
+                ("/a/x1".into(), "/a/x2".into()),
+                ("/a/y1".into(), "/a/y2".into()),
+            ],
+        };
+        assert_eq!(
+            batch.remaining(&done),
+            Operation::BatchRename {
+                renames: vec![("/a/y1".into(), "/a/y2".into())]
+            }
+        );
+        let extract = Operation::Extract {
+            paths: vec!["/a/one.zip".into(), "/a/two.zip".into()].into(),
+            to: "/a".into(),
+            password: None,
+            as_folder: true,
+        };
+        let Operation::Extract { paths, .. } = extract.remaining(&done) else {
+            panic!("an extract");
+        };
+        assert_eq!(&*paths, [PathBuf::from("/a/two.zip")]);
+        // Moved whole, an original is gone. A folder made at the
+        // destination is noted as moved before what it holds follows, and
+        // with its original still there, it is not done
+        let fs = empty_fs().expect("fs");
+        let path = fs.path();
+        fs::create_dir(path.join("half")).expect("mkdir");
+        let moved = OperationSelection {
+            moved: vec![
+                (path.join("whole"), path.join("to/whole")),
+                (path.join("half"), path.join("to/half")),
+            ],
+            ..Default::default()
+        };
+        let moving = Operation::Move {
+            paths: vec![path.join("whole"), path.join("half")],
+            to: path.join("to"),
+            cross_device_copy: false,
+        };
+        let Operation::Move { paths, .. } = moving.remaining(&moved) else {
+            panic!("a move");
+        };
+        assert_eq!(paths, [path.join("half")]);
+
+        // Gone is left out; out of reach for now is not
+        use std::os::unix::fs::PermissionsExt;
+        let kept = path.join("kept");
+        fs::write(&kept, b"k").expect("write");
+        fs::create_dir(path.join("shut")).expect("mkdir");
+        fs::write(path.join("shut/in"), b"i").expect("write");
+        fs::set_permissions(path.join("shut"), fs::Permissions::from_mode(0o000)).expect("chmod");
+        let delete = Operation::PermanentlyDelete {
+            paths: vec![path.join("gone"), kept.clone(), path.join("shut/in")].into(),
+        };
+        let left = delete.remaining(&OperationSelection::default());
+        fs::set_permissions(path.join("shut"), fs::Permissions::from_mode(0o755)).expect("chmod");
+        // Kept either way: read or not (root reads it), it is there
+        assert_eq!(
+            left,
+            Operation::PermanentlyDelete {
+                paths: vec![kept, path.join("shut/in")].into()
+            }
         );
     }
 
@@ -4481,6 +4893,191 @@ mod tests {
                 }
             }
         }
+        Ok(())
+    }
+
+    /// A selected link to a folder is stored as that link, not as the
+    /// folder it points at with all it holds
+    #[test(compio::test)]
+    async fn compress_stores_a_selected_folder_link_as_a_link() -> io::Result<()> {
+        use std::os::unix::fs::PermissionsExt;
+        let fs = empty_fs()?;
+        let path = fs.path();
+        let secret = path.join("private");
+        fs::create_dir(&secret)?;
+        fs::write(secret.join("key"), b"TOKEN=hunter2")?;
+        std::os::unix::fs::symlink(&secret, path.join("link"))?;
+        fs::write(path.join("plain"), b"kept whole")?;
+        fs::set_permissions(path.join("plain"), fs::Permissions::from_mode(0o640))?;
+
+        for archive_type in [crate::app::ArchiveType::Tgz, crate::app::ArchiveType::Zip] {
+            let to = path.join(format!("out{}", archive_type.extension()));
+            Operation::Compress {
+                paths: vec![path.join("link"), path.join("plain")],
+                to: to.clone(),
+                archive_type,
+                password: None,
+            }
+            .perform(
+                &sync::Mutex::new(mpsc::channel(1).0).into(),
+                Controller::default(),
+            )
+            .await
+            .expect("compressed");
+
+            let mut names = Vec::new();
+            match archive_type {
+                crate::app::ArchiveType::Tgz => {
+                    let decoder = flate2::read::GzDecoder::new(File::open(&to)?);
+                    for entry in tar::Archive::new(decoder).entries()? {
+                        let mut entry = entry?;
+                        let name = entry.path()?.into_owned();
+                        if name.ends_with("plain") {
+                            assert_eq!(entry.header().mode()? & 0o7777, 0o640);
+                            let mut bytes = Vec::new();
+                            io::Read::read_to_end(&mut entry, &mut bytes)?;
+                            assert_eq!(bytes, b"kept whole");
+                        }
+                        names.push(name);
+                    }
+                }
+                crate::app::ArchiveType::Zip => {
+                    let zip = zip::ZipArchive::new(File::open(&to)?)?;
+                    for name in zip.file_names() {
+                        names.push(PathBuf::from(name.map_err(io::Error::other)?.as_ref()));
+                    }
+                }
+            }
+            names.sort();
+            assert_eq!(
+                names,
+                [PathBuf::from("link"), PathBuf::from("plain")],
+                "{}",
+                to.display()
+            );
+        }
+        Ok(())
+    }
+
+    /// An archive that fails part-way into a folder of its own takes the
+    /// folder with it; one that went before stays done, to undo, and is
+    /// left out of a retry
+    #[test(compio::test)]
+    async fn a_failed_extract_into_a_folder_leaves_nothing_of_it() -> io::Result<()> {
+        let fs = empty_fs()?;
+        let path = fs.path();
+        let good = path.join("good.zip");
+        write_test_zip(&good)?;
+        let cut = path.join("cut.tar.gz");
+        write_test_tar_gz(&cut)?;
+        let len = fs::metadata(&cut)?.len();
+        File::options().write(true).open(&cut)?.set_len(len - 30)?;
+
+        let err = operation_extract(
+            vec![good.clone(), cut.clone()],
+            path.to_owned(),
+            true,
+            ReplaceResult::Cancel,
+        )
+        .await
+        .expect_err("the cut archive fails");
+        assert!(!path.join("cut").exists(), "no half of it is left");
+        assert_eq!(fs::read(path.join("good/a.txt"))?, b"archive a");
+        assert_eq!(err.partial.created, [path.join("good")]);
+        let extract = Operation::Extract {
+            paths: vec![good, cut.clone()].into(),
+            to: path.to_owned(),
+            password: None,
+            as_folder: true,
+        };
+        let Operation::Extract { paths, .. } = extract.remaining(&err.partial) else {
+            panic!("an extract");
+        };
+        assert_eq!(&*paths, [cut]);
+        Ok(())
+    }
+
+    /// An archive whose name leaves no folder name of its own, `..zip`,
+    /// gets a folder of its own in the destination, made for it: not one
+    /// named after the destination, beside it
+    #[test(compio::test)]
+    async fn an_archive_named_dot_dot_zip_extracts_into_a_folder_of_its_own() -> io::Result<()> {
+        let fs = empty_fs()?;
+        let path = fs.path().join("dest");
+        fs::create_dir(&path)?;
+        let archive = path.join("..zip");
+        write_test_zip(&archive)?;
+
+        let result =
+            operation_extract(vec![archive], path.clone(), true, ReplaceResult::Cancel).await;
+        let outside: Vec<_> = fs::read_dir(fs.path())?
+            .map(|entry| entry.map(|entry| entry.file_name()))
+            .collect::<io::Result<_>>()?;
+        result.expect("extracted");
+        assert_eq!(outside, ["dest"], "nothing beside the destination");
+        let folder = path.join(format!("..zip ({} 1)", fl!("copy_noun")));
+        assert_eq!(fs::read(folder.join("a.txt"))?, b"archive a");
+        Ok(())
+    }
+
+    /// What an extract replaced comes back when it is undone
+    #[test(compio::test)]
+    async fn undoing_an_extract_brings_back_what_it_replaced() -> io::Result<()> {
+        let fs = empty_fs()?;
+        let path = fs.path();
+        let archive = path.join("test.zip");
+        write_test_zip(&archive)?;
+        fs::write(path.join("a.txt"), b"mine")?;
+
+        let extract = Operation::Extract {
+            paths: vec![archive.clone()].into(),
+            to: path.to_owned(),
+            password: None,
+            as_folder: false,
+        };
+        let result = operation_extract(
+            vec![archive],
+            path.to_owned(),
+            false,
+            ReplaceResult::Replace(true),
+        )
+        .await
+        .expect("extracted");
+        assert_eq!(fs::read(path.join("a.txt"))?, b"archive a");
+        let undo = extract.undo(&result);
+        assert!(
+            undo.iter()
+                .any(|op| matches!(op, Operation::Restore { items }
+                if items.iter().any(|item| item.original_path() == path.join("a.txt")))),
+            "{undo:?}"
+        );
+        Ok(())
+    }
+
+    /// A zip whose folder lets no one in still extracts whole: its
+    /// contents get their times before the folder its mode
+    #[test(compio::test)]
+    async fn a_zip_folder_closed_to_search_still_extracts() -> io::Result<()> {
+        use std::io::Write;
+        use std::os::unix::fs::PermissionsExt;
+        let fs = empty_fs()?;
+        let path = fs.path();
+        let archive = path.join("closed.zip");
+        let mut zip = zip::ZipWriter::new(File::create(&archive)?);
+        let options = zip::write::SimpleFileOptions::default();
+        zip.add_directory("shut", options.unix_permissions(0o600))?;
+        zip.start_file("shut/f.txt", options.unix_permissions(0o644))?;
+        zip.write_all(b"inside")?;
+        zip.finish()?;
+
+        let result =
+            operation_extract(vec![archive], path.to_owned(), true, ReplaceResult::Cancel).await;
+        let shut = path.join("closed/shut");
+        let mode = fs::metadata(&shut).map(|meta| meta.permissions().mode() & 0o777);
+        let _ = fs::set_permissions(&shut, fs::Permissions::from_mode(0o755));
+        result.expect("extracted");
+        assert_eq!(mode?, 0o600);
+        assert_eq!(fs::read(shut.join("f.txt"))?, b"inside");
         Ok(())
     }
 

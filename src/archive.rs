@@ -301,19 +301,8 @@ fn zip_extract<R: io::Read + io::Seek, P: AsRef<Path>>(
 
         written_files.push(outpath);
     }
-    use std::cmp::Reverse;
-    use std::os::unix::fs::PermissionsExt;
-
-    if files_by_unix_mode.len() > 1 {
-        // Ensure we update children's permissions before making a parent unwritable
-        files_by_unix_mode.sort_by_key(|(path, _)| Reverse(path.components().count()));
-    }
-    for (path, mode) in files_by_unix_mode {
-        // Only the permission bits: the archive author does not get to hand
-        // out setuid, setgid or sticky
-        fs::set_permissions(&path, fs::Permissions::from_mode(mode & 0o777))?;
-    }
-
+    // Times first: a folder whose mode takes away search would keep what
+    // is in it from being reached. A mode change leaves times as they are
     for (path, last_modified, is_symlink) in files_by_last_modified {
         if let Some(modified) = zip_date_time_to_system_time(last_modified) {
             let file_time = filetime::FileTime::from_system_time(modified);
@@ -328,6 +317,19 @@ fn zip_extract<R: io::Read + io::Seek, P: AsRef<Path>>(
                 filetime::set_file_mtime(&path, file_time)?;
             }
         }
+    }
+
+    use std::cmp::Reverse;
+    use std::os::unix::fs::PermissionsExt;
+
+    if files_by_unix_mode.len() > 1 {
+        // Ensure we update children's permissions before making a parent unwritable
+        files_by_unix_mode.sort_by_key(|(path, _)| Reverse(path.components().count()));
+    }
+    for (path, mode) in files_by_unix_mode {
+        // Only the permission bits: the archive author does not get to hand
+        // out setuid, setgid or sticky
+        fs::set_permissions(&path, fs::Permissions::from_mode(mode & 0o777))?;
     }
 
     Ok((written_files, target_dirs))

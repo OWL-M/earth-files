@@ -213,12 +213,22 @@ fn record_change(
     }
 }
 
-/// The change that forgets `paths`.
+/// The change that forgets `paths`: each entry listed at one of them, by
+/// the URI it is written under. Not a URI made again from the path: one on
+/// a share is written by its own, and another program may escape a name
+/// differently, and neither would match.
 fn remove_change(paths: &[PathBuf]) -> impl Fn(&mut BookmarkFile) -> Result<(), EditError> {
-    let uris: Vec<String> = paths.iter().filter_map(|path| uri(path)).collect();
+    let paths = paths.to_vec();
     move |file| {
-        for uri in &uris {
-            file.remove(uri)?;
+        let listed: Vec<String> = file
+            .bookmarks()
+            .filter(|bookmark| {
+                crate::tab::uri_to_path(bookmark.href()).is_some_and(|path| paths.contains(&path))
+            })
+            .map(|bookmark| bookmark.href().to_owned())
+            .collect();
+        for href in &listed {
+            file.remove(href)?;
         }
         Ok(())
     }
@@ -402,6 +412,32 @@ mod tests {
         assert_eq!(left, [uri(&b).unwrap()]);
 
         edit_at(&list, BookmarkFile::clear).unwrap();
+        assert!(entries(&list).is_empty());
+    }
+
+    /// An entry another program wrote with its name escaped otherwise is
+    /// forgotten all the same: matched by where it is, not by its URI
+    #[test]
+    fn forgetting_matches_by_path_not_by_spelling() {
+        let dir = tempfile::tempdir().unwrap();
+        let list = dir.path().join("recently-used.xbel");
+        let a = dir.path().join("a[1].txt");
+        std::fs::write(&a, "x").unwrap();
+        edit_at(
+            &list,
+            record_change(&a, "Earth Files".into(), "earth-files"),
+        )
+        .unwrap();
+        let ours = uri(&a).unwrap();
+        let theirs = ours.replace('[', "%5B").replace(']', "%5D");
+        assert_ne!(ours, theirs, "the test needs two spellings");
+        let text = std::fs::read_to_string(&list)
+            .unwrap()
+            .replace(&ours, &theirs);
+        std::fs::write(&list, text).unwrap();
+        assert_eq!(entries(&list).len(), 1);
+
+        edit_at(&list, remove_change(std::slice::from_ref(&a))).unwrap();
         assert!(entries(&list).is_empty());
     }
 }

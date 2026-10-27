@@ -61,7 +61,28 @@ impl Gone {
 /// Deletes `path` for good, a folder with everything in it. A link goes
 /// itself, never what it points at.
 pub(crate) fn remove_tree(path: &Path) -> io::Result<()> {
-    remove_tree_noting(path, &mut Gone::default())
+    remove_tree_noting(path, &mut Gone::default(), &|| Ok(()))
+}
+
+/// [`remove_tree`], asking `go_on` before each entry.
+pub(crate) fn remove_tree_checked(
+    path: &Path,
+    go_on: &dyn Fn() -> io::Result<()>,
+) -> io::Result<()> {
+    remove_tree_noting(path, &mut Gone::default(), go_on)
+}
+
+/// What a removal asks before each entry: whether to go on. It waits out a
+/// pause, and fails once `controller` is cancelled, so a large folder stops
+/// part-way rather than going whole.
+pub(crate) fn go_on(
+    controller: &crate::operation::Controller,
+) -> impl Fn() -> io::Result<()> + use<> {
+    let controller = controller.clone();
+    move || {
+        crate::ui::iced::futures::executor::block_on(controller.check())
+            .map_err(|_| io::Error::from(io::ErrorKind::Interrupted))
+    }
 }
 
 /// [`remove_tree`], noting in `gone` what went, so a failure part-way still
@@ -70,7 +91,11 @@ pub(crate) fn remove_tree(path: &Path) -> io::Result<()> {
 /// It goes through folder handles, as `std::fs::remove_dir_all` does: a
 /// folder swapped for a link while it runs is never followed, so nothing
 /// outside `path` can go.
-fn remove_tree_noting(path: &Path, gone: &mut Gone) -> io::Result<()> {
+fn remove_tree_noting(
+    path: &Path,
+    gone: &mut Gone,
+    go_on: &dyn Fn() -> io::Result<()>,
+) -> io::Result<()> {
     let name = path
         .file_name()
         .ok_or_else(|| io::Error::from(io::ErrorKind::InvalidInput))?;
@@ -81,7 +106,7 @@ fn remove_tree_noting(path: &Path, gone: &mut Gone) -> io::Result<()> {
     // Only to work on `name` in it: removing an entry takes no permission
     // to list its folder
     let parent = open_path(parent)?;
-    remove_at(parent.as_fd(), name, path, gone)
+    remove_at(parent.as_fd(), name, path, gone, go_on)
 }
 
 /// Removes `name` from the folder open as `dir`, everything in it first
@@ -91,13 +116,15 @@ fn remove_at(
     name: &std::ffi::OsStr,
     shown: &Path,
     gone: &mut Gone,
+    go_on: &dyn Fn() -> io::Result<()>,
 ) -> io::Result<()> {
+    go_on()?;
     let is_dir = stat_at(dir, name)?.st_mode & libc::S_IFMT == libc::S_IFDIR;
     if is_dir {
         // Opened without following: swapped for a link since, it fails
         let folder = open_dir_at(Some(dir), name, false)?;
         for child in names_in(folder.as_fd())? {
-            remove_at(folder.as_fd(), &child, &shown.join(&child), gone)?;
+            remove_at(folder.as_fd(), &child, &shown.join(&child), gone, go_on)?;
         }
     }
     unlink_at(dir, name, is_dir)?;
@@ -175,19 +202,30 @@ fn copy_tree(from: &Path, to: &Path) -> io::Result<()> {
 
 /// Deletes `path` for good through the helper, as root: a folder by
 /// listing it and removing what it holds first.
-fn remove_tree_as_root(helper: &mut Helper, path: &Path) -> io::Result<()> {
-    remove_tree_as_root_noting(helper, path, &mut Gone::default())
+fn remove_tree_as_root(
+    helper: &mut Helper,
+    path: &Path,
+    go_on: &dyn Fn() -> io::Result<()>,
+) -> io::Result<()> {
+    remove_tree_as_root_noting(helper, path, &mut Gone::default(), go_on)
 }
 
 /// [`remove_tree_as_root`], noting in `gone` what went.
-fn remove_tree_as_root_noting(helper: &mut Helper, path: &Path, gone: &mut Gone) -> io::Result<()> {
+fn remove_tree_as_root_noting(
+    helper: &mut Helper,
+    path: &Path,
+    gone: &mut Gone,
+    go_on: &dyn Fn() -> io::Result<()>,
+) -> io::Result<()> {
+    go_on()?;
     match helper.call(&Request::Remove(path.to_path_buf())) {
         Err(err) if err.raw_os_error() == Some(libc::EISDIR) => {
             for entry in helper.list(path)? {
                 let child = path.join(&entry.name);
                 if entry.kind == Kind::Dir {
-                    remove_tree_as_root_noting(helper, &child, gone)?;
+                    remove_tree_as_root_noting(helper, &child, gone, go_on)?;
                 } else {
+                    go_on()?;
                     helper.call(&Request::Remove(child.clone()))?;
                     gone.note(&child);
                 }
@@ -275,11 +313,7 @@ impl Context {
                 (name, paths.len() - 1)
             };
             if !not_back.is_empty() {
-                let (name, more) = named(&not_back);
-                return Err(OperationError::from_err(
-                    fl!("rollback-failed", name = name, more = more),
-                    &self.controller,
-                ));
+                return Err(self.rollback_failed(&not_back));
             }
             if !gone.is_empty() {
                 let (name, more) = named(&gone);
@@ -422,9 +456,10 @@ impl Context {
                     How::Trash => (self.trash_one(path).await, Gone::default()),
                     How::Permanently => {
                         let path = path.clone();
+                        let go_on = go_on(&self.controller);
                         compio::runtime::spawn_blocking(move || {
                             let mut gone = Gone::default();
-                            let done = remove_tree_noting(&path, &mut gone);
+                            let done = remove_tree_noting(&path, &mut gone, &go_on);
                             (done, gone)
                         })
                         .await
@@ -438,10 +473,11 @@ impl Context {
                         let path = path.clone();
                         let gone = Arc::new(Mutex::new(Gone::default()));
                         let noted = gone.clone();
+                        let go_on = go_on(&self.controller);
                         let done = self
                             .with_helper(move |helper| {
                                 let mut noted = noted.lock().unwrap_or_else(|p| p.into_inner());
-                                remove_tree_as_root_noting(helper, &path, &mut noted)
+                                remove_tree_as_root_noting(helper, &path, &mut noted, &go_on)
                             })
                             .await
                             .map_err(Into::into);
@@ -473,6 +509,68 @@ impl Context {
                 }
                 if self.controller.is_failed() {
                     return Err(OperationError::from_err(reason, &self.controller));
+                }
+                // Something inside it this user may not remove: root may,
+                // as for an item the checks found
+                let denied = err
+                    .downcast_ref::<io::Error>()
+                    .is_some_and(|err| err.kind() == io::ErrorKind::PermissionDenied);
+                if denied && how[index] == How::Permanently {
+                    let blocked = Blocked::Delete(path.clone());
+                    let kind = std::mem::discriminant(&blocked);
+                    let mut not_granted = false;
+                    loop {
+                        let answer = match rest.get(&kind) {
+                            Some(answer) => *answer,
+                            None => {
+                                let ask = Ask {
+                                    count: 1,
+                                    root: Some(self.helper.is_some()),
+                                    not_granted,
+                                    skip: true,
+                                    ..Ask::default()
+                                };
+                                (self.on_blocked)(blocked.clone(), ask).await
+                            }
+                        };
+                        match answer {
+                            BlockedAnswer::Skip(all) => {
+                                if all {
+                                    rest.insert(kind, BlockedAnswer::Skip(false));
+                                }
+                                how[index] = How::Skip;
+                                self.op_sel.skipped.push(path.clone());
+                            }
+                            BlockedAnswer::RetryAsRoot(all) => match self.ensure_helper().await {
+                                Ok(()) => {
+                                    if all {
+                                        rest.insert(kind, BlockedAnswer::RetryAsRoot(false));
+                                    }
+                                    how[index] = How::Root;
+                                }
+                                Err(StartError::NotGranted) => {
+                                    not_granted = true;
+                                    continue;
+                                }
+                                Err(StartError::Failed(err)) => {
+                                    return Err(OperationError::from_err(
+                                        crate::operation::failure_text(path, &err),
+                                        &self.controller,
+                                    ));
+                                }
+                            },
+                            BlockedAnswer::Abort => {
+                                self.controller.abort();
+                                return Err(self.cancelled());
+                            }
+                            _ => return Err(self.cancelled()),
+                        }
+                        break;
+                    }
+                    if how[index] == How::Skip {
+                        break;
+                    }
+                    continue;
                 }
                 let failed = Blocked::Failed {
                     path: path.clone(),
@@ -525,10 +623,11 @@ impl Context {
             let mut not_granted = false;
             let mut as_root = false;
             loop {
+                let go_on = go_on(&self.controller);
                 let done: io::Result<()> = if as_root {
                     let (files, info) = (files.clone(), info.clone());
                     self.with_helper(move |helper| {
-                        match remove_tree_as_root(helper, &files) {
+                        match remove_tree_as_root(helper, &files, &go_on) {
                             Err(err) if err.kind() != io::ErrorKind::NotFound => return Err(err),
                             _ => {}
                         }
@@ -540,7 +639,7 @@ impl Context {
                     .await
                 } else {
                     let item = item.clone();
-                    compio::runtime::spawn_blocking(move || crate::trashing::purge(&item))
+                    compio::runtime::spawn_blocking(move || crate::trashing::purge(&item, &go_on))
                         .await
                         .map_err(|_| io::Error::other("the trash's worker stopped"))
                         .and_then(|result| result)
@@ -622,6 +721,14 @@ impl Context {
                     _ => return Err(self.cancelled()),
                 }
             }
+        }
+        // Cancelled as the last item went: a cancel all the same, so what
+        // waits on this one, an eject, does not go ahead
+        if self.controller.is_cancelled() {
+            return Err(OperationError::from_state(
+                crate::operation::ControllerState::Cancelled,
+                &self.controller,
+            ));
         }
         self.controller.set_progress(1.0);
         Ok(())
@@ -843,10 +950,37 @@ mod tests {
         ));
 
         let mut gone = super::Gone::default();
-        super::remove_tree_noting(&top, &mut gone).expect("removed");
+        super::remove_tree_noting(&top, &mut gone, &|| Ok(())).expect("removed");
         assert!(!top.exists());
         assert_eq!(gone.count, 4, "sub/f, sub/link, sub and top");
         assert_eq!(fs::read(outside.join("keep")).expect("kept"), b"keep");
+    }
+
+    /// A cancel stops a folder going part-way: what is left stays, and
+    /// what went is noted
+    #[test]
+    fn a_cancel_stops_a_folder_removal_part_way() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let top = dir.path().join("top");
+        fs::create_dir(&top).expect("mkdir");
+        for i in 0..10 {
+            fs::write(top.join(i.to_string()), "f").expect("write");
+        }
+        let controller = crate::operation::Controller::default();
+        let go_on = super::go_on(&controller);
+        let asked = std::cell::Cell::new(0);
+        let stop_at_four = || {
+            asked.set(asked.get() + 1);
+            if asked.get() == 4 {
+                controller.cancel();
+            }
+            go_on()
+        };
+        let mut gone = super::Gone::default();
+        let err = super::remove_tree_noting(&top, &mut gone, &stop_at_four).expect_err("stopped");
+        assert_eq!(err.kind(), std::io::ErrorKind::Interrupted);
+        assert_eq!(gone.count, 2, "the two files before the cancel");
+        assert_eq!(fs::read_dir(&top).expect("left").count(), 8);
     }
 
     /// Removing an entry takes writing to its folder, not reading it: a
@@ -900,12 +1034,47 @@ mod tests {
         fs::set_permissions(&locked, fs::Permissions::from_mode(0o755)).expect("chmod");
 
         let err = result.expect_err("cancelled");
-        assert!(matches!(asked[0].0, Blocked::Failed { .. }));
+        // Denied inside it, root may: the question an item gets whose own
+        // folder is denied
+        assert_eq!(asked[0].0, Blocked::Delete(top.clone()));
+        assert!(asked[0].1.root.is_some() && asked[0].1.skip);
         assert!(!locked.join("inner/f").exists());
         assert_eq!(
             err.to_string(),
             crate::fl!("deleted-for-good", name = "f", more = 0)
         );
+    }
+
+    /// Skipped when something inside it may not go, an item stays as far
+    /// as it got, and the delete goes on to the next
+    #[test(compio::test)]
+    async fn a_folder_denied_inside_can_be_skipped() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().expect("tempdir");
+        let top = dir.path().join("top");
+        let locked = top.join("locked");
+        fs::create_dir_all(locked.join("inner")).expect("mkdir");
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o555)).expect("chmod");
+        if crate::operation::cannot_write(&locked) != Some(false) {
+            return;
+        }
+        let next = dir.path().join("next");
+        fs::write(&next, "n").expect("write");
+
+        let (asked, result, ctx) = delete_with(
+            Context::new(Controller::default()),
+            vec![top.clone(), next.clone()],
+            true,
+            |_| BlockedAnswer::Skip(false),
+        )
+        .await;
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o755)).expect("chmod");
+
+        result.expect("the rest deleted");
+        assert_eq!(asked.len(), 1);
+        assert!(locked.join("inner").exists());
+        assert!(!next.exists());
+        assert_eq!(ctx.op_sel.skipped, vec![top]);
     }
 
     /// The controller the next test's trash cancels, as the user would
@@ -986,6 +1155,38 @@ mod tests {
         );
     }
 
+    /// Cancelled, an item that cannot come back from the trash keeps its
+    /// record, for an undo to bring it back later
+    #[test(compio::test)]
+    async fn an_item_that_cannot_come_back_keeps_its_record() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let (a, c) = (dir.path().join("a"), dir.path().join("c"));
+        for path in [&a, &c] {
+            fs::write(path, "x").expect("write");
+        }
+        let mut ctx = Context::new(Controller::default());
+        ctx.trash.delete = |path: &Path| {
+            if path.ends_with("c") {
+                return Err(std::io::Error::other("stuck").into());
+            }
+            (super::super::TRASH.delete)(path)
+        };
+        ctx.trash.restore = |_| Err(std::io::Error::other("taken").into());
+        let (_, result, _) = delete_with(ctx, vec![a.clone(), c.clone()], false, |_| {
+            BlockedAnswer::Cancel
+        })
+        .await;
+        let err = result.expect_err("cancelled");
+        assert!(!a.exists(), "a stayed in the trash");
+        let kept: Vec<_> = err
+            .partial
+            .trash_items
+            .iter()
+            .map(crate::trashing::TrashItem::original_path)
+            .collect();
+        assert_eq!(kept, vec![a]);
+    }
+
     /// What went to the trash is recorded as the trash gave it back, for undo
     #[test(compio::test)]
     async fn the_delete_records_each_trashed_item() {
@@ -1015,7 +1216,10 @@ mod tests {
         let top = tempfile::tempdir().expect("tempdir");
         let bin = crate::trashing::drive_bin(top.path(), true).expect("bin");
         fs::create_dir_all(bin.root.join("files/o/sub")).expect("mkdir");
-        let (orphan, _) = crate::trashing::list_bin(&bin).pop().expect("listed");
+        let (orphan, _) = crate::trashing::list_bin(&bin)
+            .expect("listed")
+            .pop()
+            .expect("listed");
         let (files, info) = crate::operation::in_trash(&orphan);
         let mut ctx = Context::new(Controller::default());
         ctx.purge(vec![(orphan, files, info)])

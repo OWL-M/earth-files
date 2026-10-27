@@ -1678,7 +1678,10 @@ pub fn scan_search<F: Fn(SearchItem) -> bool + Sync>(
                     if regex.is_match(file_name) {
                         let path = entry.path();
 
-                        let metadata = match entry.metadata() {
+                        // What a link points at, as the folder listing
+                        // reads it, the link itself only when broken: the
+                        // permissions shown, and changed, are the target's
+                        let metadata = match fs::metadata(path).or_else(|_| entry.metadata()) {
                             Ok(ok) => ok,
                             Err(err) => {
                                 log::warn!(
@@ -1713,7 +1716,7 @@ pub fn scan_search<F: Fn(SearchItem) -> bool + Sync>(
             };
 
             for bookmark in recent_files.bookmarks() {
-                let path = uri_to_path(bookmark.href().to_owned());
+                let path = uri_to_path(bookmark.href());
                 if let Some(path) = path
                     && path.exists()
                 {
@@ -1750,7 +1753,9 @@ pub fn scan_search<F: Fn(SearchItem) -> bool + Sync>(
     }
 }
 
-fn uri_to_path(uri: String) -> Option<PathBuf> {
+/// The path a recent file's URI is listed at: a local file's own, or a
+/// remote one's GVFS mount.
+pub(crate) fn uri_to_path(uri: &str) -> Option<PathBuf> {
     let url = uri.parse::<url::Url>().ok()?;
     if url.scheme() == "file" {
         return url.to_file_path().ok();
@@ -1782,7 +1787,7 @@ pub fn scan_recents(sizes: IconSizes) -> Vec<Item> {
     let mut recents: Vec<_> = recent_files
         .bookmarks()
         .filter_map(|bookmark| {
-            let path = uri_to_path(bookmark.href().to_owned())?;
+            let path = uri_to_path(bookmark.href())?;
             let last_edit = jiff::Timestamp::try_from(bookmark.modified()?).ok()?;
             let last_visit = jiff::Timestamp::try_from(bookmark.visited()?).ok()?;
 
@@ -2290,8 +2295,10 @@ pub enum Command {
     Preview(PreviewKind),
     RunContextAction(usize),
     SetOpenWith(Mime, String),
-    SetPermissions(PathBuf, u32),
-    SetMultiplePermissions(Vec<(PathBuf, u32)>),
+    /// A path's new mode, and the bits of it that changed: the rest is
+    /// taken as the file has it when the change is made.
+    SetPermissions(PathBuf, u32, u32),
+    SetMultiplePermissions(Vec<(PathBuf, u32, u32)>),
     SetSort(String, HeadingOptions, bool),
     WindowDrag,
     WindowToggleMaximize,
@@ -2387,7 +2394,6 @@ pub enum Message {
     SelectLast,
     SetOpenWith(Mime, String),
     RunContextAction(usize),
-    SetPermissions(PathBuf, u32),
     ShiftPermissions(Option<(PathBuf, u32)>, u32, u32),
     SetSort(HeadingOptions, bool),
     TabComplete(PathBuf, Vec<(String, PathBuf)>),
@@ -3356,13 +3362,10 @@ impl Item {
                             Cow::Borrowed(MODE_NAMES.as_slice()),
                             Some(get_mode_part(mode, MODE_SHIFT_USER).try_into().unwrap()),
                             move |selected| {
-                                Message::SetPermissions(
-                                    user_path.clone(),
-                                    set_mode_part(
-                                        mode,
-                                        MODE_SHIFT_USER,
-                                        selected.try_into().unwrap(),
-                                    ),
+                                Message::ShiftPermissions(
+                                    Some((user_path.clone(), mode)),
+                                    MODE_SHIFT_USER,
+                                    selected.try_into().unwrap(),
                                 )
                             },
                         )),
@@ -3377,13 +3380,10 @@ impl Item {
                             Cow::Borrowed(MODE_NAMES.as_slice()),
                             Some(get_mode_part(mode, MODE_SHIFT_GROUP).try_into().unwrap()),
                             move |selected| {
-                                Message::SetPermissions(
-                                    group_path.clone(),
-                                    set_mode_part(
-                                        mode,
-                                        MODE_SHIFT_GROUP,
-                                        selected.try_into().unwrap(),
-                                    ),
+                                Message::ShiftPermissions(
+                                    Some((group_path.clone(), mode)),
+                                    MODE_SHIFT_GROUP,
+                                    selected.try_into().unwrap(),
                                 )
                             },
                         )),
@@ -3395,9 +3395,10 @@ impl Item {
                         Cow::Borrowed(MODE_NAMES.as_slice()),
                         Some(get_mode_part(mode, MODE_SHIFT_OTHER).try_into().unwrap()),
                         move |selected| {
-                            Message::SetPermissions(
-                                other_path.clone(),
-                                set_mode_part(mode, MODE_SHIFT_OTHER, selected.try_into().unwrap()),
+                            Message::ShiftPermissions(
+                                Some((other_path.clone(), mode)),
+                                MODE_SHIFT_OTHER,
+                                selected.try_into().unwrap(),
                             )
                         },
                     ),
@@ -7307,13 +7308,11 @@ impl Tab {
             Message::SetOpenWith(mime, id) => {
                 commands.push(Command::SetOpenWith(mime, id));
             }
-            Message::SetPermissions(path, mode) => {
-                commands.push(Command::SetPermissions(path, mode));
-            }
             Message::ShiftPermissions(path_mode_opt, shift, bits) => match path_mode_opt {
                 Some((path, mode)) => commands.push(Command::SetPermissions(
                     path,
                     set_mode_part(mode, shift, bits),
+                    0o7 << shift,
                 )),
                 // Shift permissions on all selected items
                 None => {
@@ -7327,7 +7326,11 @@ impl Tab {
                             // not offered until every item's details are known.
                             item.file_metadata().map(|metadata| metadata.mode()),
                         ) {
-                            permissions.push((path.clone(), set_mode_part(mode, shift, bits)));
+                            permissions.push((
+                                path.clone(),
+                                set_mode_part(mode, shift, bits),
+                                0o7 << shift,
+                            ));
                         }
                     }
                     commands.push(Command::SetMultiplePermissions(permissions));

@@ -451,11 +451,67 @@ fn carry_out(
         }
         Request::Rename { from, to } => {
             let (from, to) = (scope.check(&from)?, scope.check(&to)?);
-            if fs::symlink_metadata(&to).is_ok() {
+            rename_no_replace(&from, &to).map(|()| Reply::Done)
+        }
+    }
+}
+
+/// Rename `from` to `to`, refusing to replace anything already at `to`.
+///
+/// `renameat2` makes the check and the rename one step, so nothing can appear
+/// at the destination in between. Kernels and filesystems that do not support
+/// the flag answer `EINVAL`, `ENOSYS` or `EOPNOTSUPP`. There anything but a
+/// folder is linked at `to`, which fails on a name taken, then unlinked at
+/// `from`: one step again. A folder, or a filesystem without hard links,
+/// falls back to looking first, which leaves a small window but still never
+/// overwrites what we can see. The check is on the link itself, so a
+/// dangling symlink at the destination counts as occupied.
+pub fn rename_no_replace(from: &Path, to: &Path) -> io::Result<()> {
+    use std::ffi::CString;
+    use std::os::unix::ffi::OsStrExt;
+
+    let from_c = CString::new(from.as_os_str().as_bytes())
+        .map_err(|err| io::Error::new(io::ErrorKind::InvalidInput, err))?;
+    let to_c = CString::new(to.as_os_str().as_bytes())
+        .map_err(|err| io::Error::new(io::ErrorKind::InvalidInput, err))?;
+
+    // SAFETY: both pointers come from CStrings that outlive the call
+    let status = unsafe {
+        libc::renameat2(
+            libc::AT_FDCWD,
+            from_c.as_ptr(),
+            libc::AT_FDCWD,
+            to_c.as_ptr(),
+            libc::RENAME_NOREPLACE,
+        )
+    };
+    if status == 0 {
+        return Ok(());
+    }
+
+    let err = io::Error::last_os_error();
+    match err.raw_os_error() {
+        Some(libc::EINVAL | libc::ENOSYS | libc::EOPNOTSUPP) => {
+            if !fs::symlink_metadata(from)?.is_dir() {
+                // A link is made without following one at `from`
+                match fs::hard_link(from, to) {
+                    Ok(()) => {
+                        return fs::remove_file(from).inspect_err(|_| {
+                            // Both names are the one file: the new goes
+                            let _ = fs::remove_file(to);
+                        });
+                    }
+                    Err(err) if err.kind() == io::ErrorKind::AlreadyExists => return Err(err),
+                    // No hard links here, or not across these folders
+                    Err(_) => {}
+                }
+            }
+            if fs::symlink_metadata(to).is_ok() {
                 return Err(io::Error::from_raw_os_error(libc::EEXIST));
             }
-            fs::rename(from, to).map(|()| Reply::Done)
+            fs::rename(from, to)
         }
+        _ => Err(err),
     }
 }
 

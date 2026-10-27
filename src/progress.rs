@@ -269,14 +269,21 @@ impl Tasks {
     }
 
     /// The user closed row `id`, which had ended: it slides out now.
-    pub(crate) fn dismiss(&mut self, id: u64, now: Instant) {
-        if let Some(entry) = self
+    pub(crate) fn dismiss(&mut self, id: u64, now: Instant) -> Option<&Key> {
+        let entry = self
             .entries
             .iter_mut()
-            .find(|entry| entry.id == id && entry.ended.is_some())
-        {
-            entry.dismissed.get_or_insert(now);
-        }
+            .find(|entry| entry.id == id && entry.ended.is_some())?;
+        entry.dismissed.get_or_insert(now);
+        Some(&entry.key)
+    }
+
+    /// Whether task `key`'s row was closed: what it offered, such as Try
+    /// again, is no longer to be had, while it slides out.
+    pub(crate) fn is_dismissed(&self, key: &Key) -> bool {
+        self.entries
+            .iter()
+            .any(|entry| entry.key == *key && entry.dismissed.is_some())
     }
 
     /// The pointer came over row `id` (`over`), or left it, at `now`.
