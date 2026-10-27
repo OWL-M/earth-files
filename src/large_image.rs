@@ -3,6 +3,8 @@ use image::ImageReader;
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 /// Bytes per pixel in RGBA format (Red, Green, Blue, Alpha = 4 bytes)
 pub const RGBA_BYTES_PER_PIXEL: u64 = 4;
@@ -187,18 +189,9 @@ fn calculate_image_memory(width: u32, height: u32) -> Option<u64> {
     pixels.checked_mul(RGBA_BYTES_PER_PIXEL)
 }
 
-/// Check if there's sufficient system RAM to decode an image.
+/// Check if there's `bytes_needed` of system RAM to spare.
 /// Returns: (has_memory, error_message)
-fn check_ram_available(width: u32, height: u32) -> (bool, Option<String>) {
-    let Some(bytes_needed) = calculate_image_memory(width, height) else {
-        let error_msg = format!(
-            "Image dimensions too large: {}x{} causes overflow in memory calculation",
-            width, height
-        );
-        log::error!("{}", error_msg);
-        return (false, Some(error_msg));
-    };
-
+fn check_ram_bytes(bytes_needed: u64) -> (bool, Option<String>) {
     let mb_needed = bytes_needed / MB_TO_BYTES;
 
     match fs::read_to_string("/proc/meminfo") {
@@ -240,18 +233,38 @@ fn mem_available_kb(meminfo: &str) -> Option<u64> {
     line.trim().strip_suffix("kB")?.trim().parse().ok()
 }
 
-pub fn check_memory_available(width: u32, height: u32) -> (bool, Option<String>) {
-    if width == 0 || height == 0 {
-        let error_msg = format!(
-            "Invalid image dimensions: {}x{} (zero dimension)",
-            width, height
-        );
-        log::error!("{}", error_msg);
-        return (false, Some(error_msg));
-    }
+/// The most bytes a decoded image takes per byte of its 8-bit RGBA form:
+/// four `f32` channels to four `u8` ones.
+const DECODED_BYTES_PER_RGBA8_BYTE: u64 = 4;
 
-    // Check system RAM availability
-    check_ram_available(width, height)
+/// Bytes per pixel of the floating-point image `image::imageops::resize`
+/// works through: four `f32` channels.
+const RESIZE_SCRATCH_BYTES_PER_PIXEL: u64 = 16;
+
+/// The most memory decoding a `width` by `height` image to `target`
+/// dimensions holds at once. Two moments compete:
+///
+/// - Decoding: the image as decoded, up to four times the 8-bit RGBA size
+///   for a 32-bit float RGBA image such as an OpenEXR one, beside its 8-bit
+///   RGBA copy. Which the file holds is not known before decoding, so the
+///   largest is assumed.
+/// - Resizing: the 8-bit image, the resize's floating-point intermediate,
+///   which is the full width by the target height, and the result.
+///
+/// `None` if it overflows.
+pub fn decode_peak_bytes(width: u32, height: u32, target: Option<(u32, u32)>) -> Option<u64> {
+    let full = calculate_image_memory(width, height)?;
+    let decoding = full.checked_mul(DECODED_BYTES_PER_RGBA8_BYTE + 1)?;
+    let Some((target_w, target_h)) = target else {
+        return Some(decoding);
+    };
+    let scratch = u64::from(width)
+        .checked_mul(u64::from(target_h))?
+        .checked_mul(RESIZE_SCRATCH_BYTES_PER_PIXEL)?;
+    let resizing = full
+        .checked_add(scratch)?
+        .checked_add(calculate_image_memory(target_w, target_h)?)?;
+    Some(decoding.max(resizing))
 }
 
 /// Decode a large image asynchronously in a blocking thread pool.
@@ -259,13 +272,64 @@ pub fn check_memory_available(width: u32, height: u32) -> (bool, Option<String>)
 /// This function is used for gallery mode where full-resolution images need to be loaded.
 /// It uses the full memory budget (GALLERY_MEMORY_LIMIT_MB) since only one image
 /// decodes at a time in gallery mode.
+///
+/// `order` is the gallery's own count of the decodes it asked for, from
+/// [`LargeImageManager::decode_order`]: a decode it asked for before another
+/// is skipped, as that gallery has moved on. Another tab's gallery asking
+/// does not count, as this one still shows its image.
 pub async fn decode_large_image(
     path: PathBuf,
     target_dimensions: Option<(u32, u32)>,
-) -> Option<(PathBuf, u32, u32, Vec<u8>)> {
+    order: Arc<AtomicU64>,
+) -> Decoded {
+    // Numbered before waiting, so that a decode asked for later supersedes it
+    let ticket = order.fetch_add(1, Ordering::Relaxed) + 1;
+    // One at a time, in all galleries: flipping through one starts a decode
+    // per image, and each holds a full-size image while it runs, which
+    // nothing can stop
+    let Ok(permit) = DECODE_TURN.acquire().await else {
+        return Decoded::Superseded;
+    };
+    if order.load(Ordering::Relaxed) != ticket {
+        // Asked for an image the gallery has since moved on from
+        return Decoded::Superseded;
+    }
+    let decoded = decode_now(path, target_dimensions).await;
+    drop(permit);
+    match decoded {
+        Some(Ok(done)) => Decoded::Done(done),
+        Some(Err(Changed)) => Decoded::Changed,
+        None => Decoded::Failed,
+    }
+}
+
+/// What came of [`decode_large_image`].
+pub enum Decoded {
+    /// The path, its decoded size, its pixels, and which file they are of.
+    Done((PathBuf, u32, u32, Vec<u8>, FileStamp)),
+    Failed,
+    /// Not decoded, as the gallery asked for another image before its turn.
+    Superseded,
+    /// The file was replaced while it was being decoded.
+    Changed,
+}
+
+/// The file being decoded changed under the decode.
+struct Changed;
+
+/// Taken by the decode under way.
+static DECODE_TURN: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(1);
+
+async fn decode_now(
+    path: PathBuf,
+    target_dimensions: Option<(u32, u32)>,
+) -> Option<Result<(PathBuf, u32, u32, Vec<u8>, FileStamp), Changed>> {
     // Decode image in blocking thread pool (CPU-intensive work should not block)
     tokio::task::spawn_blocking(move || {
         log::info!("Starting async decode of {}", path.display());
+        // Which file is read, looked at before and after: one replaced in
+        // between gave pixels of neither for certain
+        let stamp = file_stamp(&path);
 
         // Use ImageReader with explicit memory limits to avoid "Memory limit exceeded" errors
         // Gallery mode uses the full memory budget since only one image decodes at a time
@@ -321,7 +385,10 @@ pub async fn decode_large_image(
                                 };
 
                                 let pixels = final_img.into_raw();
-                                Some((path, width, height, pixels))
+                                if file_stamp(&path) != stamp {
+                                    return Some(Err(Changed));
+                                }
+                                Some(Ok((path, width, height, pixels, stamp)))
                             }
                             Err(e) => {
                                 log::warn!("Failed to decode {}: {}", path.display(), e);
@@ -361,6 +428,23 @@ pub struct LargeImageManager {
     /// When a new decode is started for the same path, the generation is incremented.
     /// Only decodes matching the current generation are accepted when they complete.
     decode_generations: HashMap<PathBuf, u64>,
+    /// Which file each path's latest decode was of. A file replaced at the
+    /// same path is another image, and what was decoded of the old one is
+    /// not shown for it.
+    decode_stamps: HashMap<PathBuf, FileStamp>,
+    /// Counts the decodes this gallery asked for, so that one it has moved
+    /// on from is skipped; see [`decode_large_image`].
+    decode_order: Arc<AtomicU64>,
+}
+
+/// What tells one file at a path from another put there in its place: its
+/// inode, size and modification time. `None` when it cannot be read.
+pub type FileStamp = Option<(u64, u64, Option<std::time::SystemTime>)>;
+
+fn file_stamp(path: &Path) -> FileStamp {
+    use std::os::unix::fs::MetadataExt;
+    let metadata = fs::metadata(path).ok()?;
+    Some((metadata.ino(), metadata.len(), metadata.modified().ok()))
 }
 
 impl LargeImageManager {
@@ -380,15 +464,38 @@ impl LargeImageManager {
         self.decode_errors.get(path)
     }
 
-    /// Store a decoded image if the generation matches (not superseded by newer decode).
-    /// Returns true if stored, false if rejected due to generation mismatch.
+    /// Whether `generation` is the latest decode asked for `path`.
+    pub fn is_current(&self, path: &Path, generation: u64) -> bool {
+        self.decode_generations.get(path) == Some(&generation)
+    }
+
+    /// This gallery's count of the decodes it asked for, for
+    /// [`decode_large_image`].
+    pub fn decode_order(&self) -> Arc<AtomicU64> {
+        Arc::clone(&self.decode_order)
+    }
+
+    /// Store a decoded image if the generation matches (not superseded by
+    /// newer decode) and it is of the file the decode was asked for, as
+    /// `stamp` says. Returns true if stored. One of a file since replaced is
+    /// not, and the path is no longer decoding: asked for again, it is
+    /// decoded afresh.
     pub fn store_decoded_with_generation(
         &mut self,
         path: PathBuf,
         handle: widget::image::Handle,
         display_size: Option<(u32, u32)>,
         generation: u64,
+        stamp: FileStamp,
     ) -> bool {
+        if self.decode_generations.get(&path) == Some(&generation)
+            && self.decode_stamps.get(&path) != Some(&stamp)
+        {
+            log::info!("Discarding decode of {}, replaced since", path.display());
+            self.decoding_images.remove(&path);
+            self.decode_stamps.remove(&path);
+            return false;
+        }
         // Check if this decode is still current (not superseded by a newer one)
         if let Some(&current_gen) = self.decode_generations.get(&path)
             && generation != current_gen
@@ -414,6 +521,24 @@ impl LargeImageManager {
         }
         self.decoding_images.remove(&path);
         true
+    }
+
+    /// Forgets a decode that never ran, if it is still the current one for
+    /// its path: not loading, and not failed either, so that the gallery
+    /// coming back to it asks again.
+    pub fn abandon_with_generation(&mut self, path: &Path, generation: u64) {
+        if self.decode_generations.get(path) == Some(&generation) {
+            self.decoding_images.remove(path);
+        }
+    }
+
+    /// Ends a decode that failed, if it is still the current one for its
+    /// path: the image is no longer loading, and says why. A superseded
+    /// decode's failure leaves the newer one alone.
+    pub fn fail_with_generation(&mut self, path: PathBuf, generation: u64, error: String) {
+        if self.decode_generations.get(&path) == Some(&generation) {
+            self.store_error(path, error);
+        }
     }
 
     pub fn store_error(&mut self, path: PathBuf, error: String) {
@@ -500,6 +625,14 @@ impl LargeImageManager {
         display_dimensions: Option<(u32, u32)>,
     ) -> (bool, Option<(u32, u32)>, u64) {
         self.clear_error(path);
+        // Replaced since it was decoded, or while it was: neither the old
+        // pixels nor a decode still under way are this file's
+        let stamp = file_stamp(path);
+        if self.decode_stamps.get(path) != Some(&stamp) {
+            self.decoded_images.remove(path);
+            self.decoded_display_sizes.remove(path);
+            self.decoding_images.remove(path);
+        }
         let is_currently_decoding = self.is_decoding(path);
         let needs_redecode = self.needs_redecode_for_size(path, display_dimensions);
 
@@ -525,9 +658,16 @@ impl LargeImageManager {
             None
         };
 
-        // Check memory for target size (if resizing) or full size
-        let (check_w, check_h) = target_dimensions.unwrap_or((width, height));
-        if !self.ensure_memory_available(path, check_w, check_h) {
+        // The decode holds the full-size image before resizing it, so it is
+        // what it holds at its peak that has to fit, not the resized result
+        let Some(peak) = decode_peak_bytes(width, height, target_dimensions) else {
+            self.store_error(
+                path.clone(),
+                format!("Image dimensions too large: {width}x{height}"),
+            );
+            return (false, None, 0);
+        };
+        if !self.ensure_memory_available(path, peak) {
             return (false, None, 0);
         }
 
@@ -549,13 +689,14 @@ impl LargeImageManager {
 
         // Mark as decoding
         self.decoding_images.insert(path.clone());
+        self.decode_stamps.insert(path.clone(), stamp);
         (true, target_dimensions, generation)
     }
 
     /// Check if sufficient memory is available, clearing cache if needed.
     /// Returns true if memory is available, false otherwise.
-    fn ensure_memory_available(&mut self, path: &Path, width: u32, height: u32) -> bool {
-        let (has_memory, error_opt) = check_memory_available(width, height);
+    fn ensure_memory_available(&mut self, path: &Path, bytes: u64) -> bool {
+        let (has_memory, error_opt) = check_ram_bytes(bytes);
 
         if has_memory {
             return true;
@@ -578,7 +719,7 @@ impl LargeImageManager {
         );
         self.clear_cache();
 
-        let (has_memory_after_clear, error_opt_after) = check_memory_available(width, height);
+        let (has_memory_after_clear, error_opt_after) = check_ram_bytes(bytes);
 
         if has_memory_after_clear {
             log::info!("Memory available after cache clear, proceeding with decode");
@@ -598,6 +739,133 @@ impl LargeImageManager {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_decode_peaks_at_its_larger_moment() {
+        // Decoding: up to four times the 8-bit image as floats, and the
+        // 8-bit image
+        assert_eq!(super::decode_peak_bytes(10, 10, None), Some(2000));
+        // Resizing: the image, 400; its intermediate, 10 wide by 1 high at
+        // 16 bytes a pixel, 160; and the result, 20; less than decoding
+        assert_eq!(super::decode_peak_bytes(10, 10, Some((5, 1))), Some(2000));
+        // Here resizing is the larger: 400, 10 by 10 at 16, 1600, and 400
+        assert_eq!(super::decode_peak_bytes(10, 10, Some((10, 10))), Some(2400));
+        // Resizing: the image, its intermediate at 16 bytes a pixel of the
+        // full width by the new height, and the result
+        assert_eq!(
+            super::decode_peak_bytes(6500, 3250, Some((6000, 3000))),
+            Some(84_500_000 + 312_000_000 + 72_000_000)
+        );
+        assert_eq!(super::decode_peak_bytes(u32::MAX, u32::MAX, None), None);
+    }
+
+    /// What was decoded of a file is not shown for another put at its path,
+    /// and a decode that failed can be asked for again
+    #[test]
+    fn a_file_replaced_at_its_path_is_decoded_afresh() {
+        use image::DynamicImage;
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("photo.png");
+        DynamicImage::new_rgb8(30, 20).save(&path).unwrap();
+        let mut manager = super::LargeImageManager::new();
+
+        let (decode, _, generation) = manager.try_decode(&path, None);
+        assert!(decode);
+        let handle = crate::ui::widget::image::Handle::from_rgba(1, 1, vec![0; 4]);
+        let stamp = super::file_stamp(&path);
+        assert!(manager.store_decoded_with_generation(
+            path.clone(),
+            handle.clone(),
+            None,
+            generation,
+            stamp,
+        ));
+        assert!(!manager.try_decode(&path, None).0, "decoded already");
+
+        // Another image at the same path
+        std::fs::remove_file(&path).unwrap();
+        DynamicImage::new_rgb8(40, 20).save(&path).unwrap();
+        let (decode, _, again) = manager.try_decode(&path, None);
+        assert!(decode, "the old pixels are not this file's");
+        assert!(manager.get_decoded(&path).is_none());
+
+        manager.fail_with_generation(path.clone(), again, "failed".to_string());
+        assert!(!manager.is_decoding(&path), "no longer loading");
+        assert!(manager.get_error(&path).is_some());
+        assert!(manager.try_decode(&path, None).0, "asked again");
+    }
+
+    /// Pixels of a file replaced since its decode was asked for are not
+    /// kept, and the path is decoded afresh when asked again
+    #[test]
+    fn a_decode_of_a_replaced_file_is_not_kept() {
+        use image::DynamicImage;
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("photo.png");
+        DynamicImage::new_rgb8(30, 20).save(&path).unwrap();
+        let mut manager = super::LargeImageManager::new();
+        let (_, _, generation) = manager.try_decode(&path, None);
+
+        // Replaced before the decode read it
+        std::fs::remove_file(&path).unwrap();
+        DynamicImage::new_rgb8(40, 20).save(&path).unwrap();
+        let read = super::file_stamp(&path);
+        let handle = crate::ui::widget::image::Handle::from_rgba(1, 1, vec![0; 4]);
+        assert!(!manager.store_decoded_with_generation(
+            path.clone(),
+            handle,
+            None,
+            generation,
+            read,
+        ));
+        assert!(manager.get_decoded(&path).is_none());
+        assert!(!manager.is_decoding(&path));
+        assert!(manager.try_decode(&path, None).0, "asked again");
+    }
+
+    /// One gallery asking for another image skips its own older decode, but
+    /// not another gallery's
+    #[tokio::test]
+    async fn a_decode_is_superseded_only_by_its_own_gallery() {
+        use image::DynamicImage;
+        use std::sync::Arc;
+        use std::sync::atomic::AtomicU64;
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("photo.png");
+        DynamicImage::new_rgb8(30, 20).save(&path).unwrap();
+        let (one, other) = (Arc::new(AtomicU64::new(0)), Arc::new(AtomicU64::new(0)));
+
+        // Held, so that all three wait for their turn
+        let turn = super::DECODE_TURN.acquire().await.unwrap();
+        let first = tokio::spawn(super::decode_large_image(
+            path.clone(),
+            None,
+            Arc::clone(&one),
+        ));
+        let elsewhere = tokio::spawn(super::decode_large_image(
+            path.clone(),
+            None,
+            Arc::clone(&other),
+        ));
+        let second = tokio::spawn(super::decode_large_image(
+            path.clone(),
+            None,
+            Arc::clone(&one),
+        ));
+        while one.load(std::sync::atomic::Ordering::Relaxed) < 2
+            || other.load(std::sync::atomic::Ordering::Relaxed) < 1
+        {
+            tokio::task::yield_now().await;
+        }
+        drop(turn);
+
+        assert!(matches!(first.await.unwrap(), super::Decoded::Superseded));
+        assert!(matches!(elsewhere.await.unwrap(), super::Decoded::Done(_)));
+        assert!(matches!(second.await.unwrap(), super::Decoded::Done(_)));
+    }
+
     #[test]
     fn available_memory_is_read_from_meminfo() {
         let meminfo = "MemTotal:       65536000 kB\nMemFree:         1000000 kB\nMemAvailable:   42407292 kB\n";

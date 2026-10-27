@@ -136,9 +136,39 @@ fn trash_bins() -> Vec<PathBuf> {
     bins
 }
 
-/// Whether operation `id`'s notification on record in `notices` is the
-/// desktop's `notice`: a late answer or close of an older one is not.
-fn notice_on_record(notices: &BTreeMap<u64, NoticeSlot>, id: u64, notice: u32) -> bool {
+/// A click on a favorite whose path is being checked: its number, and the
+/// tab it was for with how many steps that tab had been asked to take.
+#[derive(Clone, Copy, Debug)]
+pub struct NavCheck {
+    number: u64,
+    tab: Entity,
+    steps: u64,
+}
+
+/// What a question's desktop notification asks, standing in for the card
+/// or dialog nobody can see.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum NoticeKey {
+    /// Operation `id`'s question about a path it may not touch.
+    Blocked(u64),
+    /// The first question about a name taken at a destination, by its id.
+    Replace(u64),
+    /// Operation `id`, paused, with its card gone with the window.
+    Paused(u64),
+}
+
+/// An answer given on a question's notification.
+#[derive(Clone, Debug)]
+pub enum NoticeAnswer {
+    Blocked(BlockedAnswer),
+    Replace(ReplaceResult),
+    Resume,
+    Cancel,
+}
+
+/// Whether `key`'s notification on record in `notices` is the desktop's
+/// `notice`: a late answer or close of an older one is not.
+fn notice_on_record<K: Ord>(notices: &BTreeMap<K, NoticeSlot>, id: K, notice: u32) -> bool {
     matches!(
         notices.get(&id),
         Some(NoticeSlot { shown: Some(shown), .. }) if notice_id(shown) == notice
@@ -156,9 +186,9 @@ struct NoticeSlot {
 /// its showing `generation`, if that showing is still the one wanted.
 /// Returns it otherwise, to be closed: it came too late, for a question
 /// that is gone or a showing since replaced.
-fn accept_notice(
-    notices: &mut BTreeMap<u64, NoticeSlot>,
-    id: u64,
+fn accept_notice<K: Ord>(
+    notices: &mut BTreeMap<K, NoticeSlot>,
+    id: K,
     generation: u64,
     notice: QuestionNotice,
 ) -> Option<QuestionNotice> {
@@ -503,11 +533,13 @@ pub enum Message {
     PasteVideo(PathBuf),
     PasteVideoContents(PathBuf, ClipboardPasteVideo),
     CheckClipboard,
-    CheckClipboardImage,
-    CheckClipboardVideo,
-    CheckClipboardText,
-    RetryCheckClipboard(ClipboardCache),
-    ClipboardCached(ClipboardCache),
+    /// The steps of a check, each carrying the [`App::clipboard_epoch`] it
+    /// began in
+    CheckClipboardImage(u64),
+    CheckClipboardVideo(u64),
+    CheckClipboardText(u64),
+    RetryCheckClipboard(u64, ClipboardCache),
+    ClipboardCached(u64, ClipboardCache),
     PendingCancel(u64),
     /// Stop operation `id` where it is and keep what it did.
     PendingAbort(u64),
@@ -526,17 +558,24 @@ pub enum Message {
     BlockedAnswer(u64, BlockedAnswer),
     /// The "Same for the rest" box of operation `id`'s question.
     BlockedSameForRest(u64, bool),
-    /// Operation `id`'s question went out as a desktop notification.
-    QuestionNotified(u64, u64, QuestionNotice),
-    /// Operation `id`'s question was answered on its desktop notification,
-    /// which is gone with the answer.
-    QuestionNoticeAnswered(u64, u32, BlockedAnswer),
-    /// Operation `id`'s question notification, with the desktop's id for
-    /// it, closed without an answer: dismissed, or taken down by the app.
-    QuestionNoticeClosed(u64, u32),
+    /// A question went out as a desktop notification, as its showing
+    /// numbered so.
+    QuestionNotified(NoticeKey, u64, QuestionNotice),
+    /// A question was answered on its desktop notification, which is gone
+    /// with the answer.
+    QuestionNoticeAnswered(NoticeKey, u32, NoticeAnswer),
+    /// A question's notification, with the desktop's id for it, closed
+    /// without an answer: dismissed, or taken down by the app.
+    QuestionNoticeClosed(NoticeKey, u32),
+    /// The desktop did not show a question's notification, as its showing
+    /// numbered so: it is tried again.
+    QuestionNoticeFailed(NoticeKey, u64),
     /// Bring the question notifications in step with who can see the
     /// window: after a focus change, or a while after one was dismissed.
     QuestionNoticesSync,
+    /// Whether the path of the favorite clicked, as `NavCheck` describes
+    /// the click, is there.
+    NavPathChecked(NavCheck, Entity, Result<bool, String>),
     /// A window of ours gained or lost the keyboard.
     WindowFocusChanged(bool),
     /// The pointer came over the progress card's row with this id, or left
@@ -601,7 +640,8 @@ pub enum Message {
     RescanTrash,
     RemoveFromRecents(Option<Entity>),
     Rename(Option<Entity>),
-    ReplaceResult(ReplaceResult),
+    /// The answer to the question about a taken name numbered so.
+    ReplaceResult(u64, ReplaceResult),
     RestoreFromTrash(Option<Entity>),
     SaveSortNames,
     ScrollTab(i16),
@@ -629,9 +669,13 @@ pub enum Message {
     /// paths to select once shown, and whether the read worked (an
     /// unreadable folder arrives as an empty listing, and its progress row
     /// ends as failed rather than done).
+    /// A tab's folder, read: the tab, the read's number, the location as
+    /// asked for and as made canonical, its parent, its items, the
+    /// breadcrumbs, title and selection, and whether the read succeeded.
     TabRescan(
         Entity,
         u64,
+        Location,
         Location,
         Option<Box<tab::Item>>,
         Vec<tab::Item>,
@@ -800,6 +844,9 @@ pub enum DialogPage {
         apply_to_all: bool,
         conflict_count: usize,
         tx: mpsc::Sender<ReplaceResult>,
+        /// Numbered by the app as it is asked, so that its notification
+        /// answers this question and no other.
+        id: u64,
     },
     SetExecutableAndLaunch {
         path: PathBuf,
@@ -882,10 +929,20 @@ impl DialogPages {
         Some((page, task))
     }
 
+    /// Puts `page` in place of the page in front, if it is a new state of
+    /// that page. A question about a taken name updates only itself: an
+    /// update sent before it was answered elsewhere would otherwise put it
+    /// back over the next question, and drop that one's answer channel.
     pub fn update_front(&mut self, page: DialogPage) {
-        if !self.pages.is_empty() {
-            self.pages[0] = page;
+        let Some(front) = self.pages.front_mut() else {
+            return;
+        };
+        if let DialogPage::Replace { id, .. } = &page
+            && !matches!(front, DialogPage::Replace { id: asked, .. } if asked == id)
+        {
+            return;
         }
+        *front = page;
     }
 
     /// Takes away operation `id`'s question about a path, wherever it waits
@@ -905,6 +962,34 @@ impl DialogPages {
         }
         self.pages.remove(index);
         Task::none()
+    }
+
+    /// The first question about a name taken at a destination.
+    pub fn replace(&self) -> Option<&DialogPage> {
+        self.pages
+            .iter()
+            .find(|page| matches!(page, DialogPage::Replace { .. }))
+    }
+
+    /// The question about a name taken at a destination numbered `id`.
+    pub fn replace_by_id(&self, id: u64) -> Option<&DialogPage> {
+        self.pages
+            .iter()
+            .find(|page| matches!(page, DialogPage::Replace { id: asked, .. } if *asked == id))
+    }
+
+    /// Takes away the question about a name taken at a destination
+    /// numbered `id`, wherever it waits in the queue, to answer it from
+    /// elsewhere. `None` once it is answered or gone.
+    #[must_use]
+    pub fn take_replace(&mut self, id: u64) -> Option<(DialogPage, Task<Message>)> {
+        let index = self.pages.iter().position(
+            |page| matches!(page, DialogPage::Replace { id: asked, .. } if *asked == id),
+        )?;
+        if index == 0 {
+            return self.pop_front();
+        }
+        self.pages.remove(index).map(|page| (page, Task::none()))
     }
 
     pub fn remove_blocked(&mut self, id: u64) -> Task<Message> {
@@ -1108,7 +1193,7 @@ pub struct App {
     stalls: BTreeMap<u64, Stall>,
     /// The question asked in a desktop notification, by operation: `None`
     /// while the notification is still being shown.
-    question_notices: BTreeMap<u64, NoticeSlot>,
+    question_notices: BTreeMap<NoticeKey, NoticeSlot>,
     /// Counts the showings of question notifications, to tell a late one
     /// from the one wanted.
     notice_generation: u64,
@@ -1152,6 +1237,15 @@ pub struct App {
     auto_scroll_speed: Option<i16>,
     file_dialog_opt: Option<Dialog<Message>>,
     clipboard_cache: ClipboardCache,
+    /// Counts the app's own writes to the clipboard and its checks of what
+    /// is on it. A check is kept only if no write or later check came after
+    /// it began.
+    clipboard_epoch: u64,
+    /// Numbers the checks that a clicked favorite's path is there; only the
+    /// latest is acted on.
+    nav_check: u64,
+    /// The last number given a question about a taken name.
+    replace_ids: u64,
     /// What the last background check said about the name typed into the new
     /// item or rename dialog.
     name_check: Option<NameCheck>,
@@ -1326,8 +1420,17 @@ impl App {
             )
     }
 
-    fn push_dialog(&mut self, page: DialogPage, focus_id: Option<widget::Id>) -> Task<Message> {
-        let t = self.dialog_pages.push_back(page);
+    fn push_dialog(&mut self, mut page: DialogPage, focus_id: Option<widget::Id>) -> Task<Message> {
+        if let DialogPage::Replace { id, .. } = &mut page {
+            self.replace_ids = self.replace_ids.wrapping_add(1);
+            *id = self.replace_ids;
+        }
+        // Asked of a window nobody sees, it goes out as a notification too
+        let replace = matches!(page, DialogPage::Replace { .. });
+        let mut t = self.dialog_pages.push_back(page);
+        if replace {
+            t = Task::batch([t, self.sync_question_notices()]);
+        }
         if let Some(focus_id) = focus_id {
             Task::batch([t, focus(focus_id)])
         } else {
@@ -2469,6 +2572,7 @@ impl App {
             // Normalizing and naming ask the filesystem once per folder on
             // the way up, which on a mount that has stopped answering is a
             // stall per folder: worker's work, like the listing itself.
+            let requested = location.clone();
             let read = tokio::task::spawn_blocking(move || {
                 let location = location.normalize();
                 // Names first: a slow drive's folder is shown before its files
@@ -2500,6 +2604,7 @@ impl App {
                     crate::ui::action::app(Message::TabRescan(
                         entity,
                         scan,
+                        requested,
                         location,
                         parent_item_opt,
                         items,
@@ -3225,63 +3330,261 @@ impl App {
         self.core.main_window_id().is_some() && self.core.focused_window().is_some()
     }
 
-    /// Whether operation `id`'s notification on record is the desktop's
-    /// `notice`.
-    fn notice_is(&self, id: u64, notice: u32) -> bool {
-        notice_on_record(&self.question_notices, id, notice)
+    /// Goes to the favorite `entity` names, now that whether its path is
+    /// there is known: `exists`, or why it could not be told.
+    fn open_favorite(&mut self, entity: Entity, exists: &Result<bool, String>) -> Task<Message> {
+        let Some(location) = self.nav_model.data::<Location>(entity) else {
+            return Task::none();
+        };
+        let should_open = match location {
+            #[cfg(feature = "gvfs")]
+            Location::Network(uri, name, Some(path)) if !*exists.as_ref().unwrap_or(&false) => {
+                let mut found = false;
+
+                if let Some(key) = self
+                    .mounter_items
+                    .iter()
+                    .find_map(|(k, items)| {
+                        items.iter().find_map(|item| {
+                            found |= item.path().is_some_and(|p| path.starts_with(&p))
+                                || item.name() == *name
+                                || item.uri() == *uri;
+                            (!item.is_mounted() && found).then_some(*k)
+                        })
+                    })
+                    .or(if found {
+                        None
+                    } else {
+                        self.mounter_items.keys().copied().next()
+                    })
+                    && let Some(mounter) = MOUNTERS.get(&key)
+                {
+                    let key = progress::Key::Mount(uri.clone());
+                    self.progress.start(
+                        key.clone(),
+                        fl!("task-mounting", name = uri_for_display(uri)),
+                        progress::SLOW,
+                        Instant::now(),
+                    );
+                    return mounter.network_drive(uri.clone()).then(move |outcome| {
+                        let end = Task::done(crate::ui::action::app(Message::ProgressEnd(
+                            key.clone(),
+                            outcome,
+                        )));
+                        if outcome == Outcome::Done {
+                            end.chain(Task::done(crate::ui::Action::App(
+                                Message::NetworkDriveOpenEntityAfterMount { entity },
+                            )))
+                        } else {
+                            end
+                        }
+                    });
+                }
+
+                log::warn!(
+                    "failed to open favorite, path does not exist: {}",
+                    path.display()
+                );
+                return self.push_dialog(
+                    DialogPage::FavoritePathError {
+                        path: path.clone(),
+                        entity,
+                    },
+                    Some(FAVORITE_PATH_ERROR_REMOVE_BUTTON_ID.clone()),
+                );
+            }
+            Location::Path(path) | Location::Network(_, _, Some(path)) => match exists {
+                Ok(true) => true,
+                Ok(false) => {
+                    log::warn!(
+                        "failed to open favorite, path does not exist: {}",
+                        path.display()
+                    );
+                    return self.push_dialog(
+                        DialogPage::FavoritePathError {
+                            path: path.clone(),
+                            entity,
+                        },
+                        Some(FAVORITE_PATH_ERROR_REMOVE_BUTTON_ID.clone()),
+                    );
+                }
+                Err(err) => {
+                    log::warn!(
+                        "failed to open favorite for path: {}, {}",
+                        path.display(),
+                        err
+                    );
+                    return self.push_dialog(
+                        DialogPage::FavoritePathError {
+                            path: path.clone(),
+                            entity,
+                        },
+                        Some(FAVORITE_PATH_ERROR_REMOVE_BUTTON_ID.clone()),
+                    );
+                }
+            },
+
+            _ => true,
+        };
+
+        if should_open {
+            let message = Message::TabMessage(None, tab::Message::Location(location.clone()));
+            return self.update(message);
+        }
+        Task::none()
     }
 
-    /// Keeps the desktop notification for questions in step with the card:
-    /// the question being asked goes out as one while nobody can see its row
-    /// (the window is closed, or none of ours has the keyboard), and any
+    /// Whether `key`'s notification on record is the desktop's `notice`.
+    fn notice_is(&self, key: NoticeKey, notice: u32) -> bool {
+        notice_on_record(&self.question_notices, key, notice)
+    }
+
+    /// The questions that go out as desktop notifications now, because
+    /// nobody can see where they are asked: the question on the card and the
+    /// first about a taken name, while the window is closed or none of ours
+    /// has the keyboard; and, while the window is closed, every paused
+    /// operation, which only its card could resume.
+    fn wanted_notices(&self) -> Vec<NoticeKey> {
+        let mut wanted = Vec::new();
+        if !self.window_is_seen() {
+            if let Some(progress::Key::Operation(id)) = self.progress.asking() {
+                wanted.push(NoticeKey::Blocked(*id));
+            }
+            if let Some(DialogPage::Replace { id, .. }) = self.dialog_pages.replace() {
+                wanted.push(NoticeKey::Replace(*id));
+            }
+        }
+        if self.core.main_window_id().is_none() {
+            for (&id, (_, controller)) in &self.pending_operations {
+                let asking = self
+                    .blocked
+                    .get(&id)
+                    .is_some_and(|question| question.tx.is_some());
+                if controller.is_paused() && !asking {
+                    wanted.push(NoticeKey::Paused(id));
+                }
+            }
+        }
+        wanted
+    }
+
+    /// Keeps the desktop notifications for questions in step with who can
+    /// see the window: those [`Self::wanted_notices`] names go out, and any
     /// other is taken down.
     fn sync_question_notices(&mut self) -> Task<Message> {
-        let asking = match self.progress.asking() {
-            Some(progress::Key::Operation(id)) => Some(*id),
-            _ => None,
-        };
+        let wanted = self.wanted_notices();
         let mut tasks = Vec::new();
-        let seen = self.window_is_seen();
-        // Seen again, the window asks; its notification goes
-        let stale: Vec<u64> = self
+        let stale: Vec<NoticeKey> = self
             .question_notices
             .keys()
-            .filter(|id| Some(**id) != asking || seen)
+            .filter(|key| !wanted.contains(key))
             .copied()
             .collect();
-        for id in stale {
+        for key in stale {
             // One still being shown is closed when it reports in
             if let Some(NoticeSlot {
                 shown: Some(notice),
                 ..
-            }) = self.question_notices.remove(&id)
+            }) = self.question_notices.remove(&key)
             {
                 tasks.push(close_question_notice(notice));
             }
         }
-        let generation = self.notice_generation + 1;
-        if let Some(id) = asking
-            && !seen
-            && !self.question_notices.contains_key(&id)
-            && let Some(task) = self.show_question_notice(id, generation)
-        {
-            self.notice_generation = generation;
-            self.question_notices.insert(
-                id,
-                NoticeSlot {
-                    generation,
-                    shown: None,
-                },
-            );
-            tasks.push(task);
+        for key in wanted {
+            if self.question_notices.contains_key(&key) {
+                continue;
+            }
+            let generation = self.notice_generation + 1;
+            if let Some(task) = self.show_question_notice(key, generation) {
+                self.notice_generation = generation;
+                self.question_notices.insert(
+                    key,
+                    NoticeSlot {
+                        generation,
+                        shown: None,
+                    },
+                );
+                tasks.push(task);
+            }
         }
         Task::batch(tasks)
     }
 
-    /// Shows operation `id`'s question as a desktop notification, whose
-    /// buttons answer it. `None` when there is nothing to ask.
+    /// Shows `key`'s question as a desktop notification, whose buttons
+    /// answer it. `None` when there is nothing to ask.
     #[cfg(feature = "notify")]
-    fn show_question_notice(&self, id: u64, generation: u64) -> Option<Task<Message>> {
+    fn show_question_notice(&self, key: NoticeKey, generation: u64) -> Option<Task<Message>> {
+        let notification = match key {
+            NoticeKey::Blocked(id) => self.blocked_notification(id)?,
+            NoticeKey::Replace(id) => self.replace_notification(id)?,
+            NoticeKey::Paused(id) => {
+                let (op, controller) = self.pending_operations.get(&id)?;
+                notify_rust::Notification::new()
+                    .summary(&op.pending_text(controller.progress(), ControllerState::Paused))
+                    .timeout(notify_rust::Timeout::Never)
+                    .action(NOTICE_RESUME, &fl!("resume"))
+                    .action(NOTICE_CANCEL, &fl!("cancel"))
+                    .finalize()
+            }
+        };
+        Some(
+            crate::ui::Task::stream(crate::ui::iced::stream::channel(
+                2,
+                move |mut out: futures::channel::mpsc::Sender<Message>| async move {
+                    let shown = {
+                        let notification = notification.clone();
+                        tokio::task::spawn_blocking(move || notification.show()).await
+                    };
+                    let handle = match shown {
+                        Ok(Ok(handle)) => handle,
+                        Ok(Err(err)) => {
+                            log::warn!("failed to show the question as a notification: {err}");
+                            // Asked again after a while: nothing else can
+                            // answer it while nobody sees the window
+                            tokio::time::sleep(NOTICE_SHOW_AGAIN).await;
+                            let _ = out
+                                .send(Message::QuestionNoticeFailed(key, generation))
+                                .await;
+                            return;
+                        }
+                        Err(err) => {
+                            log::warn!("failed to show the question as a notification: {err}");
+                            tokio::time::sleep(NOTICE_SHOW_AGAIN).await;
+                            let _ = out
+                                .send(Message::QuestionNoticeFailed(key, generation))
+                                .await;
+                            return;
+                        }
+                    };
+                    let notice_id = handle.id();
+                    let notice = (notice_id, notification);
+                    let _ = out
+                        .send(Message::QuestionNotified(key, generation, notice))
+                        .await;
+                    // Until a button is pressed or the notification closes,
+                    // from either side
+                    let picked = tokio::task::spawn_blocking(move || {
+                        let mut picked = None;
+                        handle.wait_for_action(|action| picked = notice_answer(key, action));
+                        picked
+                    })
+                    .await
+                    .ok()
+                    .flatten();
+                    let message = match picked {
+                        Some(answer) => Message::QuestionNoticeAnswered(key, notice_id, answer),
+                        None => Message::QuestionNoticeClosed(key, notice_id),
+                    };
+                    let _ = out.send(message).await;
+                },
+            ))
+            .map(crate::ui::Action::App),
+        )
+    }
+
+    /// Operation `id`'s question about a path, offering what its card does.
+    #[cfg(feature = "notify")]
+    fn blocked_notification(&self, id: u64) -> Option<notify_rust::Notification> {
         let question = self
             .blocked
             .get(&id)
@@ -3318,56 +3621,53 @@ impl App {
         if let Some(again) = question.ask.root {
             notification.action(NOTICE_ROOT, &root_label(&question.blocked, again));
         }
-        let notification = notification
-            .action(NOTICE_CANCEL, &fl!("cancel"))
-            .finalize();
         Some(
-            crate::ui::Task::stream(crate::ui::iced::stream::channel(
-                2,
-                move |mut out: futures::channel::mpsc::Sender<Message>| async move {
-                    let shown = {
-                        let notification = notification.clone();
-                        tokio::task::spawn_blocking(move || notification.show()).await
-                    };
-                    let handle = match shown {
-                        Ok(Ok(handle)) => handle,
-                        Ok(Err(err)) => {
-                            log::warn!("failed to show the question as a notification: {err}");
-                            return;
-                        }
-                        Err(err) => {
-                            log::warn!("failed to show the question as a notification: {err}");
-                            return;
-                        }
-                    };
-                    let notice_id = handle.id();
-                    let notice = (notice_id, notification);
-                    let _ = out
-                        .send(Message::QuestionNotified(id, generation, notice))
-                        .await;
-                    // Until a button is pressed or the notification closes,
-                    // from either side
-                    let picked = tokio::task::spawn_blocking(move || {
-                        let mut picked = None;
-                        handle.wait_for_action(|action| picked = notice_answer(action));
-                        picked
-                    })
-                    .await
-                    .ok()
-                    .flatten();
-                    let message = match picked {
-                        Some(answer) => Message::QuestionNoticeAnswered(id, notice_id, answer),
-                        None => Message::QuestionNoticeClosed(id, notice_id),
-                    };
-                    let _ = out.send(message).await;
-                },
-            ))
-            .map(crate::ui::Action::App),
+            notification
+                .action(NOTICE_CANCEL, &fl!("cancel"))
+                .finalize(),
+        )
+    }
+
+    /// Question `id` about a taken name, offering what its dialog does but
+    /// "Apply to all", which a notification has no box for.
+    #[cfg(feature = "notify")]
+    fn replace_notification(&self, id: u64) -> Option<notify_rust::Notification> {
+        let Some(DialogPage::Replace {
+            to,
+            totals,
+            multiple,
+            ..
+        }) = self.dialog_pages.replace_by_id(id)
+        else {
+            return None;
+        };
+        let folders = totals.is_some();
+        let mut notification = notify_rust::Notification::new()
+            .summary(&fl!("replace-title", filename = to.name.as_str()))
+            .body(&if folders {
+                fl!("replace-folder-warning")
+            } else {
+                fl!("replace-warning-operation")
+            })
+            .timeout(notify_rust::Timeout::Never)
+            .finalize();
+        notification.action(NOTICE_REPLACE, &fl!("replace"));
+        if folders {
+            notification.action(NOTICE_MERGE, &fl!("merge"));
+        }
+        notification.action(NOTICE_KEEP_BOTH, &fl!("keep-both"));
+        if *multiple {
+            notification.action(NOTICE_SKIP, &fl!("skip"));
+        }
+        Some(
+            notification
+                .action(NOTICE_CANCEL, &fl!("cancel"))
+                .finalize(),
         )
     }
 
     #[cfg(not(feature = "notify"))]
-    fn show_question_notice(&self, _id: u64, _generation: u64) -> Option<Task<Message>> {
+    fn show_question_notice(&self, _key: NoticeKey, _generation: u64) -> Option<Task<Message>> {
         None
     }
 
@@ -4295,6 +4595,9 @@ impl Application for App {
             auto_scroll_speed: None,
             file_dialog_opt: None,
             clipboard_cache: ClipboardCache::Empty,
+            clipboard_epoch: 0,
+            nav_check: 0,
+            replace_ids: 0,
             name_check: None,
             mime_app_rebuild: 0,
             mime_app_rebuild_applied: 0,
@@ -4561,106 +4864,33 @@ impl Application for App {
 
     fn on_nav_select(&mut self, entity: Entity) -> Task<Self::Message> {
         self.nav_model.activate(entity);
+        // Any click supersedes a favorite's check still out
+        self.nav_check = self.nav_check.wrapping_add(1);
         if let Some(location) = self.nav_model.data::<Location>(entity) {
-            let should_open = match location {
-                #[cfg(feature = "gvfs")]
-                Location::Network(uri, name, Some(path))
-                    if !path.try_exists().unwrap_or_default() =>
-                {
-                    let mut found = false;
-
-                    if let Some(key) = self
-                        .mounter_items
-                        .iter()
-                        .find_map(|(k, items)| {
-                            items.iter().find_map(|item| {
-                                found |= item.path().is_some_and(|p| path.starts_with(&p))
-                                    || item.name() == *name
-                                    || item.uri() == *uri;
-                                (!item.is_mounted() && found).then_some(*k)
-                            })
-                        })
-                        .or(if found {
-                            None
-                        } else {
-                            self.mounter_items.keys().copied().next()
-                        })
-                        && let Some(mounter) = MOUNTERS.get(&key)
-                    {
-                        let key = progress::Key::Mount(uri.clone());
-                        self.progress.start(
-                            key.clone(),
-                            fl!("task-mounting", name = uri_for_display(uri)),
-                            progress::SLOW,
-                            Instant::now(),
-                        );
-                        return mounter.network_drive(uri.clone()).then(move |outcome| {
-                            let end = Task::done(crate::ui::action::app(Message::ProgressEnd(
-                                key.clone(),
-                                outcome,
-                            )));
-                            if outcome == Outcome::Done {
-                                end.chain(Task::done(crate::ui::Action::App(
-                                    Message::NetworkDriveOpenEntityAfterMount { entity },
-                                )))
-                            } else {
-                                end
-                            }
-                        });
-                    }
-
-                    log::warn!(
-                        "failed to open favorite, path does not exist: {}",
-                        path.display()
-                    );
-                    return self.push_dialog(
-                        DialogPage::FavoritePathError {
-                            path: path.clone(),
-                            entity,
-                        },
-                        Some(FAVORITE_PATH_ERROR_REMOVE_BUTTON_ID.clone()),
-                    );
-                }
-                Location::Path(path) | Location::Network(_, _, Some(path)) => {
-                    match path.try_exists() {
-                        Ok(true) => true,
-                        Ok(false) => {
-                            log::warn!(
-                                "failed to open favorite, path does not exist: {}",
-                                path.display()
-                            );
-                            return self.push_dialog(
-                                DialogPage::FavoritePathError {
-                                    path: path.clone(),
-                                    entity,
-                                },
-                                Some(FAVORITE_PATH_ERROR_REMOVE_BUTTON_ID.clone()),
-                            );
-                        }
-                        Err(err) => {
-                            log::warn!(
-                                "failed to open favorite for path: {}, {}",
-                                path.display(),
-                                err
-                            );
-                            return self.push_dialog(
-                                DialogPage::FavoritePathError {
-                                    path: path.clone(),
-                                    entity,
-                                },
-                                Some(FAVORITE_PATH_ERROR_REMOVE_BUTTON_ID.clone()),
-                            );
-                        }
-                    }
-                }
-
-                _ => true,
-            };
-
-            if should_open {
-                let message = Message::TabMessage(None, tab::Message::Location(location.clone()));
-                return self.update(message);
+            // Whether a favorite's path is there is the filesystem's to say,
+            // which a mount that has stopped answering never does: asked on
+            // a worker, and acted on only if nothing has moved since: no
+            // other click, no other tab, no other step in this one
+            if let Location::Path(path) | Location::Network(_, _, Some(path)) = location {
+                let check = NavCheck {
+                    number: self.nav_check,
+                    tab: self.tab_model.active(),
+                    steps: self
+                        .tab_model
+                        .data::<Tab>(self.tab_model.active())
+                        .map_or(0, Tab::steps),
+                };
+                let path = path.clone();
+                return Task::future(async move {
+                    let exists = tokio::task::spawn_blocking(move || {
+                        path.try_exists().map_err(|err| err.to_string())
+                    })
+                    .await
+                    .unwrap_or_else(|err| Err(err.to_string()));
+                    crate::ui::action::app(Message::NavPathChecked(check, entity, exists))
+                });
             }
+            return self.open_favorite(entity, &Ok(true));
         }
         if let Some(data) = self.nav_model.data::<MounterData>(entity)
             && let Some(mounter) = MOUNTERS.get(&data.0)
@@ -4701,9 +4931,10 @@ impl Application for App {
     fn on_escape(&mut self) -> Task<Self::Message> {
         let entity = self.tab_model.active();
 
-        // Close dialog if open
-        if let Some((_page, task)) = self.dialog_pages.pop_front() {
-            return task;
+        // Close dialog if open, as its Cancel would: a question an
+        // operation is waiting on is answered, not just taken down
+        if self.dialog_pages.front().is_some() {
+            return self.update(Message::DialogCancel);
         }
 
         // Close gallery mode if open
@@ -4880,6 +5111,7 @@ impl Application for App {
                 {
                     tab.refresh_cut(&[]);
                 }
+                self.clipboard_epoch += 1;
                 let paths = self.selected_paths(entity_opt);
                 self.clipboard_cache = ClipboardCache::Files(ClipboardPaste {
                     paths: paths.map(|p| p.to_path_buf()).collect(),
@@ -4894,6 +5126,10 @@ impl Application for App {
                 let path_strings: Vec<String> =
                     paths.into_iter().map(|p| p.display().to_string()).collect();
                 let text = path_strings.join("\n");
+                // What Paste uses is now this text, not files copied before
+                self.clipboard_epoch += 1;
+                self.clipboard_cache =
+                    ClipboardCache::Text(ClipboardPasteText { data: text.clone() });
                 return clipboard::write(text);
             }
             Message::CopyTo(entity_opt) => {
@@ -4926,6 +5162,7 @@ impl Application for App {
             }
             Message::Cut(entity_opt) => {
                 self.set_cut(entity_opt);
+                self.clipboard_epoch += 1;
                 let paths = self.selected_paths(entity_opt);
                 self.clipboard_cache = ClipboardCache::Files(ClipboardPaste {
                     paths: paths.map(|p| p.to_path_buf()).collect(),
@@ -4993,6 +5230,10 @@ impl Application for App {
                             task,
                             self.update(Message::BlockedAnswer(id, BlockedAnswer::Cancel)),
                         ]);
+                    }
+                    // A question about a taken name: its notification goes
+                    if matches!(page, DialogPage::Replace { .. }) {
+                        return Task::batch([task, self.sync_question_notices()]);
                     }
                     return task;
                 }
@@ -5357,7 +5598,10 @@ impl Application for App {
                 }
             }
             Message::HistoryButton(window_id, forward) => {
-                if self.core.main_window_id() == Some(window_id) {
+                // A dialog is modal: nothing behind it moves
+                if self.core.main_window_id() == Some(window_id)
+                    && self.dialog_pages.front().is_none()
+                {
                     return self.update(Message::TabMessage(
                         None,
                         if forward {
@@ -5369,7 +5613,12 @@ impl Application for App {
                 }
             }
             Message::Key(window_id, modifiers, key, physical_key, text) => {
-                if self.core.main_window_id() == Some(window_id) {
+                // A dialog is modal: a key it leaves alone does not reach the
+                // files behind it, where Delete would trash the selection
+                // the dialog is asking about
+                if self.core.main_window_id() == Some(window_id)
+                    && self.dialog_pages.front().is_none()
+                {
                     let entity = self.tab_model.active();
                     for (key_bind, action) in &self.key_binds {
                         if key_bind.matches(modifiers, &key, Some(&physical_key)) {
@@ -6073,10 +6322,13 @@ impl Application for App {
             }
             Message::OpenWithSearchClear => {
                 if let Some(DialogPage::OpenWith {
-                    search_app_name, ..
+                    search_app_name,
+                    selected,
+                    ..
                 }) = self.dialog_pages.front_mut()
                 {
                     *search_app_name = String::new();
+                    *selected = 0;
                 }
             }
             Message::Paste(entity_opt) => {
@@ -6231,71 +6483,88 @@ impl Application for App {
                 });
             }
             Message::CheckClipboard => {
-                // Check if clipboard has any paste-able content and cache it
-                return clipboard::read_data::<ClipboardPaste>().map(|contents_opt| {
+                // Check if clipboard has any paste-able content and cache it.
+                // Numbered as a write is: two checks can finish out of
+                // order, and only the later one read what is there now
+                self.clipboard_epoch += 1;
+                let epoch = self.clipboard_epoch;
+                return clipboard::read_data::<ClipboardPaste>().map(move |contents_opt| {
                     match contents_opt {
                         Some(contents) if contents.paths.is_empty() => crate::ui::action::app(
-                            Message::RetryCheckClipboard(ClipboardCache::Files(contents)),
+                            Message::RetryCheckClipboard(epoch, ClipboardCache::Files(contents)),
                         ),
                         Some(contents) => crate::ui::action::app(Message::ClipboardCached(
+                            epoch,
                             ClipboardCache::Files(contents),
                         )),
-                        _ => crate::ui::action::app(Message::CheckClipboardImage),
+                        _ => crate::ui::action::app(Message::CheckClipboardImage(epoch)),
                     }
                 });
             }
-            Message::CheckClipboardImage => {
-                return clipboard::read_data::<ClipboardPasteImage>().map(|contents_opt| {
+            Message::CheckClipboardImage(epoch) => {
+                return clipboard::read_data::<ClipboardPasteImage>().map(move |contents_opt| {
                     match contents_opt {
                         Some(contents) => crate::ui::action::app(Message::ClipboardCached(
+                            epoch,
                             ClipboardCache::Image(contents),
                         )),
-                        None => crate::ui::action::app(Message::CheckClipboardVideo),
+                        None => crate::ui::action::app(Message::CheckClipboardVideo(epoch)),
                     }
                 });
             }
-            Message::CheckClipboardVideo => {
-                return clipboard::read_data::<ClipboardPasteVideo>().map(|contents_opt| {
+            Message::CheckClipboardVideo(epoch) => {
+                return clipboard::read_data::<ClipboardPasteVideo>().map(move |contents_opt| {
                     match contents_opt {
                         Some(contents) => crate::ui::action::app(Message::ClipboardCached(
+                            epoch,
                             ClipboardCache::Video(contents),
                         )),
-                        None => crate::ui::action::app(Message::CheckClipboardText),
+                        None => crate::ui::action::app(Message::CheckClipboardText(epoch)),
                     }
                 });
             }
-            Message::CheckClipboardText => {
-                return clipboard::read_data::<ClipboardPasteText>().map(|contents_opt| {
-                    crate::ui::action::app(Message::ClipboardCached(match contents_opt {
-                        Some(contents) => ClipboardCache::Text(contents),
-                        None => ClipboardCache::Empty,
-                    }))
+            Message::CheckClipboardText(epoch) => {
+                return clipboard::read_data::<ClipboardPasteText>().map(move |contents_opt| {
+                    crate::ui::action::app(Message::ClipboardCached(
+                        epoch,
+                        match contents_opt {
+                            Some(contents) => ClipboardCache::Text(contents),
+                            None => ClipboardCache::Empty,
+                        },
+                    ))
                 });
             }
-            Message::RetryCheckClipboard(cache) => {
+            Message::RetryCheckClipboard(epoch, cache) => {
                 let mut cmds = Vec::new();
-                cmds.push(self.update(Message::ClipboardCached(cache)));
+                cmds.push(self.update(Message::ClipboardCached(epoch, cache)));
 
                 cmds.push(
                     iced::Task::future(tokio::time::sleep(Duration::from_millis(300)))
                         .discard()
                         .chain(
-                            clipboard::read_data::<ClipboardPaste>().map(|contents_opt| {
+                            clipboard::read_data::<ClipboardPaste>().map(move |contents_opt| {
                                 match contents_opt {
                                     Some(contents) if !contents.paths.is_empty() => {
                                         crate::ui::action::app(Message::ClipboardCached(
+                                            epoch,
                                             ClipboardCache::Files(contents),
                                         ))
                                     }
-                                    _ => crate::ui::action::app(Message::CheckClipboardImage),
+                                    _ => {
+                                        crate::ui::action::app(Message::CheckClipboardImage(epoch))
+                                    }
                                 }
                             }),
                         ),
                 );
                 return Task::batch(cmds);
             }
-            Message::ClipboardCached(cache) => {
-                self.clipboard_cache = cache;
+            Message::ClipboardCached(epoch, cache) => {
+                // A check begun before the app last wrote the clipboard, or
+                // before a later check, read what was there then
+                if epoch == self.clipboard_epoch {
+                    self.clipboard_cache = cache;
+                }
             }
             Message::PendingAbort(id) => {
                 if let Some((_, controller)) = self.pending_operations.get(&id) {
@@ -6357,29 +6626,66 @@ impl Application for App {
                     self.sync_question_notices(),
                 ]);
             }
-            Message::QuestionNotified(id, generation, notice) => {
+            Message::QuestionNotified(key, generation, notice) => {
                 // Answered, over, or shown again while it was being shown
                 if let Some(late) =
-                    accept_notice(&mut self.question_notices, id, generation, notice)
+                    accept_notice(&mut self.question_notices, key, generation, notice)
                 {
                     return close_question_notice(late);
                 }
             }
-            Message::QuestionNoticeAnswered(id, notice, answer) => {
+            Message::QuestionNoticeAnswered(key, notice, answer) => {
                 // Only from the notification on record: an older one's late
                 // answer was for a question that is gone
-                if self.notice_is(id, notice) {
-                    self.question_notices.remove(&id);
-                    return self.update(Message::BlockedAnswer(id, answer));
+                if self.notice_is(key, notice) {
+                    self.question_notices.remove(&key);
+                    let answered = match (key, answer) {
+                        (NoticeKey::Blocked(id), NoticeAnswer::Blocked(answer)) => {
+                            self.update(Message::BlockedAnswer(id, answer))
+                        }
+                        // That question only: answered in the window since,
+                        // it is gone, and the answer with it
+                        (NoticeKey::Replace(id), NoticeAnswer::Replace(result)) => {
+                            match self.dialog_pages.take_replace(id) {
+                                Some((DialogPage::Replace { tx, .. }, task)) => Task::batch([
+                                    task,
+                                    Task::future(async move {
+                                        let _ = tx.send(result).await;
+                                        crate::ui::action::none()
+                                    }),
+                                ]),
+                                _ => Task::none(),
+                            }
+                        }
+                        (NoticeKey::Paused(id), NoticeAnswer::Resume) => {
+                            self.update(Message::PendingPause(id, false))
+                        }
+                        (NoticeKey::Paused(id), NoticeAnswer::Cancel) => {
+                            self.update(Message::PendingCancel(id))
+                        }
+                        _ => Task::none(),
+                    };
+                    // The next question, if one waits, goes out in its place
+                    return Task::batch([answered, self.sync_question_notices()]);
                 }
             }
-            Message::QuestionNoticeClosed(id, notice) => {
+            Message::QuestionNoticeFailed(key, generation) => {
+                if self
+                    .question_notices
+                    .get(&key)
+                    .is_some_and(|slot| slot.generation == generation && slot.shown.is_none())
+                {
+                    self.question_notices.remove(&key);
+                    return self.sync_question_notices();
+                }
+            }
+            Message::QuestionNoticeClosed(key, notice) => {
                 // Dismissed while still the one asking: it comes back after a
                 // moment, as nothing else can answer it while nobody sees the
                 // window. One the app took down is no longer listed, and a
                 // late close of an older one leaves the newer alone.
-                if self.notice_is(id, notice) {
-                    self.question_notices.remove(&id);
+                if self.notice_is(key, notice) {
+                    self.question_notices.remove(&key);
                     return Task::future(async {
                         tokio::time::sleep(NOTICE_AGAIN).await;
                         crate::ui::action::app(Message::QuestionNoticesSync)
@@ -6387,6 +6693,18 @@ impl Application for App {
                 }
             }
             Message::QuestionNoticesSync => return self.sync_question_notices(),
+            Message::NavPathChecked(check, entity, exists) => {
+                // A later click, another tab, or a step taken in this one
+                // since supersedes it
+                let active = self.tab_model.active();
+                let steps = self.tab_model.data::<Tab>(active).map(Tab::steps);
+                if check.number == self.nav_check
+                    && check.tab == active
+                    && steps == Some(check.steps)
+                {
+                    return self.open_favorite(entity, &exists);
+                }
+            }
             Message::WindowFocusChanged(focused) => {
                 // Looked at once the shell has taken the change in
                 let sync = Task::future(async {
@@ -6435,6 +6753,8 @@ impl Application for App {
                         controller.unpause();
                     }
                 }
+                // A resumed operation's notification goes
+                return self.sync_question_notices();
             }
             Message::ProgressEnd(key, outcome) => match outcome {
                 Outcome::Done => self.progress.finish(&key, true, None, Instant::now()),
@@ -6485,6 +6805,7 @@ impl Application for App {
             }
             Message::RefreshedItems(entity, location, listing, batch, rebuilt) => {
                 let mut warm = None;
+                let mut recheck = false;
                 if let Some(tab) = self.tab_model.data_mut::<Tab>(entity) {
                     // The tab may have been sent somewhere else, or rescanned
                     // from scratch, while these were being read; either way
@@ -6515,6 +6836,8 @@ impl Application for App {
                             }
                         }
                         if any {
+                            // The image a gallery shows may be one of them
+                            recheck = tab.gallery;
                             // A refreshed file may sort elsewhere now
                             tab.invalidate_order();
                             // Asked for after adopting, not before: a refreshed
@@ -6529,20 +6852,32 @@ impl Application for App {
                         }
                     }
                 }
+                let recheck = if recheck {
+                    self.update(Message::TabMessage(
+                        Some(entity),
+                        tab::Message::GalleryRecheck,
+                    ))
+                } else {
+                    Task::none()
+                };
                 if let Some((warmup, sizes)) = warm {
-                    return Task::future(async move {
-                        if tokio::task::spawn_blocking(move || tab::warm_icons(&warmup, sizes))
-                            .await
-                            .is_err()
-                        {
-                            return crate::ui::action::none();
-                        }
-                        crate::ui::action::app(Message::TabMessage(
-                            Some(entity),
-                            tab::Message::IconsReady,
-                        ))
-                    });
+                    return Task::batch([
+                        recheck,
+                        Task::future(async move {
+                            if tokio::task::spawn_blocking(move || tab::warm_icons(&warmup, sizes))
+                                .await
+                                .is_err()
+                            {
+                                return crate::ui::action::none();
+                            }
+                            crate::ui::action::app(Message::TabMessage(
+                                Some(entity),
+                                tab::Message::IconsReady,
+                            ))
+                        }),
+                    ]);
                 }
+                return recheck;
             }
             Message::ReloadServiceMenus => {
                 return Task::future(async move {
@@ -6799,20 +7134,18 @@ impl Application for App {
                     }
                 }
             }
-            Message::ReplaceResult(replace_result) => {
-                if let Some((dialog_page, task)) = self.dialog_pages.pop_front() {
-                    match dialog_page {
-                        DialogPage::Replace { tx, .. } => {
-                            return Task::future(async move {
-                                let _ = tx.send(replace_result).await;
-                                crate::ui::action::none()
-                            });
-                        }
-                        other => {
-                            log::warn!("tried to send replace result to the wrong dialog");
-                            return Task::batch([task, self.dialog_pages.push_front(other)]);
-                        }
-                    }
+            Message::ReplaceResult(id, replace_result) => {
+                // That question only: answered on its notification since, it
+                // is gone, and this answer with it
+                if let Some((DialogPage::Replace { tx, .. }, task)) =
+                    self.dialog_pages.take_replace(id)
+                {
+                    let answered = Task::future(async move {
+                        let _ = tx.send(replace_result).await;
+                        crate::ui::action::none()
+                    });
+                    // Its notification goes with it
+                    return Task::batch([task, answered, self.sync_question_notices()]);
                 }
             }
             Message::RestoreFromTrash(entity_opt) => {
@@ -7139,6 +7472,24 @@ impl Application for App {
                                 log::error!("failed to get current executable path: {err}");
                             }
                         },
+                        tab::Command::ResolveLocation(request, location_request) => {
+                            // Asked on a worker: a mount that has stopped
+                            // answering would stop the interface with it
+                            commands.push(Task::future(async move {
+                                let asked = tokio::task::spawn_blocking(move || {
+                                    tab::resolve_location(&location_request)
+                                })
+                                .await;
+                                let Ok(resolved) = asked else {
+                                    log::warn!("failed to resolve a location");
+                                    return crate::ui::action::none();
+                                };
+                                crate::ui::action::app(Message::TabMessage(
+                                    Some(entity),
+                                    tab::Message::LocationResolved(request, resolved),
+                                ))
+                            }));
+                        }
                         tab::Command::ResolveNetwork(request, uri) => {
                             // Asked on a worker: the mounter answers over a
                             // channel the GVFS thread writes to when it has
@@ -7279,6 +7630,7 @@ impl Application for App {
             Message::TabRescan(
                 entity,
                 scan,
+                requested,
                 location,
                 parent_item_opt,
                 items,
@@ -7294,8 +7646,12 @@ impl Application for App {
                 // A read started after this one has the newer listing.
                 if let Some(tab) = self.tab_model.data_mut::<Tab>(entity)
                     && tab.is_latest_scan(scan)
-                    && tab.location.lists_same_as(&location)
+                    && (tab.location.lists_same_as(&location)
+                        || tab.location.lists_same_as(&requested))
                 {
+                    // Went to as given, without asking the filesystem: it is
+                    // known by its canonical name from here on
+                    tab.adopt_canonical(&requested, &location);
                     self.progress.finish(
                         &progress::Key::Load(entity),
                         read_ok,
@@ -7361,6 +7717,13 @@ impl Application for App {
                         Some(entity),
                         tab::Message::ScrollRestore,
                     ))));
+                    // The image a gallery shows may have been replaced
+                    if tab.gallery {
+                        tasks.push(Task::done(crate::ui::action::app(Message::TabMessage(
+                            Some(entity),
+                            tab::Message::GalleryRecheck,
+                        ))));
+                    }
 
                     if let Some(selection_paths) = selection_paths {
                         tab.select_paths(selection_paths);
@@ -7931,7 +8294,13 @@ impl Application for App {
                 target,
                 position,
             }) => {
-                _ = self.tab_model.reorder(dragged, target, position);
+                let was_active = self.tab_model.active() == dragged;
+                // Reordering activates the dragged tab; one that was not
+                // active is switched to as any other tab is, with its sidebar
+                // entry, title and scroll position
+                if self.tab_model.reorder(dragged, target, position) && !was_active {
+                    return self.update(Message::TabActivate(dragged));
+                }
             }
         }
 
@@ -8539,7 +8908,10 @@ impl Application for App {
                             Message::DialogUpdate(DialogPage::OpenWith {
                                 path: path.clone(),
                                 mime: mime.clone(),
-                                selected: *selected,
+                                // The selection is a place in the filtered
+                                // list, which the new filter rearranges: the
+                                // best match is selected instead
+                                selected: 0,
                                 store_opt: store_opt.clone(),
                                 search_app_name,
                             })
@@ -8833,6 +9205,7 @@ impl Application for App {
                 apply_to_all,
                 conflict_count,
                 tx,
+                id,
             } => {
                 // A block per side, with a folder's totals under it
                 fn side(
@@ -8871,33 +9244,40 @@ impl Application for App {
                     ))
                     .primary_action(
                         widget::button::suggested(fl!("replace"))
-                            .on_press(Message::ReplaceResult(ReplaceResult::Replace(
-                                *apply_to_all,
-                            )))
+                            .on_press(Message::ReplaceResult(
+                                *id,
+                                ReplaceResult::Replace(*apply_to_all),
+                            ))
                             .id(REPLACE_BUTTON_ID.clone()),
                     )
                     .tertiary_action(
                         widget::button::standard(fl!("cancel"))
-                            .on_press(Message::ReplaceResult(ReplaceResult::Cancel)),
+                            .on_press(Message::ReplaceResult(*id, ReplaceResult::Cancel)),
                     );
                 // Beside it: Merge for two folders, Keep both, Skip
                 let mut others: Vec<Element<'_, Message>> = Vec::new();
                 if folders {
                     others.push(
                         widget::button::standard(fl!("merge"))
-                            .on_press(Message::ReplaceResult(ReplaceResult::Merge(*apply_to_all)))
+                            .on_press(Message::ReplaceResult(
+                                *id,
+                                ReplaceResult::Merge(*apply_to_all),
+                            ))
                             .into(),
                     );
                 }
                 others.push(
                     widget::button::standard(fl!("keep-both"))
-                        .on_press(Message::ReplaceResult(ReplaceResult::KeepBoth))
+                        .on_press(Message::ReplaceResult(*id, ReplaceResult::KeepBoth))
                         .into(),
                 );
                 if *multiple {
                     others.push(
                         widget::button::standard(fl!("skip"))
-                            .on_press(Message::ReplaceResult(ReplaceResult::Skip(*apply_to_all)))
+                            .on_press(Message::ReplaceResult(
+                                *id,
+                                ReplaceResult::Skip(*apply_to_all),
+                            ))
                             .into(),
                     );
                 }
@@ -8917,6 +9297,7 @@ impl Application for App {
                                     apply_to_all,
                                     conflict_count: *conflict_count,
                                     tx: tx.clone(),
+                                    id: *id,
                                 })
                             }),
                     );
@@ -9160,6 +9541,12 @@ impl Application for App {
     }
 
     fn view_window(&self, id: WindowId) -> Element<'_, Self::Message> {
+        // A popup the embedded chooser opened, such as its context menu
+        if let Some(dialog) = &self.file_dialog_opt
+            && dialog.contains_surface(&id)
+        {
+            return dialog.view(id);
+        }
         let content = match self.windows.get(&id) {
             Some(window) => match &window.kind {
                 WindowKind::Dialogs(id) => match self.dialog() {
@@ -9741,6 +10128,19 @@ const NOTICE_ROOT: &str = "root";
 const NOTICE_CANCEL: &str = "cancel";
 #[cfg(feature = "notify")]
 const NOTICE_PERMANENTLY: &str = "permanently";
+#[cfg(feature = "notify")]
+const NOTICE_REPLACE: &str = "replace";
+#[cfg(feature = "notify")]
+const NOTICE_MERGE: &str = "merge";
+#[cfg(feature = "notify")]
+const NOTICE_KEEP_BOTH: &str = "keep-both";
+#[cfg(feature = "notify")]
+const NOTICE_RESUME: &str = "resume";
+
+/// How long after the desktop failed to show a question's notification it
+/// is tried again.
+#[cfg(feature = "notify")]
+const NOTICE_SHOW_AGAIN: Duration = Duration::from_secs(5);
 
 /// How long a dismissed question notification stays away before it comes
 /// back.
@@ -9750,18 +10150,35 @@ const NOTICE_AGAIN: Duration = Duration::from_secs(1);
 /// for the shell to have taken the change in.
 const FOCUS_SETTLE: Duration = Duration::from_millis(50);
 
-/// The answer a question's notification action stands for; none for a
+/// The answer an action on `key`'s notification stands for; none for a
 /// click on the notification itself or its closing.
 #[cfg(feature = "notify")]
-fn notice_answer(action: &str) -> Option<BlockedAnswer> {
-    match action {
-        NOTICE_SKIP => Some(BlockedAnswer::Skip(false)),
-        NOTICE_RETRY => Some(BlockedAnswer::Retry),
-        NOTICE_ABORT => Some(BlockedAnswer::Abort),
-        NOTICE_ROOT => Some(BlockedAnswer::RetryAsRoot(false)),
-        NOTICE_CANCEL => Some(BlockedAnswer::Cancel),
-        NOTICE_PERMANENTLY => Some(BlockedAnswer::Permanently(false)),
-        _ => None,
+fn notice_answer(key: NoticeKey, action: &str) -> Option<NoticeAnswer> {
+    match key {
+        NoticeKey::Blocked(_) => match action {
+            NOTICE_SKIP => Some(BlockedAnswer::Skip(false)),
+            NOTICE_RETRY => Some(BlockedAnswer::Retry),
+            NOTICE_ABORT => Some(BlockedAnswer::Abort),
+            NOTICE_ROOT => Some(BlockedAnswer::RetryAsRoot(false)),
+            NOTICE_CANCEL => Some(BlockedAnswer::Cancel),
+            NOTICE_PERMANENTLY => Some(BlockedAnswer::Permanently(false)),
+            _ => None,
+        }
+        .map(NoticeAnswer::Blocked),
+        NoticeKey::Replace(_) => match action {
+            NOTICE_REPLACE => Some(ReplaceResult::Replace(false)),
+            NOTICE_MERGE => Some(ReplaceResult::Merge(false)),
+            NOTICE_KEEP_BOTH => Some(ReplaceResult::KeepBoth),
+            NOTICE_SKIP => Some(ReplaceResult::Skip(false)),
+            NOTICE_CANCEL => Some(ReplaceResult::Cancel),
+            _ => None,
+        }
+        .map(NoticeAnswer::Replace),
+        NoticeKey::Paused(_) => match action {
+            NOTICE_RESUME => Some(NoticeAnswer::Resume),
+            NOTICE_CANCEL => Some(NoticeAnswer::Cancel),
+            _ => None,
+        },
     }
 }
 
@@ -10199,16 +10616,87 @@ mod tests {
         assert!(answers(&messages).is_empty(), "{messages:?}");
     }
 
+    /// An update of a question about a taken name changes that question
+    /// only, not another that has come to the front since
+    #[test]
+    fn a_stale_replace_update_leaves_the_next_question_alone() {
+        let page = |id, apply_to_all| {
+            let item =
+                || Box::new(tab::item_from_path(Path::new("/"), IconSizes::default()).unwrap());
+            let (tx, _rx) = mpsc::channel(1);
+            DialogPage::Replace {
+                from: item(),
+                to: item(),
+                totals: None,
+                multiple: true,
+                apply_to_all,
+                conflict_count: 2,
+                tx,
+                id,
+            }
+        };
+        let mut pages = DialogPages::new();
+        let _ = pages.push_back(page(2, false));
+        pages.update_front(page(1, true));
+        assert!(matches!(
+            pages.front(),
+            Some(DialogPage::Replace {
+                id: 2,
+                apply_to_all: false,
+                ..
+            })
+        ));
+        pages.update_front(page(2, true));
+        assert!(matches!(
+            pages.front(),
+            Some(DialogPage::Replace {
+                id: 2,
+                apply_to_all: true,
+                ..
+            })
+        ));
+    }
+
     /// A notification's buttons answer like the card's; clicking the
     /// notification itself or closing it answers nothing.
     #[cfg(feature = "notify")]
     #[test]
     fn notification_actions_answer_like_the_card() {
-        assert_eq!(notice_answer(NOTICE_SKIP), Some(BlockedAnswer::Skip(false)));
-        assert_eq!(notice_answer(NOTICE_RETRY), Some(BlockedAnswer::Retry));
-        assert_eq!(notice_answer(NOTICE_CANCEL), Some(BlockedAnswer::Cancel));
-        assert_eq!(notice_answer("default"), None);
-        assert_eq!(notice_answer("__closed"), None);
+        let blocked = |action| match notice_answer(NoticeKey::Blocked(1), action) {
+            Some(NoticeAnswer::Blocked(answer)) => Some(answer),
+            None => None,
+            other => panic!("{other:?}"),
+        };
+        assert_eq!(blocked(NOTICE_SKIP), Some(BlockedAnswer::Skip(false)));
+        assert_eq!(blocked(NOTICE_RETRY), Some(BlockedAnswer::Retry));
+        assert_eq!(blocked(NOTICE_CANCEL), Some(BlockedAnswer::Cancel));
+        assert_eq!(blocked("default"), None);
+        assert_eq!(blocked("__closed"), None);
+    }
+
+    /// A taken name's notification answers as its dialog does, for this
+    /// one name; a paused operation's resumes or cancels it.
+    #[cfg(feature = "notify")]
+    #[test]
+    fn replace_and_pause_notifications_answer_for_themselves() {
+        let replace = |action| notice_answer(NoticeKey::Replace(1), action);
+        assert!(matches!(
+            replace(NOTICE_REPLACE),
+            Some(NoticeAnswer::Replace(ReplaceResult::Replace(false)))
+        ));
+        assert!(matches!(
+            replace(NOTICE_SKIP),
+            Some(NoticeAnswer::Replace(ReplaceResult::Skip(false)))
+        ));
+        assert!(matches!(
+            replace(NOTICE_CANCEL),
+            Some(NoticeAnswer::Replace(ReplaceResult::Cancel))
+        ));
+        assert!(replace(NOTICE_RETRY).is_none(), "not a replace answer");
+        let paused = |action| notice_answer(NoticeKey::Paused(1), action);
+        assert!(matches!(paused(NOTICE_RESUME), Some(NoticeAnswer::Resume)));
+        assert!(matches!(paused(NOTICE_CANCEL), Some(NoticeAnswer::Cancel)));
+        assert!(paused(NOTICE_SKIP).is_none());
     }
 
     /// An original a move could not remove is kept, not skipped.

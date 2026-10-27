@@ -1226,7 +1226,11 @@ impl<Message> Widget<Message, Theme, Renderer> for Smooth<'_, Message> {
                     state.record_finger_move(moved);
                 }
             }
-            Event::Mouse(mouse::Event::ButtonPressed(_)) if cursor.is_over(layout.bounds()) => {
+            // A finger laid on moving content stops it as a click does
+            Event::Mouse(mouse::Event::ButtonPressed(_))
+            | Event::Touch(touch::Event::FingerPressed { .. })
+                if cursor.is_over(layout.bounds()) =>
+            {
                 state.cancel();
             }
             Event::Window(window::Event::RedrawRequested(_)) => {}
@@ -2068,6 +2072,23 @@ mod tests {
         h.send(Event::Mouse(mouse::Event::ButtonPressed(
             mouse::Button::Left,
         )));
+        h.frame();
+        h.frame();
+        assert_eq!(h.offset(), stopped);
+    }
+
+    #[test]
+    fn a_finger_on_the_list_stops_a_glide() {
+        let mut h = Harness::new();
+        h.wheel(-3.0);
+        h.frame();
+        h.frame();
+        let stopped = h.offset();
+        assert!(stopped > 0.0 && stopped < 180.0);
+        h.send(Event::Touch(touch::Event::FingerPressed {
+            id: touch::Finger(0),
+            position: Point::new(50.0, 50.0),
+        }));
         h.frame();
         h.frame();
         assert_eq!(h.offset(), stopped);

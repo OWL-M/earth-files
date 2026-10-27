@@ -742,6 +742,10 @@ mod tests {
     const ON_DROPDOWN: Point = Point::new(50.0, 10.0);
     /// Inside the button laid out right after the dropdown, beside its list.
     const ON_BUTTON: Point = Point::new(130.0, 10.0);
+    /// In the open list's first and second rows, which open below the
+    /// dropdown, inside the list's padding.
+    const ROW_FIRST: Point = Point::new(20.0, 56.0);
+    const ROW_SECOND: Point = Point::new(20.0, 92.0);
 
     fn view() -> crate::ui::Element<'static, Msg> {
         iced::widget::row![
@@ -794,6 +798,44 @@ mod tests {
 
         let _ = click(&mut renderer, cache, ON_BUTTON, &mut messages);
         assert_eq!(messages, vec![Msg::Pressed]);
+    }
+
+    /// Presses `at` in the open list after the pointer last moved to
+    /// `hovered`, as when the list scrolls under a pointer that stays put.
+    fn pick(hovered: Point, at: Point) -> Vec<Msg> {
+        let mut renderer = iced_texture_cache::testing::headless_tiny_skia();
+        let mut messages = Vec::new();
+        let mut cache = click(&mut renderer, Cache::default(), ON_DROPDOWN, &mut messages);
+        for (event, cursor) in [
+            (
+                Event::Mouse(mouse::Event::CursorMoved { position: hovered }),
+                hovered,
+            ),
+            (
+                Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)),
+                at,
+            ),
+        ] {
+            let mut ui = UserInterface::build(view(), WINDOW, cache, &mut renderer);
+            let _ = ui.update(
+                &[event],
+                mouse::Cursor::Available(cursor),
+                &mut renderer,
+                &mut clipboard::Null,
+                &mut messages,
+            );
+            cache = ui.into_cache();
+        }
+        messages
+    }
+
+    /// The press picks the option under the pointer, not the one it last
+    /// moved over
+    #[test]
+    fn a_press_picks_the_option_under_the_pointer_now() {
+        assert_eq!(pick(ROW_FIRST, ROW_FIRST), [Msg::Selected(0)]);
+        assert_eq!(pick(ROW_SECOND, ROW_SECOND), [Msg::Selected(1)]);
+        assert_eq!(pick(ROW_FIRST, ROW_SECOND), [Msg::Selected(1)]);
     }
 
     /// Ctrl with the wheel over a closed dropdown picks the next choice.

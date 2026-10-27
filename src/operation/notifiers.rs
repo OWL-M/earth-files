@@ -32,19 +32,18 @@ pub fn actively_writing_remove(path: &Path) {
 
 /// Wait until the actively-writing queue is empty or a file has been removed.
 pub async fn actively_writing_tick() {
-    let notify = (|| {
+    let notify = Arc::clone(&ACTIVELY_WRITING.lock().unwrap().notify);
+    // Listening before looking, under the same lock a removal takes:
+    // `notify_waiters` wakes only those already listening, so a removal
+    // between the look and the listen would leave this waiting for another
+    let notified = notify.notified();
+    {
         let guard = ACTIVELY_WRITING.lock().unwrap();
-
-        if !guard.data.is_empty() {
-            return Some(guard.notify.clone());
+        if guard.data.is_empty() {
+            return;
         }
-
-        None
-    })();
-
-    if let Some(notify) = notify {
-        notify.notified().await
     }
+    notified.await;
 }
 
 /// Check if a file is being written to. Avoid thumbnail generation until after it is finished.
@@ -55,4 +54,26 @@ pub fn is_actively_writing_to(path: &Path) -> bool {
         .data
         .iter()
         .any(|p| p == path)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Another file finishing ends the wait, though one is still being
+    /// written
+    #[test]
+    fn a_removal_ends_the_wait() {
+        let path = PathBuf::from("/notifiers-test/a");
+        let other = PathBuf::from("/notifiers-test/b");
+        actively_writing_add(path.clone());
+        actively_writing_add(other.clone());
+        let mut tick = std::pin::pin!(actively_writing_tick());
+        let waker = std::task::Waker::noop();
+        let mut cx = std::task::Context::from_waker(waker);
+        assert!(tick.as_mut().poll(&mut cx).is_pending());
+        actively_writing_remove(&path);
+        assert!(tick.as_mut().poll(&mut cx).is_ready());
+        actively_writing_remove(&other);
+    }
 }

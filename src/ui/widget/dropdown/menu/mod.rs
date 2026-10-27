@@ -428,6 +428,28 @@ where
     text_line_height: text::LineHeight,
 }
 
+impl<S: AsRef<str>, Message> List<'_, S, Message>
+where
+    [S]: std::borrow::ToOwned,
+{
+    /// The option under `cursor`, if it is over one.
+    fn option_at(
+        &self,
+        cursor: mouse::Cursor,
+        layout: Layout<'_>,
+        renderer: &crate::ui::Renderer,
+    ) -> Option<usize> {
+        let position = cursor.position_in(layout.bounds())?;
+        let text_size = self
+            .text_size
+            .unwrap_or_else(|| text::Renderer::default_size(renderer).0);
+        let option_height =
+            f32::from(self.text_line_height.to_absolute(Pixels(text_size))) + self.padding.y();
+        let index = (position.y / option_height) as usize;
+        (index < self.options.len()).then_some(index)
+    }
+}
+
 impl<S: AsRef<str>, Message> Widget<Message, crate::ui::Theme, crate::ui::Renderer>
     for List<'_, S, Message>
 where
@@ -478,10 +500,11 @@ where
     ) {
         match event {
             Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) => {
-                let hovered_guard = self.hovered_option.lock().unwrap();
-                if cursor.is_over(layout.bounds())
-                    && let Some(index) = *hovered_guard
-                {
+                // Where the pointer is now, not where it last moved to: the
+                // list scrolls under a pointer that stays put, and the row
+                // hovered before the scroll is no longer under it
+                if let Some(index) = self.option_at(cursor, layout, renderer) {
+                    *self.hovered_option.lock().unwrap() = Some(index);
                     shell.publish((self.on_selected)(index));
                     if let Some(close_on_selected) = self.close_on_selected.as_ref() {
                         shell.publish(close_on_selected.clone());
@@ -529,25 +552,13 @@ where
                 }
             }
             Event::Touch(touch::Event::FingerPressed { .. }) => {
-                if let Some(cursor_position) = cursor.position_in(layout.bounds()) {
-                    let text_size = self
-                        .text_size
-                        .unwrap_or_else(|| text::Renderer::default_size(renderer).0);
-
-                    let option_height =
-                        f32::from(self.text_line_height.to_absolute(Pixels(text_size)))
-                            + self.padding.y();
-                    let mut hovered_guard = self.hovered_option.lock().unwrap();
-
-                    *hovered_guard = Some((cursor_position.y / option_height) as usize);
-
-                    if let Some(index) = *hovered_guard {
-                        shell.publish((self.on_selected)(index));
-                        if let Some(close_on_selected) = self.close_on_selected.as_ref() {
-                            shell.publish(close_on_selected.clone());
-                        }
-                        shell.capture_event();
+                if let Some(index) = self.option_at(cursor, layout, renderer) {
+                    *self.hovered_option.lock().unwrap() = Some(index);
+                    shell.publish((self.on_selected)(index));
+                    if let Some(close_on_selected) = self.close_on_selected.as_ref() {
+                        shell.publish(close_on_selected.clone());
                     }
+                    shell.capture_event();
                 }
             }
             _ => {}

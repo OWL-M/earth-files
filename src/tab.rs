@@ -46,8 +46,8 @@ use crate::app::{Action, PreviewItem, PreviewKind};
 use crate::config::{ICON_SCALE_MAX, ICON_SIZE_GRID, IconSizes, TabConfig, ThumbCfg};
 use crate::dialog::DialogKind;
 use crate::large_image::{
-    LargeImageManager, decode_large_image, exceeds_memory_limit, should_use_dedicated_worker,
-    should_use_tiling,
+    Decoded, LargeImageManager, decode_large_image, exceeds_memory_limit,
+    should_use_dedicated_worker, should_use_tiling,
 };
 use crate::localize::{LANGUAGE_SORTER, LOCALE};
 use crate::mime_icon::mime_for_path;
@@ -151,12 +151,14 @@ fn preview_text(text: &str) -> String {
 
 // Thumbnail generation semaphore - limits parallel thumbnail workers
 // Uses 4 workers for balanced throughput and memory usage
-pub static THUMB_SEMAPHORE: LazyLock<Arc<tokio::sync::Semaphore>> = LazyLock::new(|| {
-    Arc::new(tokio::sync::Semaphore::new(
-        std::thread::available_parallelism()
-            .map_or(1, std::num::NonZero::get)
-            .min(4),
-    ))
+pub static THUMB_SEMAPHORE: LazyLock<Arc<tokio::sync::Semaphore>> =
+    LazyLock::new(|| Arc::new(tokio::sync::Semaphore::new(*THUMB_PERMITS as usize)));
+
+/// How many permits [`THUMB_SEMAPHORE`] has: what a job takes to run alone.
+static THUMB_PERMITS: LazyLock<u32> = LazyLock::new(|| {
+    std::thread::available_parallelism()
+        .map_or(1, std::num::NonZero::get)
+        .min(4) as u32
 });
 
 /// Runs `work` on a blocking thread, no more than `semaphore` allows at once.
@@ -179,7 +181,21 @@ where
     T: Send + 'static,
     F: FnOnce() -> T + Send + 'static,
 {
-    let permit = semaphore.acquire_owned().await.ok()?;
+    bounded_blocking_taking(semaphore, 1, work).await
+}
+
+/// As [`bounded_blocking`], taking `permits` of the semaphore's permits for
+/// the work rather than one.
+pub(crate) async fn bounded_blocking_taking<T, F>(
+    semaphore: Arc<tokio::sync::Semaphore>,
+    permits: u32,
+    work: F,
+) -> Option<T>
+where
+    T: Send + 'static,
+    F: FnOnce() -> T + Send + 'static,
+{
+    let permit = semaphore.acquire_many_owned(permits).await.ok()?;
     tokio::task::spawn_blocking(move || {
         let _permit = permit;
         work()
@@ -1633,10 +1649,15 @@ pub fn search_scope_icon(recursive: bool) -> widget::icon::Handle {
     }
 }
 
+/// Searches `search_location` for names matching `term`, handing each
+/// match to `callback`, which returns whether to go on. `wanted` is asked
+/// at every entry visited, matching or not, so that a search nobody waits
+/// for any more stops even where nothing matches.
 pub fn scan_search<F: Fn(SearchItem) -> bool + Sync>(
     search_location: &SearchLocation,
     term: &str,
     options: SearchOptions,
+    wanted: &(dyn Fn() -> bool + Sync),
     callback: F,
 ) {
     if term.is_empty() {
@@ -1669,6 +1690,9 @@ pub fn scan_search<F: Fn(SearchItem) -> bool + Sync>(
             }
             builder.build_parallel().run(|| {
                 Box::new(|entry_res| {
+                    if !wanted() {
+                        return ignore::WalkState::Quit;
+                    }
                     let Ok(entry) = entry_res else {
                         // Skip invalid entries
                         return ignore::WalkState::Skip;
@@ -1720,6 +1744,9 @@ pub fn scan_search<F: Fn(SearchItem) -> bool + Sync>(
             };
 
             for bookmark in recent_files.bookmarks() {
+                if !wanted() {
+                    break;
+                }
                 let path = uri_to_path(bookmark.href());
                 if let Some(path) = path
                     && path.exists()
@@ -1877,7 +1904,11 @@ impl EditLocation {
         };
         let completions = self.completions.as_ref()?;
         let completion = completions.get(selected)?;
-        Some(self.location.with_path(completion.1.clone()).normalize())
+        Some(
+            self.location
+                .with_path(completion.1.clone())
+                .normalize_lexically(),
+        )
     }
 
     /// The URI to resolve through a mounter, when this edit names a network
@@ -2017,7 +2048,129 @@ impl std::fmt::Display for Location {
     }
 }
 
+#[cfg(test)]
+impl Tab {
+    /// [`Self::update`], with each step to a location it asks to resolve
+    /// resolved at once, as the app's worker would, and its answer handled.
+    pub fn update_resolved(&mut self, message: Message, modifiers: Modifiers) -> Vec<Command> {
+        let mut done = Vec::new();
+        let mut pending = self.update(message, modifiers);
+        while !pending.is_empty() {
+            let mut next = Vec::new();
+            for command in pending {
+                match command {
+                    Command::ResolveLocation(request, location_request) => {
+                        let resolved = resolve_location(&location_request);
+                        next.extend(
+                            self.update(Message::LocationResolved(request, resolved), modifiers),
+                        );
+                    }
+                    other => done.push(other),
+                }
+            }
+            pending = next;
+        }
+        done
+    }
+}
+
+/// What a step to a file, rather than a folder, does.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum OnFile {
+    /// Go to its folder with it selected.
+    Select,
+    /// Open it, staying where the tab is.
+    Open,
+}
+
+/// A step to a location, for [`resolve_location`] to work out.
+#[derive(Clone, Debug)]
+pub struct LocationRequest {
+    pub location: Location,
+    /// The history entry stepped to, for Back and Forward.
+    pub history_i_opt: Option<usize>,
+    /// Where to go instead if `location` is not there: the first completion
+    /// of an address typed but not finished.
+    pub fallback: Option<Location>,
+    pub on_file: OnFile,
+}
+
+impl LocationRequest {
+    fn new(location: Location, history_i_opt: Option<usize>) -> Self {
+        Self {
+            location,
+            history_i_opt,
+            fallback: None,
+            on_file: OnFile::Select,
+        }
+    }
+}
+
+/// Where a step to a location goes, as the filesystem has it.
+#[derive(Clone, Debug)]
+pub struct ResolvedLocation {
+    /// The location made canonical: a file's folder, for a file.
+    pub location: Location,
+    /// The file stepped to, to select in its folder.
+    pub selected_paths: Option<Vec<PathBuf>>,
+    /// Whether `location` is a folder that can be gone to.
+    pub is_dir: bool,
+    /// The history entry stepped to, for Back and Forward.
+    pub history_i_opt: Option<usize>,
+    /// A file to open instead of going anywhere.
+    pub open_file: Option<PathBuf>,
+}
+
+/// What `request` means: its location's canonical form, or for a file,
+/// opening it or its folder with it selected, as the request says. Asks the
+/// filesystem, so it is for workers.
+pub fn resolve_location(request: &LocationRequest) -> ResolvedLocation {
+    let history_i_opt = request.history_i_opt;
+    let mut location = &request.location;
+    if let Some(fallback) = &request.fallback
+        && location.path_opt().is_some_and(|path| !path.exists())
+    {
+        location = fallback;
+    }
+    if request.on_file == OnFile::Open
+        && let Some(path) = location.path_opt()
+        && !path.is_dir()
+    {
+        return ResolvedLocation {
+            location: location.clone(),
+            selected_paths: None,
+            is_dir: false,
+            history_i_opt,
+            open_file: Some(path.clone()),
+        };
+    }
+    let mut location = location.normalize();
+    let mut selected_paths = None;
+    if let Some(path) = location.path_opt()
+        && !path.is_dir()
+        && let Some(parent) = path.parent()
+    {
+        selected_paths = Some(vec![path.clone()]);
+        location = location.with_path(parent.to_path_buf());
+    }
+    let is_dir = location.path_opt().is_none_or(|path| path.is_dir());
+    ResolvedLocation {
+        location,
+        selected_paths,
+        is_dir,
+        history_i_opt,
+        open_file: None,
+    }
+}
+
 impl Location {
+    /// The location in its canonical form: a network URI ending in a
+    /// slash, and a path made absolute with its links resolved, ending in a
+    /// slash if it is a folder.
+    ///
+    /// This asks the filesystem, which a mount that has stopped answering
+    /// does not do, so it is for workers only; the event loop has
+    /// [`Self::normalize_lexically`].
     pub fn normalize(&self) -> Self {
         if let Location::Network(uri, ..) = self {
             if !uri.ends_with('/') {
@@ -2039,6 +2192,16 @@ impl Location {
             self.with_path(path)
         } else {
             self.clone()
+        }
+    }
+
+    /// As much of [`Self::normalize`] as needs no filesystem: a network URI
+    /// ends in a slash, and a path is left as it is, to be made canonical by
+    /// the rescan that reads it.
+    pub fn normalize_lexically(&self) -> Self {
+        match self {
+            Self::Network(..) => self.normalize(),
+            _ => self.clone(),
         }
     }
 
@@ -2107,8 +2270,8 @@ impl Location {
         match self {
             Self::Search(..) => self
                 .empty_search_folder()
-                .map(|path| Self::Path(path.clone()).normalize().to_string()),
-            _ => Some(self.normalize().to_string()),
+                .map(|path| Self::Path(path.clone()).normalize_lexically().to_string()),
+            _ => Some(self.normalize_lexically().to_string()),
         }
     }
 
@@ -2285,6 +2448,10 @@ pub enum Command {
     /// Ask a mounter what this URI names, off the event loop, and answer with
     /// [`Message::NetworkResolved`] carrying the same request number back.
     ResolveNetwork(u64, String),
+    /// Ask the filesystem what a location to go to names, off the event
+    /// loop, with [`resolve_location`], and answer with
+    /// [`Message::LocationResolved`] carrying the same request number back.
+    ResolveLocation(u64, LocationRequest),
     Delete(Vec<PathBuf>),
     /// Files were dropped on this tab: read the drag payload and move them into
     /// `to`, or copy them when the second field is set.
@@ -2314,6 +2481,9 @@ pub enum Message {
     /// What a mounter said a submitted network URI names, or `None` when it
     /// could not say, tagged with the request number it answers.
     NetworkResolved(u64, String, Option<Location>),
+    /// What a location to go to names, tagged with the request number it
+    /// answers.
+    LocationResolved(u64, ResolvedLocation),
     /// Widen the running search to subfolders, or narrow it to this folder.
     SetSearchRecursive(bool),
     /// A previewed item has nothing from the disk yet: start reading it, once.
@@ -2403,7 +2573,8 @@ pub enum Message {
     ShiftPermissions(Option<(PathBuf, u32)>, u32, u32),
     SetSort(HeadingOptions, bool),
     TabComplete(PathBuf, Vec<(String, PathBuf)>),
-    Thumbnail(PathBuf, ItemThumbnail),
+    /// A thumbnail of the file at the path, as last modified at the time.
+    Thumbnail(PathBuf, Option<SystemTime>, ItemThumbnail),
     ToggleSort(HeadingOptions),
     WindowDrag,
     WindowToggleMaximize,
@@ -2418,7 +2589,28 @@ pub enum Message {
     Checksums(PathBuf, ChecksumState),
     CalculateChecksums(PathBuf),
     CopyChecksum(String),
-    ImageDecoded(PathBuf, u32, u32, Vec<u8>, Option<(u32, u32)>, u64), // path, width, height, pixels, display_size, generation
+    /// path, width, height, pixels, display_size, generation, and which
+    /// file the pixels are of
+    ImageDecoded(
+        PathBuf,
+        u32,
+        u32,
+        Vec<u8>,
+        Option<(u32, u32)>,
+        u64,
+        crate::large_image::FileStamp,
+    ),
+    /// `path` was replaced while the gallery decoded it, as its decode
+    /// numbered so.
+    ImageDecodeChanged(PathBuf, u64),
+    /// The listing was read again: the image the gallery shows may have
+    /// been replaced.
+    GalleryRecheck,
+    /// The gallery could not decode `path`, as its decode numbered so.
+    ImageDecodeFailed(PathBuf, u64),
+    /// The gallery moved on before `path`'s decode, numbered so, had its
+    /// turn.
+    ImageDecodeSuperseded(PathBuf, u64),
 }
 
 impl Message {
@@ -3805,7 +3997,7 @@ impl Mode {
 }
 
 struct SearchContext {
-    results_rx: mpsc::Receiver<SearchItem>,
+    results_rx: mpsc::Receiver<Item>,
     ready: Arc<atomic::AtomicBool>,
     last_modified_opt: Arc<RwLock<Option<SystemTime>>>,
 }
@@ -3965,6 +4157,15 @@ pub struct Tab {
     /// is put away, so an answer that outlives the question it was asked for
     /// is dropped rather than dragging the tab back.
     resolving_network: Option<u64>,
+    /// The request number of the step to a local location being resolved
+    /// on a worker, answered by [`Message::LocationResolved`], and the
+    /// history entry and location it steps to.
+    resolving_location: Option<(u64, Option<usize>, Location)>,
+    /// Counts the steps asked of the tab, answered or still being resolved,
+    /// so that whatever was waiting to send it somewhere can tell it has
+    /// been sent elsewhere since.
+    steps: u64,
+    next_location_request: u64,
     /// Which listing this tab is showing.
     ///
     /// Bumped whenever the items are replaced wholesale -- a scan, a rescan, a
@@ -4309,7 +4510,8 @@ impl Tab {
             .or_else(|| SORT_OPTION_FALLBACK.get(&location_str))
             .copied()
             .unwrap_or((HeadingOptions::Name, true));
-        let location = location.normalize();
+        // Made canonical by the rescan that follows, off this thread
+        let location = location.normalize_lexically();
         // Named from the path alone; the rescan that follows names them from
         // the filesystem, off this thread.
         let location_ancestors = location.ancestors(false);
@@ -4321,6 +4523,9 @@ impl Tab {
             location_title,
             location_context_menu_index: None,
             resolving_network: None,
+            resolving_location: None,
+            steps: 0,
+            next_location_request: 0,
             listing: 0,
             navigation: 0,
             scans: 0,
@@ -5664,20 +5869,30 @@ impl Tab {
         if should_decode {
             vec![Command::Iced(
                 crate::ui::iced::Task::perform(
-                    decode_large_image(path, target_dimensions),
-                    move |result| {
-                        result
-                            .map(|(path, width, height, pixels)| {
-                                Message::ImageDecoded(
-                                    path,
-                                    width,
-                                    height,
-                                    pixels,
-                                    display_dimensions,
-                                    generation,
-                                )
-                            })
-                            .unwrap_or_else(|| Message::AutoScroll(None))
+                    decode_large_image(
+                        path.clone(),
+                        target_dimensions,
+                        self.large_image_manager.decode_order(),
+                    ),
+                    move |result| match result {
+                        Decoded::Done((path, width, height, pixels, stamp)) => {
+                            Message::ImageDecoded(
+                                path,
+                                width,
+                                height,
+                                pixels,
+                                display_dimensions,
+                                generation,
+                                stamp,
+                            )
+                        }
+                        // Asked for again, which decodes the new file
+                        Decoded::Changed => Message::ImageDecodeChanged(path.clone(), generation),
+                        // Said, so that the image stops showing as loading
+                        Decoded::Failed => Message::ImageDecodeFailed(path.clone(), generation),
+                        Decoded::Superseded => {
+                            Message::ImageDecodeSuperseded(path.clone(), generation)
+                        }
                     },
                 )
                 .into(),
@@ -5778,6 +5993,26 @@ impl Tab {
         self.scans
     }
 
+    /// Takes `canonical` as the name of the folder `requested` named, if
+    /// the tab is still there: for a location gone to as given, which only
+    /// the rescan's worker could make canonical. The current history entry
+    /// takes it too.
+    pub fn adopt_canonical(&mut self, requested: &Location, canonical: &Location) {
+        if self.location == *canonical || !self.location.lists_same_as(requested) {
+            return;
+        }
+        let Some(path) = canonical.listed_folder().or_else(|| canonical.path_opt()) else {
+            return;
+        };
+        let adopted = self.location.with_path(path.clone());
+        if let Some(entry) = self.history.get_mut(self.history_i)
+            && *entry == self.location
+        {
+            *entry = adopted.clone();
+        }
+        self.location = adopted;
+    }
+
     /// Whether `scan` is the latest read [`Self::start_scan`] numbered.
     pub fn is_latest_scan(&self, scan: u64) -> bool {
         scan == self.scans
@@ -5802,7 +6037,12 @@ impl Tab {
         history_i_opt: Option<usize>,
         new_listing: bool,
     ) {
-        self.location = location.normalize();
+        // Made canonical by the rescan that follows, off this thread
+        self.location = location.normalize_lexically();
+        // A location still being resolved for an earlier step is not where
+        // this one goes
+        self.resolving_location = None;
+        self.steps = self.steps.wrapping_add(1);
         // Named from the path alone, so the tab turns at once even when the
         // folder is on a mount that has stopped answering; the rescan that
         // follows names them from the filesystem, off this thread.
@@ -5941,6 +6181,10 @@ impl Tab {
     fn update_inner(&mut self, message: Message, modifiers: Modifiers) -> Vec<Command> {
         let mut commands = Vec::new();
         let mut cd = None;
+        // For a step to a file: what to do with it, and where to go if the
+        // step's location is not there
+        let mut cd_on_file = OnFile::Select;
+        let mut cd_fallback = None;
         let mut history_i_opt = None;
         let mod_ctrl = modifiers.contains(Modifiers::CTRL) && self.mode.multiple();
         let mod_shift = modifiers.contains(Modifiers::SHIFT) && self.mode.multiple();
@@ -6505,30 +6749,35 @@ impl Tab {
                         match typed.trim().parse::<url::Url>() {
                             Ok(url) if url.scheme() != "file" && url.has_host() => {
                                 let uri = url.as_str().to_string();
-                                edit_location =
-                                    Location::Network(uri.clone(), uri, None).normalize().into();
+                                edit_location = Location::Network(uri.clone(), uri, None)
+                                    .normalize_lexically()
+                                    .into();
                                 typed_uri = true;
                             }
                             Err(_) if matches!(edit_location.location, Location::Network(..)) => {
-                                edit_location =
-                                    Location::Path(PathBuf::from(typed)).normalize().into();
+                                edit_location = Location::Path(PathBuf::from(typed))
+                                    .normalize_lexically()
+                                    .into();
                             }
                             _ => {}
                         }
                     }
 
-                    // Select first completion if current location does not exist
+                    // The first completion, if what was typed is not there:
+                    // the worker looks
                     if edit_location.selected.is_none()
-                        && edit_location
+                        && matches!(edit_location.location, Location::Path(_))
+                    {
+                        cd_fallback = edit_location
                             .completions
                             .as_ref()
-                            .is_some_and(|completions| !completions.is_empty())
-                        && edit_location
-                            .location
-                            .path_opt()
-                            .is_some_and(|path| !path.exists())
-                    {
-                        edit_location.selected = Some(0);
+                            .and_then(|completions| completions.first())
+                            .map(|(_, path)| {
+                                edit_location
+                                    .location
+                                    .with_path(path.clone())
+                                    .normalize_lexically()
+                            });
                     }
 
                     if let Some(uri) = edit_location.network_uri() {
@@ -6540,6 +6789,11 @@ impl Tab {
                         let request = self.next_network_request;
                         self.next_network_request = self.next_network_request.wrapping_add(1);
                         self.resolving_network = Some(request);
+                        // The newest step: one still being resolved is
+                        // withdrawn, and whatever waits to send the tab
+                        // somewhere can tell
+                        self.resolving_location = None;
+                        self.steps = self.steps.wrapping_add(1);
                         commands.push(Command::ResolveNetwork(request, uri.to_owned()));
                         self.edit_location = Some(edit_location);
                     } else {
@@ -6579,6 +6833,18 @@ impl Tab {
                     // submitting an unresolvable URI has always done.
                     cd =
                         Some(resolved.unwrap_or_else(|| Location::Network(uri.clone(), uri, None)));
+                }
+            }
+            Message::LocationResolved(request, resolved) => {
+                // Only the answer to the step still being taken: going
+                // anywhere since withdrew it
+                if self
+                    .resolving_location
+                    .as_ref()
+                    .is_some_and(|(asked, ..)| *asked == request)
+                {
+                    self.resolving_location = None;
+                    self.go_to(resolved, &mut commands);
                 }
             }
             Message::EditLocationTab => {
@@ -6680,7 +6946,10 @@ impl Tab {
                 }
             }
             Message::GoNext => {
-                if let Some(history_i) = self.history_i.checked_add(1)
+                // From the entry a step still being resolved goes to: a
+                // second press before the first is answered goes one further
+                let from = self.pending_history_i();
+                if let Some(history_i) = from.checked_add(1)
                     && let Some(location) = self.history.get(history_i)
                 {
                     cd = Some(self.restored(location));
@@ -6688,7 +6957,8 @@ impl Tab {
                 }
             }
             Message::GoPrevious => {
-                if let Some(history_i) = self.history_i.checked_sub(1)
+                let from = self.pending_history_i();
+                if let Some(history_i) = from.checked_sub(1)
                     && let Some(location) = self.history.get(history_i)
                 {
                     cd = Some(self.restored(location));
@@ -6978,24 +7248,21 @@ impl Tab {
                 }
             }
             Message::Location(location) => {
-                // Workaround to support favorited files
-                match &location {
-                    Location::Path(path) => {
-                        if path.is_dir() {
-                            cd = Some(location);
-                        } else {
-                            commands.push(Command::OpenFile(vec![path.clone()]));
-                        }
-                    }
-                    _ => {
-                        cd = Some(location);
-                    }
-                }
+                // Workaround to support favorited files: a file is opened,
+                // as the worker that looks at it finds
+                cd_on_file = if matches!(location, Location::Path(_)) {
+                    OnFile::Open
+                } else {
+                    OnFile::Select
+                };
+                cd = Some(location);
             }
             Message::LocationUp => {
                 // Sets location to the path's parent
                 // Does nothing if path is root or location is Trash
-                if let Location::Path(ref path) = self.location
+                // From where a step still being resolved goes: a second
+                // press before the first is answered goes one further
+                if let Location::Path(path) = self.pending_location()
                     && let Some(parent) = path.parent()
                 {
                     cd = Some(Location::Path(parent.to_owned()));
@@ -7004,11 +7271,9 @@ impl Tab {
             Message::Open(path_opt) => {
                 match path_opt {
                     Some(path) => {
-                        if path.is_dir() {
-                            cd = Some(Location::Path(path));
-                        } else {
-                            commands.push(Command::OpenFile(vec![path]));
-                        }
+                        // Opened if it is a file, as the worker finds
+                        cd = Some(Location::Path(path));
+                        cd_on_file = OnFile::Open;
                     }
                     // Open selected items
                     None => {
@@ -7244,24 +7509,22 @@ impl Tab {
                     if let Some(items) = &mut self.items_opt {
                         if finished || context.ready.swap(false, atomic::Ordering::SeqCst) {
                             let duration = Instant::now();
-                            while let Ok(search_item) = context.results_rx.try_recv() {
+                            while let Ok(item) = context.results_rx.try_recv() {
                                 // Newest first, which is the sort order search locations are
                                 // pinned to in `sort_options`
-                                let index =
-                                    if let SearchItem::Path(_, _, ref metadata) = search_item {
-                                        let item_modified = metadata.modified().ok();
-                                        match items.binary_search_by(|other| {
-                                            item_modified.cmp(&other.metadata.modified())
-                                        }) {
-                                            Ok(index) => index,
-                                            Err(index) => index,
-                                        }
-                                    } else {
-                                        items.len()
-                                    };
+                                let index = if matches!(item.metadata, ItemMetadata::Path { .. }) {
+                                    let item_modified = item.metadata.modified();
+                                    match items.binary_search_by(|other| {
+                                        item_modified.cmp(&other.metadata.modified())
+                                    }) {
+                                        Ok(index) => index,
+                                        Err(index) => index,
+                                    }
+                                } else {
+                                    items.len()
+                                };
 
                                 if index < max_results {
-                                    let item = item_from_search_item(search_item, sizes);
                                     // Before the cap and the cutoff below, not
                                     // after them: a result that will not be
                                     // shown must not take the place of one that
@@ -7492,11 +7755,15 @@ impl Tab {
                     }
                 }
             }
-            Message::Thumbnail(path, thumbnail) => {
+            Message::Thumbnail(path, modified, thumbnail) => {
                 if let Some(ref mut items) = self.items_opt {
                     let location = Location::Path(path);
                     for item in items.iter_mut() {
-                        if item.location_opt.as_ref() == Some(&location) {
+                        // Not of a file put at the same path since: its
+                        // pixels are the old file's
+                        if item.location_opt.as_ref() == Some(&location)
+                            && item.metadata.modified() == modified
+                        {
                             let handle_opt = match &thumbnail {
                                 ItemThumbnail::NotImage => None,
                                 ItemThumbnail::Image(handle, _) => Some(widget::icon::Handle {
@@ -7519,16 +7786,49 @@ impl Tab {
                     }
                 }
             }
-            Message::ImageDecoded(path, width, height, pixels, display_size, generation) => {
+            Message::ImageDecoded(path, width, height, pixels, display_size, generation, stamp) => {
                 // Create handle from pre-decoded RGBA data (fast!)
                 let handle = widget::image::Handle::from_rgba(width, height, pixels);
 
-                // Store decoded image handle if generation still matches (not superseded)
-                self.large_image_manager.store_decoded_with_generation(
+                // Store decoded image handle if generation still matches (not
+                // superseded) and the file is the one asked for
+                let current = self.large_image_manager.is_current(&path, generation);
+                let stored = self.large_image_manager.store_decoded_with_generation(
                     path,
                     handle,
                     display_size,
                     generation,
+                    stamp,
+                );
+                if current && !stored {
+                    // Of a file replaced since: the new one is decoded
+                    commands.extend(self.trigger_async_decode());
+                }
+            }
+            Message::ImageDecodeChanged(path, generation) => {
+                if self.large_image_manager.is_current(&path, generation) {
+                    self.large_image_manager
+                        .abandon_with_generation(&path, generation);
+                    commands.extend(self.trigger_async_decode());
+                }
+            }
+            Message::GalleryRecheck => {
+                // Decodes the image shown again only if its file changed
+                commands.extend(self.trigger_async_decode());
+            }
+            Message::ImageDecodeSuperseded(path, generation) => {
+                self.large_image_manager
+                    .abandon_with_generation(&path, generation);
+                // The gallery may have come back to it while it waited, which
+                // asked for nothing as it was still marked as loading: asked
+                // for now, if it is the image shown
+                commands.extend(self.trigger_async_decode());
+            }
+            Message::ImageDecodeFailed(path, generation) => {
+                self.large_image_manager.fail_with_generation(
+                    path,
+                    generation,
+                    "Failed to decode image".to_string(),
                 );
             }
             Message::ToggleSort(heading_option) => {
@@ -7733,35 +8033,98 @@ impl Tab {
         }
 
         // Change directory if requested
-        if let Some(mut location) = cd {
-            location = location.normalize();
-            // Select parent if location is not directory
-            let mut selected_paths = None;
-            if let Some(path) = location.path_opt()
-                && !path.is_dir()
-                && let Some(parent) = path.parent()
-            {
-                selected_paths = Some(vec![path.clone()]);
-                location = location.with_path(parent.to_path_buf());
-            }
-            if location != self.location || selected_paths.is_some() {
-                if location.path_opt().is_none_or(|path| path.is_dir()) {
-                    if selected_paths.is_none() {
-                        selected_paths = self.location.path_opt().map(|path| vec![path.clone()]);
-                    }
-                    self.change_location(&location, history_i_opt);
-                    commands.push(Command::ChangeLocation(
-                        self.title(),
-                        location,
-                        selected_paths,
-                    ));
-                } else {
-                    log::warn!("tried to cd to {location:?} which is not a directory");
-                }
+        if let Some(location) = cd {
+            // A step taken withdraws one still waiting for its answer, local
+            // or network
+            self.steps = self.steps.wrapping_add(1);
+            self.resolving_location = None;
+            self.resolving_network = None;
+            if location.path_opt().is_some() {
+                // Whether it is a folder, and what it is called once its
+                // links are followed, is the filesystem's to say, which a
+                // mount that has stopped answering never does: asked on a
+                // worker, and gone to when the answer comes
+                let request = self.next_location_request;
+                self.next_location_request = self.next_location_request.wrapping_add(1);
+                self.resolving_location = Some((request, history_i_opt, location.clone()));
+                commands.push(Command::ResolveLocation(
+                    request,
+                    LocationRequest {
+                        fallback: cd_fallback,
+                        on_file: cd_on_file,
+                        ..LocationRequest::new(location, history_i_opt)
+                    },
+                ));
+            } else {
+                self.go_to(
+                    ResolvedLocation {
+                        location: location.normalize_lexically(),
+                        selected_paths: None,
+                        is_dir: true,
+                        history_i_opt,
+                        open_file: None,
+                    },
+                    &mut commands,
+                );
             }
         }
 
         commands
+    }
+
+    /// The history entry the tab is at, or is on its way to while a step
+    /// there is being resolved.
+    fn pending_history_i(&self) -> usize {
+        self.resolving_location
+            .as_ref()
+            .and_then(|(_, history_i, _)| *history_i)
+            .unwrap_or(self.history_i)
+    }
+
+    /// Where the tab is, or is on its way to while a step there is being
+    /// resolved: what a step relative to it, such as Up, starts from.
+    fn pending_location(&self) -> &Location {
+        self.resolving_location
+            .as_ref()
+            .map_or(&self.location, |(_, _, location)| location)
+    }
+
+    /// Counts the steps asked of the tab: see the field.
+    pub const fn steps(&self) -> u64 {
+        self.steps
+    }
+
+    /// Goes where `resolved` says, unless that is here already.
+    fn go_to(&mut self, resolved: ResolvedLocation, commands: &mut Vec<Command>) {
+        let ResolvedLocation {
+            location,
+            mut selected_paths,
+            is_dir,
+            history_i_opt,
+            open_file,
+        } = resolved;
+        if let Some(path) = open_file {
+            commands.push(Command::OpenFile(vec![path]));
+            return;
+        }
+        // A history step counts even to where the tab is: Back from the
+        // second A in [A, B, A] goes to the first
+        let moves_in_history = history_i_opt.is_some_and(|history_i| history_i != self.history_i);
+        if location != self.location || selected_paths.is_some() || moves_in_history {
+            if is_dir {
+                if selected_paths.is_none() {
+                    selected_paths = self.location.path_opt().map(|path| vec![path.clone()]);
+                }
+                self.change_location(&location, history_i_opt);
+                commands.push(Command::ChangeLocation(
+                    self.title(),
+                    location,
+                    selected_paths,
+                ));
+            } else {
+                log::warn!("tried to cd to {location:?} which is not a directory");
+            }
+        }
     }
 
     pub(crate) fn sort_options(&self) -> (HeadingOptions, bool, bool) {
@@ -9993,27 +10356,31 @@ impl Tab {
                 };
                 if can_thumbnail {
                     let mime = item.mime.clone();
+                    let modified = item.metadata.modified();
                     let max_jobs = jobs;
                     let max_mb = u64::from(self.thumb_config.max_mem_mb.get());
                     let max_size = u64::from(self.thumb_config.max_size_mb.get());
 
                     // Determine effective memory budget based on image size
-                    let (effective_max_mb, effective_jobs) = if mime.is_media("image") {
+                    let (dedicated, effective_max_mb, effective_jobs) = if mime.is_media("image") {
                         match item.image_dimensions.get().copied().flatten() {
                             Some((width, height)) => {
-                                let (_use_dedicated, eff_mb, eff_jobs) =
-                                    should_use_dedicated_worker(width, height, max_mb, max_jobs);
-                                (eff_mb, eff_jobs)
+                                should_use_dedicated_worker(width, height, max_mb, max_jobs)
                             }
-                            None => (max_mb, max_jobs),
+                            None => (false, max_mb, max_jobs),
                         }
                     } else {
-                        (max_mb, max_jobs)
+                        (false, max_mb, max_jobs)
                     };
+                    // An image allowed the whole budget runs alone: beside
+                    // other jobs, each large one would take the budget again
+                    let permits = if dedicated { *THUMB_PERMITS } else { 1 };
 
                     #[derive(Clone)]
                     struct Wrapper {
                         path: PathBuf,
+                        modified: Option<SystemTime>,
+                        permits: u32,
                         metadata: ItemMetadata,
                         mime: Mime,
                         effective_max_mb: u64,
@@ -10024,12 +10391,17 @@ impl Tab {
                     impl Hash for Wrapper {
                         fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
                             self.path.hash(state);
+                            // A file replaced at the path is thumbnailed
+                            // afresh, not given the old one's job
+                            self.modified.hash(state);
                         }
                     }
 
                     subscriptions.push(Subscription::run_with(
                         Wrapper {
                             path: path.clone(),
+                            modified,
+                            permits,
                             metadata,
                             mime,
                             effective_max_mb,
@@ -10039,6 +10411,8 @@ impl Tab {
                         |wrapper| {
                             let Wrapper {
                                 path,
+                                modified,
+                                permits,
                                 metadata,
                                 mime,
                                 effective_max_mb,
@@ -10055,24 +10429,28 @@ impl Tab {
                                     let message = {
                                         let path = path.clone();
 
-                                        bounded_blocking(Arc::clone(&THUMB_SEMAPHORE), move || {
-                                            let start = Instant::now();
-                                            let thumbnail = ItemThumbnail::new(
-                                                &path,
-                                                metadata,
-                                                mime,
-                                                THUMBNAIL_SIZE,
-                                                effective_max_mb,
-                                                effective_jobs,
-                                                max_size,
-                                            );
-                                            log::debug!(
-                                                "thumbnailed {} in {:?}",
-                                                path.display(),
-                                                start.elapsed()
-                                            );
-                                            Message::Thumbnail(path, thumbnail)
-                                        })
+                                        bounded_blocking_taking(
+                                            Arc::clone(&THUMB_SEMAPHORE),
+                                            permits,
+                                            move || {
+                                                let start = Instant::now();
+                                                let thumbnail = ItemThumbnail::new(
+                                                    &path,
+                                                    metadata,
+                                                    mime,
+                                                    THUMBNAIL_SIZE,
+                                                    effective_max_mb,
+                                                    effective_jobs,
+                                                    max_size,
+                                                );
+                                                log::debug!(
+                                                    "thumbnailed {} in {:?}",
+                                                    path.display(),
+                                                    start.elapsed()
+                                                );
+                                                Message::Thumbnail(path, modified, thumbnail)
+                                            },
+                                        )
                                         .await
                                     };
 
@@ -10249,6 +10627,14 @@ impl Tab {
             let term = term.clone();
             let options = *options;
             let start = *start;
+            /// Left out of the key: a zoom while searching takes new icons,
+            /// not a new search
+            #[derive(Debug, Clone)]
+            struct Unkeyed<T>(T);
+            impl<T> Hash for Unkeyed<T> {
+                fn hash<H: std::hash::Hasher>(&self, _state: &mut H) {}
+            }
+
             #[derive(Debug, Hash, Clone)]
             struct Wrapper {
                 location: Location,
@@ -10256,6 +10642,7 @@ impl Tab {
                 term: String,
                 options: SearchOptions,
                 start: Instant,
+                sizes: Unkeyed<IconSizes>,
             }
 
             subscriptions.push(Subscription::run_with(
@@ -10265,6 +10652,7 @@ impl Tab {
                     term: term.clone(),
                     options,
                     start,
+                    sizes: Unkeyed(self.config.icon_sizes),
                 },
                 |wrapper| {
                     let wrapper = wrapper.clone();
@@ -10277,6 +10665,7 @@ impl Tab {
                                 term,
                                 options,
                                 start,
+                                sizes: Unkeyed(sizes),
                             } = wrapper;
                             let (results_tx, results_rx) = mpsc::channel(65536);
 
@@ -10297,10 +10686,15 @@ impl Tab {
                             let (watch_tx, mut watch_rx) = tokio::sync::watch::channel(true);
                             {
                                 tokio::task::spawn_blocking(move || {
+                                    // Wanted while the tab still holds the
+                                    // other end: a newer search, or leaving,
+                                    // lets go of it
+                                    let open_tx = results_tx.clone();
                                     scan_search(
                                         &search_location,
                                         &term,
                                         options,
+                                        &|| !open_tx.is_closed(),
                                         move |search_item| -> bool {
                                             // Don't send if the result is too old
                                             if let Some(last_modified) =
@@ -10317,7 +10711,12 @@ impl Tab {
                                                 }
                                             }
 
-                                            match results_tx.blocking_send(search_item) {
+                                            // Built here, not as it is
+                                            // shown: typing a file reads it,
+                                            // which a slow drive or a
+                                            // launcher makes slow
+                                            let item = item_from_search_item(search_item, sizes);
+                                            match results_tx.blocking_send(item) {
                                                 Ok(()) => {
                                                     if ready.swap(true, atomic::Ordering::SeqCst) {
                                                         true
@@ -10545,6 +10944,30 @@ mod tests {
             std::thread::sleep(Duration::from_millis(10));
         }
         panic!("permit was never returned");
+    }
+
+    /// A job taking every permit waits for the others, and holds all of
+    /// them while it runs
+    #[tokio::test]
+    async fn a_job_taking_every_permit_runs_alone() {
+        use std::sync::Arc;
+        use std::sync::atomic::{AtomicBool, Ordering};
+
+        let semaphore = Arc::new(tokio::sync::Semaphore::new(2));
+        let held = Arc::clone(&semaphore).acquire_owned().await.unwrap();
+        let ran = Arc::new(AtomicBool::new(false));
+        let job = tokio::spawn(super::bounded_blocking_taking(Arc::clone(&semaphore), 2, {
+            let ran = Arc::clone(&ran);
+            move || ran.store(true, Ordering::Relaxed)
+        }));
+        for _ in 0..20 {
+            tokio::task::yield_now().await;
+        }
+        assert!(!ran.load(Ordering::Relaxed), "ran beside another job");
+        drop(held);
+        job.await.unwrap();
+        assert!(ran.load(Ordering::Relaxed));
+        assert_eq!(semaphore.available_permits(), 2, "all given back");
     }
 
     #[tokio::test]
@@ -11063,7 +11486,10 @@ mod tests {
             let path = fs.path().join(name);
             let metadata = fs::metadata(&path)?;
             results_tx
-                .try_send(SearchItem::Path(path, name.to_string(), metadata))
+                .try_send(crate::tab::item_from_search_item(
+                    SearchItem::Path(path, name.to_string(), metadata),
+                    IconSizes::default(),
+                ))
                 .expect("room in the channel");
             Ok(())
         };
@@ -11453,7 +11879,7 @@ mod tests {
                 "Emitting Message::Location(Location::Path(\"{}\"))",
                 dir.display()
             );
-            tab.update(
+            tab.update_resolved(
                 Message::Location(Location::Path(dir.clone())),
                 Modifiers::empty(),
             );
@@ -11461,6 +11887,306 @@ mod tests {
         trace!("Tab history: {:?}", tab.history);
 
         Ok((fs, tab, dirs))
+    }
+
+    fn tab_at(location: Location) -> Tab {
+        Tab::new(
+            location,
+            TabConfig::default(),
+            ThumbCfg::default(),
+            None,
+            // The scrollable's name; see `Tab::scrollable_name`.
+            std::borrow::Cow::Borrowed("Undefined"),
+            None,
+        )
+    }
+
+    /// A step to a folder asks the filesystem on a worker, and the tab goes
+    /// there with the answer, not before; an answer to a step since
+    /// superseded is dropped
+    #[test]
+    fn a_step_waits_for_its_folder_to_be_resolved() -> io::Result<()> {
+        let fs = empty_fs()?;
+        let (first, second) = (fs.path().join("first"), fs.path().join("second"));
+        fs::create_dir(&first)?;
+        fs::create_dir(&second)?;
+        let mut tab = tab_at(Location::Path(fs.path().to_path_buf()));
+
+        let asked = |commands: Vec<crate::tab::Command>| {
+            commands.into_iter().find_map(|command| match command {
+                crate::tab::Command::ResolveLocation(request, location_request) => {
+                    Some((request, crate::tab::resolve_location(&location_request)))
+                }
+                _ => None,
+            })
+        };
+        let (stale, stale_answer) = asked(tab.update(
+            Message::Location(Location::Path(first.clone())),
+            Modifiers::empty(),
+        ))
+        .expect("asked to resolve");
+        assert_eq!(
+            tab.location.path_opt(),
+            Some(&fs.path().to_path_buf()),
+            "not yet"
+        );
+
+        let (request, answer) = asked(tab.update(
+            Message::Location(Location::Path(second.clone())),
+            Modifiers::empty(),
+        ))
+        .expect("asked to resolve");
+        tab.update(
+            Message::LocationResolved(stale, stale_answer),
+            Modifiers::empty(),
+        );
+        assert_eq!(
+            tab.location.path_opt(),
+            Some(&fs.path().to_path_buf()),
+            "stale"
+        );
+
+        tab.update(
+            Message::LocationResolved(request, answer),
+            Modifiers::empty(),
+        );
+        assert_eq!(tab.location.path_opt(), Some(&second));
+        Ok(())
+    }
+
+    /// A step to a file opens it once the worker has looked, without the
+    /// tab looking first
+    #[test]
+    fn a_step_to_a_file_opens_it() -> io::Result<()> {
+        let fs = empty_fs()?;
+        let file = fs.path().join("note.txt");
+        fs::write(&file, b"x")?;
+        let mut tab = tab_at(Location::Path(fs.path().to_path_buf()));
+        let asked = tab.update(
+            Message::Location(Location::Path(file.clone())),
+            Modifiers::empty(),
+        );
+        assert!(
+            asked
+                .iter()
+                .all(|command| !matches!(command, crate::tab::Command::OpenFile(_))),
+            "not opened before the worker looked"
+        );
+        let opened = tab.update_resolved(
+            Message::Location(Location::Path(file.clone())),
+            Modifiers::empty(),
+        );
+        assert!(
+            opened
+                .iter()
+                .any(|command| matches!(command, crate::tab::Command::OpenFile(paths) if paths == std::slice::from_ref(&file))),
+            "{opened:?}"
+        );
+        assert_eq!(tab.location.path_opt(), Some(&fs.path().to_path_buf()));
+        Ok(())
+    }
+
+    /// An address typed but not there goes to its first completion, as the
+    /// worker finds
+    #[test]
+    fn a_missing_address_falls_back_to_its_completion() -> io::Result<()> {
+        let fs = empty_fs()?;
+        let real = fs.path().join("real");
+        fs::create_dir(&real)?;
+        let resolved = crate::tab::resolve_location(&crate::tab::LocationRequest {
+            location: Location::Path(fs.path().join("rea")),
+            history_i_opt: None,
+            fallback: Some(Location::Path(real.clone())),
+            on_file: crate::tab::OnFile::Select,
+        });
+        assert_eq!(
+            resolved
+                .location
+                .path_opt()
+                .map(|path| path.components().collect::<Vec<_>>()),
+            Some(real.canonicalize()?.components().collect())
+        );
+        Ok(())
+    }
+
+    /// A network address submitted after a step to a folder is the newer
+    /// step: the folder's late answer neither moves the tab nor withdraws
+    /// the address
+    #[test]
+    fn a_late_folder_answer_does_not_override_a_network_address() -> io::Result<()> {
+        use crate::tab::Command;
+
+        let fs = empty_fs()?;
+        let folder = fs.path().join("folder");
+        fs::create_dir(&folder)?;
+        let mut tab = tab_at(Location::Path(fs.path().to_path_buf()));
+        let (request, answer) = tab
+            .update(
+                Message::Location(Location::Path(folder.clone())),
+                Modifiers::empty(),
+            )
+            .into_iter()
+            .find_map(|command| match command {
+                Command::ResolveLocation(request, location_request) => {
+                    Some((request, crate::tab::resolve_location(&location_request)))
+                }
+                _ => None,
+            })
+            .expect("asked to resolve");
+
+        let uri = "smb://example/share/".to_owned();
+        tab.edit_location = Some(Location::Network(uri.clone(), uri, None).into());
+        tab.update(Message::EditLocationSubmit, Modifiers::empty());
+        let network = tab.resolving_network;
+        assert!(network.is_some());
+
+        tab.update(
+            Message::LocationResolved(request, answer),
+            Modifiers::empty(),
+        );
+        assert_eq!(tab.location.path_opt(), Some(&fs.path().to_path_buf()));
+        assert_eq!(tab.resolving_network, network, "still asking");
+        Ok(())
+    }
+
+    /// Two presses of Back before the first is answered go back two steps
+    #[test]
+    fn quick_back_presses_each_count() -> io::Result<()> {
+        let fs = empty_fs()?;
+        let (a, b) = (fs.path().join("a"), fs.path().join("b"));
+        fs::create_dir(&a)?;
+        fs::create_dir(&b)?;
+        let mut tab = tab_at(Location::Path(fs.path().to_path_buf()));
+        for dir in [&a, &b] {
+            tab.update_resolved(
+                Message::Location(Location::Path(dir.clone())),
+                Modifiers::empty(),
+            );
+        }
+        assert_eq!(tab.history_i, 2);
+
+        let pending: Vec<_> = [Message::GoPrevious, Message::GoPrevious]
+            .into_iter()
+            .flat_map(|message| tab.update(message, Modifiers::empty()))
+            .filter_map(|command| match command {
+                crate::tab::Command::ResolveLocation(request, location_request) => {
+                    Some((request, crate::tab::resolve_location(&location_request)))
+                }
+                _ => None,
+            })
+            .collect();
+        assert_eq!(pending.len(), 2);
+        for (request, answer) in pending {
+            tab.update(
+                Message::LocationResolved(request, answer),
+                Modifiers::empty(),
+            );
+        }
+        assert_eq!(tab.history_i, 0, "back two steps");
+        Ok(())
+    }
+
+    /// Back to an entry naming the folder the tab is in still moves along
+    /// the history: from the second A of [A, B, A], twice Back is the first
+    #[test]
+    fn back_to_the_same_folder_still_steps_through_history() -> io::Result<()> {
+        let fs = empty_fs()?;
+        let (a, b) = (fs.path().join("a"), fs.path().join("b"));
+        fs::create_dir(&a)?;
+        fs::create_dir(&b)?;
+        let mut tab = tab_at(Location::Path(a.clone()));
+        for dir in [&b, &a] {
+            tab.update_resolved(
+                Message::Location(Location::Path(dir.clone())),
+                Modifiers::empty(),
+            );
+        }
+        assert_eq!(tab.history_i, 2);
+        let pending: Vec<_> = [Message::GoPrevious, Message::GoPrevious]
+            .into_iter()
+            .flat_map(|message| tab.update(message, Modifiers::empty()))
+            .filter_map(|command| match command {
+                crate::tab::Command::ResolveLocation(request, location_request) => {
+                    Some((request, crate::tab::resolve_location(&location_request)))
+                }
+                _ => None,
+            })
+            .collect();
+        for (request, answer) in pending {
+            tab.update(
+                Message::LocationResolved(request, answer),
+                Modifiers::empty(),
+            );
+        }
+        assert_eq!(tab.history_i, 0);
+        Ok(())
+    }
+
+    /// Submitting a network address is a step: whatever waits to send the
+    /// tab somewhere can tell it has been sent elsewhere since
+    #[test]
+    fn a_network_address_counts_as_a_step() -> io::Result<()> {
+        let fs = empty_fs()?;
+        let mut tab = tab_at(Location::Path(fs.path().to_path_buf()));
+        let before = tab.steps();
+        let uri = "smb://example/share/".to_owned();
+        tab.edit_location = Some(Location::Network(uri.clone(), uri, None).into());
+        tab.update(Message::EditLocationSubmit, Modifiers::empty());
+        assert!(tab.resolving_network.is_some());
+        assert_ne!(tab.steps(), before);
+        Ok(())
+    }
+
+    /// Two presses of Up before the first is answered go up two folders
+    #[test]
+    fn quick_up_presses_each_count() -> io::Result<()> {
+        let fs = empty_fs()?;
+        let deep = fs.path().join("a").join("b");
+        fs::create_dir_all(&deep)?;
+        let mut tab = tab_at(Location::Path(fs.path().to_path_buf()));
+        tab.update_resolved(Message::Location(Location::Path(deep)), Modifiers::empty());
+        let pending: Vec<_> = [Message::LocationUp, Message::LocationUp]
+            .into_iter()
+            .flat_map(|message| tab.update(message, Modifiers::empty()))
+            .filter_map(|command| match command {
+                crate::tab::Command::ResolveLocation(request, location_request) => {
+                    Some((request, crate::tab::resolve_location(&location_request)))
+                }
+                _ => None,
+            })
+            .collect();
+        for (request, answer) in pending {
+            tab.update(
+                Message::LocationResolved(request, answer),
+                Modifiers::empty(),
+            );
+        }
+        assert_eq!(
+            tab.location
+                .path_opt()
+                .map(|path| path.components().collect::<Vec<_>>()),
+            Some(fs.path().canonicalize()?.components().collect())
+        );
+        Ok(())
+    }
+
+    /// A tab sent to a folder by a name the filesystem has not been asked
+    /// about takes its canonical name from the rescan
+    #[test]
+    fn a_rescan_gives_the_tab_its_folders_canonical_name() -> io::Result<()> {
+        let fs = empty_fs()?;
+        let real = fs.path().join("real");
+        fs::create_dir(&real)?;
+        std::os::unix::fs::symlink(&real, fs.path().join("link"))?;
+        let given = Location::Path(fs.path().join("link"));
+        let mut tab = tab_at(given.clone());
+        assert_eq!(tab.location, given, "as given, without asking");
+
+        let canonical = given.normalize();
+        tab.adopt_canonical(&given, &canonical);
+        assert_eq!(tab.location.path_opt(), canonical.path_opt());
+        assert_eq!(tab.history.last(), Some(&tab.location));
+        Ok(())
     }
 
     #[test]
@@ -11579,7 +12305,7 @@ mod tests {
             "Emitting Message::Location(Location::Path(\"{}\"))",
             next_dir.display()
         );
-        tab.update(
+        tab.update_resolved(
             Message::Location(Location::Path(next_dir.clone())),
             Modifiers::empty(),
         );
@@ -11609,7 +12335,7 @@ mod tests {
 
         // Simulate double clicking second directory
         debug!("Emitting double click Message::DoubleClick(Some(1))");
-        tab.update(Message::DoubleClick(Some(1)), Modifiers::empty());
+        tab.update_resolved(Message::DoubleClick(Some(1)), Modifiers::empty());
 
         // Path to second directory
         let second_dir = read_dir_sorted(path)?
@@ -12600,6 +13326,7 @@ mod tests {
                     show_hidden: false,
                     recursive,
                 },
+                &|| true,
                 |item| {
                     if let SearchItem::Path(_, name, _) = item {
                         names.lock().unwrap().push(name);
@@ -12626,6 +13353,48 @@ mod tests {
             ],
             "an open eye should find everything underneath too"
         );
+        Ok(())
+    }
+
+    /// A search nobody waits for stops, though nothing it visits matches
+    #[test]
+    fn an_unwanted_search_stops_where_nothing_matches() -> io::Result<()> {
+        use crate::tab::{SearchLocation, SearchOptions, scan_search};
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        let fs = empty_fs()?;
+        for folder in 0..10 {
+            let folder = fs.path().join(format!("folder-{folder}"));
+            fs::create_dir(&folder)?;
+            for file in 0..20 {
+                fs::write(folder.join(format!("file-{file}")), b"x")?;
+            }
+        }
+        let asked = AtomicUsize::new(0);
+        let matched = AtomicUsize::new(0);
+        scan_search(
+            &SearchLocation::Path(fs.path().to_path_buf()),
+            "nothing-is-called-this",
+            SearchOptions {
+                show_hidden: false,
+                recursive: true,
+            },
+            &|| {
+                asked.fetch_add(1, Ordering::Relaxed);
+                false
+            },
+            |_| {
+                matched.fetch_add(1, Ordering::Relaxed);
+                true
+            },
+        );
+        let asked = asked.into_inner();
+        assert!(asked > 0, "asked at all");
+        assert!(
+            asked < 50,
+            "walked on after it was not wanted: {asked} entries"
+        );
+        assert_eq!(matched.into_inner(), 0);
         Ok(())
     }
 
@@ -13057,7 +13826,7 @@ mod tests {
             search_recursive: true,
             ..TabConfig::default()
         };
-        tab.update(Message::Config(config), Modifiers::empty());
+        tab.update_resolved(Message::Config(config), Modifiers::empty());
         let (_, options) = searching(&tab);
         assert!(
             !options.recursive,
@@ -13072,7 +13841,7 @@ mod tests {
         // therefore not changing
         let mut tab = new_tab();
         restored(&mut tab);
-        tab.update(Message::SetSearchRecursive(true), Modifiers::empty());
+        tab.update_resolved(Message::SetSearchRecursive(true), Modifiers::empty());
         let (_, options) = searching(&tab);
         assert!(
             options.recursive,
@@ -13534,7 +14303,7 @@ mod tests {
         // With a list of its own, a path that does not exist would go to the
         // list's first entry. With only a stale list it is taken as typed: it
         // is not a folder, so the tab stays in its parent with it selected.
-        let commands = tab.update(Message::EditLocationSubmit, Modifiers::empty());
+        let commands = tab.update_resolved(Message::EditLocationSubmit, Modifiers::empty());
         let went_to = commands.iter().find_map(|command| match command {
             Command::ChangeLocation(_, location, selected) => {
                 Some((location.clone(), selected.clone()))
@@ -14070,7 +14839,10 @@ mod tests {
             let path = fs.path().join(name);
             let metadata = fs::metadata(&path)?;
             results_tx
-                .try_send(SearchItem::Path(path, name.to_string(), metadata))
+                .try_send(crate::tab::item_from_search_item(
+                    SearchItem::Path(path, name.to_string(), metadata),
+                    IconSizes::default(),
+                ))
                 .expect("the channel holds them all");
         }
         drop(results_tx);
@@ -14155,7 +14927,10 @@ mod tests {
             let path = fs.path().join(name);
             let metadata = fs::metadata(&path)?;
             results_tx
-                .try_send(SearchItem::Path(path, name.to_string(), metadata))
+                .try_send(crate::tab::item_from_search_item(
+                    SearchItem::Path(path, name.to_string(), metadata),
+                    IconSizes::default(),
+                ))
                 .expect("the channel has room");
             Ok(())
         };
@@ -14385,7 +15160,10 @@ mod tests {
         for path in [&file, &dir] {
             let name = path.file_name().unwrap().to_string_lossy().into_owned();
             results_tx
-                .try_send(SearchItem::Path(path.clone(), name, fs::metadata(path)?))
+                .try_send(crate::tab::item_from_search_item(
+                    SearchItem::Path(path.clone(), name, fs::metadata(path)?),
+                    IconSizes::default(),
+                ))
                 .expect("the channel has room");
         }
         drop(results_tx);
@@ -14475,7 +15253,10 @@ mod tests {
             let path = fs.path().join(name);
             let metadata = fs::metadata(&path)?;
             results_tx
-                .try_send(SearchItem::Path(path, name.to_string(), metadata))
+                .try_send(crate::tab::item_from_search_item(
+                    SearchItem::Path(path, name.to_string(), metadata),
+                    IconSizes::default(),
+                ))
                 .expect("the channel has room");
             Ok(())
         };
@@ -14659,14 +15440,14 @@ mod tests {
         let generation = tab.drag_hover_generation;
 
         // A timer from before is stale and opens nothing
-        let stale = tab.update(
+        let stale = tab.update_resolved(
             Message::DragHoverElapsed(generation - 1),
             Modifiers::empty(),
         );
         assert_eq!(goes_to(&stale), None);
 
         // Still over it when the timer runs out: it opens
-        let opened = tab.update(Message::DragHoverElapsed(generation), Modifiers::empty());
+        let opened = tab.update_resolved(Message::DragHoverElapsed(generation), Modifiers::empty());
         assert_eq!(goes_to(&opened), Some(first));
         Ok(())
     }
@@ -14684,7 +15465,7 @@ mod tests {
         let mut items = tab.items_opt.take().expect("populated");
         items.reverse();
         tab.set_items(items);
-        let opened = tab.update(Message::DragHoverElapsed(generation), Modifiers::empty());
+        let opened = tab.update_resolved(Message::DragHoverElapsed(generation), Modifiers::empty());
         assert_eq!(goes_to(&opened), Some(first.clone()));
         Ok(())
     }
@@ -14716,11 +15497,11 @@ mod tests {
 
         // `first` has moved away: nothing opens, and the hold starts again on
         // `second`, which is under the pointer now
-        let opened = tab.update(Message::DragHoverElapsed(generation), Modifiers::empty());
+        let opened = tab.update_resolved(Message::DragHoverElapsed(generation), Modifiers::empty());
         assert_eq!(goes_to(&opened), None);
         let restarted = tab.drag_hover_generation;
         assert_ne!(restarted, generation);
-        let opened = tab.update(Message::DragHoverElapsed(restarted), Modifiers::empty());
+        let opened = tab.update_resolved(Message::DragHoverElapsed(restarted), Modifiers::empty());
         assert_eq!(goes_to(&opened), Some(second));
         Ok(())
     }
@@ -14812,7 +15593,7 @@ mod tests {
         // Crumb 0 is `first` itself, 1 its parent
         let parent = fs.path().to_owned();
         let hold = |tab: &mut Tab, index: usize, position: bool| {
-            tab.update(
+            tab.update_resolved(
                 Message::DndAncestor(
                     index,
                     PathBuf::new(),
@@ -14829,18 +15610,18 @@ mod tests {
 
         // Its own crumb never opens
         let own = hold(&mut tab, 0, true);
-        let opened = tab.update(Message::DragHoverElapsed(own), Modifiers::empty());
+        let opened = tab.update_resolved(Message::DragHoverElapsed(own), Modifiers::empty());
         assert_eq!(goes_to(&opened), None);
 
         // The parent's does
         let generation = hold(&mut tab, 1, true);
-        let opened = tab.update(Message::DragHoverElapsed(generation), Modifiers::empty());
+        let opened = tab.update_resolved(Message::DragHoverElapsed(generation), Modifiers::empty());
         assert_eq!(goes_to(&opened), Some(parent));
 
         // Left before the timer runs out, it does not
         let generation = hold(&mut tab, 1, true);
         hold(&mut tab, 1, false);
-        let opened = tab.update(Message::DragHoverElapsed(generation), Modifiers::empty());
+        let opened = tab.update_resolved(Message::DragHoverElapsed(generation), Modifiers::empty());
         assert_eq!(goes_to(&opened), None);
         Ok(())
     }
@@ -15070,7 +15851,7 @@ mod tests {
         assert!(matches!(back.as_slice(), [Message::GoPrevious]), "{back:?}");
         assert!(forward.is_empty(), "nothing to go forward to: {forward:?}");
 
-        tab.update(Message::GoPrevious, Modifiers::empty());
+        tab.update_resolved(Message::GoPrevious, Modifiers::empty());
         let [back, forward] = clicks(&tab);
         assert!(matches!(back.as_slice(), [Message::GoPrevious]), "{back:?}");
         assert!(
@@ -15080,7 +15861,7 @@ mod tests {
 
         // At the start of the history there is nothing to go back to
         while tab.history_i > 0 {
-            tab.update(Message::GoPrevious, Modifiers::empty());
+            tab.update_resolved(Message::GoPrevious, Modifiers::empty());
         }
         let [back, forward] = clicks(&tab);
         assert!(back.is_empty(), "nothing to go back to: {back:?}");
@@ -15099,14 +15880,14 @@ mod tests {
         // Rewind to the start
         for _ in 0..dirs.len() {
             debug!("Emitting Message::GoPrevious to rewind to the start",);
-            tab.update(Message::GoPrevious, Modifiers::empty());
+            tab.update_resolved(Message::GoPrevious, Modifiers::empty());
         }
         assert_eq_tab_path(&tab, path);
 
         // Back to the future. Directories should be in the order they were opened.
         for dir in dirs {
             debug!("Emitting Message::GoNext",);
-            tab.update(Message::GoNext, Modifiers::empty());
+            tab.update_resolved(Message::GoNext, Modifiers::empty());
             assert_eq_tab_path(&tab, &dir);
         }
 
@@ -15121,7 +15902,7 @@ mod tests {
         for dir in dirs.into_iter().rev() {
             assert_eq_tab_path(&tab, &dir);
             debug!("Emitting Message::GoPrevious",);
-            tab.update(Message::GoPrevious, Modifiers::empty());
+            tab.update_resolved(Message::GoPrevious, Modifiers::empty());
         }
         assert_eq_tab_path(&tab, path);
 
@@ -15211,7 +15992,7 @@ mod tests {
         // This will eventually yield false once root is hit
         while next_dir.pop() {
             debug!("Emitting Message::LocationUp",);
-            tab.update(Message::LocationUp, Modifiers::empty());
+            tab.update_resolved(Message::LocationUp, Modifiers::empty());
             assert_eq_tab_path(&tab, &next_dir);
         }
 

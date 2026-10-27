@@ -65,6 +65,8 @@ async fn handle_replace(
                 apply_to_all: false,
                 conflict_count,
                 tx,
+                // Numbered by the app as it is asked
+                id: 0,
             },
             Some(REPLACE_BUTTON_ID.clone()),
         ))

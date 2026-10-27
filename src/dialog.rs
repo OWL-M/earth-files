@@ -469,6 +469,11 @@ impl<M: Send + 'static> Dialog<M> {
         &self.shell.app.title
     }
 
+    /// The light or dark preference the chooser's configuration holds.
+    pub fn app_theme(&self) -> crate::config::AppTheme {
+        self.shell.app.flags.config.app_theme
+    }
+
     pub fn contains_surface(&self, id: &window::Id) -> bool {
         self.shell.has_popup_view(id)
     }
@@ -1524,6 +1529,11 @@ impl Application for App {
     }
 
     fn on_escape(&mut self) -> Task<Message> {
+        // A dialog in the chooser is on top of everything else, and goes first
+        if !self.dialog_pages.is_empty() {
+            return self.update(Message::DialogCancel);
+        }
+
         if self.tab.gallery {
             // Close gallery if open
             self.tab.gallery = false;
@@ -2233,6 +2243,23 @@ impl Application for App {
                             } else {
                                 self.auto_scroll_speed = None;
                             }
+                        }
+                        tab::Command::ResolveLocation(request, location_request) => {
+                            // Asked on a worker: a mount that has stopped
+                            // answering would stop the interface with it
+                            commands.push(Task::future(async move {
+                                let asked = tokio::task::spawn_blocking(move || {
+                                    tab::resolve_location(&location_request)
+                                })
+                                .await;
+                                let Ok(resolved) = asked else {
+                                    log::warn!("failed to resolve a location");
+                                    return crate::ui::action::none();
+                                };
+                                crate::ui::action::app(Message::TabMessage(
+                                    tab::Message::LocationResolved(request, resolved),
+                                ))
+                            }));
                         }
                         tab::Command::ResolveNetwork(request, uri) => {
                             // Asked on a worker: the mounter answers over a

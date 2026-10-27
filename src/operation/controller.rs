@@ -72,6 +72,10 @@ impl Default for Controller {
 impl Controller {
     pub async fn check(&self) -> Result<(), ControllerState> {
         loop {
+            // Listening before looking, as in `until_aborted`
+            let notified = self.inner.notify.notified();
+            let mut notified = std::pin::pin!(notified);
+            notified.as_mut().enable();
             match self.state() {
                 ControllerState::Cancelled => return Err(ControllerState::Cancelled),
                 ControllerState::Failed => return Err(ControllerState::Failed),
@@ -79,7 +83,7 @@ impl Controller {
                 ControllerState::Running => return Ok(()),
             }
 
-            self.inner.notify.notified().await;
+            notified.await;
         }
     }
 
@@ -158,7 +162,9 @@ impl Controller {
     /// Returns once the operation is aborted.
     pub async fn until_aborted(&self) {
         loop {
-            // Listening before looking, so an abort in between is not missed
+            // Listening before looking: `notify_waiters` wakes only the
+            // waiters already listening, so an abort between a look and a
+            // listen would be missed and the wait would never end
             let notified = self.inner.notify.notified();
             let mut notified = std::pin::pin!(notified);
             notified.as_mut().enable();
@@ -191,11 +197,15 @@ impl Controller {
     /// Use this to pause futures.
     pub async fn until_paused(&self) {
         loop {
+            // Listening before looking, as in `until_aborted`
+            let notified = self.inner.notify.notified();
+            let mut notified = std::pin::pin!(notified);
+            notified.as_mut().enable();
             if matches!(self.state(), ControllerState::Paused) {
                 return;
             }
 
-            self.inner.notify.notified().await;
+            notified.await;
         }
     }
 
@@ -205,11 +215,15 @@ impl Controller {
     /// Use this to resume futures.
     pub async fn until_unpaused(&self) {
         loop {
+            // Listening before looking, as in `until_aborted`
+            let notified = self.inner.notify.notified();
+            let mut notified = std::pin::pin!(notified);
+            notified.as_mut().enable();
             if !self.is_paused() {
                 return;
             }
 
-            self.inner.notify.notified().await;
+            notified.await;
         }
     }
 

@@ -66,6 +66,9 @@ pub struct App {
     core: Core,
     sessions: HashMap<u64, Session>,
     connection: Option<zbus::Connection>,
+    /// The light or dark preference applied last, from the choosers'
+    /// configuration, which the file manager's settings write.
+    app_theme: Option<crate::config::AppTheme>,
 }
 
 pub struct Flags {
@@ -126,6 +129,7 @@ impl App {
             }));
         }
 
+        tasks.push(self.follow_theme(dialog.app_theme()));
         self.sessions.insert(
             serial,
             Session {
@@ -136,6 +140,17 @@ impl App {
             },
         );
         Task::batch(tasks)
+    }
+
+    /// Renders with `app_theme`, the light or dark preference a chooser's
+    /// configuration holds, as the file manager does: the windows are drawn
+    /// by this host, whose theme is otherwise the system's.
+    fn follow_theme(&mut self, app_theme: crate::config::AppTheme) -> Task<Message> {
+        if self.app_theme == Some(app_theme) {
+            return Task::none();
+        }
+        self.app_theme = Some(app_theme);
+        crate::ui::command::set_theme(app_theme.theme())
     }
 
     /// Answer the caller and take the chooser off the screen.
@@ -236,6 +251,7 @@ impl Application for App {
                 core,
                 sessions: HashMap::new(),
                 connection: flags.connection,
+                app_theme: None,
             },
             Task::none(),
         )
@@ -246,7 +262,10 @@ impl Application for App {
             Message::Opened(serial) => return self.open(serial),
             Message::Dialog(serial, message) => {
                 if let Some(session) = self.sessions.get_mut(&serial) {
-                    return session.dialog.update(message);
+                    let task = session.dialog.update(message);
+                    // The configuration may have changed with it
+                    let app_theme = session.dialog.app_theme();
+                    return Task::batch([task, self.follow_theme(app_theme)]);
                 }
             }
             Message::Finished(serial, result) => return self.finish(serial, Some(result)),
@@ -267,7 +286,10 @@ impl Application for App {
 
     fn view_window(&self, window_id: window::Id) -> Element<'_, Message> {
         for session in self.sessions.values() {
-            if session.dialog.window_id() == window_id {
+            // Its window, or a popup it opened, such as its context menu
+            if session.dialog.window_id() == window_id
+                || session.dialog.contains_surface(&window_id)
+            {
                 return session.dialog.view(window_id);
             }
         }
