@@ -1096,6 +1096,29 @@ async fn present(prompt: Prompt) -> Option<Message> {
     }
 }
 
+/// The app's tabs, by the entity of their button in the tab bar, which
+/// keeps their order and which one is active. Every button has its tab.
+#[derive(Default)]
+struct Tabs(HashMap<Entity, Tab>);
+
+impl Tabs {
+    fn get(&self, entity: Entity) -> Option<&Tab> {
+        self.0.get(&entity)
+    }
+
+    fn get_mut(&mut self, entity: Entity) -> Option<&mut Tab> {
+        self.0.get_mut(&entity)
+    }
+
+    fn insert(&mut self, entity: Entity, tab: Tab) {
+        self.0.insert(entity, tab);
+    }
+
+    fn remove(&mut self, entity: Entity) -> Option<Tab> {
+        self.0.remove(&entity)
+    }
+}
+
 struct Stall {
     /// Progress (as bits), and what its checks walked: files and bytes.
     seen: (u32, u64, u64),
@@ -1133,7 +1156,10 @@ pub struct App {
     about: About,
     nav_bar_context_id: segmented_button::Entity,
     nav_model: segmented_button::SingleSelectModel,
+    /// The tab bar: each tab's button, their order and the active one.
     tab_model: segmented_button::Model<segmented_button::SingleSelect>,
+    /// The tabs, by their button in the tab bar.
+    tabs: Tabs,
     config_handler: Store,
     state_handler: Store,
     config: Config,
@@ -1844,18 +1870,14 @@ impl App {
             scrollable_name,
             window_id,
         );
-        let entity = self
-            .tab_model
-            .insert()
-            .text(tab.title())
-            .data(tab)
-            .closable();
+        let entity = self.tab_model.insert().text(tab.title()).closable();
 
         let entity = if activate {
             entity.activate().id()
         } else {
             entity.id()
         };
+        self.tabs.insert(entity, tab);
 
         let mut tasks = Vec::with_capacity(4);
         if activate {
@@ -2453,7 +2475,7 @@ impl App {
     fn rescan_operation_selection(&mut self, op_sel: OperationSelection) -> Task<Message> {
         log::info!("rescan_operation_selection {op_sel:?}");
         let entity = self.tab_model.active();
-        let Some(tab) = self.tab_model.data::<Tab>(entity) else {
+        let Some(tab) = self.tabs.get(entity) else {
             return Task::none();
         };
         let Some(items) = tab.items_opt() else {
@@ -2511,10 +2533,7 @@ impl App {
         log::info!("rescan_tab {entity:?} {location:?} {selection_paths:?}");
         let icon_sizes = self.config.tab.icon_sizes;
         let mounter_items = self.mounter_items.clone();
-        let scan = self
-            .tab_model
-            .data_mut::<Tab>(entity)
-            .map_or(0, Tab::start_scan);
+        let scan = self.tabs.get_mut(entity).map_or(0, Tab::start_scan);
         // Shown only if the folder is slow to read, as on a waking drive.
         if track {
             self.progress.start(
@@ -2631,7 +2650,7 @@ impl App {
             .tab_model
             .iter()
             .filter_map(|entity| {
-                let tab = self.tab_model.data::<Tab>(entity)?;
+                let tab = self.tabs.get(entity)?;
                 tab.location
                     .is_trash()
                     .then_some((entity, tab.location.clone()))
@@ -2650,7 +2669,7 @@ impl App {
             .tab_model
             .iter()
             .filter_map(|entity| {
-                let tab = self.tab_model.data::<Tab>(entity)?;
+                let tab = self.tabs.get(entity)?;
                 tab.location
                     .is_recents()
                     .then_some((entity, tab.location.clone()))
@@ -2683,8 +2702,8 @@ impl App {
     /// from the one on screen.
     fn search_scope_button(&self) -> Option<Element<'_, Message>> {
         let recursive =
-            self.tab_model
-                .active_data::<Tab>()
+            self.tabs
+                .get(self.tab_model.active())
                 .and_then(|tab| match &tab.location {
                     Location::Search(tab::SearchLocation::Path(..), _, options, _) => {
                         Some(options.recursive)
@@ -2744,7 +2763,7 @@ impl App {
 
     fn search_get(&self) -> Option<&str> {
         let entity = self.tab_model.active();
-        let tab = self.tab_model.data::<Tab>(entity)?;
+        let tab = self.tabs.get(entity)?;
         match &tab.location {
             Location::Search(_, term, ..) => Some(term),
             _ => None,
@@ -2772,7 +2791,7 @@ impl App {
         track: bool,
     ) -> Task<Message> {
         let mut title_location_opt = None;
-        if let Some(tab) = self.tab_model.data_mut::<Tab>(tab) {
+        if let Some(tab) = self.tabs.get_mut(tab) {
             let location_opt = match term_opt {
                 Some(term) => {
                     let search_location = if let Some(path) = tab.location.path_opt() {
@@ -2934,7 +2953,7 @@ impl App {
     /// the selection's type when `with_type`.
     fn menu_fingerprint(&self, entity_opt: Option<Entity>, with_type: bool) -> Option<u64> {
         let entity = entity_opt.unwrap_or_else(|| self.tab_model.active());
-        let tab = self.tab_model.data::<Tab>(entity)?;
+        let tab = self.tabs.get(entity)?;
         let (apps, mime) = self.selection_apps(tab);
         Some(crate::menu::choice_fingerprint(
             apps.iter().map(|app| app.id.as_str()),
@@ -2984,19 +3003,16 @@ impl App {
         entity_opt: Option<Entity>,
     ) -> impl Iterator<Item = PathBuf> + use<'_> {
         let entity = entity_opt.unwrap_or_else(|| self.tab_model.active());
-        self.tab_model
-            .data::<Tab>(entity)
-            .into_iter()
-            .flat_map(|tab| {
-                tab.selected_locations()
-                    .into_iter()
-                    .filter_map(Location::into_path_opt)
-            })
+        self.tabs.get(entity).into_iter().flat_map(|tab| {
+            tab.selected_locations()
+                .into_iter()
+                .filter_map(Location::into_path_opt)
+        })
     }
 
     fn set_cut(&mut self, entity_opt: Option<Entity>) {
         let entity = entity_opt.unwrap_or_else(|| self.tab_model.active());
-        if let Some(tab) = self.tab_model.data_mut::<Tab>(entity) {
+        if let Some(tab) = self.tabs.get_mut(entity) {
             tab.cut_selected();
         }
     }
@@ -3149,7 +3165,7 @@ impl App {
         self.nav_model = nav_model.build();
 
         let tab_entity = self.tab_model.active();
-        if let Some(tab) = self.tab_model.data::<Tab>(tab_entity) {
+        if let Some(tab) = self.tabs.get(tab_entity) {
             self.activate_nav_model_location(&tab.location.clone());
         }
     }
@@ -3654,7 +3670,7 @@ impl App {
                 .tab_model
                 .iter()
                 .filter_map(|entity| {
-                    let tab = self.tab_model.data::<Tab>(entity)?;
+                    let tab = self.tabs.get(entity)?;
                     tab.location.path_opt().cloned()
                 })
                 .collect();
@@ -4242,7 +4258,7 @@ impl App {
                 children.push(item.preview_view(self.mime_apps_for_view()));
             }
             PreviewKind::Location(location) => {
-                if let Some(tab) = self.tab_model.data::<Tab>(entity)
+                if let Some(tab) = self.tabs.get(entity)
                     && let Some(items) = tab.items_opt()
                 {
                     for item in items {
@@ -4256,7 +4272,7 @@ impl App {
                 }
             }
             PreviewKind::Selected => {
-                if let Some(tab) = self.tab_model.data::<Tab>(entity)
+                if let Some(tab) = self.tabs.get(entity)
                     && let Some(items) = tab.items_opt()
                 {
                     let preview_opt = {
@@ -4507,6 +4523,7 @@ impl Application for App {
             nav_bar_context_id: segmented_button::Entity::null(),
             nav_model: segmented_button::ModelBuilder::default().build(),
             tab_model: segmented_button::ModelBuilder::default().build(),
+            tabs: Tabs::default(),
             config_handler: flags.config_handler,
             state_handler: flags.state_handler,
             config: flags.config,
@@ -4638,8 +4655,8 @@ impl Application for App {
             // it, and may then be let go there. Resolve it here because the
             // callback outlives this borrow of the model.
             let showing = self
-                .tab_model
-                .data::<Tab>(self.tab_model.active())
+                .tabs
+                .get(self.tab_model.active())
                 .map(|tab| tab.location.clone());
             let droppable: Vec<Entity> = nav_model
                 .iter()
@@ -4833,10 +4850,7 @@ impl Application for App {
                 let check = NavCheck {
                     number: self.nav_check,
                     tab: self.tab_model.active(),
-                    steps: self
-                        .tab_model
-                        .data::<Tab>(self.tab_model.active())
-                        .map_or(0, Tab::steps),
+                    steps: self.tabs.get(self.tab_model.active()).map_or(0, Tab::steps),
                 };
                 let path = path.clone();
                 return Task::future(async move {
@@ -4881,8 +4895,8 @@ impl Application for App {
     }
 
     fn drawer_slide_fits_columns(&self, extent: f32, opening: bool) -> bool {
-        self.tab_model
-            .data::<Tab>(self.tab_model.active())
+        self.tabs
+            .get(self.tab_model.active())
             .is_some_and(|tab| tab.column_slide_fits(extent, opening))
     }
 
@@ -4896,7 +4910,7 @@ impl Application for App {
         }
 
         // Close gallery mode if open
-        if let Some(tab) = self.tab_model.data_mut::<Tab>(entity)
+        if let Some(tab) = self.tabs.get_mut(entity)
             && tab.gallery
         {
             tab.gallery = false;
@@ -4913,7 +4927,7 @@ impl Application for App {
                 false,
             )));
         }
-        if let Some(tab) = self.tab_model.data_mut::<Tab>(entity) {
+        if let Some(tab) = self.tabs.get_mut(entity) {
             if tab.edit_location.is_some() {
                 tab.dismiss_edit_location();
                 return Task::none();
@@ -4949,8 +4963,8 @@ impl Application for App {
             .filter(|item| item.is_remote() && item.is_mounted())
             .count();
         let current = self
-            .tab_model
-            .data::<Tab>(entity)
+            .tabs
+            .get(entity)
             .and_then(|tab| tab.action(connected))
             .map(|action| (entity, action));
 
@@ -4977,16 +4991,14 @@ impl Application for App {
                 let entity = entity_opt.unwrap_or_else(|| self.tab_model.active());
 
                 for path in self.selected_paths(entity_opt) {
-                    let is_network = self.tab_model.data::<Tab>(entity).and_then(|tab| {
+                    let is_network = self.tabs.get(entity).and_then(|tab| {
                         let in_current_tab = tab
                             .location
                             .path_opt()
                             .zip(path.parent())
                             .is_some_and(|(t_path, parent)| parent == t_path);
                         let tab = if in_current_tab {
-                            self.tab_model
-                                .data::<Tab>(self.tab_model.active())
-                                .unwrap_or(tab)
+                            self.tabs.get(self.tab_model.active()).unwrap_or(tab)
                         } else {
                             tab
                         };
@@ -5065,7 +5077,7 @@ impl Application for App {
             }
             Message::Copy(entity_opt) => {
                 if let Some(entity) = entity_opt
-                    && let Some(tab) = self.tab_model.data_mut::<Tab>(entity)
+                    && let Some(tab) = self.tabs.get_mut(entity)
                 {
                     tab.refresh_cut(&[]);
                 }
@@ -5147,7 +5159,7 @@ impl Application for App {
             }
             Message::Delete(entity_opt) => {
                 let entity = entity_opt.unwrap_or_else(|| self.tab_model.active());
-                if let Some(tab) = self.tab_model.data::<Tab>(entity) {
+                if let Some(tab) = self.tabs.get(entity) {
                     if tab.location.is_trash() {
                         if let Some(items) = tab.items_opt() {
                             let mut trash_items = Vec::new();
@@ -5607,7 +5619,7 @@ impl Application for App {
                                 return self.search_set_active(Some(term));
                             }
                             TypeToSearch::EnterPath => {
-                                if let Some(tab) = self.tab_model.data_mut::<Tab>(entity) {
+                                if let Some(tab) = self.tabs.get_mut(entity) {
                                     let location = tab
                                         .edit_location
                                         .as_ref()
@@ -5638,7 +5650,7 @@ impl Application for App {
                                 self.type_select_prefix.push_str(&text.to_lowercase());
                                 self.type_select_last_key = Some(Instant::now());
 
-                                if let Some(tab) = self.tab_model.data_mut::<Tab>(entity) {
+                                if let Some(tab) = self.tabs.get_mut(entity) {
                                     tab.select_by_prefix(&self.type_select_prefix);
                                     if let Some(offset) = tab.select_focus_scroll() {
                                         return scrollable::glide_to(
@@ -5718,7 +5730,7 @@ impl Application for App {
                     let home_location = Location::Path(home_dir());
                     let entities: Box<[_]> = self.tab_model.iter().collect();
                     for entity in entities {
-                        let title_opt = self.tab_model.data_mut::<Tab>(entity).and_then(|tab| {
+                        let title_opt = self.tabs.get_mut(entity).and_then(|tab| {
                             unmounted
                                 .iter()
                                 .any(|unmounted| {
@@ -5882,7 +5894,7 @@ impl Application for App {
             }
             Message::NewItem(entity_opt, dir) => {
                 let entity = entity_opt.unwrap_or_else(|| self.tab_model.active());
-                if let Some(tab) = self.tab_model.data_mut::<Tab>(entity)
+                if let Some(tab) = self.tabs.get_mut(entity)
                     && let Some(path) = tab.location.path_opt()
                 {
                     return Task::batch([
@@ -5919,7 +5931,7 @@ impl Application for App {
                     Vec::new();
                 let entities: Box<[_]> = self.tab_model.iter().collect();
                 for entity in entities {
-                    if let Some(tab) = self.tab_model.data_mut::<Tab>(entity)
+                    if let Some(tab) = self.tabs.get_mut(entity)
                         && let Some(path) = tab.location.path_opt()
                     {
                         let mut contains_change = false;
@@ -5979,8 +5991,8 @@ impl Application for App {
                     .collect();
                 for (entity, location, sizes, paths) in refresh {
                     let Some((listing, batch)) = self
-                        .tab_model
-                        .data_mut::<Tab>(entity)
+                        .tabs
+                        .get_mut(entity)
                         .map(|tab| (tab.listing(), tab.next_refresh_batch()))
                     else {
                         continue;
@@ -6044,7 +6056,7 @@ impl Application for App {
                 // when the wait ends is not what was asked for.
                 let entity = entity_opt.unwrap_or_else(|| self.tab_model.active());
                 let mut paths: Box<[PathBuf]> = Box::from([]);
-                if let Some(tab) = self.tab_model.data::<Tab>(entity)
+                if let Some(tab) = self.tabs.get(entity)
                     && let Some(path) = tab.location.path_opt()
                 {
                     if let Some(items) = tab.items_opt() {
@@ -6200,8 +6212,8 @@ impl Application for App {
                 // selection can change while it does.
                 let entity = entity_opt.unwrap_or_else(|| self.tab_model.active());
                 let chosen = self
-                    .tab_model
-                    .data::<Tab>(entity)
+                    .tabs
+                    .get(entity)
                     .and_then(Tab::items_opt)
                     .and_then(|items| {
                         items.iter().filter(|item| item.selected).find_map(|item| {
@@ -6301,7 +6313,7 @@ impl Application for App {
             }
             Message::Paste(entity_opt) => {
                 let entity = entity_opt.unwrap_or_else(|| self.tab_model.active());
-                if let Some(tab) = self.tab_model.data_mut::<Tab>(entity)
+                if let Some(tab) = self.tabs.get_mut(entity)
                     && let Some(path) = tab.location.path_opt()
                 {
                     let to = path.clone();
@@ -6669,7 +6681,7 @@ impl Application for App {
                 // A later click, another tab, or a step taken in this one
                 // since supersedes it
                 let active = self.tab_model.active();
-                let steps = self.tab_model.data::<Tab>(active).map(Tab::steps);
+                let steps = self.tabs.get(active).map(Tab::steps);
                 if check.number == self.nav_check
                     && check.tab == active
                     && steps == Some(check.steps)
@@ -6783,7 +6795,7 @@ impl Application for App {
             Message::RefreshedItems(entity, location, listing, batch, rebuilt) => {
                 let mut warm = None;
                 let mut recheck = false;
-                if let Some(tab) = self.tab_model.data_mut::<Tab>(entity) {
+                if let Some(tab) = self.tabs.get_mut(entity) {
                     // The tab may have been sent somewhere else, or rescanned
                     // from scratch, while these were being read; either way
                     // they describe a listing it is no longer showing. Opening
@@ -6898,7 +6910,7 @@ impl Application for App {
             }
             Message::OpenWithApp(entity_opt, index, _) => {
                 let entity = entity_opt.unwrap_or_else(|| self.tab_model.active());
-                let Some(tab) = self.tab_model.data::<Tab>(entity) else {
+                let Some(tab) = self.tabs.get(entity) else {
                     return Task::none();
                 };
                 let (apps, _) = self.selection_apps(tab);
@@ -6929,7 +6941,7 @@ impl Application for App {
             }
             Message::SetDefaultApp(entity_opt, index, _) => {
                 let entity = entity_opt.unwrap_or_else(|| self.tab_model.active());
-                let Some(tab) = self.tab_model.data::<Tab>(entity) else {
+                let Some(tab) = self.tabs.get(entity) else {
                     return Task::none();
                 };
                 let (apps, mime) = self.selection_apps(tab);
@@ -6954,7 +6966,7 @@ impl Application for App {
             }
             Message::RunServiceAction(entity_opt, entry, index, _) => {
                 let entity = entity_opt.unwrap_or_else(|| self.tab_model.active());
-                let Some(tab) = self.tab_model.data::<Tab>(entity) else {
+                let Some(tab) = self.tabs.get(entity) else {
                     return Task::none();
                 };
                 let entries = self.selection_services(tab);
@@ -7046,7 +7058,7 @@ impl Application for App {
             }
             Message::Rename(entity_opt) => {
                 let entity = entity_opt.unwrap_or_else(|| self.tab_model.active());
-                if let Some(tab) = self.tab_model.data_mut::<Tab>(entity)
+                if let Some(tab) = self.tabs.get_mut(entity)
                     && let Some(items) = tab.items_opt()
                 {
                     let selected: Box<[_]> = items
@@ -7128,7 +7140,7 @@ impl Application for App {
             Message::RestoreFromTrash(entity_opt) => {
                 let mut trash_items = Vec::new();
                 let entity = entity_opt.unwrap_or_else(|| self.tab_model.active());
-                if let Some(tab) = self.tab_model.data_mut::<Tab>(entity)
+                if let Some(tab) = self.tabs.get_mut(entity)
                     && let Some(items) = tab.items_opt()
                 {
                     for item in items {
@@ -7200,7 +7212,7 @@ impl Application for App {
 
                 // Activate new tab
                 self.tab_model.activate(entity);
-                if let Some(tab) = self.tab_model.data::<Tab>(entity) {
+                if let Some(tab) = self.tabs.get(entity) {
                     {
                         //Restore scroll
                         let scroll = tab.scroll_opt.unwrap_or_default();
@@ -7278,6 +7290,7 @@ impl Application for App {
 
                 // Remove item
                 self.tab_model.remove(entity);
+                self.tabs.remove(entity);
                 self.progress.remove(&progress::Key::Load(entity));
 
                 tasks.push(self.update_watcher());
@@ -7323,7 +7336,7 @@ impl Application for App {
                 // The context menu opens on right-button release, so refresh paste availability now
                 let right_click = matches!(tab_message, tab::Message::RightClick(..));
 
-                let tab_commands = match self.tab_model.data_mut::<Tab>(entity) {
+                let tab_commands = match self.tabs.get_mut(entity) {
                     Some(tab) => tab.update(tab_message, self.modifiers),
                     _ => Vec::new(),
                 };
@@ -7593,7 +7606,7 @@ impl Application for App {
             }
             Message::TabNew => {
                 let active = self.tab_model.active();
-                let location = match self.tab_model.data::<Tab>(active) {
+                let location = match self.tabs.get(active) {
                     Some(tab) => tab.location.clone(),
                     None => Location::Path(home_dir()),
                 };
@@ -7616,7 +7629,7 @@ impl Application for App {
                 // Opening or closing an empty search meanwhile lists the same
                 // folder, and reads nothing itself: the read is still wanted.
                 // A read started after this one has the newer listing.
-                if let Some(tab) = self.tab_model.data_mut::<Tab>(entity)
+                if let Some(tab) = self.tabs.get_mut(entity)
                     && tab.is_latest_scan(scan)
                     && (tab.location.lists_same_as(&location)
                         || tab.location.lists_same_as(&requested))
@@ -7733,7 +7746,7 @@ impl Application for App {
             }
             Message::TabView(entity_opt, view) => {
                 let entity = entity_opt.unwrap_or_else(|| self.tab_model.active());
-                if let Some(tab) = self.tab_model.data_mut::<Tab>(entity) {
+                if let Some(tab) = self.tabs.get_mut(entity) {
                     tab.config.view = view;
                 }
                 let mut config = self.config.tab;
@@ -7741,7 +7754,7 @@ impl Application for App {
                 return self.update(Message::TabConfig(config));
             }
             Message::CutPaths(paths) => {
-                if let Some(tab) = self.tab_model.active_data_mut::<Tab>() {
+                if let Some(tab) = self.tabs.get_mut(self.tab_model.active()) {
                     tab.refresh_cut(&paths);
                 }
             }
@@ -7849,8 +7862,7 @@ impl Application for App {
                     // make the new window open at the same location as the currently active tab by
                     // passing respective command line arguments
                     let entity = self.tab_model.active();
-                    let active_tab_location =
-                        self.tab_model.data::<Tab>(entity).map(|tab| &tab.location);
+                    let active_tab_location = self.tabs.get(entity).map(|tab| &tab.location);
                     match active_tab_location {
                         Some(
                             Location::Path(path) | Location::Search(SearchLocation::Path(path), ..),
@@ -7884,7 +7896,7 @@ impl Application for App {
             Message::ZoomDefault(entity_opt) => {
                 let entity = entity_opt.unwrap_or_else(|| self.tab_model.active());
                 let mut config = self.config.tab;
-                if let Some(tab) = self.tab_model.data::<Tab>(entity) {
+                if let Some(tab) = self.tabs.get(entity) {
                     zoom_to_default(tab.config.view, &mut config.icon_sizes);
                 }
                 return self.update(Message::TabConfig(config));
@@ -7892,7 +7904,7 @@ impl Application for App {
             Message::ZoomIn(entity_opt) => {
                 let entity = entity_opt.unwrap_or_else(|| self.tab_model.active());
                 let mut config = self.config.tab;
-                if let Some(tab) = self.tab_model.data::<Tab>(entity) {
+                if let Some(tab) = self.tabs.get(entity) {
                     zoom_in_view(tab.config.view, &mut config.icon_sizes);
                 }
                 return self.update(Message::TabConfig(config));
@@ -7900,7 +7912,7 @@ impl Application for App {
             Message::ZoomOut(entity_opt) => {
                 let entity = entity_opt.unwrap_or_else(|| self.tab_model.active());
                 let mut config = self.config.tab;
-                if let Some(tab) = self.tab_model.data::<Tab>(entity) {
+                if let Some(tab) = self.tabs.get(entity) {
                     zoom_out_view(tab.config.view, &mut config.icon_sizes);
                 }
                 return self.update(Message::TabConfig(config));
@@ -7995,8 +8007,8 @@ impl Application for App {
             }
             Message::TabDrop(entity) => {
                 if let Some(to) = self
-                    .tab_model
-                    .data::<Tab>(entity)
+                    .tabs
+                    .get(entity)
                     .and_then(|tab| tab.location.path_opt().cloned())
                 {
                     return Self::drop_files(to, crate::ui::dnd::drop_copies(self.modifiers));
@@ -8006,7 +8018,7 @@ impl Application for App {
                 self.nav_bar_context_id = entity;
 
                 let tab_entity = self.tab_model.active();
-                if let Some(tab) = self.tab_model.data_mut::<Tab>(tab_entity) {
+                if let Some(tab) = self.tabs.get_mut(tab_entity) {
                     // Close location editing if enabled
                     tab.dismiss_edit_location();
                 }
@@ -8319,8 +8331,8 @@ impl Application for App {
             ContextPage::Preview(entity_opt, kind) => {
                 let entity = entity_opt.unwrap_or_else(|| self.tab_model.active());
                 let actions = self
-                    .tab_model
-                    .data::<Tab>(entity)
+                    .tabs
+                    .get(entity)
                     .and_then(|tab| {
                         let mut selected = tab.items_opt()?.iter().filter(|item| item.selected);
 
@@ -8357,7 +8369,7 @@ impl Application for App {
 
     fn dialog(&self) -> Option<Element<'_, Message>> {
         let entity = self.tab_model.active();
-        if let Some(tab) = self.tab_model.data::<Tab>(entity)
+        if let Some(tab) = self.tabs.get(entity)
             && tab.gallery
         {
             return Some(
@@ -9353,7 +9365,7 @@ impl Application for App {
     fn header_start(&self) -> Vec<Element<'_, Self::Message>> {
         vec![menu::menu_bar(
             &self.core,
-            self.tab_model.active_data::<Tab>(),
+            self.tabs.get(self.tab_model.active()),
             &self.config,
             &self.modifiers,
             &self.key_binds,
@@ -9365,8 +9377,8 @@ impl Application for App {
     /// The active tab's history and crumb pills, or its path field.
     fn header_center(&self) -> Vec<Element<'_, Self::Message>> {
         let entity = self.tab_model.active();
-        self.tab_model
-            .data::<Tab>(entity)
+        self.tabs
+            .get(entity)
             .map(|tab| {
                 tab.header_view()
                     .map(move |message| Message::TabMessage(Some(entity), message))
@@ -9457,7 +9469,7 @@ impl Application for App {
                                 .tab_model
                                 .iter()
                                 .filter(|entity| {
-                                    self.tab_model.data::<Tab>(*entity).is_some_and(|tab| {
+                                    self.tabs.get(*entity).is_some_and(|tab| {
                                         tab.location.supports_paste()
                                             && tab.location.path_opt().is_some()
                                     })
@@ -9484,7 +9496,7 @@ impl Application for App {
         }
 
         let entity = self.tab_model.active();
-        if let Some(tab) = self.tab_model.data::<Tab>(entity) {
+        if let Some(tab) = self.tabs.get(entity) {
             // Room under the files for the action card over them, while it
             // is this tab's and not sliding shut
             let bottom_reserve = self
@@ -9936,7 +9948,7 @@ impl Application for App {
         }
 
         subscriptions.extend(self.tab_model.iter().filter_map(|entity| {
-            let tab = self.tab_model.data::<Tab>(entity)?;
+            let tab = self.tabs.get(entity)?;
             Some(
                 tab.subscription(
                     selected_previews
