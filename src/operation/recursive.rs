@@ -269,15 +269,15 @@ mod test_trash {
             .duration_since(std::time::UNIX_EPOCH)
             .map_or(0, |since| since.as_secs() as i64);
         Ok(crate::trashing::TrashItem {
-            id: kept.into(),
+            id: crate::trashing::TrashId::Orphan(kept),
             name: path.file_name().unwrap_or_default().to_owned(),
-            original_parent: path.parent().unwrap_or(path).to_path_buf(),
+            original_parent: Some(path.parent().unwrap_or(path).to_path_buf()),
             time_deleted,
         })
     }
 
     fn restore(item: crate::trashing::TrashItem) -> Result<(), Box<dyn Error + Send + Sync>> {
-        crate::operation::rename_no_replace(Path::new(&item.id), &item.original_path())?;
+        crate::operation::rename_no_replace(item.id.payload(), &item.named_path())?;
         Ok(())
     }
 }
@@ -699,7 +699,7 @@ impl Context {
         if self.trashed().count() > self.step_trash
             && let Some(item) = self.pop_trashed()
         {
-            let (to, restore, kept) = (item.original_path(), self.trash.restore, item.clone());
+            let (to, restore, kept) = (item.named_path(), self.trash.restore, item.clone());
             let restored = compio::runtime::spawn_blocking(move || restore(item))
                 .await
                 .unwrap_or_else(|_| Err("the trash's worker stopped".into()));
@@ -874,7 +874,7 @@ impl Context {
             Effect::Trashed(item) => Some(item),
             _ => None,
         }) {
-            let (path, restore) = (item.original_path(), self.trash.restore);
+            let (path, restore) = (item.named_path(), self.trash.restore);
             let restored = compio::runtime::spawn_blocking({
                 let item = item.clone();
                 move || restore(item)
@@ -3334,7 +3334,7 @@ mod tests {
         let trashed: Vec<_> = op_sel
             .trash_items
             .iter()
-            .map(crate::trashing::TrashItem::original_path)
+            .map(crate::trashing::TrashItem::named_path)
             .collect();
         assert_eq!(trashed, vec![replaced]);
         assert!(ctx.selection().is_empty(), "taken");
@@ -3427,7 +3427,7 @@ mod tests {
             .selection()
             .trash_items
             .iter()
-            .map(crate::trashing::TrashItem::original_path)
+            .map(crate::trashing::TrashItem::named_path)
             .collect();
         assert_eq!(trashed, vec![to.join("a")]);
     }
@@ -3600,7 +3600,7 @@ mod tests {
         let trashed: Vec<_> = op_sel
             .trash_items
             .iter()
-            .map(crate::trashing::TrashItem::original_path)
+            .map(crate::trashing::TrashItem::named_path)
             .collect();
         assert_eq!(trashed, vec![to.join("b")]);
     }
@@ -3617,7 +3617,7 @@ mod tests {
         assert_eq!(fs::read(to.join("b")).expect("b"), b"new b");
         assert!(!to.join("c").exists(), "the old folder is gone");
         assert_eq!(op_sel.trash_items.len(), 1);
-        assert_eq!(op_sel.trash_items[0].original_path(), to);
+        assert_eq!(op_sel.trash_items[0].named_path(), to);
     }
 
     /// Keep both: the copy goes under a new name, and the folder there is
@@ -3782,7 +3782,7 @@ mod tests {
             .await
             .expect_err("failed");
         assert_eq!(err.partial.trash_items.len(), 1);
-        assert_eq!(err.partial.trash_items[0].original_path(), to.join("x"));
+        assert_eq!(err.partial.trash_items[0].named_path(), to.join("x"));
 
         // Its undo brings the original back, and nothing stands in its way
         let copy = crate::operation::Operation::Copy {

@@ -761,32 +761,6 @@ async fn copy_or_move(
     .map_err(wrap_compio_spawn_error)?
 }
 
-/// Where the trash keeps `item`: beside its `.trashinfo`, in the trash's
-/// `files` folder, or, for an entry inside a trashed folder, at its id.
-/// The `.trashinfo` comes second, when there is one.
-pub(crate) fn in_trash(item: &crate::trashing::TrashItem) -> (PathBuf, Option<PathBuf>) {
-    let id = PathBuf::from(&item.id);
-    if is_trashinfo(&id)
-        && let (Some(trash), Some(name)) = (id.parent().and_then(Path::parent), id.file_stem())
-    {
-        return (trash.join("files").join(name), Some(id));
-    }
-    (id, None)
-}
-
-/// Whether the id `id` names a `.trashinfo` in a trash's `info/`, rather
-/// than a trashed item that only has such a name: at the top of a trash's
-/// `files/` with no record of its own, or inside a trashed folder. The
-/// second is told by the trash folders found, not by folder names: a trash
-/// may well sit somewhere under a folder called `files`.
-fn is_trashinfo(id: &Path) -> bool {
-    id.extension().is_some_and(|ext| ext == "trashinfo")
-        && id
-            .parent()
-            .is_some_and(|info| info.file_name().is_some_and(|name| name == "info"))
-        && !crate::trash::is_trash_path(id)
-}
-
 /// Brings trashed items back to where they were: by the trash's own rename
 /// where nothing is in the way, the folders they were in made again where
 /// gone; the rest as a move out of the trash, where a name taken there is
@@ -809,8 +783,18 @@ async fn restore(
                 stopped = Some(state);
                 break;
             }
-            let (from, _) = in_trash(item);
-            let to = item.original_path();
+            let (from, _) = crate::trashing::in_trash(item);
+            let Some(to) = item.original_path() else {
+                // Nowhere known to go back to: deleting is all it allows
+                return Err(OperationError {
+                    partial: Box::new(op_sel),
+                    ..OperationError::from_msg(fl!(
+                        "failed-path",
+                        name = item.name.to_string_lossy(),
+                        reason = fl!("dimmed-origin-unknown")
+                    ))
+                });
+            };
             let restored = compio::runtime::spawn_blocking({
                 let item = item.clone();
                 move || crate::trashing::restore(&item)
@@ -907,7 +891,7 @@ async fn restore(
                 if let Err(err) = crate::trashing::forget(&item) {
                     log::warn!(
                         "failed to remove the record of {}: {err}",
-                        item.original_path().display()
+                        item.named_path().display()
                     );
                 }
             }
@@ -936,7 +920,9 @@ async fn put_back_restored(
     let mut op_sel = OperationSelection::default();
     for (item, to) in not_back {
         log::warn!("failed to put {} back in the trash", to.display());
-        op_sel.moved.push((in_trash(&item).0, to.clone()));
+        op_sel
+            .moved
+            .push((crate::trashing::in_trash(&item).0, to.clone()));
         op_sel.created.push(to.clone());
         op_sel.selected.push(to);
     }
@@ -988,7 +974,7 @@ async fn purge(
         let items = items
             .into_iter()
             .map(|item| {
-                let (files, info) = in_trash(&item);
+                let (files, info) = crate::trashing::in_trash(&item);
                 (item, files, info)
             })
             .collect();
@@ -1257,7 +1243,7 @@ impl Operation {
                 for path in result
                     .trash_items
                     .iter()
-                    .map(crate::trashing::TrashItem::original_path)
+                    .filter_map(crate::trashing::TrashItem::original_path)
                     .filter(|path| path.symlink_metadata().is_ok())
                 {
                     if !paths.contains(&path) {
@@ -1295,7 +1281,7 @@ impl Operation {
                 for path in result
                     .trash_items
                     .iter()
-                    .map(crate::trashing::TrashItem::original_path)
+                    .filter_map(crate::trashing::TrashItem::original_path)
                 {
                     if !paths.contains(&path) {
                         paths.push(path);
@@ -1341,7 +1327,7 @@ impl Operation {
                         !done
                             .trash_items
                             .iter()
-                            .any(|item| item.original_path() == **path)
+                            .any(|item| item.original_path().as_ref() == Some(*path))
                     })
                     .cloned()
                     .collect(),
@@ -3636,6 +3622,27 @@ mod tests {
         Ok(())
     }
 
+    /// An item whose origin is not recorded has nowhere to go back to: its
+    /// restore fails, naming it, and it stays in the trash
+    #[test(compio::test)]
+    async fn an_item_of_unknown_origin_is_not_restored() -> io::Result<()> {
+        let fs = empty_fs()?;
+        let kept = fs.path().join("trash/files/lone");
+        fs::create_dir_all(kept.parent().expect("parent"))?;
+        fs::write(&kept, b"L")?;
+        let item = crate::trashing::TrashItem {
+            id: crate::trashing::TrashId::Orphan(kept.clone()),
+            name: "lone".into(),
+            original_parent: None,
+            time_deleted: 1,
+        };
+        let (result, _) = perform_watched(Operation::Restore { items: vec![item] }).await;
+        let err = result.expect_err("nowhere to go");
+        assert!(err.to_string().contains("lone"), "{err}");
+        assert_eq!(fs::read(&kept)?, b"L");
+        Ok(())
+    }
+
     /// A failure at a path keeps the path and the I/O error, and the
     /// operation ends failed, not cancelled
     #[test(compio::test)]
@@ -4618,9 +4625,9 @@ mod tests {
         // What a copy replaced went to the trash: its copy goes there too,
         // then it comes back
         let replaced = crate::trashing::TrashItem {
-            id: "/trash/info/one.trashinfo".into(),
+            id: crate::trashing::TrashId::of_record("/trash/info/one.trashinfo"),
             name: "one".into(),
-            original_parent: "/dest".into(),
+            original_parent: Some("/dest".into()),
             time_deleted: 1,
         };
         assert_eq!(
@@ -4696,9 +4703,9 @@ mod tests {
         assert!(
             Operation::Restore {
                 items: vec![crate::trashing::TrashItem {
-                    id: "/trash/info/one.trashinfo".into(),
+                    id: crate::trashing::TrashId::of_record("/trash/info/one.trashinfo"),
                     name: "one".into(),
-                    original_parent: "/a".into(),
+                    original_parent: Some("/a".into()),
                     time_deleted: 1,
                 }]
             }
@@ -4762,8 +4769,8 @@ mod tests {
         fs::write(path.join("to/d/c"), b"C")?;
         let item = |id: PathBuf, parent: PathBuf| crate::trashing::TrashItem {
             name: id.file_name().expect("name").to_owned(),
-            id: id.into(),
-            original_parent: parent,
+            id: crate::trashing::TrashId::Orphan(id),
+            original_parent: Some(parent),
             time_deleted: 1,
         };
         let items = vec![
@@ -4810,9 +4817,9 @@ mod tests {
                 format!("[Trash Info]\nPath={name}\nDeletionDate=2026-10-28T10:00:00\n"),
             )?;
             Ok(crate::trashing::TrashItem {
-                id: info.into(),
+                id: crate::trashing::TrashId::of_record(info),
                 name: name.into(),
-                original_parent: top.to_path_buf(),
+                original_parent: Some(top.to_path_buf()),
                 time_deleted: 1,
             })
         };
@@ -4845,9 +4852,9 @@ mod tests {
             paths: vec!["/a/one".into(), "/a/two".into(), "/a/three".into()],
         };
         let trashed = |name: &str| crate::trashing::TrashItem {
-            id: format!("/trash/info/{name}.trashinfo").into(),
+            id: crate::trashing::TrashId::of_record(format!("/trash/info/{name}.trashinfo")),
             name: name.into(),
-            original_parent: "/a".into(),
+            original_parent: Some("/a".into()),
             time_deleted: 1,
         };
         let done = OperationSelection {
@@ -5225,7 +5232,7 @@ mod tests {
         assert!(
             undo.iter()
                 .any(|op| matches!(op, Operation::Restore { items }
-                if items.iter().any(|item| item.original_path() == path.join("a.txt")))),
+                if items.iter().any(|item| item.original_path() == Some(path.join("a.txt"))))),
             "{undo:?}"
         );
         Ok(())

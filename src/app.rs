@@ -7755,11 +7755,10 @@ impl Application for App {
                         Ok((_parent_item_opt, items)) => {
                             for path in &*recently_trashed {
                                 for item in &items {
-                                    if let ItemMetadata::Trash { ref entry, .. } = item.metadata {
-                                        let original_path = entry.original_path();
-                                        if &original_path == path {
-                                            paths.push(entry.clone());
-                                        }
+                                    if let ItemMetadata::Trash { ref entry, .. } = item.metadata
+                                        && entry.original_path().as_ref() == Some(path)
+                                    {
+                                        paths.push(entry.clone());
                                     }
                                 }
                             }

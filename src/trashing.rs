@@ -25,25 +25,88 @@ use xdg_kit::trash::{
     TrashError, TrashKind,
 };
 
+/// Which trashed thing an item is, and where it is: unique among the items
+/// listed.
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub enum TrashId {
+    /// An entry of a trash with its `.trashinfo`, readable or not: where
+    /// that is, and where the entry is, in the trash's `files/`.
+    Recorded { info: PathBuf, payload: PathBuf },
+    /// An entry of a trash's `files/` with no `.trashinfo`: where it is.
+    Orphan(PathBuf),
+    /// Something inside a trashed folder: where it is.
+    Child(PathBuf),
+}
+
+impl TrashId {
+    /// Where the trashed thing is.
+    pub fn payload(&self) -> &Path {
+        match self {
+            Self::Recorded { payload, .. } => payload,
+            Self::Orphan(path) | Self::Child(path) => path,
+        }
+    }
+
+    /// Where its `.trashinfo` is, for an entry that has one.
+    pub fn record(&self) -> Option<&Path> {
+        match self {
+            Self::Recorded { info, .. } => Some(info),
+            Self::Orphan(_) | Self::Child(_) => None,
+        }
+    }
+}
+
 /// One item in a trash.
 #[derive(Clone, Debug)]
 pub struct TrashItem {
-    /// Where its `.trashinfo` is, or for an item without one, where the item
-    /// is: unique among the items listed.
-    pub id: OsString,
+    pub id: TrashId,
     /// Its name where it came from.
     pub name: OsString,
-    /// The folder it came from; empty when unknown.
-    pub original_parent: PathBuf,
+    /// The folder it came from; `None` when unknown, as for an entry
+    /// without a readable `.trashinfo`, which cannot be put back.
+    pub original_parent: Option<PathBuf>,
     /// When it was trashed, in seconds since the Unix epoch.
     pub time_deleted: i64,
 }
 
 impl TrashItem {
-    /// Where it came from, and goes back to when restored.
-    pub fn original_path(&self) -> PathBuf {
-        self.original_parent.join(&self.name)
+    /// Where it came from, and goes back to when restored; `None` when that
+    /// is unknown.
+    pub fn original_path(&self) -> Option<PathBuf> {
+        self.original_parent
+            .as_ref()
+            .map(|parent| parent.join(&self.name))
     }
+
+    /// The path to name it by: where it came from, or where it is when that
+    /// is unknown.
+    pub fn named_path(&self) -> PathBuf {
+        self.original_path()
+            .unwrap_or_else(|| self.id.payload().to_path_buf())
+    }
+}
+
+#[cfg(test)]
+impl TrashId {
+    /// The entry whose `.trashinfo` is at `info`, in its trash's `files/`.
+    pub fn of_record(info: impl Into<PathBuf>) -> Self {
+        let info = info.into();
+        let payload = info
+            .parent()
+            .and_then(Path::parent)
+            .unwrap_or(Path::new(""))
+            .join("files")
+            .join(info.file_stem().unwrap_or_default());
+        Self::Recorded { info, payload }
+    }
+}
+
+/// Where the trash keeps `item`, and its `.trashinfo` when it has one.
+pub(crate) fn in_trash(item: &TrashItem) -> (PathBuf, Option<PathBuf>) {
+    (
+        item.id.payload().to_path_buf(),
+        item.id.record().map(Path::to_path_buf),
+    )
 }
 
 /// Items are the same item when their ids are.
@@ -421,24 +484,27 @@ fn item_of(
     };
     // A `.trashinfo` that cannot be read still goes with it
     let id = if matches!(entry.metadata(), Metadata::Missing) {
-        payload
+        TrashId::Orphan(payload)
     } else {
-        entry.metadata_path()
+        TrashId::Recorded {
+            info: entry.metadata_path(),
+            payload,
+        }
     };
     let (name, original_parent) = match entry.origin() {
         Origin::Known(path) => (
             path.file_name()
                 .map_or_else(|| entry.name().to_owned(), OsStr::to_owned),
-            path.parent().map(Path::to_path_buf).unwrap_or_default(),
+            path.parent().map(Path::to_path_buf),
         ),
-        Origin::Unknown(_) => (entry.name().to_owned(), PathBuf::new()),
+        Origin::Unknown(_) => (entry.name().to_owned(), None),
     };
     let time_deleted = entry
         .deletion_date()
         .map_or(0, |date| seconds(date.instants(context.zone())));
     Ok(Some((
         TrashItem {
-            id: id.into_os_string(),
+            id,
             name,
             original_parent,
             time_deleted,
@@ -470,7 +536,7 @@ fn unix_seconds(at: SystemTime) -> i64 {
 /// without a `.trashinfo`, or with one that cannot be read. It cannot be
 /// put back, only deleted.
 pub fn origin_unknown(item: &TrashItem) -> bool {
-    item.original_parent.as_os_str().is_empty()
+    item.original_parent.is_none()
 }
 
 /// Whether `path` has somewhere in a trash to go: a trash on its drive that
@@ -504,22 +570,16 @@ fn trashed_item(trashed: xdg_kit::trash::Trashed) -> TrashItem {
     let mut info_name = trashed.name.clone();
     info_name.push(".trashinfo");
     TrashItem {
-        id: trashed
-            .trash
-            .path()
-            .join("info")
-            .join(info_name)
-            .into_os_string(),
+        id: TrashId::Recorded {
+            info: trashed.trash.path().join("info").join(info_name),
+            payload: trashed.trash.path().join("files").join(&trashed.name),
+        },
         name: trashed
             .original
             .file_name()
             .map(OsStr::to_owned)
             .unwrap_or_default(),
-        original_parent: trashed
-            .original
-            .parent()
-            .map(Path::to_path_buf)
-            .unwrap_or_default(),
+        original_parent: trashed.original.parent().map(Path::to_path_buf),
         time_deleted: unix_seconds(SystemTime::now()),
     }
 }
@@ -572,15 +632,13 @@ fn dir_at(context: &Context, root: &Path) -> TrashDir {
 /// for an item inside a trashed folder, which the trash knows nothing of,
 /// and for one in a folder that is no trash of this user's layout.
 fn top_entry(context: &Context, item: &TrashItem) -> io::Result<Option<(Trash, OsString)>> {
-    let (files, info) = crate::operation::in_trash(item);
+    if let TrashId::Child(_) = item.id {
+        return Ok(None);
+    }
+    let files = item.id.payload();
     let (Some(folder), Some(name)) = (files.parent(), files.file_name()) else {
         return Ok(None);
     };
-    // With a record, the item is at the top of its trash; without one,
-    // only if it is right in a trash's `files/`
-    if info.is_none() && crate::trash::trash_files_dir(&files) != Some(folder) {
-        return Ok(None);
-    }
     let Some(root) = folder.parent() else {
         return Ok(None);
     };
@@ -595,7 +653,7 @@ fn top_entry(context: &Context, item: &TrashItem) -> io::Result<Option<(Trash, O
 /// Removes `item`'s record by its path, once its item is gone: for an item
 /// whose trash cannot be opened as one.
 fn remove_record(item: &TrashItem) -> io::Result<()> {
-    let (files, info) = crate::operation::in_trash(item);
+    let (files, info) = in_trash(item);
     match (fs::symlink_metadata(&files), info) {
         (Err(err), Some(info)) if err.kind() == io::ErrorKind::NotFound => {
             match fs::remove_file(info) {
@@ -637,7 +695,7 @@ fn purge_in(
 ) -> io::Result<()> {
     let Some((trash, name)) = top_entry(context, item)? else {
         // Inside a trashed folder: only the path itself
-        let (files, _) = crate::operation::in_trash(item);
+        let (files, _) = in_trash(item);
         return match crate::operation::recursive::remove_tree_checked(&files, go_on) {
             Err(err) if err.kind() != io::ErrorKind::NotFound => Err(err),
             _ => remove_record(item),
@@ -736,7 +794,7 @@ fn restore_in(context: &Context, item: &TrashItem) -> io::Result<Restored> {
             if let xdg_kit::trash::MetadataRemoval::Kept(err) = restored.metadata {
                 log::warn!(
                     "failed to remove the record of {}: {err}",
-                    item.original_path().display()
+                    item.named_path().display()
                 );
             }
             Ok(Restored::Back)
@@ -777,7 +835,7 @@ fn forget_in(context: &Context, item: &TrashItem) -> io::Result<()> {
 /// trash, as a cancelled restore leaves it.
 pub fn put_back(item: &TrashItem, path: &Path) -> io::Result<()> {
     let (context, _) = context()?;
-    let (files, _) = crate::operation::in_trash(item);
+    let (files, _) = in_trash(item);
     let root = files
         .parent()
         .and_then(Path::parent)
@@ -838,9 +896,10 @@ mod tests {
         let trashed = trash_one(&context, &dir, &item);
         assert!(!item.exists());
         assert_eq!(
-            PathBuf::from(&trashed.id),
-            dir.path().join("info/café.txt.trashinfo")
+            trashed.id.record(),
+            Some(dir.path().join("info/café.txt.trashinfo").as_path())
         );
+        assert_eq!(trashed.id.payload(), dir.path().join("files/café.txt"));
         let listed = list_dir(&context, &dir).expect("listed");
         assert_eq!(listed.len(), 1);
         assert_eq!(listed[0].0.original_path(), trashed.original_path());
@@ -864,7 +923,7 @@ mod tests {
         assert_eq!(listed.len(), 1, "{listed:?}");
         let (orphan, meta) = &listed[0];
         assert!(origin_unknown(orphan));
-        assert_eq!(PathBuf::from(&orphan.id), dir.path().join("files/orphan"));
+        assert_eq!(orphan.id, TrashId::Orphan(dir.path().join("files/orphan")));
         assert!(matches!(meta.size, TrashItemSize::Entries(1)));
     }
 
@@ -878,8 +937,11 @@ mod tests {
         let listed = list_dir(&context, &dir).expect("listed");
         assert!(origin_unknown(&listed[0].0));
         assert_eq!(
-            PathBuf::from(&listed[0].0.id),
-            dir.path().join("info/x.trashinfo")
+            listed[0].0.id,
+            TrashId::Recorded {
+                info: dir.path().join("info/x.trashinfo"),
+                payload: dir.path().join("files/x"),
+            }
         );
     }
 
@@ -1064,7 +1126,7 @@ mod tests {
             .find(|(item, _)| origin_unknown(item))
             .expect("listed");
         assert_eq!(
-            crate::operation::in_trash(&orphan),
+            in_trash(&orphan),
             (dir.path().join("files/report.trashinfo"), None)
         );
         purge_in(&context, &orphan, &|| Ok(())).expect("purged");
@@ -1090,12 +1152,12 @@ mod tests {
         fs::create_dir_all(inner.parent().expect("parent")).expect("mkdir");
         fs::write(&inner, "x").expect("write");
         let item = TrashItem {
-            id: inner.clone().into_os_string(),
+            id: TrashId::Child(inner.clone()),
             name: "x.trashinfo".into(),
-            original_parent: PathBuf::new(),
+            original_parent: None,
             time_deleted: 0,
         };
-        assert_eq!(crate::operation::in_trash(&item), (inner.clone(), None));
+        assert_eq!(in_trash(&item), (inner.clone(), None));
         // Deleting it takes only it, as a path inside the trashed folder
         purge_in(&context, &item, &|| Ok(())).expect("purged");
         assert!(!inner.exists());
@@ -1258,7 +1320,7 @@ mod tests {
         fs::write(&item, "contents").expect("write");
         let trashed = trash_one(&context, &dir, &item);
         assert_eq!(
-            crate::operation::in_trash(&trashed),
+            in_trash(&trashed),
             (
                 dir.path().join("files/x"),
                 Some(dir.path().join("info/x.trashinfo"))

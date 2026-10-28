@@ -141,8 +141,10 @@ pub(super) fn restore_entry(
     if crate::trashing::restore(&item)? == crate::trashing::Restored::Back {
         return Ok(());
     }
-    let (kept, _) = crate::operation::in_trash(&item);
-    let to = item.original_path();
+    let (kept, _) = crate::trashing::in_trash(&item);
+    let to = item
+        .original_path()
+        .ok_or_else(|| io::Error::other("where it came from is not recorded"))?;
     if let Some(parent) = to.parent() {
         fs::create_dir_all(parent)?;
     }
@@ -810,7 +812,7 @@ mod tests {
             .selection()
             .trash_items
             .iter()
-            .map(crate::trashing::TrashItem::original_path)
+            .map(crate::trashing::TrashItem::named_path)
             .collect();
         assert_eq!(trashed, vec![a, b]);
     }
@@ -884,9 +886,9 @@ mod tests {
         let info = trash.path().join("info/d.trashinfo");
         fs::write(&info, b"[Trash Info]").expect("write");
         let item = |parent: &Path| crate::trashing::TrashItem {
-            id: info.clone().into(),
+            id: crate::trashing::TrashId::of_record(info.clone()),
             name: "d".into(),
-            original_parent: parent.to_path_buf(),
+            original_parent: Some(parent.to_path_buf()),
             time_deleted: 1,
         };
 
@@ -1166,7 +1168,7 @@ mod tests {
             .partial
             .trash_items
             .iter()
-            .map(crate::trashing::TrashItem::original_path)
+            .map(crate::trashing::TrashItem::named_path)
             .collect();
         assert_eq!(kept, vec![a]);
     }
@@ -1188,7 +1190,7 @@ mod tests {
             .selection()
             .trash_items
             .iter()
-            .map(crate::trashing::TrashItem::original_path)
+            .map(crate::trashing::TrashItem::named_path)
             .collect();
         back.sort();
         assert_eq!(back, vec![a, b]);
@@ -1211,7 +1213,7 @@ mod tests {
             .expect("listed")
             .pop()
             .expect("listed");
-        let (files, info) = crate::operation::in_trash(&orphan);
+        let (files, info) = crate::trashing::in_trash(&orphan);
         let mut ctx = Context::new(Controller::default());
         ctx.purge(vec![(orphan, files, info)])
             .await

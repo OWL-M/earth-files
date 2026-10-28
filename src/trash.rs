@@ -27,10 +27,10 @@ pub trait TrashExt {
     }
 }
 
-/// Where the trash keeps `item`: see [`crate::operation::in_trash`].
-/// `None` for an id that is no full path, which names no copy.
+/// Where the trash keeps `item`: see [`crate::trashing::TrashId::payload`].
+/// `None` for one that is no full path, which names no copy.
 pub fn trash_item_path(item: &crate::trashing::TrashItem) -> Option<PathBuf> {
-    Some(crate::operation::in_trash(item).0).filter(|path| path.is_absolute())
+    Some(item.id.payload().to_path_buf()).filter(|path| path.is_absolute())
 }
 
 /// For a path inside a trash `files/` directory, reconstruct the original path

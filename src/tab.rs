@@ -1370,13 +1370,11 @@ pub fn item_from_trash_entry(
     let location = trash_path.clone().map(Location::Path);
     // With no record of where it came from, the type is read from its name
     // in the trash, which is all there is
-    let original_path = if crate::trashing::origin_unknown(&entry) {
+    let original_path = entry.original_path().unwrap_or_else(|| {
         trash_path
             .clone()
             .unwrap_or_else(|| PathBuf::from(&entry.name))
-    } else {
-        entry.original_path()
-    };
+    });
 
     let (mime, icon_handle_grid, icon_handle_list) = match metadata.size {
         crate::trashing::TrashItemSize::Entries(_) => (
@@ -1429,10 +1427,9 @@ fn item_from_trash_child(
 ) -> Option<Item> {
     // Inside an entry with no record of where it came from, nothing has one
     let original_parent = crate::trash::original_path_for_trash_child(&path)
-        .and_then(|original| original.parent().map(Path::to_path_buf))
-        .unwrap_or_default();
+        .and_then(|original| original.parent().map(Path::to_path_buf));
     let entry = crate::trashing::TrashItem {
-        id: path.as_os_str().to_os_string(),
+        id: crate::trashing::TrashId::Child(path.clone()),
         name: std::ffi::OsString::from(&name),
         original_parent,
         time_deleted: 0,
@@ -3490,11 +3487,10 @@ impl Item {
 
         // Where a trashed item came from, which is all a restore goes by
         if let ItemMetadata::Trash { entry, .. } = &self.metadata {
-            let location = if crate::trashing::origin_unknown(entry) {
-                fl!("trash-original-unknown")
-            } else {
-                entry.original_parent.display().to_string()
-            };
+            let location = entry.original_parent.as_ref().map_or_else(
+                || fl!("trash-original-unknown"),
+                |parent| parent.display().to_string(),
+            );
             details = details.push(widget::selectable_text::body(fl!(
                 "trash-original-location",
                 location = location
@@ -9364,11 +9360,10 @@ impl Tab {
         // A trashed item's path is in the trash's own storage, the same for
         // every result, so say where it was trashed from
         if let ItemMetadata::Trash { entry, .. } = &item.metadata {
-            return if crate::trashing::origin_unknown(entry) {
-                fl!("trash-original-unknown")
-            } else {
-                entry.original_parent.display().to_string()
-            };
+            return entry.original_parent.as_ref().map_or_else(
+                || fl!("trash-original-unknown"),
+                |parent| parent.display().to_string(),
+            );
         }
         let Some(path) = item.path_opt() else {
             return String::new();
@@ -11631,12 +11626,11 @@ mod tests {
         size: crate::trashing::TrashItemSize,
     ) -> super::Item {
         let entry = crate::trashing::TrashItem {
-            id: root
-                .join("info")
-                .join(format!("{name}.trashinfo"))
-                .into_os_string(),
+            id: crate::trashing::TrashId::of_record(
+                root.join("info").join(format!("{name}.trashinfo")),
+            ),
             name: name.into(),
-            original_parent: "/nonexistent".into(),
+            original_parent: Some("/nonexistent".into()),
             time_deleted: 0,
         };
         super::item_from_trash_entry(
@@ -11699,9 +11693,9 @@ mod tests {
         // An id with no trash root above it names no copy to walk
         let orphan = super::item_from_trash_entry(
             crate::trashing::TrashItem {
-                id: "orphan.trashinfo".into(),
+                id: crate::trashing::TrashId::Orphan("orphan.trashinfo".into()),
                 name: "orphan".into(),
-                original_parent: "/nonexistent".into(),
+                original_parent: Some("/nonexistent".into()),
                 time_deleted: 0,
             },
             crate::trashing::TrashItemMetadata {
@@ -16275,9 +16269,9 @@ mod tests {
         let trashed = |original_parent: &str| {
             super::item_from_trash_entry(
                 crate::trashing::TrashItem {
-                    id: "/t/info/a.txt.trashinfo".into(),
+                    id: crate::trashing::TrashId::of_record("/t/info/a.txt.trashinfo"),
                     name: "a.txt".into(),
-                    original_parent: original_parent.into(),
+                    original_parent: (!original_parent.is_empty()).then(|| original_parent.into()),
                     time_deleted: 0,
                 },
                 crate::trashing::TrashItemMetadata {
