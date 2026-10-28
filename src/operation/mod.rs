@@ -741,16 +741,15 @@ async fn copy_or_move(
         // rename is only taken when the destination did not exist, so each of
         // these is a genuine creation.
         let mut op_sel = OperationSelection::default();
-        for (from, to) in renamed {
-            op_sel.moved.push((from.clone(), to.clone()));
-            op_sel.ignored.push(from);
-            op_sel.created.push(to.clone());
-            op_sel.selected.push(to);
+        for (from, to) in &renamed {
+            op_sel.ignored.push(from.clone());
+            op_sel.selected.push(to.clone());
         }
 
         recursive_pairs(
             from_to_pairs,
             method,
+            renamed,
             op_sel,
             merge_folders,
             msg_tx,
@@ -874,6 +873,7 @@ async fn restore(
                 Method::Move {
                     cross_device_copy: false,
                 },
+                Vec::new(),
                 OperationSelection::default(),
                 false,
                 msg_tx,
@@ -1020,7 +1020,7 @@ async fn delete(
             ))
         });
         context.delete(paths, permanently).await?;
-        Ok(std::mem::take(&mut context.op_sel))
+        Ok(context.take_selection())
     })
     .await
     .map_err(wrap_compio_spawn_error)?
@@ -1029,10 +1029,12 @@ async fn delete(
 /// Copy or move exactly these `(from, to)` pairs, each `to` a whole
 /// destination path rather than a folder to go into.
 ///
-/// `op_sel` is what the caller has already accounted for; the run adds to it.
+/// `renamed` is what a move already renamed into place whole, and `op_sel`
+/// what the caller has already selected; the run adds to them.
 async fn recursive_pairs(
     pairs: PathPairs,
     method: Method,
+    renamed: PathPairs,
     op_sel: OperationSelection,
     merge_folders: bool,
     msg_tx: Arc<TokioMutex<Sender<Message>>>,
@@ -1040,6 +1042,7 @@ async fn recursive_pairs(
 ) -> Result<OperationSelection, OperationError> {
     let mut context = Context::new(controller.clone());
     context.op_sel = op_sel;
+    context.renamed_before(renamed);
     context.merge_folders = merge_folders;
 
     context = context.on_progress(move |_op, progress| {
@@ -1082,7 +1085,7 @@ async fn recursive_pairs(
 
     context.recursive_copy_or_move(pairs, method).await?;
 
-    Ok(std::mem::take(&mut context.op_sel))
+    Ok(context.take_selection())
 }
 
 /// Flushes what was written to disk: the files, then the folders that
@@ -2715,6 +2718,7 @@ impl Operation {
                                 Method::Move {
                                     cross_device_copy: false,
                                 },
+                                Vec::new(),
                                 OperationSelection {
                                     ignored: vec![from],
                                     ..Default::default()

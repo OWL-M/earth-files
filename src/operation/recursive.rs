@@ -332,9 +332,9 @@ pub struct Context {
     /// How much room a folder's filesystem has; replaced in tests, where no
     /// real drive can be made to run out.
     free_space: fn(&Path) -> Option<u64>,
-    /// The steps that ran, oldest first, so a cancelled operation can put
-    /// back what they did.
-    done: Vec<Done>,
+    /// What the operation changed, oldest first: see [`Effect`]. What its
+    /// result says was created, moved and trashed is read from it.
+    journal: Vec<Effect>,
     /// The helper doing steps as root, once the user granted it in this
     /// operation. Dropped with the operation, which ends it.
     helper: Option<Arc<Mutex<Helper>>>,
@@ -371,6 +371,67 @@ pub struct Context {
 }
 
 impl Context {
+    /// What the operation did so far: what it was handed, and what its
+    /// journal says it created, moved and sent to the trash.
+    pub(crate) fn selection(&self) -> OperationSelection {
+        let mut op_sel = self.op_sel.clone();
+        for effect in &self.journal {
+            match effect {
+                Effect::Renamed { from, to } => {
+                    op_sel.created.push(to.clone());
+                    op_sel.moved.push((from.clone(), to.clone()));
+                }
+                Effect::Step { done, transferred } => {
+                    if done.created {
+                        op_sel.created.push(done.to.clone());
+                    }
+                    if *transferred {
+                        op_sel.moved.push((done.from.clone(), done.to.clone()));
+                    }
+                }
+                Effect::Trashed(item) => op_sel.trash_items.push(item.clone()),
+            }
+        }
+        op_sel
+    }
+
+    /// [`Self::selection`], taken: the journal is the operation's no more.
+    pub(crate) fn take_selection(&mut self) -> OperationSelection {
+        let op_sel = self.selection();
+        self.journal.clear();
+        self.op_sel = OperationSelection::default();
+        op_sel
+    }
+
+    /// Notes whole items a move renamed into place before this context
+    /// ran: they count as moved, and a cancel renames them back.
+    pub(crate) fn renamed_before(&mut self, renamed: impl IntoIterator<Item = (PathBuf, PathBuf)>) {
+        self.journal.extend(
+            renamed
+                .into_iter()
+                .map(|(from, to)| Effect::Renamed { from, to }),
+        );
+    }
+
+    fn trashed(&self) -> impl Iterator<Item = &crate::trashing::TrashItem> {
+        self.journal.iter().filter_map(|effect| match effect {
+            Effect::Trashed(item) => Some(item),
+            _ => None,
+        })
+    }
+
+    /// Takes the latest entry sent to the trash out of the journal.
+    fn pop_trashed(&mut self) -> Option<crate::trashing::TrashItem> {
+        let at = self
+            .journal
+            .iter()
+            .rposition(|effect| matches!(effect, Effect::Trashed(_)))?;
+        match self.journal.remove(at) {
+            Effect::Trashed(item) => Some(item),
+            _ => None,
+        }
+    }
+
     fn reserved(&self) -> std::sync::MutexGuard<'static, Vec<(u64, u64, u64)>> {
         self.reservations
             .lock()
@@ -459,6 +520,19 @@ impl Problem {
     }
 }
 
+/// What the operation changed, recorded as it happened: the journal a
+/// cancel puts back from, newest first, and what the result says was done,
+/// which a later undo goes by.
+enum Effect {
+    /// A whole item a move renamed into place before the steps ran.
+    Renamed { from: PathBuf, to: PathBuf },
+    /// A step ran. `transferred`: it brought `from` over to `to`, for an
+    /// undo to carry back.
+    Step { done: Done, transferred: bool },
+    /// Sent to the trash: what a step replaced, or what a delete took.
+    Trashed(crate::trashing::TrashItem),
+}
+
 /// A step that ran, for putting back what it did.
 struct Done {
     from: PathBuf,
@@ -511,7 +585,7 @@ impl Context {
             made_dirs: Vec::new(),
             decided: std::collections::HashMap::new(),
             free_space: super::free_space,
-            done: Vec::new(),
+            journal: Vec::new(),
             helper: None,
             start_helper: Helper::start,
             scope: root::Scope::default(),
@@ -622,17 +696,17 @@ impl Context {
         self.op_sel.skipped.push(path.to_path_buf());
         // Only an entry of this step's: one it removed for good, as root,
         // has none, and the ones before it belong to other steps
-        if self.op_sel.trash_items.len() > self.step_trash
-            && let Some(item) = self.op_sel.trash_items.pop()
+        if self.trashed().count() > self.step_trash
+            && let Some(item) = self.pop_trashed()
         {
             let (to, restore, kept) = (item.original_path(), self.trash.restore, item.clone());
             let restored = compio::runtime::spawn_blocking(move || restore(item))
                 .await
                 .unwrap_or_else(|_| Err("the trash's worker stopped".into()));
             if let Err(err) = restored {
-                self.op_sel.trash_items.push(kept);
+                self.journal.push(Effect::Trashed(kept));
                 return Err(OperationError {
-                    partial: Box::new(self.op_sel.clone()),
+                    partial: Box::new(self.selection()),
                     ..OperationError::at(&to, &*err)
                 });
             }
@@ -772,7 +846,7 @@ impl Context {
         .map_err(|_| std::io::Error::other("the trash's worker stopped"))?;
         match trashed {
             Ok(item) => {
-                self.op_sel.trash_items.push(item);
+                self.journal.push(Effect::Trashed(item));
                 self.replaced_now = true;
                 Ok(())
             }
@@ -792,7 +866,14 @@ impl Context {
     /// could not come back.
     async fn untrash(&mut self) -> Vec<PathBuf> {
         let mut not_back = Vec::new();
-        for item in std::mem::take(&mut self.op_sel.trash_items) {
+        let (trashed, rest): (Vec<_>, Vec<_>) = std::mem::take(&mut self.journal)
+            .into_iter()
+            .partition(|effect| matches!(effect, Effect::Trashed(_)));
+        self.journal = rest;
+        for item in trashed.into_iter().filter_map(|effect| match effect {
+            Effect::Trashed(item) => Some(item),
+            _ => None,
+        }) {
             let (path, restore) = (item.original_path(), self.trash.restore);
             let restored = compio::runtime::spawn_blocking({
                 let item = item.clone();
@@ -803,7 +884,7 @@ impl Context {
                 log::warn!("failed to bring back {} from the trash", path.display());
                 not_back.push(path);
                 // Still in the trash: its record stays, to undo
-                self.op_sel.trash_items.push(item);
+                self.journal.push(Effect::Trashed(item));
             }
         }
         not_back
@@ -819,7 +900,7 @@ impl Context {
         );
         OperationError {
             partial: Box::new(OperationSelection {
-                trash_items: self.op_sel.trash_items.clone(),
+                trash_items: self.trashed().cloned().collect(),
                 ..OperationSelection::default()
             }),
             ..OperationError::from_err(fl!("rollback-failed", name = name, more = more))
@@ -907,7 +988,7 @@ impl Context {
     fn cancel_here(&self) -> OperationError {
         self.controller.cancel();
         OperationError {
-            partial: Box::new(self.op_sel.clone()),
+            partial: Box::new(self.selection()),
             ..OperationError::from_state(super::ControllerState::Cancelled)
         }
     }
@@ -920,11 +1001,6 @@ impl Context {
         from_to_pairs: impl IntoIterator<Item = (PathBuf, PathBuf)>,
         method: Method,
     ) -> Result<bool, OperationError> {
-        // Whole items a move already renamed into place before this ran
-        let renamed = match method {
-            Method::Move { .. } => self.op_sel.moved.clone(),
-            Method::Copy => Vec::new(),
-        };
         let result = self.run_pairs(from_to_pairs, method).await;
         // Aborted: stopped where it was, everything done kept, and undoable
         if self.controller.is_aborted() {
@@ -932,7 +1008,7 @@ impl Context {
         }
         // Cancelled, even as the last step was finishing: all of it goes back
         if self.controller.is_cancelled() {
-            let not_back = self.roll_back(&renamed).await;
+            let not_back = self.roll_back().await;
             if not_back.is_empty() {
                 return Err(OperationError::from_state(
                     super::ControllerState::Cancelled,
@@ -945,26 +1021,21 @@ impl Context {
         // Failed: what got done before, a move's plain renames among it,
         // stays done, to undo, where the failure did not already say
         result.map_err(|mut err| {
-            let done = &self.op_sel;
-            if err.partial.is_empty()
-                && !(done.created.is_empty()
-                    && done.moved.is_empty()
-                    && done.trash_items.is_empty())
-            {
-                err.partial = Box::new(done.clone());
+            if err.partial.is_empty() && !self.journal.is_empty() {
+                err.partial = Box::new(self.selection());
             }
             err
         })
     }
 
-    /// Puts back what the steps that ran did, newest first, then the whole
-    /// items in `renamed`: originals a move had removed come back to where
-    /// they were (renamed, or copied across filesystems), and what was made
-    /// at the destination is removed. What was already at the destination
+    /// Puts back what the journal says was done, newest first: the steps
+    /// that ran, then the whole items renamed before them. Originals a move
+    /// had removed come back to where they were (renamed, or copied across
+    /// filesystems), and what was made at the destination is removed. What was already at the destination
     /// and got replaced comes back from the trash; what had no trash to go
     /// to cannot. Returns the paths that could not be put back; everything
     /// else still is.
-    async fn roll_back(&mut self, renamed: &[(PathBuf, PathBuf)]) -> Vec<PathBuf> {
+    async fn roll_back(&mut self) -> Vec<PathBuf> {
         // Putting back is not the operation: it must not stop because the
         // operation was cancelled, as a copy back across drives would
         let cancelled = std::mem::take(&mut self.controller);
@@ -972,19 +1043,48 @@ impl Context {
         // taken again stays where it landed
         let decided = std::mem::take(&mut self.decided);
         let replace = self.replace_result_opt.replace(ReplaceResult::Skip(true));
-        let not_back = self.roll_back_steps(renamed).await;
+        let not_back = self.roll_back_steps().await;
         self.controller = cancelled;
         self.decided = decided;
         self.replace_result_opt = replace;
         not_back
     }
 
-    async fn roll_back_steps(&mut self, renamed: &[(PathBuf, PathBuf)]) -> Vec<PathBuf> {
+    async fn roll_back_steps(&mut self) -> Vec<PathBuf> {
         let mut not_back = Vec::new();
         // Where an original that could not be put back still is: never
         // removed, it is the only copy
         let mut kept: Vec<PathBuf> = Vec::new();
-        for step in std::mem::take(&mut self.done).into_iter().rev() {
+        // What went to the trash stays in the journal: it comes back last
+        let (journal, trashed): (Vec<_>, Vec<_>) = std::mem::take(&mut self.journal)
+            .into_iter()
+            .partition(|effect| !matches!(effect, Effect::Trashed(_)));
+        self.journal = trashed;
+        for effect in journal.into_iter().rev() {
+            let step = match effect {
+                Effect::Step { done, .. } => done,
+                Effect::Renamed { from, to } => {
+                    // Never over something made at `from` since: then it
+                    // stays at `to`
+                    let back = compio::runtime::spawn_blocking({
+                        let (from, to) = (from.clone(), to.clone());
+                        move || super::rename_no_replace(&to, &from)
+                    })
+                    .await
+                    .map_err(|_| std::io::Error::other("the rename's worker stopped"))
+                    .and_then(|result| result);
+                    if let Err(err) = back {
+                        log::warn!(
+                            "failed to put back {} from {}: {err}",
+                            from.display(),
+                            to.display()
+                        );
+                        not_back.push(from);
+                    }
+                    continue;
+                }
+                Effect::Trashed(_) => continue,
+            };
             let result = if step.is_cleanup {
                 let result = if step.root {
                     self.put_back_as_root(&step).await
@@ -1011,24 +1111,6 @@ impl Context {
                     step.to.display()
                 );
                 not_back.push(step.from);
-            }
-        }
-        for (from, to) in renamed.iter().rev() {
-            // Never over something made at `from` since: then it stays at `to`
-            let back = compio::runtime::spawn_blocking({
-                let (from, to) = (from.clone(), to.clone());
-                move || super::rename_no_replace(&to, &from)
-            })
-            .await
-            .map_err(|_| std::io::Error::other("the rename's worker stopped"))
-            .and_then(|result| result);
-            if let Err(err) = back {
-                log::warn!(
-                    "failed to put back {} from {}: {err}",
-                    from.display(),
-                    to.display()
-                );
-                not_back.push(from.clone());
             }
         }
         // What was replaced comes back last, into the places just freed
@@ -1550,7 +1632,7 @@ impl Context {
                 // What stayed in the trash goes with it, to bring back on undo
                 return Err(OperationError {
                     partial: Box::new(OperationSelection {
-                        trash_items: self.op_sel.trash_items.clone(),
+                        trash_items: self.trashed().cloned().collect(),
                         ..OperationSelection::default()
                     }),
                     ..OperationError::from_err(reason)
@@ -1629,7 +1711,7 @@ impl Context {
             let to_before = op.to.clone();
             let to_existed = compio::fs::symlink_metadata(&to_before).await.is_ok();
             self.replaced_now = false;
-            self.step_trash = self.op_sel.trash_items.len();
+            self.step_trash = self.trashed().count();
             // A step stopped for lack of permission asks the user, and runs
             // again for as long as they answer Retry.
             let mut left_alone = false;
@@ -1748,15 +1830,28 @@ impl Context {
                 let created = creates
                     && !op.skipped.normal.get()
                     && (op.to != to_before || !to_existed || self.replaced_now);
-                if created {
-                    self.op_sel.created.push(op.to.clone());
-                }
                 // What ran, to put back if the operation is cancelled. A
                 // step that was skipped, or asked about and left alone, did
                 // nothing.
                 let did_nothing = left_alone
                     || op.skipped.normal.get()
                     || (op.is_cleanup && op.skipped.cleanup.get());
+                // What an undo has to put back, paired with where it came from.
+                // The pairing cannot be recovered afterwards: a Keep Both
+                // conflict gives the destination a different name. A directory
+                // that was already there is left out, because a merge into it
+                // transfers only its children and carrying the whole folder
+                // back would take what it already held with it.
+                let transferred = !op.is_cleanup
+                    && !op.skipped.normal.get()
+                    && (created
+                        || matches!(
+                            op.kind,
+                            OpKind::Copy | OpKind::Move { .. } | OpKind::Symlink { .. }
+                        ));
+                // A step that did nothing has nothing to record: one left
+                // out or skipped neither created nor transferred anything,
+                // and a cleanup step does neither
                 if !did_nothing {
                     let to = if op.is_cleanup {
                         self.landed.get(&op.from).cloned().unwrap_or(op.to.clone())
@@ -1764,32 +1859,21 @@ impl Context {
                         self.landed.insert(op.from.clone(), op.to.clone());
                         op.to.clone()
                     };
-                    self.done.push(Done {
-                        from: op.from.clone(),
-                        to,
-                        // Renamed whole, it comes back the way a removed
-                        // original does
-                        is_cleanup: op.is_cleanup || op.moved.get(),
-                        is_dir: matches!(op.kind, OpKind::Mkdir | OpKind::Rmdir),
-                        created,
-                        root: op.root,
+                    self.journal.push(Effect::Step {
+                        done: Done {
+                            from: op.from.clone(),
+                            to,
+                            // Renamed whole, it comes back the way a removed
+                            // original does
+                            is_cleanup: op.is_cleanup || op.moved.get(),
+                            is_dir: matches!(op.kind, OpKind::Mkdir | OpKind::Rmdir),
+                            created,
+                            root: op.root,
+                        },
+                        transferred,
                     });
-                }
-                // What an undo has to put back, paired with where it came from.
-                // The pairing cannot be recovered afterwards: a Keep Both
-                // conflict gives the destination a different name. A directory
-                // that was already there is left out, because a merge into it
-                // transfers only its children and carrying the whole folder
-                // back would take what it already held with it.
-                if !op.is_cleanup
-                    && !op.skipped.normal.get()
-                    && (created
-                        || matches!(
-                            op.kind,
-                            OpKind::Copy | OpKind::Move { .. } | OpKind::Symlink { .. }
-                        ))
-                {
-                    self.op_sel.moved.push((op.from.clone(), op.to.clone()));
+                } else {
+                    debug_assert!(!created && !transferred, "a step that did nothing");
                 }
                 // The from path is ignored in the operation selection if it is a top level item.
                 // Only from the op that did the work: a cleanup op still carries
@@ -1844,7 +1928,7 @@ impl Context {
             .await
             .map_err(|(path, err)| OperationError {
                 // What is done stays, to undo
-                partial: Box::new(self.op_sel.clone()),
+                partial: Box::new(self.selection()),
                 ..OperationError::at(&path, &err)
             })
     }
@@ -2668,11 +2752,21 @@ impl Op {
 #[cfg(test)]
 mod tests {
     use super::check::{Target, check_tree};
-    use super::{Context, Done, Method, OpKind, PlannedOp};
+    use super::{Context, Done, Effect, Method, OpKind, PlannedOp};
     use crate::operation::{Controller, ControllerState};
     use std::fs;
     use std::path::Path;
     use test_log::test;
+
+    /// A journal of `done`, as steps that transferred nothing.
+    fn steps(done: impl IntoIterator<Item = Done>) -> Vec<Effect> {
+        done.into_iter()
+            .map(|done| Effect::Step {
+                done,
+                transferred: false,
+            })
+            .collect()
+    }
 
     /// A folder moved away whole, its originals removed: the steps that did
     /// it, as the step loop records them, oldest first.
@@ -2717,8 +2811,8 @@ mod tests {
             fs::write(to.join("f.txt"), b"F").expect("write");
 
             let mut ctx = Context::new(Controller::default());
-            ctx.done = moved_folder(&from, &to);
-            let not_back = ctx.roll_back(&[]).await;
+            ctx.journal = steps(moved_folder(&from, &to));
+            let not_back = ctx.roll_back().await;
 
             assert!(not_back.is_empty(), "{not_back:?}");
             assert_eq!(fs::read(from.join("f.txt")).expect("back"), b"F");
@@ -2959,7 +3053,10 @@ mod tests {
         assert_eq!(*asked.borrow(), vec![Blocked::Delete(locked.join("f"))]);
         assert!(!locked.join("f").exists());
         assert!(!locked.join("sub").exists());
-        assert!(ctx.op_sel.trash_items.is_empty(), "root deletes for good");
+        assert!(
+            ctx.selection().trash_items.is_empty(),
+            "root deletes for good"
+        );
     }
 
     fake_root!(root_refused, true);
@@ -3056,11 +3153,12 @@ mod tests {
             destinations: vec![dir.path().to_path_buf()],
         };
         ctx.ensure_helper().await.expect("helper");
-        ctx.done = moved_folder(&from, &to)
-            .into_iter()
-            .map(|step| Done { root: true, ..step })
-            .collect();
-        let not_back = ctx.roll_back(&[]).await;
+        ctx.journal = steps(
+            moved_folder(&from, &to)
+                .into_iter()
+                .map(|step| Done { root: true, ..step }),
+        );
+        let not_back = ctx.roll_back().await;
 
         assert!(not_back.is_empty(), "{not_back:?}");
         assert_eq!(fs::read(from.join("f.txt")).expect("back"), b"F");
@@ -3139,8 +3237,8 @@ mod tests {
         };
 
         let mut ctx = Context::new(Controller::default());
-        ctx.done = vec![step(false, true), step(true, false)];
-        let not_back = ctx.roll_back(&[]).await;
+        ctx.journal = steps(vec![step(false, true), step(true, false)]);
+        let not_back = ctx.roll_back().await;
 
         assert_eq!(not_back, vec![from]);
         assert_eq!(fs::read(&to).expect("kept"), b"F");
@@ -3177,14 +3275,69 @@ mod tests {
             let mut ctx = Context::new(Controller::default()).on_replace(|_op, _count| {
                 panic!("putting back asks nothing");
             });
-            ctx.done = vec![step(false, true), step(true, false)];
-            let not_back = ctx.roll_back(&[]).await;
+            ctx.journal = steps(vec![step(false, true), step(true, false)]);
+            let not_back = ctx.roll_back().await;
 
             assert_eq!(not_back, vec![from.clone()]);
             assert_eq!(fs::read(&from).expect("new"), b"new");
             assert_eq!(fs::read(&to).expect("kept"), b"moved");
             fs::remove_file(&from).expect("clean up");
         }
+    }
+
+    /// The result is read from the journal, in the order things happened:
+    /// a rename before the steps counts as created and moved, a step as it
+    /// says, a cleanup as neither, and what went to the trash as trashed
+    #[test(compio::test)]
+    async fn the_result_is_read_from_the_journal_in_order() {
+        use super::TRASH;
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = |name: &str| dir.path().join(name);
+        let replaced = path("replaced");
+        fs::write(&replaced, b"old").expect("write");
+        let done = |from: &str, to: &str, is_cleanup, created| Done {
+            from: path(from),
+            to: path(to),
+            is_cleanup,
+            is_dir: false,
+            created,
+            root: false,
+        };
+        let mut ctx = Context::new(Controller::default());
+        ctx.renamed_before([(path("a"), path("moved-a"))]);
+        ctx.journal.push(Effect::Step {
+            done: done("b", "copied-b", false, true),
+            transferred: true,
+        });
+        ctx.journal
+            .push(Effect::Trashed((TRASH.delete)(&replaced).expect("trashed")));
+        ctx.journal.push(Effect::Step {
+            done: done("b", "copied-b", true, false),
+            transferred: false,
+        });
+        // Replaced, not created: transferred all the same
+        ctx.journal.push(Effect::Step {
+            done: done("c", "replaced", false, false),
+            transferred: true,
+        });
+
+        let op_sel = ctx.take_selection();
+        assert_eq!(op_sel.created, vec![path("moved-a"), path("copied-b")]);
+        assert_eq!(
+            op_sel.moved,
+            vec![
+                (path("a"), path("moved-a")),
+                (path("b"), path("copied-b")),
+                (path("c"), path("replaced")),
+            ]
+        );
+        let trashed: Vec<_> = op_sel
+            .trash_items
+            .iter()
+            .map(crate::trashing::TrashItem::original_path)
+            .collect();
+        assert_eq!(trashed, vec![replaced]);
+        assert!(ctx.selection().is_empty(), "taken");
     }
 
     /// A whole item a move renamed into place goes back only to a free
@@ -3198,7 +3351,8 @@ mod tests {
         fs::write(&from, b"new").expect("write");
 
         let mut ctx = Context::new(Controller::default());
-        let not_back = ctx.roll_back(&[(from.clone(), to.clone())]).await;
+        ctx.renamed_before([(from.clone(), to.clone())]);
+        let not_back = ctx.roll_back().await;
 
         assert_eq!(not_back, vec![from.clone()]);
         assert_eq!(fs::read(&from).expect("new"), b"new");
@@ -3225,15 +3379,15 @@ mod tests {
             destinations: vec![there.path().to_path_buf()],
         };
         ctx.ensure_helper().await.expect("helper");
-        ctx.done = vec![Done {
+        ctx.journal = steps(vec![Done {
             from: from.clone(),
             to: to.clone(),
             is_cleanup: true,
             is_dir: false,
             created: false,
             root: true,
-        }];
-        let not_back = ctx.roll_back(&[]).await;
+        }]);
+        let not_back = ctx.roll_back().await;
 
         assert!(not_back.is_empty(), "{not_back:?}");
         assert_eq!(
@@ -3270,7 +3424,7 @@ mod tests {
             .expect("copied");
         assert_eq!(fs::read(to.join("a")).expect("new"), b"new");
         let trashed: Vec<_> = ctx
-            .op_sel
+            .selection()
             .trash_items
             .iter()
             .map(crate::trashing::TrashItem::original_path)
@@ -3427,7 +3581,7 @@ mod tests {
         });
         let result = ctx.recursive_copy_or_move([(from, to)], Method::Copy).await;
         let asked = asked.borrow().clone();
-        (asked, result, std::mem::take(&mut ctx.op_sel), dir)
+        (asked, result, ctx.take_selection(), dir)
     }
 
     /// Merge: the folder is asked about first, then the file inside that
@@ -3555,7 +3709,7 @@ mod tests {
             .await
             .expect("finished");
         assert_eq!(fs::read(to.join("x")).expect("x"), b"old");
-        assert!(ctx.op_sel.trash_items.is_empty());
+        assert!(ctx.selection().trash_items.is_empty());
     }
 
     /// A step removed for good as root has no trash entry of its own:
@@ -3570,12 +3724,12 @@ mod tests {
         fs::write(&earlier, b"earlier").expect("write");
         let mut ctx = Context::new(Controller::default());
         // An earlier step replaced `earlier`, a file now in its place
-        ctx.op_sel
-            .trash_items
-            .push((TRASH.delete)(&earlier).expect("trashed"));
+        ctx.journal.push(super::Effect::Trashed(
+            (TRASH.delete)(&earlier).expect("trashed"),
+        ));
         fs::write(&earlier, b"copied").expect("write");
         // This step: as `root_taken` leaves it after removing for good
-        ctx.step_trash = ctx.op_sel.trash_items.len();
+        ctx.step_trash = ctx.trashed().count();
         ctx.replaced_now = true;
         let op = Op {
             kind: OpKind::Copy,
@@ -3591,7 +3745,11 @@ mod tests {
             root: true,
         };
         ctx.leave_out(&op, &op.from).await.expect("left out");
-        assert_eq!(ctx.op_sel.trash_items.len(), 1, "the earlier entry stays");
+        assert_eq!(
+            ctx.selection().trash_items.len(),
+            1,
+            "the earlier entry stays"
+        );
         assert_eq!(fs::read(&earlier).expect("earlier"), b"copied");
     }
 

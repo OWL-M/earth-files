@@ -334,7 +334,7 @@ impl Context {
         // What reached the trash before the failure can be undone, and a
         // retry has only the rest to do
         Err(OperationError {
-            partial: Box::new(self.op_sel.clone()),
+            partial: Box::new(self.selection()),
             ..err
         })
     }
@@ -734,7 +734,7 @@ impl Context {
         .map_err(|_| io::Error::other("the trash's worker stopped"))?;
         match trashed {
             Ok(item) => {
-                self.op_sel.trash_items.push(item);
+                self.journal.push(super::Effect::Trashed(item));
                 Ok(())
             }
             Err(err) => Err(err as Box<dyn Error>),
@@ -807,7 +807,7 @@ mod tests {
         assert!(asked.is_empty());
         assert!(!a.exists() && !b.exists());
         let trashed: Vec<_> = ctx
-            .op_sel
+            .selection()
             .trash_items
             .iter()
             .map(crate::trashing::TrashItem::original_path)
@@ -852,7 +852,7 @@ mod tests {
         assert!(asked[0].1.permanently && asked[0].1.count == 2);
         assert!(asked[0].1.root.is_none());
         assert!(!a.exists() && !b.exists());
-        assert!(ctx.op_sel.trash_items.is_empty(), "nothing to undo");
+        assert!(ctx.selection().trash_items.is_empty(), "nothing to undo");
     }
 
     #[test(compio::test)]
@@ -1086,7 +1086,7 @@ mod tests {
             delete_with(ctx, vec![a.clone()], false, |_| BlockedAnswer::Cancel).await;
         result.expect_err("cancelled");
         assert!(a.exists(), "it came back from the trash");
-        assert!(ctx.op_sel.trash_items.is_empty());
+        assert!(ctx.selection().trash_items.is_empty());
     }
 
     /// Cancelled mid-way, what reached the trash comes back, and what went
@@ -1185,7 +1185,7 @@ mod tests {
         .await;
         result.expect("deleted");
         let mut back: Vec<PathBuf> = ctx
-            .op_sel
+            .selection()
             .trash_items
             .iter()
             .map(crate::trashing::TrashItem::original_path)
