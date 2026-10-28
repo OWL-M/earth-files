@@ -2,9 +2,12 @@
 
 //! The helper that does a copy or move's steps as root, started by the app
 //! through `pkexec` for one operation. It includes only its own protocol
-//! file; nothing else of the app runs as root. See
-//! `src/operation/root/proto.rs`.
+//! file and the filesystem steps it takes; nothing else of the app runs as
+//! root. See `src/operation/root/proto.rs` and `src/fs_at.rs`.
 
+#[allow(dead_code)]
+#[path = "../fs_at.rs"]
+mod fs_at;
 #[allow(dead_code)]
 #[path = "../operation/root/proto.rs"]
 mod proto;

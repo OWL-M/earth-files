@@ -696,7 +696,7 @@ fn purge_in(
     let Some((trash, name)) = top_entry(context, item)? else {
         // Inside a trashed folder: only the path itself
         let (files, _) = in_trash(item);
-        return match crate::operation::recursive::remove_tree_checked(&files, go_on) {
+        return match crate::fs_at::remove_tree_checked(&files, go_on) {
             Err(err) if err.kind() != io::ErrorKind::NotFound => Err(err),
             _ => remove_record(item),
         };
@@ -1010,7 +1010,7 @@ mod tests {
         fs::set_permissions(&kept, fs::Permissions::from_mode(0o555)).expect("chmod");
         let purged = purge_in(&context, &trashed, &|| Ok(()));
         fs::set_permissions(&kept, fs::Permissions::from_mode(0o755)).expect("chmod");
-        if crate::operation::cannot_write(&kept).is_some() || purged.is_err() {
+        if crate::fs_at::cannot_write(&kept).is_some() || purged.is_err() {
             let err = purged.expect_err("could not remove");
             assert_eq!(err.kind(), io::ErrorKind::PermissionDenied, "{err}");
             assert!(dir.path().join("info/d.trashinfo").exists());

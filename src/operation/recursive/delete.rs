@@ -6,9 +6,8 @@
 
 use super::{Context, removal_block};
 use crate::fl;
-use crate::operation::root::proto::{
-    Kind, Request, names_in, open_dir_at, open_path, stat_at, unlink_at,
-};
+use crate::fs_at::{Gone, remove_tree, remove_tree_noting};
+use crate::operation::root::proto::{Kind, Request};
 use crate::operation::root::{self, Helper, StartError};
 use crate::operation::{Ask, Blocked, BlockedAnswer, OperationError};
 use std::collections::HashMap;
@@ -16,7 +15,6 @@ use std::error::Error;
 use std::fs;
 use std::io;
 use std::mem::Discriminant;
-use std::os::fd::AsFd;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
@@ -41,37 +39,6 @@ pub(super) fn trash_place(path: &Path) -> Place {
     }
 }
 
-/// What a removal that may fail part-way got done: the first path it
-/// removed, and how many in all.
-#[derive(Debug, Default)]
-struct Gone {
-    first: Option<PathBuf>,
-    count: usize,
-}
-
-impl Gone {
-    fn note(&mut self, path: &Path) {
-        if self.first.is_none() {
-            self.first = Some(path.to_path_buf());
-        }
-        self.count += 1;
-    }
-}
-
-/// Deletes `path` for good, a folder with everything in it. A link goes
-/// itself, never what it points at.
-pub(crate) fn remove_tree(path: &Path) -> io::Result<()> {
-    remove_tree_noting(path, &mut Gone::default(), &|| Ok(()))
-}
-
-/// [`remove_tree`], asking `go_on` before each entry.
-pub(crate) fn remove_tree_checked(
-    path: &Path,
-    go_on: &dyn Fn() -> io::Result<()>,
-) -> io::Result<()> {
-    remove_tree_noting(path, &mut Gone::default(), go_on)
-}
-
 /// What a removal asks before each entry: whether to go on. It waits out a
 /// pause, and fails once `controller` is cancelled, so a large folder stops
 /// part-way rather than going whole.
@@ -83,53 +50,6 @@ pub(crate) fn go_on(
         crate::ui::iced::futures::executor::block_on(controller.check())
             .map_err(|_| io::Error::from(io::ErrorKind::Interrupted))
     }
-}
-
-/// [`remove_tree`], noting in `gone` what went, so a failure part-way still
-/// says what can no longer come back.
-///
-/// It goes through folder handles, as `std::fs::remove_dir_all` does: a
-/// folder swapped for a link while it runs is never followed, so nothing
-/// outside `path` can go.
-fn remove_tree_noting(
-    path: &Path,
-    gone: &mut Gone,
-    go_on: &dyn Fn() -> io::Result<()>,
-) -> io::Result<()> {
-    let name = path
-        .file_name()
-        .ok_or_else(|| io::Error::from(io::ErrorKind::InvalidInput))?;
-    let parent = match path.parent() {
-        Some(parent) if !parent.as_os_str().is_empty() => parent,
-        _ => Path::new("."),
-    };
-    // Only to work on `name` in it: removing an entry takes no permission
-    // to list its folder
-    let parent = open_path(parent)?;
-    remove_at(parent.as_fd(), name, path, gone, go_on)
-}
-
-/// Removes `name` from the folder open as `dir`, everything in it first
-/// when it is a folder; `shown` is its path, for what is noted in `gone`.
-fn remove_at(
-    dir: std::os::fd::BorrowedFd<'_>,
-    name: &std::ffi::OsStr,
-    shown: &Path,
-    gone: &mut Gone,
-    go_on: &dyn Fn() -> io::Result<()>,
-) -> io::Result<()> {
-    go_on()?;
-    let is_dir = stat_at(dir, name)?.st_mode & libc::S_IFMT == libc::S_IFDIR;
-    if is_dir {
-        // Opened without following: swapped for a link since, it fails
-        let folder = open_dir_at(Some(dir), name, false)?;
-        for child in names_in(folder.as_fd())? {
-            remove_at(folder.as_fd(), &child, &shown.join(&child), gone, go_on)?;
-        }
-    }
-    unlink_at(dir, name, is_dir)?;
-    gone.note(shown);
-    Ok(())
 }
 
 /// Brings a trash entry back to where it was: by the trash's own rename,
@@ -915,7 +835,7 @@ mod tests {
     /// following refuses a link, as one swapped in mid-way would be
     #[test]
     fn deleting_for_good_never_follows_a_link() {
-        use crate::operation::root::proto::open_dir_at;
+        use crate::fs_at::open_dir_at;
         use std::os::fd::AsFd;
         let dir = tempfile::tempdir().expect("tempdir");
         let outside = dir.path().join("outside");

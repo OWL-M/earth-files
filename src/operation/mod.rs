@@ -20,7 +20,7 @@ pub use notifiers::*;
 mod notifiers;
 
 pub use self::reader::OpReader;
-pub(crate) use self::root::proto::rename_no_replace;
+pub(crate) use crate::fs_at::{cannot_write, rename_no_replace};
 pub mod reader;
 
 use self::recursive::{Context, Method};
@@ -537,26 +537,6 @@ pub(crate) fn cannot_read(path: &Path) -> bool {
     // SAFETY: the pointer comes from a CString that outlives the call
     let refused = unsafe { libc::access(path_c.as_ptr(), libc::R_OK) } != 0;
     refused && io::Error::last_os_error().kind() == io::ErrorKind::PermissionDenied
-}
-
-/// Whether this user clearly cannot add entries to the folder `dir` or
-/// remove them from it: `Some(true)` for a read-only filesystem, `Some(false)`
-/// for lack of permission, and `None` for yes or for any answer that is not
-/// a clear no.
-pub(crate) fn cannot_write(dir: &Path) -> Option<bool> {
-    use std::ffi::CString;
-    use std::os::unix::ffi::OsStrExt;
-
-    let dir_c = CString::new(dir.as_os_str().as_bytes()).ok()?;
-    // SAFETY: the pointer comes from a CString that outlives the call
-    if unsafe { libc::access(dir_c.as_ptr(), libc::W_OK | libc::X_OK) } == 0 {
-        return None;
-    }
-    match io::Error::last_os_error().kind() {
-        io::ErrorKind::PermissionDenied => Some(false),
-        io::ErrorKind::ReadOnlyFilesystem => Some(true),
-        _ => None,
-    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]

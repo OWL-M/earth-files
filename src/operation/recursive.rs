@@ -215,8 +215,6 @@ pub enum Method {
 mod check;
 mod delete;
 
-pub(crate) use delete::remove_tree_checked;
-
 /// What a copy or move does with the trash, for what it replaces: the real
 /// one, or in tests a stand-in that leaves the user's own alone.
 #[derive(Clone, Copy)]
