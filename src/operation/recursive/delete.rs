@@ -298,7 +298,7 @@ impl Context {
     ) -> Result<(), OperationError> {
         let result = self.delete_items(paths, permanently).await;
         if self.controller.is_aborted() {
-            return result.map_err(|_| self.cancelled());
+            return result.map_err(|_| self.cancel_here());
         }
         // Cancelled, even as the last item was going: all of it comes back
         if self.controller.is_cancelled() {
@@ -318,14 +318,14 @@ impl Context {
             if !gone.is_empty() {
                 let (name, more) = named(&gone);
                 let more = more + gone_more;
-                return Err(OperationError::from_err(
-                    fl!("deleted-for-good", name = name, more = more),
-                    &self.controller,
-                ));
+                return Err(OperationError::from_err(fl!(
+                    "deleted-for-good",
+                    name = name,
+                    more = more
+                )));
             }
             return Err(OperationError::from_state(
                 crate::operation::ControllerState::Cancelled,
-                &self.controller,
             ));
         }
         let Err(err) = result else {
@@ -355,8 +355,7 @@ impl Context {
                 .await
                 .map_err(crate::operation::wrap_compio_spawn_error)?
         };
-        let problems =
-            checked.map_err(|reason| OperationError::from_err(reason, &self.controller))?;
+        let problems = checked.map_err(OperationError::from_err)?;
 
         // The questions, one at a time, in order
         let mut how = vec![
@@ -416,10 +415,7 @@ impl Context {
                                 continue;
                             }
                             Err(StartError::Failed(err)) => {
-                                return Err(OperationError::from_err(
-                                    crate::operation::failure_text(blocked.path(), &err),
-                                    &self.controller,
-                                ));
+                                return Err(OperationError::at(blocked.path(), &err));
                             }
                         }
                         if all {
@@ -429,7 +425,7 @@ impl Context {
                     }
                     // Nothing is done yet: stopping is cancelling
                     BlockedAnswer::Cancel | BlockedAnswer::Abort => {
-                        return Err(self.cancelled());
+                        return Err(self.cancel_here());
                     }
                     // Not offered before anything runs
                     BlockedAnswer::Retry => {}
@@ -443,7 +439,7 @@ impl Context {
             self.controller
                 .check()
                 .await
-                .map_err(|s| OperationError::from_state(s, &self.controller))?;
+                .map_err(OperationError::from_state)?;
             self.controller.set_progress(index as f32 / total as f32);
             if how[index] == How::Skip {
                 continue;
@@ -504,11 +500,10 @@ impl Context {
                 if self.controller.is_cancelled() {
                     return Err(OperationError::from_state(
                         crate::operation::ControllerState::Cancelled,
-                        &self.controller,
                     ));
                 }
                 if self.controller.is_failed() {
-                    return Err(OperationError::from_err(reason, &self.controller));
+                    return Err(OperationError::from_err(reason));
                 }
                 // Something inside it this user may not remove: root may,
                 // as for an item the checks found
@@ -553,17 +548,14 @@ impl Context {
                                     continue;
                                 }
                                 Err(StartError::Failed(err)) => {
-                                    return Err(OperationError::from_err(
-                                        crate::operation::failure_text(path, &err),
-                                        &self.controller,
-                                    ));
+                                    return Err(OperationError::at(path, &err));
                                 }
                             },
                             BlockedAnswer::Abort => {
                                 self.controller.abort();
-                                return Err(self.cancelled());
+                                return Err(self.cancel_here());
                             }
-                            _ => return Err(self.cancelled()),
+                            _ => return Err(self.cancel_here()),
                         }
                         break;
                     }
@@ -586,10 +578,10 @@ impl Context {
                     BlockedAnswer::Retry => {}
                     BlockedAnswer::Abort => {
                         self.controller.abort();
-                        return Err(self.cancelled());
+                        return Err(self.cancel_here());
                     }
-                    BlockedAnswer::Cancel => return Err(self.cancelled()),
-                    _ => return Err(OperationError::from_err(reason, &self.controller)),
+                    BlockedAnswer::Cancel => return Err(self.cancel_here()),
+                    _ => return Err(OperationError::from_err(reason)),
                 }
             }
         }
@@ -618,7 +610,7 @@ impl Context {
             self.controller
                 .check()
                 .await
-                .map_err(|s| OperationError::from_state(s, &self.controller))?;
+                .map_err(OperationError::from_state)?;
             self.controller.set_progress(index as f32 / total as f32);
             let mut not_granted = false;
             let mut as_root = false;
@@ -651,14 +643,10 @@ impl Context {
                 if self.controller.is_cancelled() {
                     return Err(OperationError::from_state(
                         crate::operation::ControllerState::Cancelled,
-                        &self.controller,
                     ));
                 }
                 if self.controller.is_failed() {
-                    return Err(OperationError::from_err(
-                        crate::operation::failure_text(&files, &err),
-                        &self.controller,
-                    ));
+                    return Err(OperationError::at(&files, &err));
                 }
                 // This user may not: root may
                 if err.kind() == io::ErrorKind::PermissionDenied && !as_root {
@@ -692,13 +680,10 @@ impl Context {
                             }
                             Err(StartError::NotGranted) => not_granted = true,
                             Err(StartError::Failed(err)) => {
-                                return Err(OperationError::from_err(
-                                    crate::operation::failure_text(&files, &err),
-                                    &self.controller,
-                                ));
+                                return Err(OperationError::at(&files, &err));
                             }
                         },
-                        _ => return Err(self.cancelled()),
+                        _ => return Err(self.cancel_here()),
                     }
                     continue;
                 }
@@ -716,9 +701,9 @@ impl Context {
                     BlockedAnswer::Retry => {}
                     BlockedAnswer::Abort => {
                         self.controller.abort();
-                        return Err(self.cancelled());
+                        return Err(self.cancel_here());
                     }
-                    _ => return Err(self.cancelled()),
+                    _ => return Err(self.cancel_here()),
                 }
             }
         }
@@ -727,7 +712,6 @@ impl Context {
         if self.controller.is_cancelled() {
             return Err(OperationError::from_state(
                 crate::operation::ControllerState::Cancelled,
-                &self.controller,
             ));
         }
         self.controller.set_progress(1.0);

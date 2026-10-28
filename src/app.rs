@@ -2401,7 +2401,7 @@ impl App {
                 // stays on its row, with its reason and Try again, until the
                 // user closes it: no dialog, nothing centred.
                 let key = progress::Key::Operation(id);
-                if controller.is_cancelled() {
+                if err.is_cancelled() {
                     self.progress.remove(&key);
                 } else if let OperationErrorType::PasswordRequired = err.kind {
                     tasks.push(self.dialog_pages.push_back(DialogPage::ExtractPassword {

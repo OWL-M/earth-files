@@ -127,10 +127,7 @@ pub(crate) fn check_tree(
     // follows a root link that points at a regular file, and would plan a
     // copy of the target's bytes where the user selected the link.
     let root = fs::symlink_metadata(from_parent).map_err(|err| {
-        OperationError::from_err(
-            format!("failed to stat {}: {}", from_parent.display(), err),
-            controller,
-        )
+        OperationError::from_err(format!("failed to stat {}: {}", from_parent.display(), err))
     })?;
     if root.file_type().is_symlink() {
         let mut found = Found::default();
@@ -218,7 +215,7 @@ impl Walk<'_> {
             match self.controller.state() {
                 ControllerState::Running => break,
                 ControllerState::Paused => std::thread::sleep(PLAN_PAUSE_POLL),
-                state => return Err(OperationError::from_state(state, self.controller)),
+                state => return Err(OperationError::from_state(state)),
             }
         }
 
@@ -232,14 +229,11 @@ impl Walk<'_> {
                         ..Visited::default()
                     });
                 }
-                return Err(OperationError::from_err(
-                    format!(
-                        "failed to walk directory {}: {}",
-                        self.from_parent.display(),
-                        err
-                    ),
-                    self.controller,
-                ));
+                return Err(OperationError::from_err(format!(
+                    "failed to walk directory {}: {}",
+                    self.from_parent.display(),
+                    err
+                )));
             }
         };
         let file_type = entry.file_type();
@@ -288,10 +282,7 @@ impl Walk<'_> {
     /// Plans and checks a link, which is copied as a link.
     fn link(&self, from: PathBuf) -> Result<Visited, OperationError> {
         let target = fs::read_link(&from).map_err(|err| {
-            OperationError::from_err(
-                format!("failed to read link {}: {}", from.display(), err),
-                self.controller,
-            )
+            OperationError::from_err(format!("failed to read link {}: {}", from.display(), err))
         })?;
         let to = self.to(&from)?;
         let mut visited = Visited::default();
@@ -326,15 +317,12 @@ impl Walk<'_> {
             return Ok(self.to_parent.to_path_buf());
         }
         let relative = from.strip_prefix(self.from_parent).map_err(|err| {
-            OperationError::from_err(
-                format!(
-                    "failed to remove prefix {} from {}: {}",
-                    self.from_parent.display(),
-                    from.display(),
-                    err
-                ),
-                self.controller,
-            )
+            OperationError::from_err(format!(
+                "failed to remove prefix {} from {}: {}",
+                self.from_parent.display(),
+                from.display(),
+                err
+            ))
         })?;
         Ok(self.to_parent.join(relative))
     }

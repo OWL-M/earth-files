@@ -53,7 +53,7 @@ impl io::Read for OpReader {
             self.controller
                 .check()
                 .await
-                .map_err(|s| io::Error::other(OperationError::from_state(s, &self.controller)))
+                .map_err(|s| io::Error::other(OperationError::from_state(s)))
         })?;
 
         let count = self.file.read(buf)?;

@@ -4232,7 +4232,7 @@ async fn calculate_dir_size(path: &Path, controller: Controller) -> Result<u64, 
                     match controller.state() {
                         ControllerState::Running => break,
                         ControllerState::Paused => std::thread::sleep(DIR_SIZE_PAUSE_POLL),
-                        state => return Err(OperationError::from_state(state, &controller)),
+                        state => return Err(OperationError::from_state(state)),
                     }
                 }
 
@@ -4248,12 +4248,7 @@ async fn calculate_dir_size(path: &Path, controller: Controller) -> Result<u64, 
         .await
     };
 
-    walk.unwrap_or_else(|| {
-        Err(OperationError::from_state(
-            ControllerState::Failed,
-            &controller,
-        ))
-    })
+    walk.unwrap_or_else(|| Err(OperationError::from_state(ControllerState::Failed)))
 }
 
 /// Calculate file checksums in a single pass over the file. To add another

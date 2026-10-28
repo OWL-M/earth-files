@@ -127,9 +127,7 @@ async fn extract_archive(
     if !written_files.is_empty() || !target_dirs.is_empty() {
         sync_to_disk(written_files, target_dirs)
             .await
-            .map_err(|(path, err)| {
-                OperationError::from_err(failure_text(&path, &err), controller)
-            })?;
+            .map_err(|(path, err)| OperationError::at(&path, &err))?;
     }
     Ok(())
 }
@@ -181,12 +179,7 @@ impl Drop for PermissionsTurn {
 /// and nothing else's, to take away again should the extraction fail. A
 /// name that is not one of its own, such as `..` from `...zip`, gives way
 /// to `fallback`, the archive's name.
-fn extract_dir(
-    to: &Path,
-    dir_name: &str,
-    fallback: &str,
-    controller: &Controller,
-) -> Result<PathBuf, OperationError> {
+fn extract_dir(to: &Path, dir_name: &str, fallback: &str) -> Result<PathBuf, OperationError> {
     let dir_name = if matches!(dir_name, "" | "." | "..") {
         fallback
     } else {
@@ -203,20 +196,15 @@ fn extract_dir(
         match fs::create_dir(&path) {
             Ok(()) => return Ok(path),
             Err(err) if err.kind() == io::ErrorKind::AlreadyExists => {}
-            Err(err) => return Err(OperationError::from_err(err, controller)),
+            Err(err) => return Err(OperationError::from_err(err)),
         }
     }
-    Err(OperationError::from_err(
-        io::Error::from(io::ErrorKind::AlreadyExists),
-        controller,
-    ))
+    Err(OperationError::from_err(io::Error::from(
+        io::ErrorKind::AlreadyExists,
+    )))
 }
 
-fn staging_dir(
-    to: &Path,
-    dir_name: &str,
-    controller: &Controller,
-) -> Result<PathBuf, OperationError> {
+fn staging_dir(to: &Path, dir_name: &str) -> Result<PathBuf, OperationError> {
     for n in 0.. {
         let name = if n == 0 {
             format!(".{dir_name}.extracting")
@@ -227,7 +215,7 @@ fn staging_dir(
         match fs::create_dir(&path) {
             Ok(()) => return Ok(path),
             Err(err) if err.kind() == io::ErrorKind::AlreadyExists => {}
-            Err(err) => return Err(OperationError::from_err(err, controller)),
+            Err(err) => return Err(OperationError::from_err(err)),
         }
     }
     unreachable!()
@@ -394,29 +382,55 @@ pub(crate) fn filesystem_magic(dir: &Path) -> Option<i64> {
 /// reason`. The I/O error inside `err` decides the reason; one this does not
 /// know gives its own message.
 pub(crate) fn failure_text(path: &Path, err: &(dyn std::error::Error + 'static)) -> String {
-    let name = path.file_name().map_or_else(
-        || path.display().to_string(),
-        |name| name.to_string_lossy().into_owned(),
-    );
-    let mut source = Some(err);
-    let io = std::iter::from_fn(|| {
-        let err = source?;
-        source = err.source();
-        Some(err)
-    })
-    .find_map(|err| err.downcast_ref::<io::Error>());
-    let reason = match io {
-        Some(io) => match io.kind() {
-            io::ErrorKind::PermissionDenied => fl!("reason-no-permission"),
-            io::ErrorKind::StorageFull => fl!("reason-drive-full"),
-            io::ErrorKind::ReadOnlyFilesystem => fl!("reason-read-only"),
-            io::ErrorKind::NotFound => fl!("reason-gone"),
-            io::ErrorKind::FileTooLarge => fl!("reason-too-big"),
-            _ => io.to_string(),
-        },
-        None => err.to_string(),
-    };
-    fl!("failed-path", name = name, reason = reason)
+    Cause::of(err).text(path)
+}
+
+/// What an error at a path came down to: the I/O error inside it, if there
+/// is one, and its own message. Kept apart from the words the user reads,
+/// which are made when it is shown.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Cause {
+    pub io: Option<io::ErrorKind>,
+    pub message: String,
+}
+
+impl Cause {
+    pub fn of(err: &(dyn std::error::Error + 'static)) -> Self {
+        let mut source = Some(err);
+        let io = std::iter::from_fn(|| {
+            let err = source?;
+            source = err.source();
+            Some(err)
+        })
+        .find_map(|err| err.downcast_ref::<io::Error>());
+        match io {
+            Some(io) => Self {
+                io: Some(io.kind()),
+                message: io.to_string(),
+            },
+            None => Self {
+                io: None,
+                message: err.to_string(),
+            },
+        }
+    }
+
+    /// `"name": the reason`, for `path`.
+    fn text(&self, path: &Path) -> String {
+        let name = path.file_name().map_or_else(
+            || path.display().to_string(),
+            |name| name.to_string_lossy().into_owned(),
+        );
+        let reason = match self.io {
+            Some(io::ErrorKind::PermissionDenied) => fl!("reason-no-permission"),
+            Some(io::ErrorKind::StorageFull) => fl!("reason-drive-full"),
+            Some(io::ErrorKind::ReadOnlyFilesystem) => fl!("reason-read-only"),
+            Some(io::ErrorKind::NotFound) => fl!("reason-gone"),
+            Some(io::ErrorKind::FileTooLarge) => fl!("reason-too-big"),
+            _ => self.message.clone(),
+        };
+        fl!("failed-path", name = name, reason = reason)
+    }
 }
 
 /// What an operation asks about a path it may not touch, as it reaches the
@@ -625,7 +639,7 @@ async fn copy_or_move(
         // subfolder and be unable to remove the source it had just filled.
         if let Some(from) = paths.iter().find(|from| to.starts_with(from)) {
             log::warn!("refusing to put {} inside itself", from.display());
-            return Err(OperationError::from_err(fl!("into-itself"), &controller));
+            return Err(OperationError::from_err(fl!("into-itself")));
         }
 
         // A folder that cannot take new entries fails the whole operation
@@ -638,7 +652,7 @@ async fn copy_or_move(
         };
         if let Err(reason) = writable {
             log::warn!("refusing to write into {}: {reason}", to.display());
-            return Err(OperationError::from_err(reason, &controller));
+            return Err(OperationError::from_err(reason));
         }
 
         // Handle duplicate file names by renaming paths
@@ -829,7 +843,7 @@ async fn restore(
             }
             Err(OperationError {
                 partial: Box::new(op_sel),
-                ..OperationError::from_state(state, &controller)
+                ..OperationError::from_state(state)
             })
         } else if pairs.is_empty() {
             Ok(op_sel)
@@ -949,7 +963,7 @@ async fn empty(
     })
     .await
     .map_err(wrap_compio_spawn_error)?
-    .map_err(|(path, err)| OperationError::from_err(failure_text(&path, &err), &controller))?;
+    .map_err(|(path, err)| OperationError::at(&path, &err))?;
     purge(listed, msg_tx, controller).await
 }
 
@@ -1705,8 +1719,21 @@ pub enum Operation {
     },
 }
 
+/// How an operation ended without completing. Making one changes nothing:
+/// [`Operation::perform`] takes the controller to its end state from it.
 #[derive(Clone, Debug)]
 pub enum OperationErrorType {
+    /// Stopped at the user's word: cancelled, or aborted, which
+    /// [`Controller::is_aborted`] tells apart.
+    Cancelled,
+    /// Stopped as the operation had already failed.
+    Failed,
+    /// What went wrong at a path.
+    Path {
+        path: PathBuf,
+        cause: Cause,
+    },
+    /// Anything else, in the words the user reads.
     Generic(String),
     PasswordRequired,
 }
@@ -1720,43 +1747,44 @@ pub struct OperationError {
 }
 
 impl OperationError {
-    pub fn from_state(state: ControllerState, controller: &Controller) -> Self {
-        let message = if state == ControllerState::Failed {
-            controller.set_state(ControllerState::Failed);
-            fl!("failed")
-        } else {
-            controller.cancel();
-            fl!("cancelled")
-        };
-
-        Self {
-            kind: OperationErrorType::Generic(message),
-            partial: Box::default(),
-        }
-    }
-
-    pub fn from_err<T: ToString>(err: T, controller: &Controller) -> Self {
-        controller.set_state(ControllerState::Failed);
-
-        Self {
-            kind: OperationErrorType::Generic(err.to_string()),
-            partial: Box::default(),
-        }
-    }
-
-    pub fn from_kind(kind: OperationErrorType, controller: &Controller) -> Self {
-        controller.set_state(ControllerState::Failed);
+    fn of(kind: OperationErrorType) -> Self {
         Self {
             kind,
             partial: Box::default(),
         }
     }
 
+    /// Stopped as the controller says: failed already, or cancelled.
+    pub fn from_state(state: ControllerState) -> Self {
+        Self::of(if state == ControllerState::Failed {
+            OperationErrorType::Failed
+        } else {
+            OperationErrorType::Cancelled
+        })
+    }
+
+    pub fn from_err<T: ToString>(err: T) -> Self {
+        Self::of(OperationErrorType::Generic(err.to_string()))
+    }
+
+    /// `err` happened at `path`.
+    pub fn at(path: &Path, err: &(dyn std::error::Error + 'static)) -> Self {
+        Self::of(OperationErrorType::Path {
+            path: path.to_path_buf(),
+            cause: Cause::of(err),
+        })
+    }
+
+    pub fn from_kind(kind: OperationErrorType) -> Self {
+        Self::of(kind)
+    }
+
     pub fn from_msg(m: impl Into<String>) -> Self {
-        Self {
-            kind: OperationErrorType::Generic(m.into()),
-            partial: Box::default(),
-        }
+        Self::of(OperationErrorType::Generic(m.into()))
+    }
+
+    pub fn is_cancelled(&self) -> bool {
+        matches!(self.kind, OperationErrorType::Cancelled)
     }
 }
 
@@ -1765,6 +1793,9 @@ impl std::error::Error for OperationError {}
 impl std::fmt::Display for OperationError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match &self.kind {
+            OperationErrorType::Cancelled => f.write_str(&fl!("cancelled")),
+            OperationErrorType::Failed => f.write_str(&fl!("failed")),
+            OperationErrorType::Path { path, cause } => f.write_str(&cause.text(path)),
             OperationErrorType::Generic(s) => s.fmt(f),
             OperationErrorType::PasswordRequired => f.write_str("Password required"),
         }
@@ -1991,8 +2022,27 @@ impl Operation {
         }
     }
 
-    /// Perform the operation
+    /// Perform the operation, and take its controller to the state it ended
+    /// in: an error says how it ended, and making one changed nothing.
     pub async fn perform(
+        self,
+        msg_tx: &Arc<TokioMutex<Sender<Message>>>,
+        controller: Controller,
+    ) -> Result<OperationSelection, OperationError> {
+        // A clone runs it: this one, the operation's own, cancels it when
+        // dropped, which must come after its end is set
+        let result = self.run(msg_tx, controller.clone()).await;
+        if let Err(err) = &result {
+            if err.is_cancelled() {
+                controller.cancel();
+            } else {
+                controller.set_state(ControllerState::Failed);
+            }
+        }
+        result
+    }
+
+    async fn run(
         self,
         msg_tx: &Arc<TokioMutex<Sender<Message>>>,
         controller: Controller,
@@ -2022,10 +2072,7 @@ impl Operation {
                                     .unwrap_or(root)
                             })
                         }) else {
-                            return Err(OperationError::from_err(
-                                "nothing to compress".to_string(),
-                                &controller,
-                            ));
+                            return Err(OperationError::from_err("nothing to compress".to_string()));
                         };
                         let relative_root = relative_root.to_path_buf();
 
@@ -2048,7 +2095,7 @@ impl Operation {
                                     .build();
                                 for entry in new_paths_it.skip(1) {
                                     let entry = entry
-                                        .map_err(|e| OperationError::from_err(e, &controller))?;
+                                        .map_err(OperationError::from_err)?;
                                     paths.push(entry.into_path());
                                 }
                             }
@@ -2062,15 +2109,12 @@ impl Operation {
                             for path in &paths {
                                 let relative = path
                                     .strip_prefix(&relative_root)
-                                    .map_err(|e| OperationError::from_err(e, &controller))?;
+                                    .map_err(OperationError::from_err)?;
                                 if relative.to_str().is_none() {
-                                    return Err(OperationError::from_err(
-                                        format!(
+                                    return Err(OperationError::from_err(format!(
                                             "cannot store {} in a zip archive: the name is not valid UTF-8",
                                             path.display()
-                                        ),
-                                        &controller,
-                                    ));
+                                        )));
                                 }
                             }
                         }
@@ -2082,7 +2126,7 @@ impl Operation {
                             .write(true)
                             .create_new(true)
                             .open(&to)
-                            .map_err(|e| OperationError::from_err(e, &controller))?;
+                            .map_err(OperationError::from_err)?;
                         let written = (|| -> Result<(), OperationError> {
                         match archive_type {
                             ArchiveType::Tgz => {
@@ -2100,7 +2144,7 @@ impl Operation {
                                         controller
                                             .check()
                                             .await
-                                            .map_err(|e| OperationError::from_state(e, &controller))
+                                            .map_err(OperationError::from_state)
                                     })?;
 
                                     controller.set_progress((i as f32) / total_paths as f32);
@@ -2109,13 +2153,13 @@ impl Operation {
                                     // no conversion and nothing is dropped
                                     let relative_path = path
                                         .strip_prefix(&relative_root)
-                                        .map_err(|e| OperationError::from_err(e, &controller))?;
+                                        .map_err(OperationError::from_err)?;
                                     let meta = fs::symlink_metadata(path)
-                                        .map_err(|e| OperationError::from_err(e, &controller))?;
+                                        .map_err(OperationError::from_err)?;
                                     if !meta.is_file() {
                                         archive
                                             .append_path_with_name(path, relative_path)
-                                            .map_err(|e| OperationError::from_err(e, &controller))?;
+                                            .map_err(OperationError::from_err)?;
                                         continue;
                                     }
                                     // A file read through the controller, so a
@@ -2125,7 +2169,7 @@ impl Operation {
                                     header.set_metadata(&meta);
                                     let mut reader = OpReader::part(
                                         fs::File::open(path).map_err(|e| {
-                                            OperationError::from_err(e, &controller)
+                                            OperationError::from_err(e)
                                         })?,
                                         meta.len(),
                                         controller.clone(),
@@ -2135,13 +2179,10 @@ impl Operation {
                                     let appended =
                                         archive.append_data(&mut header, relative_path, &mut reader);
                                     if appended.is_err() && controller.is_cancelled() {
-                                        return Err(OperationError::from_state(
-                                            ControllerState::Cancelled,
-                                            &controller,
-                                        ));
+                                        return Err(OperationError::from_state(ControllerState::Cancelled));
                                     }
                                     appended
-                                        .map_err(|e| OperationError::from_err(e, &controller))?;
+                                        .map_err(OperationError::from_err)?;
                                 }
 
                                 // Every layer finished and flushed by hand, its
@@ -2152,7 +2193,7 @@ impl Operation {
                                     .and_then(flate2::write::GzEncoder::finish)
                                     .and_then(|out| out.into_inner().map_err(io::IntoInnerError::into_error))
                                     .and_then(|file| file.sync_all())
-                                    .map_err(|e| OperationError::from_err(e, &controller))?;
+                                    .map_err(OperationError::from_err)?;
                             }
                             ArchiveType::Zip => {
                                 let mut archive = zip::ZipWriter::new(io::BufWriter::new(file));
@@ -2164,7 +2205,7 @@ impl Operation {
                                         controller
                                             .check()
                                             .await
-                                            .map_err(|s| OperationError::from_state(s, &controller))
+                                            .map_err(OperationError::from_state)
                                     })?;
 
                                     controller.set_progress((i as f32) / total_paths as f32);
@@ -2179,21 +2220,18 @@ impl Operation {
                                     {
                                         let relative_path = path
                                             .strip_prefix(&relative_root)
-                                            .map_err(|e| OperationError::from_err(e, &controller))?
+                                            .map_err(OperationError::from_err)?
                                             .to_str()
                                             .ok_or_else(|| {
-                                                OperationError::from_err(
-                                                    format!(
+                                                OperationError::from_err(format!(
                                                         "cannot store {} in a zip archive",
                                                         path.display()
-                                                    ),
-                                                    &controller,
-                                                )
+                                                    ))
                                             })?;
                                         // Not followed: a link is stored as a
                                         // link, never as what it points at
                                         let metadata = fs::symlink_metadata(path).map_err(|e| {
-                                            OperationError::from_err(e, &controller)
+                                            OperationError::from_err(e)
                                         })?;
 
                                         if let Ok(modified) = metadata.modified()
@@ -2210,28 +2248,25 @@ impl Operation {
 
                                         if metadata.is_symlink() {
                                             let target = fs::read_link(path).map_err(|e| {
-                                                OperationError::from_err(e, &controller)
+                                                OperationError::from_err(e)
                                             })?;
                                             // `add_symlink`, not `add_symlink_from_path`:
                                             // the latter normalises the target like an
                                             // entry name, turning `../x` into `x`
                                             let target = target.to_str().ok_or_else(|| {
-                                                OperationError::from_err(
-                                                    format!(
+                                                OperationError::from_err(format!(
                                                         "cannot store the link {} in a zip archive: its target is not valid UTF-8",
                                                         path.display()
-                                                    ),
-                                                    &controller,
-                                                )
+                                                    ))
                                             })?;
                                             archive
                                                 .add_symlink(relative_path, target, zip_options)
                                                 .map_err(|e| {
-                                                    OperationError::from_err(e, &controller)
+                                                    OperationError::from_err(e)
                                                 })?;
                                         } else if metadata.is_file() {
                                             let mut file = fs::File::open(path).map_err(|e| {
-                                                OperationError::from_err(e, &controller)
+                                                OperationError::from_err(e)
                                             })?;
                                             let total = metadata.len();
                                             if total >= 4 * 1024 * 1024 * 1024 {
@@ -2241,25 +2276,25 @@ impl Operation {
                                             archive
                                                 .start_file(relative_path, zip_options)
                                                 .map_err(|e| {
-                                                    OperationError::from_err(e, &controller)
+                                                    OperationError::from_err(e)
                                                 })?;
                                             let mut current = 0;
                                             loop {
                                                 futures::executor::block_on(async {
                                                     controller.check().await.map_err(|s| {
-                                                        OperationError::from_state(s, &controller)
+                                                        OperationError::from_state(s)
                                                     })
                                                 })?;
 
                                                 let count =
                                                     file.read(&mut buffer).map_err(|e| {
-                                                        OperationError::from_err(e, &controller)
+                                                        OperationError::from_err(e)
                                                     })?;
                                                 if count == 0 {
                                                     break;
                                                 }
                                                 archive.write_all(&buffer[..count]).map_err(
-                                                    |e| OperationError::from_err(e, &controller),
+                                                    OperationError::from_err,
                                                 )?;
                                                 current += count;
 
@@ -2272,7 +2307,7 @@ impl Operation {
                                             archive
                                                 .add_directory(relative_path, zip_options)
                                                 .map_err(|e| {
-                                                    OperationError::from_err(e, &controller)
+                                                    OperationError::from_err(e)
                                                 })?;
                                         }
                                     }
@@ -2283,7 +2318,7 @@ impl Operation {
                                     .map_err(io::Error::from)
                                     .and_then(|out| out.into_inner().map_err(io::IntoInnerError::into_error))
                                     .and_then(|file| file.sync_all())
-                                    .map_err(|e| OperationError::from_err(e, &controller))?;
+                                    .map_err(OperationError::from_err)?;
                             }
                         }
                         Ok(())
@@ -2311,7 +2346,7 @@ impl Operation {
                 let bins = compio::runtime::spawn_blocking(crate::trashing::bins_to_empty)
                     .await
                     .map_err(wrap_compio_spawn_error)?
-                    .map_err(|err| OperationError::from_err(err.to_string(), &controller))?;
+                    .map_err(|err| OperationError::from_err(err.to_string()))?;
                 empty(bins, msg_tx, controller.clone()).await
             }
             Self::EmptyDriveTrash { root } => {
@@ -2319,7 +2354,7 @@ impl Operation {
                     compio::runtime::spawn_blocking(move || crate::trashing::drive_bins(&root))
                         .await
                         .map_err(wrap_compio_spawn_error)?
-                        .map_err(|err| OperationError::from_err(err.to_string(), &controller))?;
+                        .map_err(|err| OperationError::from_err(err.to_string()))?;
                 empty(bins, msg_tx, controller.clone()).await
             }
             Self::Extract {
@@ -2339,9 +2374,7 @@ impl Operation {
                         // undo, and to leave out of a retry
                         let done = || op_sel.clone();
                         if let Err(state) = controller.check().await {
-                            return Err(
-                                OperationError::from_state(state, &controller).after(done())
-                            );
+                            return Err(OperationError::from_state(state).after(done()));
                         }
 
                         controller.set_progress((i as f32) / total_paths as f32);
@@ -2352,7 +2385,7 @@ impl Operation {
                         let dir_name = get_directory_name(file_name).to_string();
 
                         if as_folder {
-                            let new_dir = extract_dir(&to, &dir_name, file_name, &controller)
+                            let new_dir = extract_dir(&to, &dir_name, file_name)
                                 .map_err(|err| err.after(done()))?;
                             if let Err(err) = extract_archive(
                                 path.clone(),
@@ -2383,8 +2416,8 @@ impl Operation {
                             // then move the entries into place. The move goes through the
                             // same replace dialog as copy/move, so existing files are never
                             // overwritten silently.
-                            let staging = staging_dir(&to, &dir_name, &controller)
-                                .map_err(|err| err.after(done()))?;
+                            let staging =
+                                staging_dir(&to, &dir_name).map_err(|err| err.after(done()))?;
                             let result = async {
                                 extract_archive(
                                     path.clone(),
@@ -2406,7 +2439,7 @@ impl Operation {
                                     })
                                     .await
                                     .map_err(wrap_compio_spawn_error)?
-                                    .map_err(|e| OperationError::from_err(e, &controller))?;
+                                    .map_err(OperationError::from_err)?;
                                 let mut moved = copy_or_move(
                                     entries.clone(),
                                     to.clone(),
@@ -2421,11 +2454,7 @@ impl Operation {
                                 sync_to_disk(Vec::new(), [to.clone()].into_iter().collect())
                                     .await
                                     .map_err(|(path, err)| {
-                                        OperationError::from_err(
-                                            failure_text(&path, &err),
-                                            &controller,
-                                        )
-                                        .after(moved.clone())
+                                        OperationError::at(&path, &err).after(moved.clone())
                                     })?;
                                 // Entries moved by a plain rename are not in the selection
                                 for entry in entries {
@@ -2490,10 +2519,10 @@ impl Operation {
                     controller
                         .check()
                         .await
-                        .map_err(|s| OperationError::from_state(s, &controller))?;
+                        .map_err(OperationError::from_state)?;
                     compio::fs::create_dir(&path)
                         .await
-                        .map_err(|e| OperationError::from_err(e, &controller))?;
+                        .map_err(OperationError::from_err)?;
                     Result::<_, OperationError>::Ok(OperationSelection {
                         ignored: Vec::new(),
                         selected: vec![path.clone()],
@@ -2513,7 +2542,7 @@ impl Operation {
                     controller
                         .check()
                         .await
-                        .map_err(|s| OperationError::from_state(s, &controller))?;
+                        .map_err(OperationError::from_state)?;
                     // `create_new`, not `create`: creating a new file must
                     // never truncate one that is already there. The dialog
                     // warns about a name that is taken, but that warning is a
@@ -2524,7 +2553,7 @@ impl Operation {
                         .create_new(true)
                         .open(&path)
                         .await
-                        .map_err(|e| OperationError::from_err(e, &controller))?;
+                        .map_err(OperationError::from_err)?;
                     Result::<_, OperationError>::Ok(OperationSelection {
                         ignored: Vec::new(),
                         selected: vec![path.clone()],
@@ -2546,8 +2575,8 @@ impl Operation {
                 // removal running beside a recording would undo one of them.
                 tokio::task::spawn_blocking(move || crate::recents::remove(paths))
                     .await
-                    .map_err(|e| OperationError::from_err(e, &controller))?
-                    .map_err(|e| OperationError::from_err(e, &controller))?;
+                    .map_err(OperationError::from_err)?
+                    .map_err(OperationError::from_err)?;
 
                 Ok(OperationSelection::default())
             }
@@ -2558,7 +2587,7 @@ impl Operation {
                     controller
                         .check()
                         .await
-                        .map_err(|s| OperationError::from_state(s, &controller))?;
+                        .map_err(OperationError::from_state)?;
                     // Create exclusively and step aside if the name is taken,
                     // so two pastes racing for the same name cannot have one
                     // overwrite the other
@@ -2580,7 +2609,7 @@ impl Operation {
                         controller
                             .check()
                             .await
-                            .map_err(|s| OperationError::from_state(s, &controller))?;
+                            .map_err(OperationError::from_state)?;
                         match compio::fs::OpenOptions::new()
                             .write(true)
                             .create_new(true)
@@ -2591,11 +2620,11 @@ impl Operation {
                             Err(err) if err.kind() == io::ErrorKind::AlreadyExists => {
                                 attempt += 1;
                                 if attempt > MAX_UNIQUE_ATTEMPTS {
-                                    return Err(OperationError::from_err(err, &controller));
+                                    return Err(OperationError::from_err(err));
                                 }
                                 target = numbered_path(&path, attempt);
                             }
-                            Err(err) => return Err(OperationError::from_err(err, &controller)),
+                            Err(err) => return Err(OperationError::from_err(err)),
                         }
                     };
                     // In pieces, so a large paste still pauses, stops and
@@ -2608,7 +2637,7 @@ impl Operation {
                             controller
                                 .check()
                                 .await
-                                .map_err(|s| OperationError::from_state(s, &controller))?;
+                                .map_err(OperationError::from_state)?;
                             let piece = data[at..].len().min(PIECE);
                             let compio::BufResult(result, _) =
                                 compio::io::AsyncWriteAtExt::write_all_at(
@@ -2617,13 +2646,11 @@ impl Operation {
                                     at as u64,
                                 )
                                 .await;
-                            result.map_err(|e| OperationError::from_err(e, &controller))?;
+                            result.map_err(OperationError::from_err)?;
                             at += piece;
                             controller.set_progress(at as f32 / data.len() as f32);
                         }
-                        file.sync_all()
-                            .await
-                            .map_err(|e| OperationError::from_err(e, &controller))
+                        file.sync_all().await.map_err(OperationError::from_err)
                     }
                     .await;
                     if let Err(err) = written {
@@ -2654,7 +2681,7 @@ impl Operation {
                     controller
                         .check()
                         .await
-                        .map_err(|s| OperationError::from_state(s, &controller))?;
+                        .map_err(OperationError::from_state)?;
                     // The folder the file belongs in may be gone: undoing a
                     // move that emptied a folder and removed it puts the file
                     // back by its whole original path. For a rename the user
@@ -2698,7 +2725,7 @@ impl Operation {
                             )
                             .await;
                         }
-                        Err(err) => return Err(OperationError::from_err(err, &controller)),
+                        Err(err) => return Err(OperationError::from_err(err)),
                     }
                     Result::<_, OperationError>::Ok(OperationSelection {
                         ignored: vec![from],
@@ -2723,9 +2750,7 @@ impl Operation {
                         // The renames before stay done, to undo, and to
                         // leave out of a retry
                         if let Err(state) = controller.check().await {
-                            return Err(
-                                OperationError::from_state(state, &controller).after(op_sel)
-                            );
+                            return Err(OperationError::from_state(state).after(op_sel));
                         }
                         controller.set_progress((i as f32) / (total as f32));
                         // Never replace: the preview that produced this list
@@ -2739,7 +2764,7 @@ impl Operation {
                         .await
                         .map_err(wrap_compio_spawn_error)?;
                         if let Err(err) = renamed {
-                            return Err(OperationError::from_err(err, &controller).after(op_sel));
+                            return Err(OperationError::from_err(err).after(op_sel));
                         }
                         op_sel.ignored.push(from);
                         op_sel.selected.push(to);
@@ -2754,38 +2779,32 @@ impl Operation {
                 controller
                     .check()
                     .await
-                    .map_err(|s| OperationError::from_state(s, &controller))?;
+                    .map_err(OperationError::from_state)?;
 
-                let controller_clone = controller.clone();
                 compio::runtime::spawn_blocking(move || -> Result<(), OperationError> {
-                    let controller = controller_clone;
                     use std::os::unix::fs::PermissionsExt;
 
-                    let mut perms = fs::metadata(&path)
-                        .map_err(|e| OperationError::from_err(e, &controller))?
-                        .permissions();
+                    let at = |err| OperationError::at(&path, &err);
+                    let mut perms = fs::metadata(&path).map_err(at)?.permissions();
                     let current_mode = perms.mode();
                     let new_mode = current_mode | 0o111;
                     perms.set_mode(new_mode);
-                    fs::set_permissions(&path, perms)
-                        .map_err(|e| OperationError::from_err(e, &controller))?;
+                    fs::set_permissions(&path, perms).map_err(at)?;
 
-                    let mut command = std::process::Command::new(path);
-                    spawn_detached(&mut command)
-                        .map_err(|e| OperationError::from_err(e, &controller))?;
+                    let mut command = std::process::Command::new(&path);
+                    spawn_detached(&mut command).map_err(at)?;
 
                     Ok(())
                 })
                 .await
-                .map_err(wrap_compio_spawn_error)?
-                .map_err(|e| OperationError::from_err(e, &controller))?;
+                .map_err(wrap_compio_spawn_error)??;
                 Ok(OperationSelection::default())
             }
             Self::SetPermissions { path, mode, mask } => {
                 controller
                     .check()
                     .await
-                    .map_err(|s| OperationError::from_state(s, &controller))?;
+                    .map_err(OperationError::from_state)?;
 
                 let controller_clone = controller.clone();
                 let path_clone = path.clone();
@@ -2799,21 +2818,17 @@ impl Operation {
                     let _one = PermissionsTurn::take(&path);
                     // Cancelled while it waited its turn: nothing changes
                     if controller.is_cancelled() || controller.is_failed() {
-                        return Err(OperationError::from_state(controller.state(), &controller));
+                        return Err(OperationError::from_state(controller.state()));
                     }
-                    let now = fs::metadata(&path)
-                        .map_err(|e| OperationError::from_err(e, &controller))?
-                        .permissions()
-                        .mode();
+                    let at = |err| OperationError::at(&path, &err);
+                    let now = fs::metadata(&path).map_err(at)?.permissions().mode();
                     let perms = fs::Permissions::from_mode((now & !mask & 0o7777) | (mode & mask));
-                    fs::set_permissions(&path, perms)
-                        .map_err(|e| OperationError::from_err(e, &controller))?;
+                    fs::set_permissions(&path, perms).map_err(at)?;
 
                     Ok(())
                 })
                 .await
-                .map_err(wrap_compio_spawn_error)?
-                .map_err(|e| OperationError::from_err(e, &controller))?;
+                .map_err(wrap_compio_spawn_error)??;
                 Ok(OperationSelection {
                     ignored: Vec::new(),
                     selected: vec![path],
@@ -3572,6 +3587,60 @@ mod tests {
         assert!(!shm.path().join("folder").exists(), "nothing left behind");
         assert_eq!(fs::read(from.join("a.txt"))?, b"A");
         Ok(())
+    }
+
+    /// Runs `operation`, which asks nothing, and gives back its controller
+    /// as the operation left it.
+    async fn perform_watched(
+        operation: Operation,
+    ) -> (Result<OperationSelection, OperationError>, Controller) {
+        let (tx, _rx) = mpsc::channel(1);
+        let controller = Controller::default();
+        let watched = controller.clone();
+        let result = operation
+            .perform(&sync::Mutex::new(tx).into(), controller)
+            .await;
+        (result, watched)
+    }
+
+    /// A failure at a path keeps the path and the I/O error, and the
+    /// operation ends failed, not cancelled
+    #[test(compio::test)]
+    async fn a_failure_at_a_path_says_where_and_ends_failed() -> io::Result<()> {
+        let fs = empty_fs()?;
+        let missing = fs.path().join("missing");
+        let (result, controller) = perform_watched(Operation::SetPermissions {
+            path: missing.clone(),
+            mode: 0o600,
+            mask: 0o777,
+        })
+        .await;
+        let err = result.expect_err("nothing to change");
+        match &err.kind {
+            super::OperationErrorType::Path { path, cause } => {
+                assert_eq!(path, &missing);
+                assert_eq!(cause.io, Some(io::ErrorKind::NotFound));
+            }
+            other => panic!("not a failure at a path: {other:?}"),
+        }
+        assert!(!err.is_cancelled());
+        assert!(controller.is_failed());
+        Ok(())
+    }
+
+    /// An error made from a message alone ends the operation failed: it once
+    /// left the controller running, and dropping the operation's own
+    /// controller then cancelled it, so the failure showed as a cancel
+    #[test(compio::test)]
+    async fn a_failure_without_a_path_ends_failed_not_cancelled() {
+        let (result, controller) = perform_watched(Operation::WriteFile {
+            path: PathBuf::from("/"),
+            data: super::Payload::from(&b"data"[..]),
+        })
+        .await;
+        let err = result.expect_err("no folder to write in");
+        assert!(matches!(err.kind, super::OperationErrorType::Generic(_)));
+        assert!(controller.is_failed() && !controller.is_cancelled());
     }
 
     /// A dangling link renamed is still there to rename back

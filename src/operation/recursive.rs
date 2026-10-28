@@ -633,7 +633,7 @@ impl Context {
                 self.op_sel.trash_items.push(kept);
                 return Err(OperationError {
                     partial: Box::new(self.op_sel.clone()),
-                    ..OperationError::from_err(super::failure_text(&to, &*err), &self.controller)
+                    ..OperationError::at(&to, &*err)
                 });
             }
         }
@@ -751,9 +751,7 @@ impl Context {
             Ok((checked, clashes))
         })
         .await
-        .map_err(|err| {
-            OperationError::from_err(super::failure_text(&failed_dir, &err), &self.controller)
-        })
+        .map_err(|err| OperationError::at(&failed_dir, &err))
     }
 
     /// Sends what is at `path` to the trash, to be replaced. Where there is
@@ -824,10 +822,7 @@ impl Context {
                 trash_items: self.op_sel.trash_items.clone(),
                 ..OperationSelection::default()
             }),
-            ..OperationError::from_err(
-                fl!("rollback-failed", name = name, more = more),
-                &self.controller,
-            )
+            ..OperationError::from_err(fl!("rollback-failed", name = name, more = more))
         }
     }
 
@@ -878,14 +873,11 @@ impl Context {
             if let Some(free) = free.map(|free| free.saturating_sub(others))
                 && *needed > free
             {
-                return Err(OperationError::from_err(
-                    fl!(
-                        "not-enough-space",
-                        needed = crate::tab::format_size(*needed),
-                        free = crate::tab::format_size(free)
-                    ),
-                    &self.controller,
-                ));
+                return Err(OperationError::from_err(fl!(
+                    "not-enough-space",
+                    needed = crate::tab::format_size(*needed),
+                    free = crate::tab::format_size(free)
+                )));
             }
         }
         table.retain(|(id, _, _)| *id != self.id);
@@ -908,12 +900,15 @@ impl Context {
         }
     }
 
-    /// The operation stops at the user's word, keeping what it has done so
-    /// that can be undone.
-    fn cancelled(&self) -> OperationError {
+    /// Cancels the operation at the user's word, as a question's Cancel
+    /// does, keeping what it has done so that can be undone. Cancelled here
+    /// and not when it ends, as what runs on the way out, putting back what
+    /// was done, goes by it.
+    fn cancel_here(&self) -> OperationError {
+        self.controller.cancel();
         OperationError {
             partial: Box::new(self.op_sel.clone()),
-            ..OperationError::from_state(super::ControllerState::Cancelled, &self.controller)
+            ..OperationError::from_state(super::ControllerState::Cancelled)
         }
     }
 
@@ -933,7 +928,7 @@ impl Context {
         let result = self.run_pairs(from_to_pairs, method).await;
         // Aborted: stopped where it was, everything done kept, and undoable
         if self.controller.is_aborted() {
-            return result.map_err(|_| self.cancelled());
+            return result.map_err(|_| self.cancel_here());
         }
         // Cancelled, even as the last step was finishing: all of it goes back
         if self.controller.is_cancelled() {
@@ -941,7 +936,6 @@ impl Context {
             if not_back.is_empty() {
                 return Err(OperationError::from_state(
                     super::ControllerState::Cancelled,
-                    &self.controller,
                 ));
             }
             // What could not be put back is the user's to see: as a
@@ -1197,7 +1191,7 @@ impl Context {
             self.controller
                 .check()
                 .await
-                .map_err(|s| OperationError::from_state(s, &self.controller))?;
+                .map_err(OperationError::from_state)?;
 
             if from_parent == to_parent {
                 // Skip matching source and destination
@@ -1354,7 +1348,7 @@ impl Context {
                         }
                         // Not offered for a file
                         ReplaceResult::Merge(_) => {}
-                        ReplaceResult::Cancel => return Err(self.cancelled()),
+                        ReplaceResult::Cancel => return Err(self.cancel_here()),
                     }
                 }
                 Problem::FolderClash { from, to } => {
@@ -1411,7 +1405,7 @@ impl Context {
                             items[item].skipped = true;
                             self.op_sel.skipped.push(from.clone());
                         }
-                        ReplaceResult::Cancel => return Err(self.cancelled()),
+                        ReplaceResult::Cancel => return Err(self.cancel_here()),
                     }
                 }
                 Problem::Blocked(blocked) => {
@@ -1439,7 +1433,7 @@ impl Context {
                         match answer {
                             // Not offered before the operation runs; nothing
                             // is done yet, so stopping is cancelling
-                            BlockedAnswer::Abort => return Err(self.cancelled()),
+                            BlockedAnswer::Abort => return Err(self.cancel_here()),
                             BlockedAnswer::Skip(all) => {
                                 if all {
                                     rest.push(kind);
@@ -1468,7 +1462,7 @@ impl Context {
                                     }
                                 }
                             }
-                            BlockedAnswer::Cancel => return Err(self.cancelled()),
+                            BlockedAnswer::Cancel => return Err(self.cancel_here()),
                             // Not offered before the operation runs: nothing
                             // has changed to try again for. Deleting for good
                             // is a delete's answer, not a copy's
@@ -1482,10 +1476,7 @@ impl Context {
                                         continue;
                                     }
                                     Err(StartError::Failed(err)) => {
-                                        return Err(OperationError::from_err(
-                                            super::failure_text(blocked.path(), &err),
-                                            &self.controller,
-                                        ));
+                                        return Err(OperationError::at(blocked.path(), &err));
                                     }
                                 }
                                 if all {
@@ -1562,7 +1553,7 @@ impl Context {
                         trash_items: self.op_sel.trash_items.clone(),
                         ..OperationSelection::default()
                     }),
-                    ..OperationError::from_err(reason, &self.controller)
+                    ..OperationError::from_err(reason)
                 });
             }
         }
@@ -1617,7 +1608,7 @@ impl Context {
             self.controller
                 .check()
                 .await
-                .map_err(|s| OperationError::from_state(s, &self.controller))?;
+                .map_err(OperationError::from_state)?;
             // A move removes no original before its copy is on the drive
             if op.is_cleanup && !flushed {
                 self.flush(&target_dirs).await?;
@@ -1671,14 +1662,14 @@ impl Context {
                         BlockedAnswer::Retry => continue,
                         BlockedAnswer::Abort => {
                             self.controller.abort();
-                            return Err(self.cancelled());
+                            return Err(self.cancel_here());
                         }
                         BlockedAnswer::Skip(_) => {
                             self.leave_out(&op, &op.from).await?;
                             left_alone = true;
                             break Ok(true);
                         }
-                        BlockedAnswer::Cancel => return Err(self.cancelled()),
+                        BlockedAnswer::Cancel => return Err(self.cancel_here()),
                         _ => break Err(err),
                     }
                 };
@@ -1705,10 +1696,7 @@ impl Context {
                         Ok(()) => break answer,
                         Err(StartError::NotGranted) => not_granted = true,
                         Err(StartError::Failed(err)) => {
-                            return Err(OperationError::from_err(
-                                super::failure_text(blocked.path(), &err),
-                                &self.controller,
-                            ));
+                            return Err(OperationError::at(blocked.path(), &err));
                         }
                     }
                 };
@@ -1719,23 +1707,20 @@ impl Context {
                     BlockedAnswer::RetryAsRoot(_) => op.root = true,
                     BlockedAnswer::Abort => {
                         self.controller.abort();
-                        return Err(self.cancelled());
+                        return Err(self.cancel_here());
                     }
                     BlockedAnswer::Skip(_) => {
                         self.leave_out(&op, blocked.path()).await?;
                         left_alone = true;
                         break Ok(true);
                     }
-                    BlockedAnswer::Cancel => return Err(self.cancelled()),
+                    BlockedAnswer::Cancel => return Err(self.cancel_here()),
                 }
             };
             if ran.map_err(|err| {
                 // Stopped by a cancel, it is a cancel, not a failure
                 if self.controller.is_cancelled() {
-                    return OperationError::from_state(
-                        super::ControllerState::Cancelled,
-                        &self.controller,
-                    );
+                    return OperationError::from_state(super::ControllerState::Cancelled);
                 }
                 // The details for the log, the reason for the user
                 log::warn!(
@@ -1745,7 +1730,7 @@ impl Context {
                     op.to.display(),
                     err
                 );
-                OperationError::from_err(super::failure_text(&op.from, &*err), &self.controller)
+                OperationError::at(&op.from, &*err)
             })? {
                 // What was written no longer needs keeping room for
                 if !op.is_cleanup
@@ -1817,7 +1802,7 @@ impl Context {
                 }
             } else {
                 // Cancelled in the replace dialog: put back like any cancel
-                return Err(self.cancelled());
+                return Err(self.cancel_here());
             }
         }
 
@@ -1845,9 +1830,7 @@ impl Context {
         })
         .await
         .map_err(super::wrap_compio_spawn_error)?
-        .map_err(|(path, err): (PathBuf, std::io::Error)| {
-            OperationError::from_err(super::failure_text(&path, &err), &self.controller)
-        })
+        .map_err(|(path, err): (PathBuf, std::io::Error)| OperationError::at(&path, &err))
     }
 
     /// Flushes to disk the files written since the last flush, and the
@@ -1862,7 +1845,7 @@ impl Context {
             .map_err(|(path, err)| OperationError {
                 // What is done stays, to undo
                 partial: Box::new(self.op_sel.clone()),
-                ..OperationError::from_err(super::failure_text(&path, &err), &self.controller)
+                ..OperationError::at(&path, &err)
             })
     }
 
@@ -2517,7 +2500,7 @@ impl Op {
                         self.to
                     );
                     _ = futures::future::join(from_file.close(), to_file.close()).await;
-                    return Err(OperationError::from_state(state, &ctx.controller).into());
+                    return Err(OperationError::from_state(state).into());
                 }
             }
 
@@ -2648,7 +2631,7 @@ impl Op {
                                     self.to
                                 );
                                 return Err::<(), GioCopyError>(GioCopyError::Controller(
-                                    OperationError::from_state(state, &ctx.controller),
+                                    OperationError::from_state(state),
                                 ));
                             }
                         }
@@ -2673,7 +2656,7 @@ impl Op {
                     // Cancelled while paused: as for a cancel seen running
                     if let Err(state) = ctx.controller.check().await {
                         return Err::<(), GioCopyError>(GioCopyError::Controller(
-                            OperationError::from_state(state, &ctx.controller),
+                            OperationError::from_state(state),
                         ));
                     }
                 }
