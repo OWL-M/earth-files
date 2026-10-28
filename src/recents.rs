@@ -11,8 +11,10 @@
 
 use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
-use std::sync::mpsc::{self, Sender};
+use std::sync::mpsc;
 use std::time::SystemTime;
+
+use crate::worker::Ordered;
 
 use xdg_kit::basedir::Durability;
 use xdg_kit::bookmarks::{BookmarkFile, EditError, Opened, WriteError};
@@ -136,55 +138,31 @@ enum Job {
     },
     /// Forget everything.
     Clear,
-    /// Answer once every job queued before this one has been applied.
-    Barrier(mpsc::SyncSender<()>),
 }
 
 /// The one thread that touches the recently-used file.
 ///
-/// `None` when the thread could not be started, in which case recents simply
-/// stop being recorded: it is bookkeeping, and losing it is better than
-/// failing to open the file the user asked for.
-static WORKER: LazyLock<Option<Sender<Job>>> = LazyLock::new(|| {
-    let (tx, rx) = mpsc::channel::<Job>();
-    let spawned = std::thread::Builder::new()
-        .name("recents".to_owned())
-        .spawn(move || {
-            // Ends when every sender is dropped, which is at exit.
-            for job in rx {
-                match job {
-                    Job::Record { path, id, exec } => {
-                        if let Err(err) = edit(record_change(&path, id, &exec)) {
-                            log::warn!("failed to record {} as recent: {err}", path.display());
-                        }
-                    }
-                    Job::Remove { paths, done } => {
-                        let result = edit(remove_change(&paths));
-                        // Reported back, unlike the rest: this one is an
-                        // operation the user started and can see fail.
-                        let _ = done.send(result);
-                    }
-                    Job::Clear => {
-                        if let Err(err) = edit(BookmarkFile::clear) {
-                            log::warn!("failed to clear recents history: {err}");
-                        }
-                    }
-                    Job::Barrier(done) => {
-                        // The queue is in order, so reaching this means every
-                        // job queued before it is on disk.
-                        let _ = done.send(());
-                    }
-                }
+/// Not running, recents simply stop being recorded: it is bookkeeping, and
+/// losing it is better than failing to open the file the user asked for.
+static WORKER: LazyLock<Ordered<Job>> = LazyLock::new(|| {
+    Ordered::start("recents", |job| match job {
+        Job::Record { path, id, exec } => {
+            if let Err(err) = edit(record_change(&path, id, &exec)) {
+                log::warn!("failed to record {} as recent: {err}", path.display());
             }
-        });
-
-    match spawned {
-        Ok(_) => Some(tx),
-        Err(err) => {
-            log::error!("failed to start the recent files worker: {err}");
-            None
         }
-    }
+        Job::Remove { paths, done } => {
+            let result = edit(remove_change(&paths));
+            // Reported back, unlike the rest: this one is an operation the
+            // user started and can see fail.
+            let _ = done.send(result);
+        }
+        Job::Clear => {
+            if let Err(err) = edit(BookmarkFile::clear) {
+                log::warn!("failed to clear recents history: {err}");
+            }
+        }
+    })
 });
 
 /// The change that records `path` as opened by the application `id`, which
@@ -235,12 +213,7 @@ fn remove_change(paths: &[PathBuf]) -> impl Fn(&mut BookmarkFile) -> Result<(), 
 }
 
 fn submit(job: Job) {
-    let Some(tx) = WORKER.as_ref() else {
-        return;
-    };
-    if tx.send(job).is_err() {
-        log::warn!("the recent files worker stopped; recents are no longer recorded");
-    }
+    WORKER.send(job);
 }
 
 /// Records that `path` was opened, without waiting for the write.
@@ -260,39 +233,26 @@ pub fn clear() {
 /// edited and written back whole: a removal running beside a recording would
 /// undo one of them.
 pub fn remove(paths: Box<[PathBuf]>) -> Result<(), String> {
-    let Some(tx) = WORKER.as_ref() else {
-        return Err("the recent files worker is not running".to_owned());
-    };
     let (done_tx, done_rx) = mpsc::sync_channel(0);
-    if tx
-        .send(Job::Remove {
-            paths,
-            done: done_tx,
-        })
-        .is_err()
-    {
-        return Err("the recent files worker stopped".to_owned());
+    if !WORKER.send(Job::Remove {
+        paths,
+        done: done_tx,
+    }) {
+        return Err("the recent files worker is not running".to_owned());
     }
     done_rx
         .recv()
         .unwrap_or_else(|_| Err("the recent files worker stopped".to_owned()))
 }
 
-/// Waits until every queued change has been applied.
+/// Waits until every queued change has been applied: false when there was
+/// no worker to apply them.
 ///
 /// Called before the process exits. The worker is an ordinary thread, which
 /// the process would otherwise take down mid-write along with everything
 /// still queued behind it.
-pub fn flush() {
-    let Some(tx) = WORKER.as_ref() else {
-        return;
-    };
-    let (done_tx, done_rx) = mpsc::sync_channel(0);
-    if tx.send(Job::Barrier(done_tx)).is_err() {
-        return;
-    }
-    // The worker is gone if this fails, so there is nothing left to wait for.
-    let _ = done_rx.recv();
+pub fn flush() -> bool {
+    WORKER.flush()
 }
 
 #[cfg(test)]

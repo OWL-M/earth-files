@@ -52,6 +52,7 @@ pub(crate) mod trash;
 pub(crate) mod trashing;
 pub mod type_check;
 pub mod ui;
+mod worker;
 mod xdg_dirs;
 mod zoom;
 
@@ -313,8 +314,13 @@ fn thread_count(tasks: &Path) -> Option<usize> {
 
 pub fn shut_down() {
     config::store::flush();
-    recents::flush();
-    mime_app::flush_associations();
+    // Their changes queued with no worker to make them are lost: said so
+    if !recents::flush() {
+        log::warn!("recent files changed since start may not have been saved");
+    }
+    if !mime_app::flush_associations() {
+        log::warn!("default applications chosen since start may not have been saved");
+    }
 }
 
 #[cfg(test)]

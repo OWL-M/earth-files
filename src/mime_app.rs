@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 use crate::ui::widget;
+use crate::worker::Ordered;
 use notify_debouncer_full::notify;
 use rustc_hash::{FxHashMap, FxHashSet};
 use std::ffi::OsStr;
@@ -332,59 +333,30 @@ impl AsRef<str> for MimeApp {
     }
 }
 
-/// The one thread that edits `mimeapps.list`.
-///
-/// It is read, changed and written back whole, so the changes have to be
-/// applied one at a time and in the order they were made.
-pub enum AssociationJob {
-    Write(Mime, String, std::sync::mpsc::Sender<bool>),
-    /// Answer once every write queued before this one is on disk.
-    Barrier(std::sync::mpsc::SyncSender<()>),
-}
+/// A change to `mimeapps.list`: `mime` opened by `id` by default, and
+/// where to say whether it landed.
+pub struct AssociationJob(Mime, String, std::sync::mpsc::Sender<bool>);
 
 /// What a queued association write answers with once it has landed.
 pub type AssociationAck = std::sync::mpsc::Receiver<bool>;
 
-static ASSOCIATION_WRITER: LazyLock<Option<std::sync::mpsc::Sender<AssociationJob>>> =
-    LazyLock::new(|| {
-        let (tx, rx) = std::sync::mpsc::channel::<AssociationJob>();
-        let spawned = std::thread::Builder::new()
-            .name("mime-associations".to_owned())
-            .spawn(move || {
-                // Ends when every sender is dropped, which is at exit.
-                for job in rx {
-                    match job {
-                        AssociationJob::Write(mime, id, done) => {
-                            let _ = done.send(MimeAppCache::set_default(mime, id));
-                        }
-                        AssociationJob::Barrier(done) => {
-                            let _ = done.send(());
-                        }
-                    }
-                }
-            });
-        match spawned {
-            Ok(_) => Some(tx),
-            Err(err) => {
-                log::error!("failed to start the mime association writer: {err}");
-                None
-            }
-        }
-    });
+/// The one thread that edits `mimeapps.list`.
+///
+/// It is read, changed and written back whole, so the changes have to be
+/// applied one at a time and in the order they were made.
+static ASSOCIATION_WRITER: LazyLock<Ordered<AssociationJob>> = LazyLock::new(|| {
+    Ordered::start("mime-associations", |AssociationJob(mime, id, done)| {
+        let _ = done.send(MimeAppCache::set_default(mime, id));
+    })
+});
 
-/// Wait until every queued association write has reached the disk.
+/// Wait until every queued association write has reached the disk: false
+/// when there was no writer to make them.
 ///
 /// Called before the process exits: choosing a default application and closing
 /// the window straight after must not lose the choice.
-pub fn flush_associations() {
-    let Some(tx) = ASSOCIATION_WRITER.as_ref() else {
-        return;
-    };
-    let (done_tx, done_rx) = std::sync::mpsc::sync_channel(0);
-    if tx.send(AssociationJob::Barrier(done_tx)).is_err() {
-        return;
-    }
-    let _ = done_rx.recv();
+pub fn flush_associations() -> bool {
+    ASSOCIATION_WRITER.flush()
 }
 
 /// The applications for one type, worked out once.
@@ -798,16 +770,10 @@ impl MimeAppCache {
     /// second and win. Enqueueing where the choice is made keeps the order the
     /// user made them in.
     pub fn queue_default(mime: Mime, id: String) -> Option<AssociationAck> {
-        let tx = ASSOCIATION_WRITER.as_ref().or_else(|| {
-            log::error!("the mime association writer is not running");
-            None
-        })?;
         let (done_tx, done_rx) = std::sync::mpsc::channel();
-        if tx.send(AssociationJob::Write(mime, id, done_tx)).is_err() {
-            log::warn!("the mime association writer stopped");
-            return None;
-        }
-        Some(done_rx)
+        ASSOCIATION_WRITER
+            .send(AssociationJob(mime, id, done_tx))
+            .then_some(done_rx)
     }
 
     /// Wait for a queued association write to finish. Blocking, so it belongs

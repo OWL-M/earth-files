@@ -17,36 +17,49 @@ use std::sync::{Arc, Condvar, LazyLock, Mutex};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 
-/// Whether each config file is currently unsafe to write, keyed by path.
+/// Each config file's owner, keyed by path: what reading it, rescuing a
+/// malformed one and writing it all go through, one at a time.
 ///
-/// The seal has to be shared rather than held per `Store`: the app writes
-/// through one store while the change watcher reads through another built
-/// from the same path, and a seal only one of them can see would not stop
-/// the other from overwriting a file it failed to rescue.
-static SEALS: LazyLock<Mutex<HashMap<PathBuf, Arc<AtomicBool>>>> =
+/// Shared rather than held per `Store`: the app writes through one store
+/// while the change watcher reads through another built from the same path.
+/// A watcher moving a malformed file aside while the writer puts a new one
+/// in its place could otherwise move the new one aside instead.
+static FILES: LazyLock<Mutex<HashMap<PathBuf, Arc<Owner>>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
-fn seal_for(path: &Path) -> Arc<AtomicBool> {
-    let mut seals = SEALS.lock().unwrap_or_else(|err| err.into_inner());
-    Arc::clone(seals.entry(path.to_path_buf()).or_default())
+/// One config file's owner. Holds whether the file is unsafe to write: set
+/// when a malformed file could not be copied aside, as overwriting it would
+/// destroy settings the user could otherwise still recover by hand.
+#[derive(Debug, Default)]
+struct Owner {
+    sealed: Mutex<bool>,
+}
+
+impl Owner {
+    fn hold(&self) -> std::sync::MutexGuard<'_, bool> {
+        self.sealed.lock().unwrap_or_else(|err| err.into_inner())
+    }
+}
+
+fn file_for(path: &Path) -> Arc<Owner> {
+    let mut files = FILES.lock().unwrap_or_else(|err| err.into_inner());
+    Arc::clone(files.entry(path.to_path_buf()).or_default())
 }
 
 /// A single configuration file.
 #[derive(Clone, Debug)]
 pub struct Store {
     path: PathBuf,
-    /// Set when a malformed file could not be copied aside. Saving is then
-    /// refused, because overwriting it would destroy settings the user could
-    /// otherwise still recover by hand. Shared by every store on this path.
-    sealed: Arc<AtomicBool>,
+    /// Shared by every store on this path.
+    file: Arc<Owner>,
 }
 
 impl Store {
     /// A store backed by an exact path. Used by tests.
     pub fn at(path: impl Into<PathBuf>) -> Self {
         let path = path.into();
-        let sealed = seal_for(&path);
-        Self { path, sealed }
+        let file = file_for(&path);
+        Self { path, file }
     }
 
     /// A store for `name` under the user's config directory.
@@ -64,6 +77,9 @@ impl Store {
     /// Read the stored value, falling back to `Default` when the file is
     /// absent, unreadable or malformed.
     pub fn load<T: DeserializeOwned + Default>(&self) -> T {
+        // Held through the rescue: no write lands between reading the file
+        // and moving it aside
+        let mut sealed = self.file.hold();
         let text = match fs::read_to_string(&self.path) {
             Ok(text) => text,
             Err(err) => {
@@ -71,7 +87,7 @@ impl Store {
                     // Nothing is there to protect any more, so a seal from an
                     // earlier failed rescue must not keep blocking saves: the
                     // user may have moved the bad file aside by hand
-                    self.sealed.store(false, Ordering::Relaxed);
+                    *sealed = false;
                 } else {
                     log::warn!("failed to read {}: {err}", self.path.display());
                 }
@@ -83,7 +99,7 @@ impl Store {
             Ok(value) => {
                 // The file reads cleanly, so whatever made it unsafe to write
                 // is behind us and saving may resume
-                self.sealed.store(false, Ordering::Relaxed);
+                *sealed = false;
                 value
             }
             Err(err) => {
@@ -92,7 +108,7 @@ impl Store {
                     Ok(backup) => {
                         // The bad file is out of the way, so writing a fresh
                         // one destroys nothing
-                        self.sealed.store(false, Ordering::Relaxed);
+                        *sealed = false;
                         log::error!(
                             "kept the unreadable {} as {}; starting from defaults",
                             self.path.display(),
@@ -105,7 +121,7 @@ impl Store {
                              over it, so it can still be recovered by hand",
                             self.path.display()
                         );
-                        self.sealed.store(true, Ordering::Relaxed);
+                        *sealed = true;
                     }
                 }
                 T::default()
@@ -151,7 +167,7 @@ impl Store {
     /// [`Self::save_in_background`] from anything driven by the event loop.
     pub fn save<T: Serialize>(&self, value: &T) -> io::Result<()> {
         let text = self.prepare(value)?;
-        write_text(&self.path, &self.sealed, &text)
+        write_text(&self.path, &self.file, &text)
     }
 
     /// Queue the value to be written, and return without waiting for the disk.
@@ -169,13 +185,13 @@ impl Store {
     /// being refused.
     pub fn save_in_background<T: Serialize>(&self, value: &T) -> io::Result<()> {
         let text = self.prepare(value)?;
-        queue_write(self.path.clone(), Arc::clone(&self.sealed), text);
+        queue_write(self.path.clone(), Arc::clone(&self.file), text);
         Ok(())
     }
 
     /// The seal check and serialization both saves share.
     fn prepare<T: Serialize>(&self, value: &T) -> io::Result<String> {
-        if self.sealed.load(Ordering::Relaxed) {
+        if *self.file.hold() {
             return Err(io::Error::other(format!(
                 "refusing to overwrite the unreadable {}",
                 self.path.display()
@@ -190,9 +206,11 @@ impl Store {
 ///
 /// The seal is read again here and not only when the write was asked for: a
 /// queued write can be picked up after a failed rescue has sealed the path,
-/// and it must not go through then either.
-fn write_text(path: &Path, sealed: &AtomicBool, text: &str) -> io::Result<()> {
-    if sealed.load(Ordering::Relaxed) {
+/// and it must not go through then either. The file is held while it is
+/// written, so a rescue waits for the write, and the write for the rescue.
+fn write_text(path: &Path, file: &Owner, text: &str) -> io::Result<()> {
+    let sealed = file.hold();
+    if *sealed {
         return Err(io::Error::other(format!(
             "refusing to overwrite the unreadable {}",
             path.display()
@@ -225,7 +243,7 @@ fn write_text(path: &Path, sealed: &AtomicBool, text: &str) -> io::Result<()> {
 
 /// A write waiting for the writer thread.
 struct Queued {
-    sealed: Arc<AtomicBool>,
+    file: Arc<Owner>,
     text: String,
 }
 
@@ -258,17 +276,17 @@ static WRITES: LazyLock<Arc<(Mutex<WriteQueue>, Condvar)>> = LazyLock::new(|| {
 /// Whether the writer thread exists. Only ever set false, once, at startup.
 static WRITER_RUNNING: AtomicBool = AtomicBool::new(true);
 
-fn queue_write(path: PathBuf, sealed: Arc<AtomicBool>, text: String) {
+fn queue_write(path: PathBuf, file: Arc<Owner>, text: String) {
     let (lock, change) = &**WRITES;
     if !WRITER_RUNNING.load(Ordering::Relaxed) {
-        if let Err(err) = write_text(&path, &sealed, &text) {
+        if let Err(err) = write_text(&path, &file, &text) {
             log::warn!("failed to save {}: {err}", path.display());
         }
         return;
     }
 
     let mut queue = lock.lock().unwrap_or_else(|err| err.into_inner());
-    queue.by_path.insert(path, Queued { sealed, text });
+    queue.by_path.insert(path, Queued { file, text });
     change.notify_all();
 }
 
@@ -295,7 +313,7 @@ fn run_writes(queue: &(Mutex<WriteQueue>, Condvar)) {
         state.writing = true;
         drop(state);
 
-        if let Err(err) = write_text(&path, &queued.sealed, &queued.text) {
+        if let Err(err) = write_text(&path, &queued.file, &queued.text) {
             log::warn!("failed to save {}: {err}", path.display());
         }
 
@@ -527,6 +545,28 @@ mod tests {
     struct Sample {
         value: u32,
         name: String,
+    }
+
+    /// A save waits while the file is held, as a load holds it to read and
+    /// rescue a malformed file: the rescue cannot move aside what the save
+    /// just put there
+    #[test]
+    fn a_save_waits_for_a_rescue_under_way() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("held.ron");
+        fs::write(&path, "malformed").unwrap();
+        let store = Store::at(&path);
+        let held = store.file.hold();
+        // As the writer thread writes a queued save
+        let saving = std::thread::spawn({
+            let (path, file) = (path.clone(), Arc::clone(&store.file));
+            move || super::write_text(&path, &file, "(value: 1)")
+        });
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        assert_eq!(fs::read_to_string(&path).unwrap(), "malformed", "not yet");
+        drop(held);
+        saving.join().unwrap().unwrap();
+        assert_eq!(fs::read_to_string(&path).unwrap(), "(value: 1)");
     }
 
     #[test]
