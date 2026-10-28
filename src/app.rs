@@ -59,9 +59,10 @@ use crate::mime_app::{self, Mime, MimeApp, MimeAppCache, MimeAppMatch};
 use crate::mounter::{
     MOUNTERS, MounterAuth, MounterItem, MounterItems, MounterKey, MounterMessage, Outcome,
 };
+pub use crate::operation::ArchiveType;
 use crate::operation::{
-    Ask, Blocked, BlockedAnswer, BlockedQuestion, Controller, ControllerState, Operation,
-    OperationError, OperationErrorType, OperationSelection, ReplaceResult,
+    Ask, Blocked, BlockedAnswer, Controller, ControllerState, Operation, OperationError,
+    OperationErrorType, OperationSelection, Prompt, ReplaceResult,
 };
 use crate::progress;
 use crate::service_menu::{self, ServiceEntry, ServiceItem, ServiceMenus};
@@ -718,32 +719,6 @@ pub enum ContextPage {
     Settings,
 }
 
-#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
-pub enum ArchiveType {
-    Tgz,
-    #[default]
-    Zip,
-}
-
-impl ArchiveType {
-    pub const fn all() -> &'static [Self] {
-        &[Self::Tgz, Self::Zip]
-    }
-
-    pub const fn extension(&self) -> &str {
-        match self {
-            Self::Tgz => ".tgz",
-            Self::Zip => ".zip",
-        }
-    }
-}
-
-impl AsRef<str> for ArchiveType {
-    fn as_ref(&self) -> &str {
-        self.extension()
-    }
-}
-
 #[derive(Clone, Debug)]
 pub enum DialogPage {
     Compress {
@@ -1048,6 +1023,79 @@ const STALL_LIMIT: Duration = Duration::from_secs(60);
 
 /// What the app last saw of a running operation's progress, and since when
 /// it has not changed.
+/// What an operation asks about a path it may not touch, as it reaches the
+/// app.
+#[derive(Clone, Debug)]
+pub struct BlockedQuestion {
+    pub blocked: Blocked,
+    pub ask: Ask,
+    /// The path as its dialog shows it, when it could be looked at.
+    pub item: Option<Box<tab::Item>>,
+}
+
+/// `path` as a dialog shows it, looked at on a worker.
+async fn dialog_item(path: PathBuf) -> Option<Box<tab::Item>> {
+    tokio::task::spawn_blocking(move || {
+        let mut item = tab::item_from_path(path, IconSizes::default())
+            .map_err(|err| log::warn!("{err}"))
+            .ok()?;
+        item.load_preview();
+        Some(Box::new(item))
+    })
+    .await
+    .ok()
+    .flatten()
+}
+
+/// What an operation's `prompt` shows: a dialog, or nothing when its paths
+/// could not be looked at, which answers Cancel.
+async fn present(prompt: Prompt) -> Option<Message> {
+    match prompt {
+        Prompt::Replace {
+            from,
+            to,
+            totals,
+            multiple,
+            conflict_count,
+            answer,
+        } => {
+            let (Some(from), Some(to)) = (dialog_item(from).await, dialog_item(to).await) else {
+                let _ = answer.send(ReplaceResult::Cancel).await;
+                return None;
+            };
+            Some(Message::DialogPush(
+                DialogPage::Replace {
+                    from,
+                    to,
+                    totals,
+                    multiple,
+                    apply_to_all: false,
+                    conflict_count,
+                    tx: answer,
+                    // Numbered by the app as it is asked
+                    id: 0,
+                },
+                Some(REPLACE_BUTTON_ID.clone()),
+            ))
+        }
+        Prompt::Blocked {
+            controller,
+            blocked,
+            ask,
+            answer,
+        } => {
+            // What the dialog shows of the path; it is still there to look
+            // at, only not to read, list, link or remove
+            let item = dialog_item(blocked.path().to_path_buf()).await;
+            Some(Message::OperationBlocked(
+                controller,
+                BlockedQuestion { blocked, ask, item },
+                answer,
+            ))
+        }
+    }
+}
+
 struct Stall {
     /// Progress (as bits), and what its checks walked: files and bytes.
     seen: (u32, u64, u64),
@@ -2067,12 +2115,12 @@ impl App {
         // Use a task to send operations to the compio runtime thread.
         crate::ui::Task::stream(crate::ui::iced::stream::channel(
             4,
-            move |msg_tx| async move {
+            move |mut msg_tx: crate::ui::iced::futures::channel::mpsc::Sender<Message>| async move {
+                use crate::ui::iced::futures::SinkExt;
                 let (tx, rx) = tokio::sync::oneshot::channel();
 
-                let msg_tx = Arc::new(tokio::sync::Mutex::new(msg_tx));
-
-                let msg_tx_clone = msg_tx.clone();
+                // What the operation asks, shown as dialogs while it runs
+                let (prompts, mut prompted) = tokio::sync::mpsc::unbounded_channel();
 
                 // Every path out of here has to answer with one message.
                 // Without that the operation stays pending for good: the
@@ -2085,26 +2133,43 @@ impl App {
                         OperationError::from_msg(fl!("operation-failed-to-start")),
                     )
                 };
-                let msg = if compio_tx
+                let sent = compio_tx
                     .send(Box::pin(async move {
-                        let msg = match operation.perform(&msg_tx_clone, controller).await {
+                        let msg = match operation.perform(&prompts, controller).await {
                             Ok(result_paths) => Message::PendingComplete(id, result_paths),
                             Err(err) => Message::PendingError(id, err),
                         };
 
                         _ = tx.send(msg);
                     }))
-                    .await
-                    .is_err()
-                {
+                    .await;
+                let msg = if sent.is_err() {
                     failed("the file operation runtime is gone")
                 } else {
-                    match rx.await {
+                    use crate::ui::iced::futures::FutureExt;
+                    let mut rx = rx.fuse();
+                    // Its questions as they come, until it ends
+                    let ended = loop {
+                        let mut next = std::pin::pin!(prompted.recv().fuse());
+                        crate::ui::iced::futures::select! {
+                            ended = rx => break ended,
+                            prompt = next => match prompt {
+                                Some(prompt) => {
+                                    if let Some(message) = present(prompt).await {
+                                        let _ = msg_tx.send(message).await;
+                                    }
+                                }
+                                // No more can come: only the end is left
+                                None => break (&mut rx).await,
+                            },
+                        }
+                    };
+                    match ended {
                         Ok(msg) => msg,
                         Err(_) => failed("the file operation runtime dropped it"),
                     }
                 };
-                let _ = msg_tx.lock().await.send(msg).await;
+                let _ = msg_tx.send(msg).await;
             },
         ))
         .map(crate::ui::Action::App)
@@ -10456,6 +10521,24 @@ mod tests {
 
     /// With nothing after it to ask about, there is no "Same for the rest":
     /// Skip skips this one, whatever the box last said.
+    /// A name question about paths that cannot be looked at shows nothing,
+    /// and the operation hears Cancel
+    #[tokio::test]
+    async fn a_replace_prompt_about_paths_gone_answers_cancel() {
+        let (answer, mut answered) = tokio::sync::mpsc::channel(1);
+        let shown = present(Prompt::Replace {
+            from: "/nonexistent/a".into(),
+            to: "/nonexistent/b".into(),
+            totals: None,
+            multiple: false,
+            conflict_count: 1,
+            answer,
+        })
+        .await;
+        assert!(shown.is_none());
+        assert_eq!(answered.recv().await, Some(ReplaceResult::Cancel));
+    }
+
     #[test]
     fn the_last_question_has_no_same_for_the_rest() {
         let (mut question, _rx) = question(true);

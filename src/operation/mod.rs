@@ -1,16 +1,13 @@
-use crate::app::{ArchiveType, DialogPage, Message, REPLACE_BUTTON_ID};
-use crate::config::IconSizes;
 use crate::spawn_detached::spawn_detached;
-use crate::ui::iced::futures::channel::mpsc::Sender;
-use crate::ui::iced::futures::{self, SinkExt, StreamExt, stream};
-use crate::{FxOrderMap, archive, fl, tab};
+use crate::ui::iced::futures::{self, StreamExt, stream};
+use crate::{FxOrderMap, archive, fl};
 use std::borrow::Cow;
 use std::fmt::{self, Formatter};
 use std::fs;
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use tokio::sync::{Mutex as TokioMutex, mpsc};
+use tokio::sync::mpsc;
 use zip::AesMode::Aes256;
 
 pub use self::controller::{CancelOnDrop, Controller, ControllerState};
@@ -30,74 +27,106 @@ type PathPairs = Vec<(PathBuf, PathBuf)>;
 pub mod recursive;
 pub mod root;
 
+/// What an operation asks the user, and where the answer goes: the app
+/// shows it as it sees fit. A question dropped unanswered answers Cancel.
+#[derive(Debug)]
+pub enum Prompt {
+    /// The name `to` is taken: replace it, keep both, skip, or merge two
+    /// folders. `totals`: two folders' files and bytes, to compare them by.
+    Replace {
+        from: PathBuf,
+        to: PathBuf,
+        totals: Option<((u64, u64), (u64, u64))>,
+        /// Whether "Apply to all" is worth offering.
+        multiple: bool,
+        conflict_count: usize,
+        answer: mpsc::Sender<ReplaceResult>,
+    },
+    /// A path the operation `controller` controls may not touch.
+    Blocked {
+        controller: Controller,
+        blocked: Blocked,
+        ask: Ask,
+        answer: mpsc::Sender<BlockedAnswer>,
+    },
+}
+
+/// The kind of archive a compress makes.
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
+pub enum ArchiveType {
+    Tgz,
+    #[default]
+    Zip,
+}
+
+impl ArchiveType {
+    pub const fn all() -> &'static [Self] {
+        &[Self::Tgz, Self::Zip]
+    }
+
+    pub const fn extension(&self) -> &str {
+        match self {
+            Self::Tgz => ".tgz",
+            Self::Zip => ".zip",
+        }
+    }
+}
+
+impl AsRef<str> for ArchiveType {
+    fn as_ref(&self) -> &str {
+        self.extension()
+    }
+}
+
+/// Where an operation's prompts go.
+pub type Prompts = mpsc::UnboundedSender<Prompt>;
+
 async fn handle_replace(
-    msg_tx: Arc<TokioMutex<Sender<Message>>>,
+    prompts: Prompts,
     file_from: PathBuf,
     file_to: PathBuf,
     multiple: bool,
     conflict_count: usize,
 ) -> ReplaceResult {
-    let (Some(item_from), Some(item_to)) = (
-        dialog_item(file_from.clone()).await,
-        dialog_item(file_to.clone()).await,
-    ) else {
-        return ReplaceResult::Cancel;
-    };
     // Two folders are compared by what they hold
-    let totals = compio::runtime::spawn_blocking(move || {
-        (file_from.is_dir() && file_to.is_dir())
-            .then(|| (folder_totals(&file_from), folder_totals(&file_to)))
+    let totals = compio::runtime::spawn_blocking({
+        let (file_from, file_to) = (file_from.clone(), file_to.clone());
+        move || {
+            (file_from.is_dir() && file_to.is_dir())
+                .then(|| (folder_totals(&file_from), folder_totals(&file_to)))
+        }
     })
     .await
     .ok()
     .flatten();
 
     let (tx, mut rx) = mpsc::channel(1);
-    let _ = msg_tx
-        .lock()
-        .await
-        .send(Message::DialogPush(
-            DialogPage::Replace {
-                from: item_from,
-                to: item_to,
-                totals,
-                multiple,
-                apply_to_all: false,
-                conflict_count,
-                tx,
-                // Numbered by the app as it is asked
-                id: 0,
-            },
-            Some(REPLACE_BUTTON_ID.clone()),
-        ))
-        .await;
+    let _ = prompts.send(Prompt::Replace {
+        from: file_from,
+        to: file_to,
+        totals,
+        multiple,
+        conflict_count,
+        answer: tx,
+    });
     rx.recv().await.unwrap_or(ReplaceResult::Cancel)
 }
 
-/// Ask on the operation's progress row what to do about a path it may not
-/// touch, and wait for the answer. A dropped question counts as Cancel.
-///
-/// `more`: whether anything after this path could be asked about too, which
-/// is what makes "Same for the rest" worth offering.
+/// Ask what to do about a path the operation may not touch, and wait for
+/// the answer. A dropped question counts as Cancel.
 async fn handle_blocked(
-    msg_tx: Arc<TokioMutex<Sender<Message>>>,
+    prompts: Prompts,
     controller: Controller,
     blocked: Blocked,
     ask: Ask,
 ) -> BlockedAnswer {
-    // What the dialog shows of the path; it is still there to look at, only
-    // not to read, list, link or remove
-    let item = dialog_item(blocked.path().to_path_buf()).await;
     let (tx, mut rx) = mpsc::channel(1);
-    let _ = msg_tx
-        .lock()
-        .await
-        .send(Message::OperationBlocked(
-            controller,
-            BlockedQuestion { blocked, ask, item },
-            tx,
-        ))
-        .await;
+    let _ = prompts.send(Prompt::Blocked {
+        controller,
+        blocked,
+        ask,
+        answer: tx,
+    });
     rx.recv().await.unwrap_or(BlockedAnswer::Cancel)
 }
 
@@ -433,16 +462,6 @@ impl Cause {
     }
 }
 
-/// What an operation asks about a path it may not touch, as it reaches the
-/// app.
-#[derive(Clone, Debug)]
-pub struct BlockedQuestion {
-    pub blocked: Blocked,
-    pub ask: Ask,
-    /// The path as its dialog shows it, when it could be looked at.
-    pub item: Option<Box<tab::Item>>,
-}
-
 /// How a [`Blocked`] question is asked: what it offers besides Skip and
 /// Cancel.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -574,21 +593,6 @@ pub(crate) fn folder_totals(dir: &Path) -> (u64, u64) {
     (files, bytes)
 }
 
-/// An item for a dialog about `path`, with its preview made. `None` when it
-/// cannot be looked at.
-async fn dialog_item(path: PathBuf) -> Option<Box<tab::Item>> {
-    compio::runtime::spawn_blocking(move || {
-        let mut item = tab::item_from_path(path, IconSizes::default())
-            .map_err(|err| log::warn!("{err}"))
-            .ok()?;
-        item.load_preview();
-        Some(Box::new(item))
-    })
-    .await
-    .ok()
-    .flatten()
-}
-
 /// `merge_folders`: a folder whose name is taken by a folder goes into it
 /// without asking, as an extraction's do.
 async fn copy_or_move(
@@ -596,10 +600,10 @@ async fn copy_or_move(
     to: PathBuf,
     method: Method,
     merge_folders: bool,
-    msg_tx: &Arc<TokioMutex<Sender<Message>>>,
+    prompts: &Prompts,
     controller: Controller,
 ) -> Result<OperationSelection, OperationError> {
-    let msg_tx = msg_tx.clone();
+    let prompts = prompts.clone();
     let controller_c = controller.clone();
 
     compio::runtime::spawn(async move {
@@ -732,7 +736,7 @@ async fn copy_or_move(
             renamed,
             op_sel,
             merge_folders,
-            msg_tx,
+            prompts,
             controller,
         )
         .await
@@ -748,10 +752,10 @@ async fn copy_or_move(
 /// to. An item all back leaves the trash, its `.trashinfo` with it.
 async fn restore(
     items: Vec<crate::trashing::TrashItem>,
-    msg_tx: &Arc<TokioMutex<Sender<Message>>>,
+    prompts: &Prompts,
     controller: Controller,
 ) -> Result<OperationSelection, OperationError> {
-    let msg_tx = msg_tx.clone();
+    let prompts = prompts.clone();
     compio::runtime::spawn(async move {
         let mut op_sel = OperationSelection::default();
         // Brought back by a rename, to go back into the trash if cancelled
@@ -840,7 +844,7 @@ async fn restore(
                 Vec::new(),
                 OperationSelection::default(),
                 false,
-                msg_tx,
+                prompts,
                 controller.clone(),
             )
             .await;
@@ -914,7 +918,7 @@ async fn put_back_restored(
 /// trashing that item right now.
 async fn empty(
     bins: Vec<crate::trashing::Bin>,
-    msg_tx: &Arc<TokioMutex<Sender<Message>>>,
+    prompts: &Prompts,
     controller: Controller,
 ) -> Result<OperationSelection, OperationError> {
     let listed = compio::runtime::spawn_blocking(move || {
@@ -930,22 +934,22 @@ async fn empty(
     .await
     .map_err(wrap_compio_spawn_error)?
     .map_err(|(path, err)| OperationError::at(&path, &err))?;
-    purge(listed, msg_tx, controller).await
+    purge(listed, prompts, controller).await
 }
 
 /// Removes items from the trash for good, asking about what this user may
 /// not remove: see [`Context::purge`].
 async fn purge(
     items: Vec<crate::trashing::TrashItem>,
-    msg_tx: &Arc<TokioMutex<Sender<Message>>>,
+    prompts: &Prompts,
     controller: Controller,
 ) -> Result<OperationSelection, OperationError> {
-    let msg_tx = msg_tx.clone();
+    let prompts = prompts.clone();
     compio::runtime::spawn(async move {
         let blocked_controller = controller.clone();
         let mut context = Context::new(controller).on_blocked(move |blocked, ask| {
             Box::pin(handle_blocked(
-                msg_tx.clone(),
+                prompts.clone(),
                 blocked_controller.clone(),
                 blocked,
                 ask,
@@ -970,16 +974,16 @@ async fn purge(
 async fn delete(
     paths: Vec<PathBuf>,
     permanently: bool,
-    msg_tx: &Arc<TokioMutex<Sender<Message>>>,
+    prompts: &Prompts,
     controller: Controller,
 ) -> Result<OperationSelection, OperationError> {
-    let msg_tx = msg_tx.clone();
+    let prompts = prompts.clone();
     compio::runtime::spawn(async move {
         let mut context = Context::new(controller.clone());
         let blocked_controller = controller.clone();
         context = context.on_blocked(move |blocked, ask| {
             Box::pin(handle_blocked(
-                msg_tx.clone(),
+                prompts.clone(),
                 blocked_controller.clone(),
                 blocked,
                 ask,
@@ -1003,7 +1007,7 @@ async fn recursive_pairs(
     renamed: PathPairs,
     op_sel: OperationSelection,
     merge_folders: bool,
-    msg_tx: Arc<TokioMutex<Sender<Message>>>,
+    prompts: Prompts,
     controller: Controller,
 ) -> Result<OperationSelection, OperationError> {
     let mut context = Context::new(controller.clone());
@@ -1027,11 +1031,11 @@ async fn recursive_pairs(
         controller.set_progress(total_progress);
     });
 
-    let blocked_tx = msg_tx.clone();
+    let blocked_tx = prompts.clone();
     context = context.on_replace(move |op, conflict_count| {
-        let msg_tx = msg_tx.clone();
+        let prompts = prompts.clone();
         Box::pin(handle_replace(
-            msg_tx,
+            prompts,
             op.from.clone(),
             op.to.clone(),
             true,
@@ -1995,12 +1999,12 @@ impl Operation {
     /// in: an error says how it ended, and making one changed nothing.
     pub async fn perform(
         self,
-        msg_tx: &Arc<TokioMutex<Sender<Message>>>,
+        prompts: &Prompts,
         controller: Controller,
     ) -> Result<OperationSelection, OperationError> {
         // Dropped before it ends, its blocking jobs are told to stop
         let running = CancelOnDrop::new(controller.clone());
-        let result = self.run(msg_tx, controller.clone()).await;
+        let result = self.run(prompts, controller.clone()).await;
         if let Err(err) = &result {
             if err.is_cancelled() {
                 controller.cancel();
@@ -2014,7 +2018,7 @@ impl Operation {
 
     async fn run(
         self,
-        msg_tx: &Arc<TokioMutex<Sender<Message>>>,
+        prompts: &Prompts,
         controller: Controller,
     ) -> Result<OperationSelection, OperationError> {
         let controller_clone = controller.clone();
@@ -2308,16 +2312,16 @@ impl Operation {
                 .map_err(wrap_compio_spawn_error)?
             }
             Self::Copy { paths, to } => {
-                copy_or_move(paths, to, Method::Copy, false, msg_tx, controller).await
+                copy_or_move(paths, to, Method::Copy, false, prompts, controller).await
             }
-            Self::Delete { paths } => delete(paths, false, msg_tx, controller.clone()).await,
-            Self::DeleteTrash { items } => purge(items, msg_tx, controller.clone()).await,
+            Self::Delete { paths } => delete(paths, false, prompts, controller.clone()).await,
+            Self::DeleteTrash { items } => purge(items, prompts, controller.clone()).await,
             Self::EmptyTrash => {
                 let bins = compio::runtime::spawn_blocking(crate::trashing::bins_to_empty)
                     .await
                     .map_err(wrap_compio_spawn_error)?
                     .map_err(|err| OperationError::from_err(err.to_string()))?;
-                empty(bins, msg_tx, controller.clone()).await
+                empty(bins, prompts, controller.clone()).await
             }
             Self::EmptyDriveTrash { root } => {
                 let bins =
@@ -2325,7 +2329,7 @@ impl Operation {
                         .await
                         .map_err(wrap_compio_spawn_error)?
                         .map_err(|err| OperationError::from_err(err.to_string()))?;
-                empty(bins, msg_tx, controller.clone()).await
+                empty(bins, prompts, controller.clone()).await
             }
             Self::Extract {
                 paths,
@@ -2334,7 +2338,7 @@ impl Operation {
                 as_folder,
             } => {
                 let controller_clone = controller.clone();
-                let msg_tx = msg_tx.clone();
+                let prompts = prompts.clone();
                 compio::runtime::spawn(async move {
                     let controller = controller_clone;
                     let total_paths = paths.len();
@@ -2417,7 +2421,7 @@ impl Operation {
                                         cross_device_copy: false,
                                     },
                                     true,
-                                    &msg_tx,
+                                    &prompts,
                                     controller.clone(),
                                 )
                                 .await?;
@@ -2477,7 +2481,7 @@ impl Operation {
                     to,
                     Method::Move { cross_device_copy },
                     false,
-                    msg_tx,
+                    prompts,
                     controller,
                 )
                 .await
@@ -2537,7 +2541,7 @@ impl Operation {
             .await
             .map_err(wrap_compio_spawn_error)?,
             Self::PermanentlyDelete { paths } => {
-                delete(paths.into_vec(), true, msg_tx, controller.clone()).await
+                delete(paths.into_vec(), true, prompts, controller.clone()).await
             }
             Self::RemoveFromRecents { paths } => {
                 // Through the same worker that records and clears recents.
@@ -2644,7 +2648,7 @@ impl Operation {
             .map_err(wrap_compio_spawn_error)?,
             Self::Rename { from, to } => {
                 let controller_clone = controller.clone();
-                let msg_tx = msg_tx.clone();
+                let prompts = prompts.clone();
 
                 compio::runtime::spawn(async move {
                     let controller = controller_clone;
@@ -2691,7 +2695,7 @@ impl Operation {
                                     ..Default::default()
                                 },
                                 false,
-                                msg_tx,
+                                prompts,
                                 controller,
                             )
                             .await;
@@ -2745,7 +2749,7 @@ impl Operation {
             }
             .await
             .map_err(wrap_compio_spawn_error)?,
-            Self::Restore { items } => restore(items, msg_tx, controller.clone()).await,
+            Self::Restore { items } => restore(items, prompts, controller.clone()).await,
             Self::SetExecutableAndLaunch { path } => {
                 controller
                     .check()
@@ -2845,21 +2849,18 @@ mod tests {
     use std::io;
     use std::path::PathBuf;
 
-    use crate::ui::iced::futures::channel::mpsc;
-    use crate::ui::iced::futures::{StreamExt, future};
+    use crate::ui::iced::futures::future;
     use log::debug;
     use test_log::test;
-    use tokio::sync;
 
     use super::{
-        Blocked, BlockedAnswer, Controller, Operation, OperationError, OperationSelection,
-        ReplaceResult,
+        ArchiveType, Blocked, BlockedAnswer, Controller, Operation, OperationError,
+        OperationSelection, ReplaceResult,
     };
     use crate::app::test_utils::{
         NAME_LEN, NUM_DIRS, NUM_FILES, NUM_HIDDEN, NUM_NESTED, empty_fs, filter_dirs, filter_files,
         simple_fs,
     };
-    use crate::app::{DialogPage, Message};
     use crate::fl;
 
     #[test]
@@ -2925,7 +2926,7 @@ mod tests {
         to: PathBuf,
     ) -> Result<OperationSelection, OperationError> {
         let id = fastrand::u64(0..u64::MAX);
-        let (tx, mut rx) = mpsc::channel(1);
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
         let paths_clone = paths.clone();
         let to_clone = to.clone();
 
@@ -2935,28 +2936,25 @@ mod tests {
                 paths: paths_clone,
                 to: to_clone,
             }
-            .perform(&sync::Mutex::new(tx).into(), Controller::default())
+            .perform(&tx, Controller::default())
             .await
         };
 
         // Concurrently handling messages will prevent the mpsc channel from blocking when full.
         let handle_messages = async move {
-            while let Some(msg) = rx.next().await {
+            while let Some(msg) = rx.recv().await {
                 match msg {
-                    Message::DialogPush(DialogPage::Replace { tx, .. }, _id_to_focus) => {
+                    super::Prompt::Replace { answer: tx, .. } => {
                         debug!("[{id}] Replace request");
                         tx.send(ReplaceResult::Cancel)
                             .await
                             .expect("Sending a response to a replace request should succeed");
                     }
-                    Message::OperationBlocked(_, _, tx) => {
+                    super::Prompt::Blocked { answer: tx, .. } => {
                         tx.send(BlockedAnswer::Cancel)
                             .await
                             .expect("Sending an answer to a blocked question should succeed");
                     }
-                    _ => unreachable!(
-                        "Only [ `Message::PendingProgress`, `Message::DialogPush(DialogPage::Replace)` ] are sent from operation"
-                    ),
                 }
             }
         };
@@ -2969,26 +2967,21 @@ mod tests {
         operation: Operation,
         reply: ReplaceResult,
     ) -> Result<OperationSelection, OperationError> {
-        let (tx, mut rx) = mpsc::channel(1);
-        let handle_operation = async move {
-            operation
-                .perform(&sync::Mutex::new(tx).into(), Controller::default())
-                .await
-        };
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        let handle_operation = async move { operation.perform(&tx, Controller::default()).await };
         let handle_messages = async move {
-            while let Some(msg) = rx.next().await {
+            while let Some(msg) = rx.recv().await {
                 match msg {
-                    Message::DialogPush(DialogPage::Replace { tx, .. }, _id_to_focus) => {
+                    super::Prompt::Replace { answer: tx, .. } => {
                         tx.send(reply)
                             .await
                             .expect("Sending a response to a replace request should succeed");
                     }
-                    Message::OperationBlocked(_, _, tx) => {
+                    super::Prompt::Blocked { answer: tx, .. } => {
                         tx.send(BlockedAnswer::Cancel)
                             .await
                             .expect("Sending an answer to a blocked question should succeed");
                     }
-                    _ => unreachable!("unexpected message from operation"),
                 }
             }
         };
@@ -3003,30 +2996,29 @@ mod tests {
         operation: Operation,
         mut answer: impl FnMut(&Blocked, usize, bool) -> BlockedAnswer,
     ) -> (Result<OperationSelection, OperationError>, Vec<Blocked>) {
-        let (tx, mut rx) = mpsc::channel(1);
-        let handle_operation = async move {
-            operation
-                .perform(&sync::Mutex::new(tx).into(), Controller::default())
-                .await
-        };
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        let handle_operation = async move { operation.perform(&tx, Controller::default()).await };
         let handle_messages = async move {
             let mut asked = Vec::new();
-            while let Some(msg) = rx.next().await {
+            while let Some(msg) = rx.recv().await {
                 match msg {
-                    Message::DialogPush(DialogPage::Replace { tx, .. }, _id_to_focus) => {
+                    super::Prompt::Replace { answer: tx, .. } => {
                         tx.send(ReplaceResult::Cancel)
                             .await
                             .expect("Sending a response to a replace request should succeed");
                     }
-                    Message::OperationBlocked(_, question, tx) => {
-                        let reply =
-                            answer(&question.blocked, question.ask.count, question.ask.retry);
-                        asked.push(question.blocked);
+                    super::Prompt::Blocked {
+                        blocked,
+                        ask,
+                        answer: tx,
+                        ..
+                    } => {
+                        let reply = answer(&blocked, ask.count, ask.retry);
+                        asked.push(blocked);
                         tx.send(reply)
                             .await
                             .expect("Sending an answer to a blocked question should succeed");
                     }
-                    _ => unreachable!("unexpected message from operation"),
                 }
             }
             asked
@@ -3565,12 +3557,10 @@ mod tests {
     async fn perform_watched(
         operation: Operation,
     ) -> (Result<OperationSelection, OperationError>, Controller) {
-        let (tx, _rx) = mpsc::channel(1);
+        let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
         let controller = Controller::default();
         let watched = controller.clone();
-        let result = operation
-            .perform(&sync::Mutex::new(tx).into(), controller)
-            .await;
+        let result = operation.perform(&tx, controller).await;
         (result, watched)
     }
 
@@ -3584,17 +3574,17 @@ mod tests {
         fs::create_dir_all(&to)?;
         fs::write(from.join("a"), b"new")?;
         fs::write(to.join("a"), b"old")?;
-        let (tx, mut rx) = mpsc::channel(1);
-        let msg_tx = sync::Mutex::new(tx).into();
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        let prompts = tx;
         let controller = Controller::default();
         let copy = Operation::Copy {
             paths: vec![from.join("a")],
             to,
         }
-        .perform(&msg_tx, controller.clone());
+        .perform(&prompts, controller.clone());
         let mut copy = Box::pin(copy);
         // Run until it asks about the name taken, then let it go unanswered
-        let asked = future::select(copy.as_mut(), rx.next()).await;
+        let asked = future::select(copy.as_mut(), Box::pin(rx.recv())).await;
         assert!(matches!(asked, future::Either::Right((Some(_), _))));
         assert!(!controller.is_cancelled());
         drop(copy);
@@ -3799,7 +3789,7 @@ mod tests {
         as_folder: bool,
         reply: ReplaceResult,
     ) -> Result<OperationSelection, OperationError> {
-        let (tx, mut rx) = mpsc::channel(1);
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
         let handle_extract = async move {
             Operation::Extract {
                 paths: paths.into_boxed_slice(),
@@ -3807,13 +3797,13 @@ mod tests {
                 password: None,
                 as_folder,
             }
-            .perform(&sync::Mutex::new(tx).into(), Controller::default())
+            .perform(&tx, Controller::default())
             .await
         };
         let handle_messages = async move {
-            while let Some(msg) = rx.next().await {
+            while let Some(msg) = rx.recv().await {
                 match msg {
-                    Message::DialogPush(DialogPage::Replace { tx, .. }, _id_to_focus) => {
+                    super::Prompt::Replace { answer: tx, .. } => {
                         tx.send(reply)
                             .await
                             .expect("Sending a response to a replace request should succeed");
@@ -3894,12 +3884,12 @@ mod tests {
         let target = path.join("pasted.txt");
         std::os::unix::fs::symlink(path.join("missing"), &target)?;
 
-        let (tx, _rx) = mpsc::channel(1);
+        let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
         let result = Operation::WriteFile {
             path: target.clone(),
             data: (&b"pasted"[..]).into(),
         }
-        .perform(&sync::Mutex::new(tx).into(), Controller::default())
+        .perform(&tx, Controller::default())
         .await
         .expect("the paste should find a free name");
 
@@ -4215,11 +4205,11 @@ mod tests {
         fs::write(path.join("a.txt"), b"SOURCE")?;
         fs::write(path.join("b.txt"), b"VICTIM")?;
 
-        let (tx, _rx) = mpsc::channel(1);
+        let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
         let result = Operation::BatchRename {
             renames: vec![(path.join("a.txt"), path.join("b.txt"))],
         }
-        .perform(&sync::Mutex::new(tx).into(), Controller::default())
+        .perform(&tx, Controller::default())
         .await;
 
         assert!(result.is_err(), "renaming onto an existing file must fail");
@@ -4245,7 +4235,7 @@ mod tests {
             Operation::Compress {
                 paths: vec![path.join("a/one.txt"), path.join("b/two.txt")],
                 to: to.clone(),
-                archive_type: crate::app::ArchiveType::Tgz,
+                archive_type: ArchiveType::Tgz,
                 password: None,
             },
             ReplaceResult::Cancel,
@@ -4272,9 +4262,9 @@ mod tests {
         let path = fs_.path().join("notes.txt");
         fs::write(&path, b"work worth keeping")?;
 
-        let (tx, _rx) = mpsc::channel(1);
+        let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
         let result = Operation::NewFile { path: path.clone() }
-            .perform(&sync::Mutex::new(tx).into(), Controller::default())
+            .perform(&tx, Controller::default())
             .await;
 
         assert!(
@@ -4296,12 +4286,12 @@ mod tests {
         fs::write(path.join("a.txt"), b"SOURCE")?;
         fs::write(path.join("b.txt"), b"VICTIM")?;
 
-        let (tx, _rx) = mpsc::channel(1);
+        let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
         let result = Operation::Rename {
             from: path.join("a.txt"),
             to: path.join("b.txt"),
         }
-        .perform(&sync::Mutex::new(tx).into(), Controller::default())
+        .perform(&tx, Controller::default())
         .await;
 
         assert!(result.is_err(), "renaming onto an existing file must fail");
@@ -4316,12 +4306,12 @@ mod tests {
         let path = fs_.path();
         fs::write(path.join("a.txt"), b"SOURCE")?;
 
-        let (tx, _rx) = mpsc::channel(1);
+        let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
         Operation::Rename {
             from: path.join("a.txt"),
             to: path.join("b.txt"),
         }
-        .perform(&sync::Mutex::new(tx).into(), Controller::default())
+        .perform(&tx, Controller::default())
         .await
         .expect("renaming to a free name should work");
 
@@ -4342,19 +4332,19 @@ mod tests {
         let link = path.join("link-to-docs");
         std::os::unix::fs::symlink(&real, &link)?;
 
-        let (tx, mut rx) = mpsc::channel(1);
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
         let run = async move {
             Operation::Copy {
                 paths: vec![link.join("a.txt")],
                 to: real.clone(),
             }
-            .perform(&sync::Mutex::new(tx).into(), Controller::default())
+            .perform(&tx, Controller::default())
             .await
         };
         let replies = async move {
             let mut asked = 0;
-            while let Some(msg) = rx.next().await {
-                if let Message::DialogPush(DialogPage::Replace { tx, .. }, _) = msg {
+            while let Some(msg) = rx.recv().await {
+                if let super::Prompt::Replace { answer: tx, .. } = msg {
                     asked += 1;
                     let _ = tx.send(ReplaceResult::Replace(false)).await;
                 }
@@ -4447,7 +4437,7 @@ mod tests {
         let compress = Operation::Compress {
             paths: vec![PathBuf::from("/a/one")],
             to: PathBuf::from("/a/existing.zip"),
-            archive_type: crate::app::ArchiveType::Zip,
+            archive_type: ArchiveType::Zip,
             password: None,
         };
         assert!(
@@ -4656,7 +4646,7 @@ mod tests {
         let compress = Operation::Compress {
             paths: vec!["/a/one".into()],
             to: "/a/one.zip".into(),
-            archive_type: crate::app::ArchiveType::Zip,
+            archive_type: ArchiveType::Zip,
             password: None,
         };
         assert_eq!(
@@ -4944,7 +4934,7 @@ mod tests {
                 Operation::Compress {
                     paths,
                     to: to.clone(),
-                    archive_type: crate::app::ArchiveType::Zip,
+                    archive_type: ArchiveType::Zip,
                     password: None,
                 },
                 ReplaceResult::Cancel,
@@ -4984,11 +4974,11 @@ mod tests {
         Operation::Compress {
             paths: vec![project.clone()],
             to: to.clone(),
-            archive_type: crate::app::ArchiveType::Zip,
+            archive_type: ArchiveType::Zip,
             password: None,
         }
         .perform(
-            &sync::Mutex::new(mpsc::channel(1).0).into(),
+            &tokio::sync::mpsc::unbounded_channel().0,
             Controller::default(),
         )
         .await
@@ -5015,7 +5005,7 @@ mod tests {
         fs::create_dir(&project)?;
         std::os::unix::fs::symlink(&secret, project.join("config"))?;
 
-        for archive_type in [crate::app::ArchiveType::Tgz, crate::app::ArchiveType::Zip] {
+        for archive_type in [ArchiveType::Tgz, ArchiveType::Zip] {
             let to = path.join(format!("project{}", archive_type.extension()));
             Operation::Compress {
                 paths: vec![project.clone()],
@@ -5024,7 +5014,7 @@ mod tests {
                 password: None,
             }
             .perform(
-                &sync::Mutex::new(mpsc::channel(1).0).into(),
+                &tokio::sync::mpsc::unbounded_channel().0,
                 Controller::default(),
             )
             .await
@@ -5037,7 +5027,7 @@ mod tests {
                 to.display()
             );
             match archive_type {
-                crate::app::ArchiveType::Tgz => {
+                ArchiveType::Tgz => {
                     let decoder = flate2::read::GzDecoder::new(File::open(&to)?);
                     let mut found = false;
                     for entry in tar::Archive::new(decoder).entries()? {
@@ -5050,7 +5040,7 @@ mod tests {
                     }
                     assert!(found, "tar has no config entry");
                 }
-                crate::app::ArchiveType::Zip => {
+                ArchiveType::Zip => {
                     let mut zip = zip::ZipArchive::new(File::open(&to)?)?;
                     let file = zip.by_name("project/config")?;
                     assert!(file.is_symlink(), "zip config entry is not a symlink");
@@ -5074,7 +5064,7 @@ mod tests {
         fs::write(path.join("plain"), b"kept whole")?;
         fs::set_permissions(path.join("plain"), fs::Permissions::from_mode(0o640))?;
 
-        for archive_type in [crate::app::ArchiveType::Tgz, crate::app::ArchiveType::Zip] {
+        for archive_type in [ArchiveType::Tgz, ArchiveType::Zip] {
             let to = path.join(format!("out{}", archive_type.extension()));
             Operation::Compress {
                 paths: vec![path.join("link"), path.join("plain")],
@@ -5083,7 +5073,7 @@ mod tests {
                 password: None,
             }
             .perform(
-                &sync::Mutex::new(mpsc::channel(1).0).into(),
+                &tokio::sync::mpsc::unbounded_channel().0,
                 Controller::default(),
             )
             .await
@@ -5091,7 +5081,7 @@ mod tests {
 
             let mut names = Vec::new();
             match archive_type {
-                crate::app::ArchiveType::Tgz => {
+                ArchiveType::Tgz => {
                     let decoder = flate2::read::GzDecoder::new(File::open(&to)?);
                     for entry in tar::Archive::new(decoder).entries()? {
                         let mut entry = entry?;
@@ -5105,7 +5095,7 @@ mod tests {
                         names.push(name);
                     }
                 }
-                crate::app::ArchiveType::Zip => {
+                ArchiveType::Zip => {
                     let zip = zip::ZipArchive::new(File::open(&to)?)?;
                     for name in zip.file_names() {
                         names.push(PathBuf::from(name.map_err(io::Error::other)?.as_ref()));
