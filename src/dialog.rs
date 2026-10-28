@@ -1505,8 +1505,7 @@ impl Application for App {
         if let Some(data) = self.nav_model.data::<MounterData>(entity)
             && let Some(mounter) = MOUNTERS.get(&data.0)
         {
-            return mounter
-                .mount(data.1.clone())
+            return crate::mounter::ui::task(mounter.mount(data.1.clone()))
                 .map(|_outcome| crate::ui::action::none());
         }
         Task::none()
@@ -1796,8 +1795,7 @@ impl Application for App {
                 if let Some(data) = self.nav_model.data::<MounterData>(entity)
                     && let Some(mounter) = MOUNTERS.get(&data.0)
                 {
-                    return mounter
-                        .unmount(data.1.clone())
+                    return crate::mounter::ui::task(mounter.unmount(data.1.clone()))
                         .map(|_outcome| crate::ui::action::none());
                 }
             }
@@ -2250,13 +2248,8 @@ impl Application for App {
                             // been round the network and back, and waiting for
                             // that here is waiting for a server.
                             commands.push(Task::future(async move {
-                                let asked = {
-                                    let uri = uri.clone();
-                                    tokio::task::spawn_blocking(move || {
-                                        MOUNTERS.values().find_map(|mounter| mounter.dir_info(&uri))
-                                    })
-                                    .await
-                                };
+                                let asked: Result<_, std::convert::Infallible> =
+                                    Ok(crate::mounter::dir_info(&uri).await);
                                 let resolved = match asked {
                                     Ok(info) => info.map(|(uri, display_name, path_opt)| {
                                         Location::Network(uri, display_name, path_opt)
@@ -2543,9 +2536,8 @@ impl Application for App {
             );
         }
 
-        subscriptions.extend(MOUNTERS.iter().map(|(key, mounter)| {
-            mounter
-                .subscription()
+        subscriptions.extend(MOUNTERS.keys().map(|key| {
+            crate::mounter::ui::subscription(*key)
                 .with(*key)
                 .map(|(key, mounter_message)| {
                     if let MounterMessage::Items(items) = mounter_message {

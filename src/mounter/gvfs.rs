@@ -1,22 +1,18 @@
-use crate::ui::iced::futures::SinkExt;
-use crate::ui::iced::{Subscription, stream};
-use crate::ui::{Task, widget};
+use crate::ui::widget;
 use gio::glib;
 use gio::prelude::*;
-use std::any::TypeId;
-use std::cell::{Cell, OnceCell};
-use std::future::pending;
-use std::hash::Hash;
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Arc;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
 
-use super::{Mounter, MounterAuth, MounterItem, MounterItems, MounterMessage, Outcome};
+use super::{
+    Answer, DirInfo, IconRef, Mounter, MounterAuth, MounterItem, MounterItems, MounterMessage,
+    NetworkEntry, NetworkListing, Outcome,
+};
 use crate::config::IconSizes;
 use crate::err_str;
 use crate::mime_app::Mime;
-use crate::tab::{self, ChecksumState, DirSize, ItemMetadata, ItemThumbnail, Location};
 
 /// What `Cmd::DirInfo` answers: content type, display name and local path
 type DirInfoResult = Result<(String, String, Option<PathBuf>), glib::Error>;
@@ -67,6 +63,19 @@ async fn resolve_uri(uri: &str) -> (String, gio::File) {
     }
 
     (uri.to_string(), file)
+}
+
+/// `icon` as theme names and an image file, for the app to look up.
+fn icon_ref(icon: &gio::Icon) -> IconRef {
+    IconRef {
+        names: icon
+            .downcast_ref::<gio::ThemedIcon>()
+            .map(|themed| themed.names().iter().map(|name| name.to_string()).collect())
+            .unwrap_or_default(),
+        file: icon
+            .downcast_ref::<gio::FileIcon>()
+            .and_then(|file_icon| file_icon.file().path()),
+    }
 }
 
 fn gio_icon_to_path(icon: &gio::Icon, size: u16) -> Option<PathBuf> {
@@ -161,8 +170,8 @@ async fn items(monitor: &gio::VolumeMonitor, sizes: IconSizes) -> MounterItems {
 /// thread for as long as the server takes, and that thread is what dispatches
 /// every other network command and mount callback: one slow listing used to
 /// stop all of them. Awaited, the thread stays free to run the rest.
-async fn network_scan(uri: &str, sizes: IconSizes) -> Result<Vec<tab::Item>, String> {
-    let force_dir = uri.starts_with("network:///");
+async fn network_scan(uri: &str) -> Result<NetworkListing, String> {
+    let all_dirs = uri.starts_with("network:///");
     let (_, file) = resolve_uri(uri).await;
 
     // Read .hidden file if present. This one is ordinary local I/O rather than
@@ -171,7 +180,7 @@ async fn network_scan(uri: &str, sizes: IconSizes) -> Result<Vec<tab::Item>, Str
         Some(path) => gio::spawn_blocking(move || {
             let hidden_file_path = path.join(".hidden");
             if hidden_file_path.is_file() {
-                tab::parse_hidden_file(&hidden_file_path)
+                crate::tab::parse_hidden_file(&hidden_file_path)
             } else {
                 Box::from([])
             }
@@ -225,95 +234,35 @@ async fn network_scan(uri: &str, sizes: IconSizes) -> Result<Vec<tab::Item>, Str
         for info in batch {
             let name = info.name().to_string_lossy().into_owned();
             let display_name = String::from(info.display_name());
-
-            let uri = String::from(file.child(info.name()).uri());
-
-            let location = Location::Network(uri, display_name.clone(), file.child(&name).path());
-
-            let metadata = if force_dir {
-                ItemMetadata::SimpleDir { entries: 0 }
-            } else {
-                let mtime = info.attribute_uint64(gio::FILE_ATTRIBUTE_TIME_MODIFIED);
-                let is_dir = matches!(info.file_type(), gio::FileType::Directory);
-                let size_opt = (!is_dir).then_some(info.size() as u64);
-                // Children are counted in the background by the tab's subscription
-                ItemMetadata::GvfsPath {
-                    mtime,
-                    size_opt,
-                    children_opt: None,
-                    is_dir,
-                }
-            };
-
-            // Local directories get their size summed in the background like any
-            // other local folder; remote ones would cost a listing per entry
-            let dir_size = if metadata.is_dir() && !remote && location.path_opt().is_some() {
-                DirSize::Calculating(crate::operation::Controller::default())
-            } else {
-                DirSize::NotDirectory
-            };
-
-            let (mime, icon_handle_grid, icon_handle_list) = {
-                let file_icon = |size| {
-                    info.icon()
-                        .as_ref()
-                        .and_then(|icon| gio_icon_to_path(icon, size))
-                        .map(widget::icon::from_path)
-                        .unwrap_or(
-                            widget::icon::from_name(if metadata.is_dir() {
-                                "folder"
-                            } else {
-                                "text-x-generic"
-                            })
-                            .size(size)
-                            .handle(),
-                        )
-                };
-                // gio reports the content type per entry; directories keep the
-                // mime every directory item carries
-                let mime = if metadata.is_dir() {
-                    None
-                } else {
-                    info.content_type()
-                        .and_then(|t| Mime::from_media_type(&t).ok())
-                }
-                .unwrap_or(Mime::INODE_DIRECTORY);
-                (mime, file_icon(sizes.grid()), file_icon(sizes.list()))
-            };
-
-            // Check if item is hidden
+            let child = file.child(info.name());
+            let is_dir = all_dirs || matches!(info.file_type(), gio::FileType::Directory);
+            // gio reports the content type per entry; a folder has none
+            let mime = (!is_dir)
+                .then(|| info.content_type())
+                .flatten()
+                .and_then(|t| Mime::from_media_type(&t).ok());
             let hidden = name.starts_with('.')
                 || info.boolean(gio::FILE_ATTRIBUTE_STANDARD_IS_HIDDEN)
                 || hidden_files.contains(&name);
-
-            items.push(tab::Item {
-                name,
-                is_mount_point: false,
+            items.push(NetworkEntry {
                 display_name,
-                metadata,
-                hidden,
-                location_opt: Some(location),
-                image_dimensions: OnceCell::new(),
-                details: tab::MetadataState::Pending,
-                details_epoch: 0,
+                uri: String::from(child.uri()),
+                path: child.path(),
+                is_dir,
+                size: (!is_dir).then_some(info.size() as u64),
+                mtime: info.attribute_uint64(gio::FILE_ATTRIBUTE_TIME_MODIFIED),
                 mime,
-                type_checked: true,
-                icon_handle_grid,
-                icon_handle_list,
-                thumbnail_opt: Some(ItemThumbnail::NotImage),
-                button_id: widget::Id::unique(),
-                pos_opt: Cell::new(None),
-                rect_opt: Cell::new(None),
-                selected: false,
-                highlighted: false,
-                overlaps_drag_rect: false,
-                dir_size,
-                cut: false,
-                checksums: ChecksumState::default(),
+                hidden,
+                icon: info.icon().as_ref().map(icon_ref).unwrap_or_default(),
+                name,
             });
         }
     }
-    Ok(items)
+    Ok(NetworkListing {
+        entries: items,
+        all_dirs,
+        remote,
+    })
 }
 
 async fn dir_info(uri: &str) -> Result<(String, String, Option<PathBuf>), glib::Error> {
@@ -331,7 +280,7 @@ async fn dir_info(uri: &str) -> Result<(String, String, Option<PathBuf>), glib::
 
 fn mount_op(
     uri: String,
-    event_tx: std::sync::Weak<crate::channel::Sender<Event>>,
+    event_tx: std::sync::Weak<mpsc::UnboundedSender<Event>>,
 ) -> gio::MountOperation {
     let mount_op = gio::MountOperation::new();
     mount_op.connect_ask_password(
@@ -356,7 +305,7 @@ fn mount_op(
             };
             let (auth_tx, mut auth_rx) = mpsc::channel(1);
             if let Some(event_tx) = event_tx.upgrade() {
-                event_tx.send(Event::NetworkAuth(uri.clone(), auth, auth_tx));
+                let _ = event_tx.send(Event::NetworkAuth(uri.clone(), auth, auth_tx));
             }
             // Answer later rather than waiting here. This callback runs on the
             // thread that serves every gvfs command, so blocking it until the
@@ -393,11 +342,7 @@ enum Cmd {
     Rescan,
     Mount(MounterItem, tokio::sync::oneshot::Sender<Outcome>),
     NetworkDrive(String, tokio::sync::oneshot::Sender<Outcome>),
-    NetworkScan(
-        String,
-        IconSizes,
-        mpsc::Sender<Result<Vec<tab::Item>, String>>,
-    ),
+    NetworkScan(String, mpsc::Sender<Result<NetworkListing, String>>),
     DirInfo(String, mpsc::Sender<DirInfoResult>),
     Unmount(MounterItem, tokio::sync::oneshot::Sender<Outcome>),
 }
@@ -476,10 +421,6 @@ impl Item {
         }
     }
 
-    pub fn icon(&self, symbolic: bool) -> Option<widget::icon::Handle> {
-        self.icon_path(symbolic).map(widget::icon::from_path)
-    }
-
     pub fn path(&self) -> Option<PathBuf> {
         self.path_opt.clone()
     }
@@ -487,13 +428,13 @@ impl Item {
 
 pub struct Gvfs {
     command_tx: mpsc::UnboundedSender<Cmd>,
-    event_rx: Arc<crate::channel::Receiver<Event>>,
+    event_rx: Arc<tokio::sync::Mutex<mpsc::UnboundedReceiver<Event>>>,
 }
 
 impl Gvfs {
     pub fn new() -> Self {
         let (command_tx, mut command_rx) = mpsc::unbounded_channel();
-        let (event_tx, event_rx) = crate::channel::channel();
+        let (event_tx, event_rx) = mpsc::unbounded_channel();
         let event_tx = Arc::new(event_tx);
         std::thread::spawn(move || {
             let main_loop = glib::MainLoop::new(None, false);
@@ -514,7 +455,7 @@ impl Gvfs {
                     monitor.connect_mount_changed(move |_monitor, mount| {
                         log::info!("mount changed {}", MountExt::name(mount));
                         if let Some(event_tx) = event_tx.upgrade() {
-                            event_tx.send(Event::Changed);
+                            let _ = event_tx.send(Event::Changed);
                         }
                     });
                 }
@@ -523,7 +464,7 @@ impl Gvfs {
                     monitor.connect_mount_added(move |_monitor, mount| {
                         log::info!("mount added {}", MountExt::name(mount));
                         if let Some(event_tx) = event_tx.upgrade() {
-                            event_tx.send(Event::Changed);
+                            let _ = event_tx.send(Event::Changed);
                         }
                     });
                 }
@@ -532,7 +473,7 @@ impl Gvfs {
                     monitor.connect_mount_removed(move |_monitor, mount| {
                         log::info!("mount removed {}", MountExt::name(mount));
                         if let Some(event_tx) = event_tx.upgrade() {
-                            event_tx.send(Event::Changed);
+                            let _ = event_tx.send(Event::Changed);
                         }
                     });
                 }
@@ -542,7 +483,7 @@ impl Gvfs {
                     monitor.connect_volume_changed(move |_monitor, volume| {
                         log::info!("volume changed {}", VolumeExt::name(volume));
                         if let Some(event_tx) = event_tx.upgrade() {
-                            event_tx.send(Event::Changed);
+                            let _ = event_tx.send(Event::Changed);
                         }
                     });
                 }
@@ -551,7 +492,7 @@ impl Gvfs {
                     monitor.connect_volume_added(move |_monitor, volume| {
                         log::info!("volume added {}", VolumeExt::name(volume));
                         if let Some(event_tx) = event_tx.upgrade() {
-                            event_tx.send(Event::Changed);
+                            let _ = event_tx.send(Event::Changed);
                         }
                     });
                 }
@@ -560,7 +501,7 @@ impl Gvfs {
                     monitor.connect_volume_removed(move |_monitor, volume| {
                         log::info!("volume removed {}", VolumeExt::name(volume));
                         if let Some(event_tx) = event_tx.upgrade() {
-                            event_tx.send(Event::Changed);
+                            let _ = event_tx.send(Event::Changed);
                         }
                     });
                 }
@@ -595,7 +536,7 @@ impl Gvfs {
                                 let Some(event_tx) = event_tx.upgrade() else {
                                     return;
                                 };
-                                event_tx.send(Event::Items(listed));
+                                let _ = event_tx.send(Event::Items(listed));
                             });
                         }
                         Cmd::Mount(mounter_item, complete_tx) => {
@@ -658,7 +599,7 @@ impl Gvfs {
                                                 let Some(event_tx) = event_tx.upgrade() else {
                                                     return;
                                                 };
-                                                event_tx.send(Event::MountResult(
+                                                let _ = event_tx.send(Event::MountResult(
                                                     updated_item,
                                                     match res {
                                                         Ok(()) => Ok(true),
@@ -692,7 +633,7 @@ impl Gvfs {
                                     let Some(event_tx) = event_tx.upgrade() else {
                                         return;
                                     };
-                                    event_tx.send(Event::NetworkResult(
+                                    let _ = event_tx.send(Event::NetworkResult(
                                         uri,
                                         match res {
                                             Ok(()) => Ok(true),
@@ -705,7 +646,7 @@ impl Gvfs {
                                 },
                             );
                         }
-                        Cmd::NetworkScan(uri, sizes, items_tx) => {
+                        Cmd::NetworkScan(uri, items_tx) => {
                             // Spawned rather than awaited here, and nothing is
                             // resolved before the spawn: every step below can
                             // go to the server, and doing any of them in this
@@ -746,14 +687,14 @@ impl Gvfs {
                                     );
                                     // FIXME sometimes a uri can be mounted and then not recognized as mounted...
                                     // seems to be related to uri with a path
-                                    let scanned = network_scan(&uri, sizes).await;
+                                    let scanned = network_scan(&uri).await;
                                     if items_tx.send(scanned).await.is_err() {
                                         log::warn!("nothing is waiting for the scan of {uri}");
                                     }
                                     let Some(event_tx) = event_tx.upgrade() else {
                                         return;
                                     };
-                                    event_tx.send(Event::NetworkResult(
+                                    let _ = event_tx.send(Event::NetworkResult(
                                         resolved_uri,
                                         match res {
                                             Ok(()) => Ok(true),
@@ -764,7 +705,7 @@ impl Gvfs {
                                         },
                                     ));
                                 } else {
-                                    let scanned = network_scan(&uri, sizes).await;
+                                    let scanned = network_scan(&uri).await;
                                     if items_tx.send(scanned).await.is_err() {
                                         log::warn!("nothing is waiting for the scan of {uri}");
                                     }
@@ -843,7 +784,7 @@ impl Gvfs {
         });
         Self {
             command_tx,
-            event_rx: Arc::new(event_rx),
+            event_rx: Arc::new(tokio::sync::Mutex::new(event_rx)),
         }
     }
 }
@@ -863,7 +804,7 @@ fn outcome(res: &Result<(), glib::Error>) -> Outcome {
 
 /// How a mounter command ended. A command whose sender was dropped
 /// unanswered counts as failed.
-fn done(result: Result<Outcome, tokio::sync::oneshot::error::RecvError>) -> Outcome {
+fn done(result: Result<Outcome, oneshot::error::RecvError>) -> Outcome {
     match result {
         Ok(outcome) => outcome,
         Err(err) => {
@@ -873,115 +814,75 @@ fn done(result: Result<Outcome, tokio::sync::oneshot::error::RecvError>) -> Outc
     }
 }
 
-impl Mounter for Gvfs {
-    fn mount(&self, item: MounterItem) -> Task<Outcome> {
-        let command_tx = self.command_tx.clone();
-        Task::perform(
-            async move {
-                let (res_tx, res_rx) = tokio::sync::oneshot::channel();
-
-                command_tx.send(Cmd::Mount(item, res_tx)).unwrap();
-                res_rx.await
-            },
-            done,
-        )
-    }
-
-    fn network_drive(&self, uri: String) -> Task<Outcome> {
-        let command_tx = self.command_tx.clone();
-        Task::perform(
-            async move {
-                let (res_tx, res_rx) = tokio::sync::oneshot::channel();
-
-                command_tx.send(Cmd::NetworkDrive(uri, res_tx)).unwrap();
-                res_rx.await
-            },
-            done,
-        )
-    }
-
-    fn network_scan(&self, uri: &str, sizes: IconSizes) -> Option<Result<Vec<tab::Item>, String>> {
-        let (items_tx, mut items_rx) = mpsc::channel(1);
-        self.command_tx
-            .send(Cmd::NetworkScan(uri.to_string(), sizes, items_tx))
-            .unwrap();
-        items_rx.blocking_recv()
-    }
-
-    fn dir_info(&self, uri: &str) -> Option<(String, String, Option<PathBuf>)> {
-        let (result_tx, mut result_rx) = mpsc::channel(1);
-        self.command_tx
-            .send(Cmd::DirInfo(uri.to_string(), result_tx))
-            .unwrap();
-        result_rx.blocking_recv().and_then(|res| res.ok())
-    }
-
-    fn unmount(&self, item: MounterItem) -> Task<Outcome> {
-        let command_tx = self.command_tx.clone();
-        Task::perform(
-            async move {
-                let (res_tx, res_rx) = tokio::sync::oneshot::channel();
-
-                command_tx.send(Cmd::Unmount(item, res_tx)).unwrap();
-                res_rx.await
-            },
-            done,
-        )
-    }
-
-    fn subscription(&self) -> Subscription<MounterMessage> {
-        let command_tx = self.command_tx.clone();
-        let event_rx = self.event_rx.clone();
-        struct Wrapper {
-            command_tx: mpsc::UnboundedSender<Cmd>,
-            event_rx: Arc<crate::channel::Receiver<Event>>,
-        }
-        impl Hash for Wrapper {
-            fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-                TypeId::of::<Self>().hash(state);
+impl Gvfs {
+    /// Sends `command` made with where its outcome goes, and answers with
+    /// that outcome.
+    fn ask(&self, command: impl FnOnce(oneshot::Sender<Outcome>) -> Cmd) -> Answer<Outcome> {
+        let (res_tx, res_rx) = oneshot::channel();
+        let sent = self.command_tx.send(command(res_tx));
+        Box::pin(async move {
+            if sent.is_err() {
+                log::error!("the gvfs thread is gone");
+                return Outcome::Failed;
             }
-        }
-        Subscription::run_with(
-            Wrapper {
-                command_tx,
-                event_rx,
-            },
-            |Wrapper {
-                 command_tx,
-                 event_rx,
-             }| {
-                let command_tx = command_tx.clone();
-                let event_rx = event_rx.clone();
-                stream::channel(
-                    1,
-                    move |mut output: crate::ui::iced::futures::channel::mpsc::Sender<
-                        MounterMessage,
-                    >| async move {
-                        command_tx.send(Cmd::Rescan).unwrap();
-                        while let Some(event) = event_rx.recv().await {
-                            match event {
-                                Event::Changed => command_tx.send(Cmd::Rescan).unwrap(),
-                                Event::Items(items) => {
-                                    output.send(MounterMessage::Items(items)).await.unwrap();
-                                }
-                                Event::MountResult(item, res) => output
-                                    .send(MounterMessage::MountResult(item, res))
-                                    .await
-                                    .unwrap(),
-                                Event::NetworkAuth(uri, auth, auth_tx) => output
-                                    .send(MounterMessage::NetworkAuth(uri, auth, auth_tx))
-                                    .await
-                                    .unwrap(),
-                                Event::NetworkResult(uri, res) => output
-                                    .send(MounterMessage::NetworkResult(uri, res))
-                                    .await
-                                    .unwrap(),
-                            }
-                        }
-                        pending().await
-                    },
-                )
-            },
-        )
+            done(res_rx.await)
+        })
+    }
+}
+
+impl Mounter for Gvfs {
+    fn mount(&self, item: MounterItem) -> Answer<Outcome> {
+        self.ask(|res_tx| Cmd::Mount(item, res_tx))
+    }
+
+    fn network_drive(&self, uri: String) -> Answer<Outcome> {
+        self.ask(|res_tx| Cmd::NetworkDrive(uri, res_tx))
+    }
+
+    fn network_scan(&self, uri: &str) -> Answer<Option<Result<NetworkListing, String>>> {
+        let (items_tx, mut items_rx) = mpsc::channel(1);
+        let _ = self
+            .command_tx
+            .send(Cmd::NetworkScan(uri.to_string(), items_tx));
+        Box::pin(async move { items_rx.recv().await })
+    }
+
+    fn dir_info(&self, uri: &str) -> Answer<Option<DirInfo>> {
+        let (result_tx, mut result_rx) = mpsc::channel(1);
+        let _ = self
+            .command_tx
+            .send(Cmd::DirInfo(uri.to_string(), result_tx));
+        Box::pin(async move { result_rx.recv().await.and_then(Result::ok) })
+    }
+
+    fn unmount(&self, item: MounterItem) -> Answer<Outcome> {
+        self.ask(|res_tx| Cmd::Unmount(item, res_tx))
+    }
+
+    fn rescan(&self) {
+        let _ = self.command_tx.send(Cmd::Rescan);
+    }
+
+    fn next_event(&self) -> Answer<Option<MounterMessage>> {
+        let (events, command_tx) = (Arc::clone(&self.event_rx), self.command_tx.clone());
+        Box::pin(async move {
+            let mut events = events.lock().await;
+            loop {
+                let message = match events.recv().await? {
+                    // A change asks for the list again; the list is the event
+                    Event::Changed => {
+                        let _ = command_tx.send(Cmd::Rescan);
+                        continue;
+                    }
+                    Event::Items(items) => MounterMessage::Items(items),
+                    Event::MountResult(item, res) => MounterMessage::MountResult(item, res),
+                    Event::NetworkAuth(uri, auth, auth_tx) => {
+                        MounterMessage::NetworkAuth(uri, auth, auth_tx)
+                    }
+                    Event::NetworkResult(uri, res) => MounterMessage::NetworkResult(uri, res),
+                };
+                return Some(message);
+            }
+        })
     }
 }

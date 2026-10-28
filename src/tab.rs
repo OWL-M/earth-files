@@ -1852,11 +1852,19 @@ pub fn scan_network(uri: &str, sizes: IconSizes) -> Vec<Item> {
 /// The network location's items from the first mounter that reads it, or
 /// the last mounter's error if none did (each failure logged), so a caller
 /// can tell a read that failed or timed out from an empty location.
+///
+/// Blocking: it waits for the mounter, which may wait for a server.
 pub fn try_scan_network(uri: &str, sizes: IconSizes) -> Result<Vec<Item>, String> {
     let mut last_err = None;
     for mounter in MOUNTERS.values() {
-        match mounter.network_scan(uri, sizes) {
-            Some(Ok(items)) => return Ok(items),
+        match crate::ui::iced::futures::executor::block_on(mounter.network_scan(uri)) {
+            Some(Ok(listing)) => {
+                return Ok(listing
+                    .entries
+                    .into_iter()
+                    .map(|entry| network_item(entry, listing.all_dirs, listing.remote, sizes))
+                    .collect());
+            }
             Some(Err(err)) => {
                 log::warn!("failed to scan {uri:?}: {err}");
                 last_err = Some(err);
@@ -1865,6 +1873,91 @@ pub fn try_scan_network(uri: &str, sizes: IconSizes) -> Result<Vec<Item>, String
         }
     }
     Err(last_err.unwrap_or_else(|| "no mounter could read it".to_owned()))
+}
+
+/// The path of a mounter's `icon` at `size`: the first of its theme names
+/// the theme has, else its image file.
+fn mounter_icon_path(icon: &crate::mounter::IconRef, size: u16) -> Option<PathBuf> {
+    icon.names
+        .iter()
+        .find_map(|name| widget::icon::from_name(name.as_str()).size(size).path())
+        .or_else(|| icon.file.clone())
+}
+
+/// `entry` of a network location as the tab lists it. `all_dirs`: every
+/// entry is a place to go into; `remote`: the location's folders are not
+/// walked for their size.
+fn network_item(
+    entry: crate::mounter::NetworkEntry,
+    all_dirs: bool,
+    remote: bool,
+    sizes: IconSizes,
+) -> Item {
+    let location = Location::Network(entry.uri, entry.display_name.clone(), entry.path);
+    // Children are counted in the background by the tab's subscription
+    #[cfg(feature = "gvfs")]
+    let listed = ItemMetadata::GvfsPath {
+        mtime: entry.mtime,
+        size_opt: entry.size,
+        children_opt: None,
+        is_dir: entry.is_dir,
+    };
+    // No mounter lists anything without GVFS
+    #[cfg(not(feature = "gvfs"))]
+    let listed = ItemMetadata::SimpleDir { entries: 0 };
+    let metadata = if all_dirs {
+        ItemMetadata::SimpleDir { entries: 0 }
+    } else {
+        listed
+    };
+    // Local directories get their size summed in the background like any
+    // other local folder; remote ones would cost a listing per entry
+    let dir_size = if metadata.is_dir() && !remote && location.path_opt().is_some() {
+        DirSize::Calculating(Controller::default())
+    } else {
+        DirSize::NotDirectory
+    };
+    let file_icon = |size| {
+        mounter_icon_path(&entry.icon, size)
+            .map(widget::icon::from_path)
+            .unwrap_or(
+                widget::icon::from_name(if metadata.is_dir() {
+                    "folder"
+                } else {
+                    "text-x-generic"
+                })
+                .size(size)
+                .handle(),
+            )
+    };
+    // Directories keep the mime every directory item carries
+    let mime = if metadata.is_dir() { None } else { entry.mime }.unwrap_or(Mime::INODE_DIRECTORY);
+    let (icon_handle_grid, icon_handle_list) = (file_icon(sizes.grid()), file_icon(sizes.list()));
+    Item {
+        name: entry.name,
+        is_mount_point: false,
+        display_name: entry.display_name,
+        metadata,
+        hidden: entry.hidden,
+        location_opt: Some(location),
+        image_dimensions: OnceCell::new(),
+        details: MetadataState::Pending,
+        details_epoch: 0,
+        mime,
+        type_checked: true,
+        icon_handle_grid,
+        icon_handle_list,
+        thumbnail_opt: Some(ItemThumbnail::NotImage),
+        button_id: widget::Id::unique(),
+        pos_opt: Cell::new(None),
+        rect_opt: Cell::new(None),
+        selected: false,
+        highlighted: false,
+        overlaps_drag_rect: false,
+        dir_size,
+        cut: false,
+        checksums: ChecksumState::default(),
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -10871,6 +10964,51 @@ fn text_editor_class(
 
 #[cfg(test)]
 mod tests {
+
+    /// A network entry becomes a listed item as the mounter described it:
+    /// a file with its type, a folder as a folder, and the network's root
+    /// as places to go into
+    #[test]
+    fn a_network_entry_is_listed_as_the_mounter_says() {
+        use crate::mounter::{IconRef, NetworkEntry};
+        let entry = |name: &str, is_dir, mime| NetworkEntry {
+            name: name.to_owned(),
+            display_name: name.to_uppercase(),
+            uri: format!("smb://host/{name}"),
+            path: None,
+            is_dir,
+            size: (!is_dir).then_some(3),
+            mtime: 7,
+            mime,
+            hidden: name.starts_with('.'),
+            icon: IconRef::default(),
+        };
+        let sizes = super::IconSizes::default();
+        let text = crate::mime_app::Mime::from_media_type("text/plain").ok();
+
+        let file = super::network_item(entry(".notes", false, text.clone()), false, true, sizes);
+        assert_eq!(file.display_name, ".NOTES");
+        assert!(file.hidden && !file.metadata.is_dir());
+        assert_eq!(Some(file.mime), text);
+        assert!(matches!(
+            file.location_opt,
+            Some(super::Location::Network(ref uri, _, None)) if uri == "smb://host/.notes"
+        ));
+
+        let folder = super::network_item(entry("share", true, None), false, true, sizes);
+        assert!(folder.metadata.is_dir());
+        assert_eq!(folder.mime, crate::mime_app::Mime::INODE_DIRECTORY);
+        assert!(
+            matches!(folder.dir_size, super::DirSize::NotDirectory),
+            "remote"
+        );
+
+        let root = super::network_item(entry("host", false, None), true, true, sizes);
+        assert!(matches!(
+            root.metadata,
+            super::ItemMetadata::SimpleDir { .. }
+        ));
+    }
 
     #[tokio::test]
     async fn a_cancelled_job_keeps_its_permit_until_the_work_really_ends() {

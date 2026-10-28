@@ -2231,8 +2231,7 @@ impl App {
             return Task::none();
         };
         let key = self.progress_unmount(&item);
-        mounter
-            .unmount(item)
+        crate::mounter::ui::task(mounter.unmount(item))
             .map(move |outcome| crate::ui::action::app(Message::ProgressEnd(key.clone(), outcome)))
     }
 
@@ -3134,7 +3133,7 @@ impl App {
                 } else if !uri.is_empty() {
                     b = b.data(Location::Network(uri, item.name(), None));
                 }
-                if let Some(icon) = item.icon(true) {
+                if let Some(icon) = item.icon_path(true).map(widget::icon::from_path) {
                     b = b.icon(icon::icon(icon).size(16));
                 }
                 if item.is_mounted() {
@@ -3328,19 +3327,21 @@ impl App {
                         progress::SLOW,
                         Instant::now(),
                     );
-                    return mounter.network_drive(uri.clone()).then(move |outcome| {
-                        let end = Task::done(crate::ui::action::app(Message::ProgressEnd(
-                            key.clone(),
-                            outcome,
-                        )));
-                        if outcome == Outcome::Done {
-                            end.chain(Task::done(crate::ui::Action::App(
-                                Message::NetworkDriveOpenEntityAfterMount { entity },
-                            )))
-                        } else {
-                            end
-                        }
-                    });
+                    return crate::mounter::ui::task(mounter.network_drive(uri.clone())).then(
+                        move |outcome| {
+                            let end = Task::done(crate::ui::action::app(Message::ProgressEnd(
+                                key.clone(),
+                                outcome,
+                            )));
+                            if outcome == Outcome::Done {
+                                end.chain(Task::done(crate::ui::Action::App(
+                                    Message::NetworkDriveOpenEntityAfterMount { entity },
+                                )))
+                            } else {
+                                end
+                            }
+                        },
+                    );
                 }
 
                 log::warn!(
@@ -4854,7 +4855,7 @@ impl Application for App {
         {
             let item = data.1.clone();
             let key = self.progress_mount(&item);
-            return mounter.mount(item).map(move |outcome| {
+            return crate::mounter::ui::task(mounter.mount(item)).map(move |outcome| {
                 crate::ui::action::app(Message::ProgressEnd(key.clone(), outcome))
             });
         }
@@ -5305,12 +5306,14 @@ impl Application for App {
                         } => {
                             if let Some(mounter) = MOUNTERS.get(&mounter_key) {
                                 let key = self.progress_mount(&item);
-                                tasks.push(mounter.mount(item).map(move |outcome| {
-                                    crate::ui::action::app(Message::ProgressEnd(
-                                        key.clone(),
-                                        outcome,
-                                    ))
-                                }));
+                                tasks.push(crate::mounter::ui::task(mounter.mount(item)).map(
+                                    move |outcome| {
+                                        crate::ui::action::app(Message::ProgressEnd(
+                                            key.clone(),
+                                            outcome,
+                                        ))
+                                    },
+                                ));
                             }
                         }
                         DialogPage::NetworkAuth {
@@ -5838,9 +5841,11 @@ impl Application for App {
                         progress::SLOW,
                         Instant::now(),
                     );
-                    return mounter.network_drive(uri).map(move |outcome| {
-                        crate::ui::action::app(Message::ProgressEnd(key.clone(), outcome))
-                    });
+                    return crate::mounter::ui::task(mounter.network_drive(uri)).map(
+                        move |outcome| {
+                            crate::ui::action::app(Message::ProgressEnd(key.clone(), outcome))
+                        },
+                    );
                 }
                 log::warn!(
                     "no mounter found for connecting to {:?}",
@@ -7468,13 +7473,8 @@ impl Application for App {
                             // been round the network and back, and waiting for
                             // that here is waiting for a server.
                             commands.push(Task::future(async move {
-                                let asked = {
-                                    let uri = uri.clone();
-                                    tokio::task::spawn_blocking(move || {
-                                        MOUNTERS.values().find_map(|mounter| mounter.dir_info(&uri))
-                                    })
-                                    .await
-                                };
+                                let asked: Result<_, std::convert::Infallible> =
+                                    Ok(crate::mounter::dir_info(&uri).await);
                                 let resolved = match asked {
                                     Ok(info) => info.map(|(uri, display_name, path_opt)| {
                                         Location::Network(uri, display_name, path_opt)
@@ -9842,9 +9842,8 @@ impl Application for App {
             );
         }
 
-        subscriptions.extend(MOUNTERS.iter().map(|(key, mounter)| {
-            mounter
-                .subscription()
+        subscriptions.extend(MOUNTERS.keys().map(|key| {
+            crate::mounter::ui::subscription(*key)
                 .with(*key)
                 .map(|(key, mounter_message)| match mounter_message {
                     MounterMessage::Items(items) => Message::MounterItems(key, items),
