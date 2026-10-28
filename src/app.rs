@@ -33,7 +33,7 @@ use serde::{Deserialize, Serialize};
 use slotmap::Key as SlotMapKey;
 use std::any::TypeId;
 use std::cell::Cell;
-use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
+use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
@@ -1035,8 +1035,9 @@ impl Window {
 }
 
 // The [`App`] stores application-specific state.
-/// How many completed operations can be undone, newest first
-const UNDO_DEPTH: usize = 20;
+mod operations;
+
+use self::operations::{Operations, Then};
 
 /// How long an operation goes without progress before its row says the
 /// drive is not responding.
@@ -1124,13 +1125,8 @@ pub struct App {
     /// Where the progress notification is, which decides when a closed
     /// window's process may exit.
     exit_gate: ExitGate<ProgressNotice>,
-    pending_operation_id: u64,
-    pending_operations: BTreeMap<u64, (Operation, Controller)>,
-    /// The last question each running operation asked about a path it may
-    /// not touch. Dropping one still unanswered answers Cancel.
-    blocked: BTreeMap<u64, Question>,
-    /// Running operations whose progress has not moved, by operation.
-    stalls: BTreeMap<u64, Stall>,
+    /// The file operations started: running, failed and completed.
+    operations: Operations,
     /// The question asked in a desktop notification, by operation: `None`
     /// while the notification is still being shown.
     question_notices: BTreeMap<NoticeKey, NoticeSlot>,
@@ -1147,19 +1143,6 @@ pub struct App {
     /// Where the file view (tabs, files and cards, without the sidebar) was
     /// last drawn: what dialogs are centred on.
     file_view_bounds: Cell<Rectangle>,
-    complete_operations: BTreeMap<u64, Operation>,
-    failed_operations: BTreeMap<u64, (Operation, Controller, String)>,
-    /// What undoes each of the last completed operations, newest last
-    undo_stack: Vec<Vec<Operation>>,
-    /// Operations started by an undo; their completion is not undoable again
-    undo_ids: BTreeSet<u64>,
-    /// The parts of each running undo still to come, by the id of the part
-    /// running now: each waits for the one before, as a restore needs its
-    /// place free first. Undos started one after another keep their own.
-    undo_queues: HashMap<u64, VecDeque<Operation>>,
-    /// Drives to eject once the operation emptying their trash, by its id,
-    /// has finished. Cancelled or failed, the drive stays.
-    unmount_after: HashMap<u64, (MounterKey, MounterItem)>,
     scrollable_name: std::borrow::Cow<'static, str>,
     search_id: widget::Id,
     /// The tab whose search just ended, with its last term: its field stays
@@ -2051,18 +2034,21 @@ impl App {
     }
 
     fn operation(&mut self, operation: Operation) -> Task<Message> {
+        self.operation_then(operation, Then::default())
+    }
+
+    /// Starts `operation`, with `then` to follow it.
+    fn operation_then(&mut self, operation: Operation, then: Then) -> Task<Message> {
         // A drop back where the drag started, or a cut pasted into the folder
         // it came from, moves nothing: it is not started at all
         let Some(operation) = operation.without_no_op_moves() else {
             return Task::none();
         };
-        let id = self.pending_operation_id;
-        let controller = Controller::default();
         let compio_tx = self.compio_tx.clone();
         // Refused when it meets one still running on the same items
         let in_use = self.in_use(&operation);
 
-        self.pending_operation_id += 1;
+        let (id, controller) = self.operations.start(operation.clone(), then);
         if operation.show_progress_notification() {
             self.progress.start(
                 progress::Key::Operation(id),
@@ -2071,8 +2057,6 @@ impl App {
                 Instant::now(),
             );
         }
-        self.pending_operations
-            .insert(id, (operation.clone(), controller.clone()));
         if let Some(reason) = in_use {
             return Task::done(crate::ui::Action::App(Message::PendingError(
                 id,
@@ -2131,7 +2115,8 @@ impl App {
     /// the scenarios). Copies may share; nothing else may share with a move,
     /// and a delete may not share with a copy or move either way.
     fn in_use(&self, operation: &Operation) -> Option<String> {
-        for (running, controller) in self.pending_operations.values() {
+        for (_, running) in self.operations.running() {
+            let (running, controller) = (&running.op, &running.controller);
             if let Some(path) = collision(running, operation) {
                 let name = path.file_name().map_or_else(
                     || path.display().to_string(),
@@ -2229,26 +2214,22 @@ impl App {
     ) -> Task<Message> {
         let mut commands = Vec::with_capacity(4 * completed.len());
         commands.push(self.refresh_trash_bins());
-        // Emptied, or emptied but for what was skipped: the drive goes
-        for (id, _) in &completed {
-            if let Some((mounter_key, item)) = self.unmount_after.remove(id) {
-                commands.push(self.unmount(mounter_key, item));
-            }
-        }
         let mut op_sel = OperationSelection::default();
         for (id, op_sel_pending) in completed {
-            commands.push(self.undo_next(id));
+            commands.push(self.drop_question(id));
             // Done: its drive is not asked about any more
-            self.stalls.remove(&id);
             commands.push(self.dialog_pages.remove_stalled(id));
             let trash_items = op_sel_pending.trash_items.clone();
-            if let Some((op, _)) = self.pending_operations.get(&id) {
-                let undo = op.undo(&op_sel_pending);
-                self.record_undo(id, undo);
-            }
+            let ended = self.operations.complete(id, &op_sel_pending);
             op_sel.ignored.extend(op_sel_pending.ignored);
             op_sel.selected.extend(op_sel_pending.selected);
-            if let Some((op, _)) = self.pending_operations.remove(&id) {
+            if let Some(ended) = ended {
+                // Emptied, or emptied but for what was skipped: the drive goes
+                if let Some((mounter_key, item)) = ended.then.unmount {
+                    commands.push(self.unmount(mounter_key, item));
+                }
+                commands.push(self.undo_next(ended.then.undo_rest));
+                let op = ended.op;
                 // Show toast for some operations
                 if let Some(description) = op.toast() {
                     if let Operation::Delete { ref paths } = op {
@@ -2305,7 +2286,6 @@ impl App {
                     commands.push(self.rescan_recents());
                 }
 
-                commands.push(self.drop_question(id));
                 // Skipped paths or not, it reports success. Seen in the card
                 // while the window has the keyboard; otherwise as a desktop
                 // notification instead
@@ -2317,10 +2297,6 @@ impl App {
                     self.progress.remove(&key);
                     commands.push(notify_done(op.completed_text()));
                 }
-
-                let mut op = op;
-                op.release_payload();
-                self.complete_operations.insert(id, op);
             }
         }
         commands.push(self.sync_question_notices());
@@ -2335,7 +2311,7 @@ impl App {
     }
 
     /// Starts `part` of an undo, with `rest` to follow once it completes.
-    fn undo_part(&mut self, part: Operation, rest: VecDeque<Operation>) -> Task<Message> {
+    fn undo_part(&mut self, part: Operation, undo_rest: VecDeque<Operation>) -> Task<Message> {
         // A move that emptied a folder removed it, and undoing it has to put
         // the files back inside; a paste into a folder that is gone must fail
         // instead, so only an undo recreates it
@@ -2344,57 +2320,40 @@ impl App {
         {
             log::warn!("failed to create {}: {err}", to.display());
         }
-        let id = self.pending_operation_id;
-        self.undo_ids.insert(id);
-        if !rest.is_empty() {
-            self.undo_queues.insert(id, rest);
-        }
-        self.operation(part)
+        self.operation_then(
+            part,
+            Then {
+                undoing: true,
+                undo_rest,
+                unmount: None,
+            },
+        )
     }
 
-    /// The next part of an undo, once the part before, `id`, completed.
-    fn undo_next(&mut self, id: u64) -> Task<Message> {
-        let Some(mut rest) = self.undo_queues.remove(&id) else {
-            return Task::none();
-        };
+    /// The next part of an undo, `rest` being what was still to come once
+    /// the part before it completed.
+    fn undo_next(&mut self, mut rest: VecDeque<Operation>) -> Task<Message> {
         match rest.pop_front() {
             Some(next) => self.undo_part(next, rest),
             None => Task::none(),
         }
     }
 
-    /// Keep `undo` as the way back from operation `id`, unless that
-    /// operation was itself an undo
-    fn record_undo(&mut self, id: u64, undo: Vec<Operation>) {
-        if self.undo_ids.remove(&id) || undo.is_empty() {
-            return;
-        }
-        self.undo_stack.push(undo);
-        if self.undo_stack.len() > UNDO_DEPTH {
-            self.undo_stack.remove(0);
-        }
-    }
-
     fn handle_operation_errors(&mut self, errors: Vec<(u64, OperationError)>) -> Task<Message> {
         let mut tasks = vec![self.refresh_trash_bins()];
         for (id, err) in errors.into_iter() {
-            // Cancelled, aborted or failed: the drive stays
-            self.unmount_after.remove(&id);
-            // An undo part that failed stops the parts after it
-            self.undo_queues.remove(&id);
             tasks.push(self.drop_question(id));
             // Nor is its drive asked about any more
-            self.stalls.remove(&id);
             tasks.push(self.dialog_pages.remove_stalled(id));
-            if let Some((op, controller)) = self.pending_operations.remove(&id) {
-                // What was done before the failure can be undone on its own,
-                // and a retry has only the rest to do
-                let undo = op.undo_after_failure(&err.partial);
-                self.record_undo(id, undo);
+            // What was done before the failure can be undone on its own, and
+            // a retry has only the rest to do. Cancelled, aborted or failed:
+            // a drive to eject stays, and an undo's later parts do not follow
+            if let Some(ended) = self.operations.fail(id, &err) {
                 // The card's row names the operation as it was started, not
                 // what is left of it; its caption already says "Failed".
-                let failed_text = op.pending_text(controller.progress(), ControllerState::Running);
-                let op = op.remaining(&err.partial);
+                let failed_text = ended
+                    .op
+                    .pending_text(ended.controller.progress(), ControllerState::Running);
                 // A cancelled one goes at once: the user asked for that. One
                 // waiting on a password ends as Failed too, while its dialog
                 // asks; the retry starts a row of its own. Any other failure
@@ -2413,12 +2372,6 @@ impl App {
                 } else {
                     self.progress.fail_kept(&key, failed_text, Instant::now());
                 }
-                // The payload stays: a failed operation can be retried from
-                // the dialog, and retrying a paste whose bytes were dropped
-                // would write an empty file and call it a success. It is
-                // released when the retry succeeds, or when its row is closed
-                self.failed_operations
-                    .insert(id, (op, controller, err.to_string()));
             }
         }
         tasks.push(self.sync_question_notices());
@@ -3148,7 +3101,7 @@ impl App {
         // With the window gone, a question left on its card goes out as a
         // notification
         let notices = self.sync_question_notices();
-        let pending = !self.pending_operations.is_empty();
+        let pending = !self.operations.is_idle();
         let step = match self.exit_gate.step(pending, cfg!(feature = "notify")) {
             Step::Wait => Task::none(),
             #[cfg(feature = "notify")]
@@ -3208,7 +3161,12 @@ impl App {
     /// Forgets operation `id`'s question, which answers Cancel if it was
     /// still waiting, and takes its dialog down.
     fn drop_question(&mut self, id: u64) -> Task<Message> {
-        if self.blocked.remove(&id).is_some() {
+        if self
+            .operations
+            .get_mut(id)
+            .and_then(|running| running.question.take())
+            .is_some()
+        {
             self.progress.unblock(&progress::Key::Operation(id));
         }
         Task::batch([
@@ -3223,17 +3181,16 @@ impl App {
     /// longer, and its question goes.
     fn watch_stalls(&mut self, now: Instant) -> Task<Message> {
         let mut tasks = Vec::new();
-        self.stalls
-            .retain(|id, _| self.pending_operations.contains_key(id));
-        for (&id, (_, controller)) in &self.pending_operations {
+        for (id, running) in self.operations.running_mut() {
+            let controller = &running.controller;
             let waiting = controller.is_paused()
-                || self
-                    .blocked
-                    .get(&id)
+                || running
+                    .question
+                    .as_ref()
                     .is_some_and(|question| question.tx.is_some());
             let (files, bytes) = controller.checked();
             let seen = (controller.progress().to_bits(), files, bytes);
-            let stall = self.stalls.entry(id).or_insert(Stall {
+            let stall = running.stall.get_or_insert(Stall {
                 seen,
                 since: now,
                 asked: false,
@@ -3259,7 +3216,7 @@ impl App {
     /// How long operation `id` has gone without progress, once its row
     /// should say so.
     fn stalled_for(&self, id: u64) -> Option<Duration> {
-        let stall = self.stalls.get(&id)?;
+        let stall = self.operations.get(id)?.stall.as_ref()?;
         let waited = stall.since.elapsed();
         (waited >= STALL_SHOW).then_some(waited)
     }
@@ -3395,12 +3352,12 @@ impl App {
             }
         }
         if self.core.main_window_id().is_none() {
-            for (&id, (_, controller)) in &self.pending_operations {
-                let asking = self
-                    .blocked
-                    .get(&id)
+            for (id, running) in self.operations.running() {
+                let asking = running
+                    .question
+                    .as_ref()
                     .is_some_and(|question| question.tx.is_some());
-                if controller.is_paused() && !asking {
+                if running.controller.is_paused() && !asking {
                     wanted.push(NoticeKey::Paused(id));
                 }
             }
@@ -3458,7 +3415,8 @@ impl App {
             NoticeKey::Blocked(id) => self.blocked_notification(id)?,
             NoticeKey::Replace(id) => self.replace_notification(id)?,
             NoticeKey::Paused(id) => {
-                let (op, controller) = self.pending_operations.get(&id)?;
+                let running = self.operations.get(id)?;
+                let (op, controller) = (&running.op, &running.controller);
                 notify_rust::Notification::new()
                     .summary(&op.pending_text(controller.progress(), ControllerState::Paused))
                     .timeout(notify_rust::Timeout::Never)
@@ -3525,11 +3483,12 @@ impl App {
     /// Operation `id`'s question about a path, offering what its card does.
     #[cfg(feature = "notify")]
     fn blocked_notification(&self, id: u64) -> Option<notify_rust::Notification> {
-        let question = self
-            .blocked
-            .get(&id)
+        let running = self.operations.get(id)?;
+        let question = running
+            .question
+            .as_ref()
             .filter(|question| question.tx.is_some())?;
-        let (op, controller) = self.pending_operations.get(&id)?;
+        let (op, controller) = (&running.op, &running.controller);
         let (mut text, skip) = question_text(&question.blocked);
         if let Some(detail) = question_detail(&question.blocked) {
             text = format!("{text}\n{detail}");
@@ -3881,8 +3840,9 @@ impl App {
                 row.state,
                 progress::State::Running | progress::State::Asking | progress::State::Waiting
             )
-            && let Some((op, controller)) = self.pending_operations.get(id)
+            && let Some(running) = self.operations.get(*id)
         {
+            let (op, controller) = (&running.op, &running.controller);
             // Its question, if it waits on one, is a dialog of its own
             let stopped = row.state != progress::State::Running;
             return Self::pending_operation_view(
@@ -3895,9 +3855,9 @@ impl App {
         }
 
         if let (progress::Key::Operation(id), progress::State::Failed) = (row.key, row.state)
-            && let Some((_, _, reason)) = self.failed_operations.get(id)
+            && let Some(failed) = self.operations.get_failed(*id)
         {
-            return Self::failed_row(*id, row, reason);
+            return Self::failed_row(*id, row, &failed.reason);
         }
 
         let bar: Option<Element<'a, Message>> = match row.state {
@@ -4153,27 +4113,28 @@ impl App {
 
         let mut children = Vec::new();
 
-        if !self.pending_operations.is_empty() {
+        if !self.operations.is_idle() {
             let mut section = widget::settings::section().title(fl!("pending"));
-            for (id, (op, controller)) in self.pending_operations.iter().rev() {
-                let question = self
-                    .blocked
-                    .get(id)
+            for (id, running) in self.operations.running().rev() {
+                let question = running
+                    .question
+                    .as_ref()
                     .filter(|question| question.tx.is_some());
                 section = section.add(Self::pending_operation_view(
-                    *id,
-                    op,
-                    controller,
+                    id,
+                    &running.op,
+                    &running.controller,
                     question.is_some(),
-                    self.stalled_for(*id),
+                    self.stalled_for(id),
                 ));
             }
             children.push(section.into());
         }
 
-        if !self.failed_operations.is_empty() {
+        if self.operations.failed().next().is_some() {
             let mut section = widget::settings::section().title(fl!("failed"));
-            for (op, controller, error) in self.failed_operations.values().rev() {
+            for (_, failed) in self.operations.failed().rev() {
+                let (op, controller, error) = (&failed.op, &failed.controller, &failed.reason);
                 let progress = controller.progress();
                 section = section.add(widget::Column::with_children([
                     widget::text::body(op.pending_text(progress, controller.state())).into(),
@@ -4183,9 +4144,9 @@ impl App {
             children.push(section.into());
         }
 
-        if !self.complete_operations.is_empty() {
+        if self.operations.complete_ops().next().is_some() {
             let mut section = widget::settings::section().title(fl!("complete"));
-            for op in self.complete_operations.values().rev() {
+            for op in self.operations.complete_ops().rev() {
                 section = section.add(widget::text::body(op.completed_text()));
             }
             children.push(section.into());
@@ -4507,22 +4468,13 @@ impl Application for App {
             network_drive_connecting: None,
             network_drive_input: String::new(),
             exit_gate: ExitGate::default(),
-            pending_operation_id: 0,
-            pending_operations: BTreeMap::new(),
+            operations: Operations::default(),
             progress: progress::Tasks::default(),
             action_card: ActionCard::default(),
             action_card_height: Cell::new(0.0),
             file_view_bounds: Cell::new(Rectangle::default()),
-            complete_operations: BTreeMap::new(),
-            failed_operations: BTreeMap::new(),
-            blocked: BTreeMap::new(),
             question_notices: BTreeMap::new(),
             notice_generation: 0,
-            stalls: BTreeMap::new(),
-            undo_stack: Vec::new(),
-            undo_ids: BTreeSet::new(),
-            undo_queues: HashMap::new(),
-            unmount_after: HashMap::new(),
             scrollable_name: std::borrow::Cow::Borrowed("File Scrollable"),
             search_id: widget::Id::new("File Search"),
             search_closing: None,
@@ -5222,10 +5174,13 @@ impl Application for App {
                                     })
                                 });
                             if same_drive {
-                                // The id the emptying is about to get
-                                self.unmount_after
-                                    .insert(self.pending_operation_id, (mounter_key, item));
-                                tasks.push(self.operation(Operation::EmptyDriveTrash { root }));
+                                tasks.push(self.operation_then(
+                                    Operation::EmptyDriveTrash { root },
+                                    Then {
+                                        unmount: Some((mounter_key, item)),
+                                        ..Then::default()
+                                    },
+                                ));
                             } else {
                                 log::warn!(
                                     "{} is no longer mounted at {}: its trash is left alone",
@@ -5240,7 +5195,11 @@ impl Application for App {
                             tasks.push(self.update(Message::StalledWait(id)));
                         }
                         DialogPage::Blocked(id) => {
-                            if let Some(question) = self.blocked.get(&id) {
+                            if let Some(question) = self
+                                .operations
+                                .get(id)
+                                .and_then(|running| running.question.as_ref())
+                            {
                                 let answer = if question.ask.skip {
                                     BlockedAnswer::Skip(
                                         question.same_for_rest && question.ask.count > 1,
@@ -5252,13 +5211,13 @@ impl Application for App {
                             }
                         }
                         DialogPage::FailedOperation(id) => {
-                            if let Some((operation, _, _)) = self.failed_operations.remove(&id) {
-                                tasks.push(self.operation(operation));
+                            if let Some(failed) = self.operations.take_failed(id) {
+                                tasks.push(self.operation(failed.op));
                             }
                         }
                         DialogPage::ExtractPassword { id, password } => {
-                            let (operation, _, _err) = self.failed_operations.get(&id).unwrap();
-                            let new_op = match &operation {
+                            let operation = &self.operations.get_failed(id).unwrap().op;
+                            let new_op = match operation {
                                 Operation::Extract {
                                     to,
                                     paths,
@@ -6506,49 +6465,49 @@ impl Application for App {
                 }
             }
             Message::PendingAbort(id) => {
-                if let Some((_, controller)) = self.pending_operations.get(&id) {
-                    controller.abort();
+                if let Some(running) = self.operations.get_mut(id) {
+                    running.controller.abort();
+                    running.stall = None;
                     self.progress.remove(&progress::Key::Operation(id));
                 }
-                self.stalls.remove(&id);
                 return Task::batch([self.dialog_pages.remove_stalled(id), self.drop_question(id)]);
             }
             Message::PendingTick => return self.watch_stalls(Instant::now()),
             Message::StalledWait(id) => {
-                if let Some(stall) = self.stalls.get_mut(&id) {
+                if let Some(stall) = self
+                    .operations
+                    .get_mut(id)
+                    .and_then(|running| running.stall.as_mut())
+                {
                     stall.since = Instant::now();
                     stall.asked = false;
                 }
                 return self.dialog_pages.remove_stalled(id);
             }
             Message::PendingCancel(id) => {
-                if let Some((_, controller)) = self.pending_operations.get(&id) {
-                    controller.cancel();
+                if let Some(running) = self.operations.get_mut(id) {
+                    running.controller.cancel();
+                    running.stall = None;
                     self.progress.remove(&progress::Key::Operation(id));
                 }
                 // One waiting on a question hears the cancel through it
-                self.stalls.remove(&id);
                 return Task::batch([self.dialog_pages.remove_stalled(id), self.drop_question(id)]);
             }
             Message::OperationBlocked(controller, question, tx) => {
                 // Unknown, the question is dropped, which answers Cancel
-                let Some((&id, _)) = self
-                    .pending_operations
-                    .iter()
-                    .find(|(_, (_, pending))| pending.is_same(&controller))
-                else {
+                let Some(id) = self.operations.id_of(&controller) else {
                     return Task::none();
                 };
-                self.blocked.insert(
-                    id,
-                    Question {
-                        blocked: question.blocked,
-                        tx: Some(tx),
-                        same_for_rest: false,
-                        ask: question.ask,
-                        item: question.item,
-                    },
-                );
+                let Some(running) = self.operations.get_mut(id) else {
+                    return Task::none();
+                };
+                running.question = Some(Question {
+                    blocked: question.blocked,
+                    tx: Some(tx),
+                    same_for_rest: false,
+                    ask: question.ask,
+                    item: question.item,
+                });
                 self.progress.block(&progress::Key::Operation(id));
                 return Task::batch([
                     self.push_dialog(DialogPage::Blocked(id), Some(BLOCKED_BUTTON_ID.clone())),
@@ -6556,7 +6515,11 @@ impl Application for App {
                 ]);
             }
             Message::BlockedAnswer(id, answer) => {
-                if let Some(question) = self.blocked.get_mut(&id) {
+                if let Some(question) = self
+                    .operations
+                    .get_mut(id)
+                    .and_then(|running| running.question.as_mut())
+                {
                     question.answer(answer);
                     self.progress.unblock(&progress::Key::Operation(id));
                 }
@@ -6656,7 +6619,11 @@ impl Application for App {
                 return sync;
             }
             Message::BlockedSameForRest(id, same_for_rest) => {
-                if let Some(question) = self.blocked.get_mut(&id) {
+                if let Some(question) = self
+                    .operations
+                    .get_mut(id)
+                    .and_then(|running| running.question.as_mut())
+                {
                     question.same_for_rest = same_for_rest;
                 }
             }
@@ -6666,10 +6633,10 @@ impl Application for App {
                 if self.progress.is_dismissed(&progress::Key::Operation(id)) {
                     return Task::none();
                 }
-                if let Some((operation, _, _)) = self.failed_operations.remove(&id) {
+                if let Some(failed) = self.operations.take_failed(id) {
                     // The retry starts a row of its own
                     self.progress.remove(&progress::Key::Operation(id));
-                    return self.operation(operation);
+                    return self.operation(failed.op);
                 }
             }
             Message::PendingComplete(id, op_sel) => {
@@ -6685,7 +6652,8 @@ impl Application for App {
                 ]);
             }
             Message::PendingPause(id, pause) => {
-                if let Some((_, controller)) = self.pending_operations.get(&id) {
+                if let Some(controller) = self.operations.get(id).map(|running| &running.controller)
+                {
                     if pause {
                         controller.pause();
                     } else {
@@ -6706,9 +6674,9 @@ impl Application for App {
                 // bytes a paste carried for it are no longer needed
                 if let Some(progress::Key::Operation(id)) =
                     self.progress.dismiss(row, Instant::now())
-                    && let Some((op, _, _)) = self.failed_operations.get_mut(id)
+                    && let Some(failed) = self.operations.get_failed_mut(*id)
                 {
-                    op.release_payload();
+                    failed.op.release_payload();
                 }
             }
             Message::ProgressHover(row, over) => {
@@ -7730,7 +7698,7 @@ impl Application for App {
             }
             Message::Undo => {
                 // Skip entries whose files have changed since; they can no longer apply
-                while let Some(undo) = self.undo_stack.pop() {
+                while let Some(undo) = self.operations.pop_undo() {
                     if undo.iter().all(Operation::is_applicable) {
                         // One part at a time, in order
                         let mut parts: VecDeque<Operation> = undo.into();
@@ -7777,11 +7745,16 @@ impl Application for App {
                 }
                 // The same restore is what Undo would do: drop that entry and do
                 // not offer to undo the restore itself
-                self.undo_stack.retain(
-                    |undo| !matches!(undo.as_slice(), [Operation::Restore { items: i }] if *i == items),
+                self.operations.forget_undos(
+                    |undo| matches!(undo, [Operation::Restore { items: i }] if *i == items),
                 );
-                self.undo_ids.insert(self.pending_operation_id);
-                return self.operation(Operation::Restore { items });
+                return self.operation_then(
+                    Operation::Restore { items },
+                    Then {
+                        undoing: true,
+                        ..Then::default()
+                    },
+                );
             }
             Message::WindowClose => {
                 if let Some(window_id) = self.core.main_window_id() {
@@ -8480,9 +8453,12 @@ impl Application for App {
                 .secondary_action(
                     widget::button::standard(fl!("cancel")).on_press(Message::DialogCancel),
                 ),
-            DialogPage::Blocked(id) => Self::blocked_dialog(*id, self.blocked.get(id)?),
+            DialogPage::Blocked(id) => {
+                Self::blocked_dialog(*id, self.operations.get(*id)?.question.as_ref()?)
+            }
             DialogPage::Stalled(id) => {
-                let (op, controller) = self.pending_operations.get(id)?;
+                let running = self.operations.get(*id)?;
+                let (op, controller) = (&running.op, &running.controller);
                 widget::dialog()
                     .title(fl!("stalled-title"))
                     .body(op.pending_text(controller.progress(), controller.state()))
@@ -8500,7 +8476,8 @@ impl Application for App {
                     )
             }
             DialogPage::FailedOperation(id) => {
-                let (operation, controller, err) = self.failed_operations.get(id)?;
+                let failed = self.operations.get_failed(*id)?;
+                let (operation, controller, err) = (&failed.op, &failed.controller, &failed.reason);
 
                 widget::dialog()
                     .title(fl!("failed-operations-title", count = 1))
@@ -9316,7 +9293,7 @@ impl Application for App {
             &self.modifiers,
             &self.key_binds,
             self.clipboard_has_content(),
-            !self.undo_stack.is_empty(),
+            self.operations.can_undo(),
         )]
     }
 
@@ -9851,7 +9828,7 @@ impl Application for App {
             ));
         }
 
-        if !self.pending_operations.is_empty() {
+        if !self.operations.is_idle() {
             // Hold a logind lock for as long as operations are pending: the
             // subscription ends when the last one finishes, which drops the fd
             #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -9875,9 +9852,9 @@ impl Application for App {
             if self.core.main_window_id().is_some() {
                 // Force refresh the UI every 100ms while an operation is active.
                 if self
-                    .pending_operations
-                    .values()
-                    .any(|(_, controller)| !controller.is_paused())
+                    .operations
+                    .running()
+                    .any(|(_, running)| !running.controller.is_paused())
                 {
                     subscriptions.push(
                         crate::ui::iced::time::every(Duration::from_millis(100))
