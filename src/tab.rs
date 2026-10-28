@@ -47,7 +47,7 @@ use crate::config::{ICON_SCALE_MAX, ICON_SIZE_GRID, IconSizes, TabConfig, ThumbC
 use crate::dialog::DialogKind;
 use crate::handoff::Handoff;
 use crate::large_image::{
-    Decoded, LargeImageManager, decode_large_image, exceeds_memory_limit,
+    Decoded, LargeImageManager, StartDecode, decode_large_image, exceeds_memory_limit,
     should_use_dedicated_worker, should_use_tiling,
 };
 use crate::localize::{LANGUAGE_SORTER, LOCALE};
@@ -5837,10 +5837,13 @@ impl Tab {
             .map(|size| (size.width as u32, size.height as u32));
 
         // Try to decode the image using LargeImageManager with adaptive resolution
-        let (should_decode, target_dimensions, generation) = self
+        if let Some(StartDecode {
+            target: target_dimensions,
+            generation,
+        }) = self
             .large_image_manager
-            .try_decode(&path, display_dimensions);
-        if should_decode {
+            .try_decode(&path, display_dimensions)
+        {
             vec![Command::Iced(
                 crate::ui::iced::Task::perform(
                     decode_large_image(

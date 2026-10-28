@@ -1,6 +1,6 @@
 use crate::ui::widget;
 use image::ImageReader;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -416,28 +416,49 @@ async fn decode_now(
     .flatten()
 }
 
-/// Manages state and operations for large image decoding in gallery mode
+/// Manages state and operations for large image decoding in gallery mode:
+/// one [`Entry`] per image asked for.
 #[derive(Debug, Default)]
 pub struct LargeImageManager {
-    /// Paths of images currently being decoded
-    decoding_images: HashSet<PathBuf>,
-    /// Cache of decoded image handles
-    decoded_images: HashMap<PathBuf, widget::image::Handle>,
-    /// Display dimensions used for each decoded image (for resize detection)
-    decoded_display_sizes: HashMap<PathBuf, (u32, u32)>,
-    /// Errors encountered during decoding
-    decode_errors: HashMap<PathBuf, String>,
-    /// Generation counter for each decode to support cancellation.
-    /// When a new decode is started for the same path, the generation is incremented.
-    /// Only decodes matching the current generation are accepted when they complete.
-    decode_generations: HashMap<PathBuf, u64>,
-    /// Which file each path's latest decode was of. A file replaced at the
-    /// same path is another image, and what was decoded of the old one is
-    /// not shown for it.
-    decode_stamps: HashMap<PathBuf, FileStamp>,
+    images: HashMap<PathBuf, Entry>,
     /// Counts the decodes this gallery asked for, so that one it has moved
     /// on from is skipped; see [`decode_large_image`].
     decode_order: Arc<AtomicU64>,
+}
+
+/// What is known of one image.
+#[derive(Debug, Default)]
+struct Entry {
+    /// The latest decode asked for, counted from 1. Only a decode of this
+    /// generation is taken when it completes; an older one was superseded.
+    generation: u64,
+    /// Which file the latest decode was of, once one was asked for. A file
+    /// replaced at the same path is another image, and what was decoded of
+    /// the old one is not shown for it.
+    stamp: Option<FileStamp>,
+    /// The decoded image, and the display size it was decoded for. Kept
+    /// while a decode at a larger size runs, and shown meanwhile.
+    decoded: Option<(widget::image::Handle, Option<(u32, u32)>)>,
+    phase: Phase,
+}
+
+#[derive(Debug, Default)]
+enum Phase {
+    #[default]
+    Idle,
+    /// The latest decode is under way.
+    Loading,
+    /// The latest decode, or the checks before it, failed, for this reason.
+    Failed(String),
+}
+
+/// A decode [`LargeImageManager::try_decode`] asks to start.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct StartDecode {
+    /// The size to decode to, for an image larger than the display.
+    pub target: Option<(u32, u32)>,
+    /// Its generation, to hand back with what came of it.
+    pub generation: u64,
 }
 
 /// What tells one file at a path from another put there in its place: its
@@ -456,20 +477,31 @@ impl LargeImageManager {
     }
 
     pub fn is_decoding(&self, path: &Path) -> bool {
-        self.decoding_images.contains(path)
+        self.images
+            .get(path)
+            .is_some_and(|entry| matches!(entry.phase, Phase::Loading))
     }
 
     pub fn get_decoded(&self, path: &Path) -> Option<&widget::image::Handle> {
-        self.decoded_images.get(path)
+        self.images
+            .get(path)?
+            .decoded
+            .as_ref()
+            .map(|(handle, _)| handle)
     }
 
     pub fn get_error(&self, path: &Path) -> Option<&String> {
-        self.decode_errors.get(path)
+        match &self.images.get(path)?.phase {
+            Phase::Failed(error) => Some(error),
+            _ => None,
+        }
     }
 
     /// Whether `generation` is the latest decode asked for `path`.
     pub fn is_current(&self, path: &Path, generation: u64) -> bool {
-        self.decode_generations.get(path) == Some(&generation)
+        self.images
+            .get(path)
+            .is_some_and(|entry| entry.generation == generation)
     }
 
     /// This gallery's count of the decodes it asked for, for
@@ -491,38 +523,31 @@ impl LargeImageManager {
         generation: u64,
         stamp: FileStamp,
     ) -> bool {
-        if self.decode_generations.get(&path) == Some(&generation)
-            && self.decode_stamps.get(&path) != Some(&stamp)
-        {
-            log::info!("Discarding decode of {}, replaced since", path.display());
-            self.decoding_images.remove(&path);
-            self.decode_stamps.remove(&path);
+        let Some(entry) = self.images.get_mut(&path) else {
             return false;
-        }
-        // Check if this decode is still current (not superseded by a newer one)
-        if let Some(&current_gen) = self.decode_generations.get(&path)
-            && generation != current_gen
-        {
+        };
+        if entry.generation != generation {
             log::info!(
                 "Discarding outdated decode for {} (generation {} != current {})",
                 path.display(),
                 generation,
-                current_gen
+                entry.generation
             );
             return false;
         }
-
+        if entry.stamp != Some(stamp) {
+            log::info!("Discarding decode of {}, replaced since", path.display());
+            entry.phase = Phase::Idle;
+            entry.stamp = None;
+            return false;
+        }
         log::info!(
             "Storing decoded image for {} (generation {})",
             path.display(),
             generation
         );
-
-        self.decoded_images.insert(path.clone(), handle);
-        if let Some(size) = display_size {
-            self.decoded_display_sizes.insert(path.clone(), size);
-        }
-        self.decoding_images.remove(&path);
+        entry.decoded = Some((handle, display_size));
+        entry.phase = Phase::Idle;
         true
     }
 
@@ -530,8 +555,11 @@ impl LargeImageManager {
     /// its path: not loading, and not failed either, so that the gallery
     /// coming back to it asks again.
     pub fn abandon_with_generation(&mut self, path: &Path, generation: u64) {
-        if self.decode_generations.get(path) == Some(&generation) {
-            self.decoding_images.remove(path);
+        if let Some(entry) = self.images.get_mut(path)
+            && entry.generation == generation
+            && matches!(entry.phase, Phase::Loading)
+        {
+            entry.phase = Phase::Idle;
         }
     }
 
@@ -539,34 +567,42 @@ impl LargeImageManager {
     /// path: the image is no longer loading, and says why. A superseded
     /// decode's failure leaves the newer one alone.
     pub fn fail_with_generation(&mut self, path: PathBuf, generation: u64, error: String) {
-        if self.decode_generations.get(&path) == Some(&generation) {
+        if self.is_current(&path, generation) {
             self.store_error(path, error);
         }
     }
 
     pub fn store_error(&mut self, path: PathBuf, error: String) {
-        self.decode_errors.insert(path.clone(), error);
-        self.decoding_images.remove(&path);
+        self.images.entry(path).or_default().phase = Phase::Failed(error);
     }
 
     pub fn clear_error(&mut self, path: &Path) {
-        self.decode_errors.remove(path);
+        if let Some(entry) = self.images.get_mut(path)
+            && matches!(entry.phase, Phase::Failed(_))
+        {
+            entry.phase = Phase::Idle;
+        }
     }
 
     pub fn clear_cache(&mut self) {
         log::info!(
             "Clearing {} cached images from large image manager",
-            self.decoded_images.len()
+            self.cache_size()
         );
-        self.decoded_images.clear();
+        for entry in self.images.values_mut() {
+            entry.decoded = None;
+        }
     }
 
     pub fn cache_size(&self) -> usize {
-        self.decoded_images.len()
+        self.images
+            .values()
+            .filter(|entry| entry.decoded.is_some())
+            .count()
     }
 
     pub fn cache_is_empty(&self) -> bool {
-        self.decoded_images.is_empty()
+        self.cache_size() == 0
     }
 
     /// Check if an image should be re-decoded due to display size increase.
@@ -581,7 +617,12 @@ impl LargeImageManager {
             return false;
         };
 
-        let Some(&old_size) = self.decoded_display_sizes.get(path) else {
+        let Some(old_size) = self
+            .images
+            .get(path)
+            .and_then(|entry| entry.decoded.as_ref())
+            .and_then(|(_, size)| *size)
+        else {
             return false;
         };
 
@@ -620,42 +661,41 @@ impl LargeImageManager {
         needs_redecode
     }
 
-    /// Attempt to decode a large image, checking memory availability first.
-    /// Returns (should_decode, target_dimensions, generation) tuple.
+    /// Asks for `path` to be decoded for `display_dimensions`, checking
+    /// memory first: the decode to start, or none when it is decoded or
+    /// decoding already, or cannot be, which [`Self::get_error`] then says.
     pub fn try_decode(
         &mut self,
         path: &PathBuf,
         display_dimensions: Option<(u32, u32)>,
-    ) -> (bool, Option<(u32, u32)>, u64) {
+    ) -> Option<StartDecode> {
         self.clear_error(path);
         // Replaced since it was decoded, or while it was: neither the old
         // pixels nor a decode still under way are this file's
         let stamp = file_stamp(path);
-        if self.decode_stamps.get(path) != Some(&stamp) {
-            self.decoded_images.remove(path);
-            self.decoded_display_sizes.remove(path);
-            self.decoding_images.remove(path);
+        if let Some(entry) = self.images.get_mut(path)
+            && entry.stamp != Some(stamp)
+        {
+            entry.decoded = None;
+            entry.phase = Phase::Idle;
         }
         let is_currently_decoding = self.is_decoding(path);
         let needs_redecode = self.needs_redecode_for_size(path, display_dimensions);
 
         if is_currently_decoding && !needs_redecode {
-            // Get current generation for the ongoing decode
-            let generation = self.decode_generations.get(path).copied().unwrap_or(0);
-            return (false, None, generation);
+            return None;
         }
 
         if self.get_decoded(path).is_some() && !needs_redecode && !is_currently_decoding {
-            let generation = self.decode_generations.get(path).copied().unwrap_or(0);
-            return (false, None, generation);
+            return None;
         }
 
         let Some((width, height)) = get_image_dimensions(path) else {
             self.store_error(path.clone(), "Failed to read image dimensions".to_string());
-            return (false, None, 0);
+            return None;
         };
 
-        let target_dimensions = if let Some((display_w, display_h)) = display_dimensions {
+        let target = if let Some((display_w, display_h)) = display_dimensions {
             calculate_target_dimensions(width, height, display_w, display_h)
         } else {
             None
@@ -663,37 +703,33 @@ impl LargeImageManager {
 
         // The decode holds the full-size image before resizing it, so it is
         // what it holds at its peak that has to fit, not the resized result
-        let Some(peak) = decode_peak_bytes(width, height, target_dimensions) else {
+        let Some(peak) = decode_peak_bytes(width, height, target) else {
             self.store_error(
                 path.clone(),
                 format!("Image dimensions too large: {width}x{height}"),
             );
-            return (false, None, 0);
+            return None;
         };
         if !self.ensure_memory_available(path, peak) {
-            return (false, None, 0);
+            return None;
         }
 
-        // Increment generation counter (cancels any previous decode)
-        let generation = self
-            .decode_generations
-            .entry(path.clone())
-            .and_modify(|g| *g += 1)
-            .or_insert(1);
-        let generation = *generation;
-
+        // A new generation: whatever decode was under way is superseded
+        let entry = self.images.entry(path.clone()).or_default();
+        entry.generation += 1;
         if is_currently_decoding {
             log::info!(
                 "Cancelling previous decode for {} and starting new one (generation {})",
                 path.display(),
-                generation
+                entry.generation
             );
         }
-
-        // Mark as decoding
-        self.decoding_images.insert(path.clone());
-        self.decode_stamps.insert(path.clone(), stamp);
-        (true, target_dimensions, generation)
+        entry.phase = Phase::Loading;
+        entry.stamp = Some(stamp);
+        Some(StartDecode {
+            target,
+            generation: entry.generation,
+        })
     }
 
     /// Check if sufficient memory is available, clearing cache if needed.
@@ -772,8 +808,7 @@ mod tests {
         DynamicImage::new_rgb8(30, 20).save(&path).unwrap();
         let mut manager = super::LargeImageManager::new();
 
-        let (decode, _, generation) = manager.try_decode(&path, None);
-        assert!(decode);
+        let generation = manager.try_decode(&path, None).expect("decoded").generation;
         let handle = crate::ui::widget::image::Handle::from_rgba(1, 1, vec![0; 4]);
         let stamp = super::file_stamp(&path);
         assert!(manager.store_decoded_with_generation(
@@ -783,19 +818,24 @@ mod tests {
             generation,
             stamp,
         ));
-        assert!(!manager.try_decode(&path, None).0, "decoded already");
+        assert!(
+            !manager.try_decode(&path, None).is_some(),
+            "decoded already"
+        );
 
         // Another image at the same path
         std::fs::remove_file(&path).unwrap();
         DynamicImage::new_rgb8(40, 20).save(&path).unwrap();
-        let (decode, _, again) = manager.try_decode(&path, None);
-        assert!(decode, "the old pixels are not this file's");
+        let again = manager
+            .try_decode(&path, None)
+            .expect("the old pixels are not this file's")
+            .generation;
         assert!(manager.get_decoded(&path).is_none());
 
         manager.fail_with_generation(path.clone(), again, "failed".to_string());
         assert!(!manager.is_decoding(&path), "no longer loading");
         assert!(manager.get_error(&path).is_some());
-        assert!(manager.try_decode(&path, None).0, "asked again");
+        assert!(manager.try_decode(&path, None).is_some(), "asked again");
     }
 
     /// Pixels of a file replaced since its decode was asked for are not
@@ -808,7 +848,7 @@ mod tests {
         let path = dir.path().join("photo.png");
         DynamicImage::new_rgb8(30, 20).save(&path).unwrap();
         let mut manager = super::LargeImageManager::new();
-        let (_, _, generation) = manager.try_decode(&path, None);
+        let generation = manager.try_decode(&path, None).expect("decoded").generation;
 
         // Replaced before the decode read it
         std::fs::remove_file(&path).unwrap();
@@ -824,7 +864,59 @@ mod tests {
         ));
         assert!(manager.get_decoded(&path).is_none());
         assert!(!manager.is_decoding(&path));
-        assert!(manager.try_decode(&path, None).0, "asked again");
+        assert!(manager.try_decode(&path, None).is_some(), "asked again");
+    }
+
+    /// Decoding again for a larger display keeps the image there shown
+    /// meanwhile; the older decode landing late is not taken, and the newer
+    /// one given up leaves the image there as it was
+    #[test]
+    fn a_larger_decode_keeps_the_image_shown_until_it_lands() {
+        use image::DynamicImage;
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("photo.png");
+        DynamicImage::new_rgb8(30, 20).save(&path).unwrap();
+        let stamp = super::file_stamp(&path);
+        let handle = || crate::ui::widget::image::Handle::from_rgba(1, 1, vec![0; 4]);
+        let mut manager = super::LargeImageManager::new();
+
+        let first = manager
+            .try_decode(&path, Some((10, 10)))
+            .unwrap()
+            .generation;
+        assert!(manager.store_decoded_with_generation(
+            path.clone(),
+            handle(),
+            Some((10, 10)),
+            first,
+            stamp,
+        ));
+        assert!(
+            manager.try_decode(&path, Some((11, 11))).is_none(),
+            "not much larger"
+        );
+
+        let larger = manager
+            .try_decode(&path, Some((100, 100)))
+            .unwrap()
+            .generation;
+        assert_ne!(larger, first);
+        assert!(manager.is_decoding(&path));
+        assert!(manager.get_decoded(&path).is_some(), "shown meanwhile");
+        assert!(!manager.store_decoded_with_generation(
+            path.clone(),
+            handle(),
+            Some((10, 10)),
+            first,
+            stamp,
+        ));
+        assert!(manager.is_decoding(&path), "the late one changes nothing");
+
+        manager.abandon_with_generation(&path, larger);
+        assert!(!manager.is_decoding(&path));
+        assert!(manager.get_decoded(&path).is_some());
+        assert!(manager.get_error(&path).is_none());
     }
 
     /// A decode dropped while it runs keeps the turn until the blocking
