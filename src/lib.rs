@@ -26,6 +26,7 @@ pub mod desktop_entry;
 pub mod dialog;
 mod exit_gate;
 pub mod file_category;
+mod handoff;
 mod hex;
 mod inhibit;
 mod key_bind;

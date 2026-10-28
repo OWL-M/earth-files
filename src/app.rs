@@ -40,7 +40,7 @@ use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, LazyLock, Mutex};
 use std::time::{self, Duration, Instant};
-use std::{env, fmt, process};
+use std::{env, process};
 use tokio::sync::mpsc;
 use xdg_kit::desktop_entry::Target;
 
@@ -52,6 +52,7 @@ use crate::clipboard::{
 use crate::config::{AppTheme, Config, Favorite, IconSizes, State, Store, TabConfig, TypeToSearch};
 use crate::dialog::{Dialog, DialogKind, DialogMessage, DialogResult, DialogSettings};
 use crate::exit_gate::{ExitGate, Step};
+use crate::handoff::Handoff;
 use crate::key_bind::key_binds;
 use crate::localize::LANGUAGE_SORTER;
 use crate::mime_app::{self, Mime, MimeApp, MimeAppCache, MimeAppMatch};
@@ -515,7 +516,7 @@ pub enum Message {
     #[cfg(feature = "notify")]
     NotificationClosed,
     NotifyEvents(Vec<DebouncedEvent>),
-    NotifyWatcher(WatcherWrapper),
+    NotifyWatcher(Handoff<Debouncer<RecommendedWatcher, RecommendedCache>>),
     OpenTerminal(Option<Entity>),
     OpenInNewTab(Option<Entity>),
     OpenInNewWindow(Option<Entity>),
@@ -634,7 +635,7 @@ pub enum Message {
     PinVariant(crate::menu::SplitRow, Option<crate::menu::MenuVariant>),
     /// A freshly built mime app cache, ready to replace the one in use, and
     /// the number of the rebuild that produced it.
-    MimeAppCacheReloaded(u64, MimeAppCacheWrapper),
+    MimeAppCacheReloaded(u64, Handoff<MimeAppCache>),
     ReorderTab(ReorderEvent),
     RescanRecents,
     RescanTrash,
@@ -1017,67 +1018,6 @@ pub enum WindowKind {
     Dialogs(widget::Id),
     FileDialog(Option<Box<[PathBuf]>>),
     Preview(Option<Entity>, PreviewKind),
-}
-
-/// A rebuilt [`MimeAppCache`] on its way to the application.
-///
-/// A cache cannot be cloned or printed, and a message must be both. It is only
-/// ever delivered once, so a clone gives up the cache rather than duplicating
-/// it: the copy that carries it is the one that arrives.
-pub struct MimeAppCacheWrapper {
-    cache_opt: Option<MimeAppCache>,
-}
-
-impl MimeAppCacheWrapper {
-    fn new(cache: MimeAppCache) -> Self {
-        Self {
-            cache_opt: Some(cache),
-        }
-    }
-
-    fn take(&mut self) -> Option<MimeAppCache> {
-        self.cache_opt.take()
-    }
-}
-
-impl Clone for MimeAppCacheWrapper {
-    fn clone(&self) -> Self {
-        Self { cache_opt: None }
-    }
-}
-
-impl fmt::Debug for MimeAppCacheWrapper {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("MimeAppCacheWrapper").finish()
-    }
-}
-
-impl PartialEq for MimeAppCacheWrapper {
-    fn eq(&self, _other: &Self) -> bool {
-        false
-    }
-}
-
-pub struct WatcherWrapper {
-    watcher_opt: Option<Debouncer<RecommendedWatcher, RecommendedCache>>,
-}
-
-impl Clone for WatcherWrapper {
-    fn clone(&self) -> Self {
-        Self { watcher_opt: None }
-    }
-}
-
-impl fmt::Debug for WatcherWrapper {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("WatcherWrapper").finish()
-    }
-}
-
-impl PartialEq for WatcherWrapper {
-    fn eq(&self, _other: &Self) -> bool {
-        false
-    }
 }
 
 struct Window {
@@ -6058,8 +5998,7 @@ impl Application for App {
                 }
                 return Task::batch(commands);
             }
-            Message::NotifyWatcher(mut watcher_wrapper) => match watcher_wrapper.watcher_opt.take()
-            {
+            Message::NotifyWatcher(watcher) => match watcher.take() {
                 Some(watcher) => {
                     self.watcher_opt = Some((watcher, FxHashSet::default()));
                     return self.update_watcher();
@@ -7018,7 +6957,7 @@ impl Application for App {
                     match tokio::task::spawn_blocking(MimeAppCache::new).await {
                         Ok(cache) => crate::ui::action::app(Message::MimeAppCacheReloaded(
                             rebuild,
-                            MimeAppCacheWrapper::new(cache),
+                            Handoff::new(cache),
                         )),
                         Err(err) => {
                             log::warn!("failed to reload the mime app cache: {err}");
@@ -7027,7 +6966,7 @@ impl Application for App {
                     }
                 });
             }
-            Message::MimeAppCacheReloaded(rebuild, mut wrapper) => {
+            Message::MimeAppCacheReloaded(rebuild, cache) => {
                 // Rebuilds overlap: two default-application changes, or a
                 // change and the watcher noticing it, start two workers, and
                 // the older one can finish last. Installing whichever arrives
@@ -7035,7 +6974,7 @@ impl Application for App {
                 // date.
                 if rebuild < self.mime_app_rebuild_applied {
                     log::debug!("discarding mime app cache rebuild {rebuild}: superseded");
-                } else if let Some(cache) = wrapper.take() {
+                } else if let Some(cache) = cache.take() {
                     self.mime_app_rebuild_applied = rebuild;
                     self.mime_app_cache = cache;
                     // Whatever arrived while there was no cache to answer with
@@ -9687,9 +9626,7 @@ impl Application for App {
                         match watcher_res {
                             Ok(watcher) => {
                                 match output
-                                    .send(Message::NotifyWatcher(WatcherWrapper {
-                                        watcher_opt: Some(watcher),
-                                    }))
+                                    .send(Message::NotifyWatcher(Handoff::new(watcher)))
                                     .await
                                 {
                                     Ok(()) => {}

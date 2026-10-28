@@ -23,8 +23,14 @@ jobs:
           key: cargo-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'flake.lock') }}
           restore-keys: cargo-${{ runner.os }}-
 
+      - name: Format
+        run: nix develop --command cargo fmt --check
+
       - name: Build
         run: nix develop --command cargo build
+
+      - name: Clippy
+        run: nix develop --command cargo clippy --all-targets -- -D warnings
 
       - name: Test
         run: nix develop --command cargo test

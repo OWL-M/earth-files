@@ -45,6 +45,7 @@ use xdg_kit::desktop_entry::{DesktopEntry, Locales};
 use crate::app::{Action, PreviewItem, PreviewKind};
 use crate::config::{ICON_SCALE_MAX, ICON_SIZE_GRID, IconSizes, TabConfig, ThumbCfg};
 use crate::dialog::DialogKind;
+use crate::handoff::Handoff;
 use crate::large_image::{
     Decoded, LargeImageManager, decode_large_image, exceeds_memory_limit,
     should_use_dedicated_worker, should_use_tiling,
@@ -2563,7 +2564,7 @@ pub enum Message {
     ScrollToFocused,
     /// Apply the scroll offset restored from history once the items are in
     ScrollRestore,
-    SearchContext(Location, SearchContextWrapper),
+    SearchContext(Location, Handoff<SearchContext>),
     SearchReady(bool),
     SelectAll,
     SelectFirst,
@@ -3996,24 +3997,10 @@ impl Mode {
     }
 }
 
-struct SearchContext {
+pub struct SearchContext {
     results_rx: mpsc::Receiver<Item>,
     ready: Arc<atomic::AtomicBool>,
     last_modified_opt: Arc<RwLock<Option<SystemTime>>>,
-}
-
-pub struct SearchContextWrapper(Option<SearchContext>);
-
-impl Clone for SearchContextWrapper {
-    fn clone(&self) -> Self {
-        Self(None)
-    }
-}
-
-impl fmt::Debug for SearchContextWrapper {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("SearchContextWrapper").finish()
-    }
 }
 
 /// Keeps only the items a host is willing to show; see [`Tab::item_filter`].
@@ -7485,7 +7472,7 @@ impl Tab {
             }
             Message::SearchContext(location, context) => {
                 if location == self.location {
-                    self.search_context = context.0;
+                    self.search_context = context.take();
                 } else {
                     log::warn!(
                         "search context provided for {:?} instead of {:?}",
@@ -10674,11 +10661,11 @@ impl Tab {
                             output
                                 .send(Message::SearchContext(
                                     location.clone(),
-                                    SearchContextWrapper(Some(SearchContext {
+                                    Handoff::new(SearchContext {
                                         results_rx,
                                         ready: ready.clone(),
                                         last_modified_opt: last_modified_opt.clone(),
-                                    })),
+                                    }),
                                 ))
                                 .await
                                 .unwrap();

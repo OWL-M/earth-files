@@ -26,13 +26,14 @@ use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{self, Instant};
-use std::{env, fmt, fs};
+use std::{env, fs};
 use xdg_kit::mime_apps::TypePattern;
 
 use crate::app::{
     Action, ContextPage, Message as AppMessage, PreviewItem, PreviewKind, REPLACE_BUTTON_ID,
 };
 use crate::config::{Config, DialogConfig, Store, ThumbCfg, TypeToSearch};
+use crate::handoff::Handoff;
 use crate::key_bind::key_binds;
 use crate::localize::LANGUAGE_SORTER;
 use crate::mounter::{MOUNTERS, MounterItem, MounterItems, MounterKey, MounterMessage};
@@ -530,7 +531,7 @@ enum Message {
     /// Making the folder `name` in `parent` failed, for the reason given.
     NewFolderFailed(PathBuf, String, String),
     NotifyEvents(Vec<DebouncedEvent>),
-    NotifyWatcher(WatcherWrapper),
+    NotifyWatcher(Handoff<Debouncer<RecommendedWatcher, RecommendedCache>>),
     Open,
     Preview,
     /// Items re-read off the event loop after the filesystem changed beneath
@@ -547,7 +548,10 @@ enum Message {
     Surface(crate::ui::surface::Action<Message>),
     #[allow(clippy::enum_variant_names)]
     TabMessage(tab::Message),
+    /// A folder read: its number from [`Tab::start_scan`], what it read
+    /// and what to select.
     TabRescan(
+        u64,
         Location,
         Option<Box<tab::Item>>,
         Vec<tab::Item>,
@@ -586,28 +590,6 @@ impl From<AppMessage> for Message {
 }
 
 pub struct MounterData(MounterKey, MounterItem);
-
-struct WatcherWrapper {
-    watcher_opt: Option<Debouncer<RecommendedWatcher, RecommendedCache>>,
-}
-
-impl Clone for WatcherWrapper {
-    fn clone(&self) -> Self {
-        Self { watcher_opt: None }
-    }
-}
-
-impl fmt::Debug for WatcherWrapper {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("WatcherWrapper").finish()
-    }
-}
-
-impl PartialEq for WatcherWrapper {
-    fn eq(&self, _other: &Self) -> bool {
-        false
-    }
-}
 
 /// The [`App`] stores application-specific state.
 struct App {
@@ -889,8 +871,9 @@ impl App {
         self.tab.location.path_opt().cloned()
     }
 
-    fn rescan_tab(&self, selection_paths: Option<Vec<PathBuf>>) -> Task<Message> {
+    fn rescan_tab(&mut self, selection_paths: Option<Vec<PathBuf>>) -> Task<Message> {
         let location = self.tab.location.clone();
+        let scan = self.tab.start_scan();
         let icon_sizes = self.tab.config.icon_sizes;
         let mounter_items = self.mounter_items.clone();
         Task::future(async move {
@@ -912,6 +895,7 @@ impl App {
                         }
                     }
                     crate::ui::action::app(Message::TabRescan(
+                        scan,
                         location,
                         parent_item_opt,
                         items,
@@ -2016,8 +2000,7 @@ impl Application for App {
                     }
                 }
             }
-            Message::NotifyWatcher(mut watcher_wrapper) => match watcher_wrapper.watcher_opt.take()
-            {
+            Message::NotifyWatcher(watcher) => match watcher.take() {
                 Some(watcher) => {
                     self.watcher_opt = Some((watcher, FxHashSet::default()));
                     return self.update_watcher();
@@ -2295,8 +2278,10 @@ impl Application for App {
                 }
                 return Task::batch(commands);
             }
-            Message::TabRescan(location, parent_item_opt, mut items, selection_paths) => {
-                if location == self.tab.location {
+            Message::TabRescan(scan, location, parent_item_opt, mut items, selection_paths) => {
+                // A read started after this one has the newer listing, even
+                // of the same folder
+                if self.tab.is_latest_scan(scan) && location == self.tab.location {
                     self.filter_items(&mut items);
 
                     // Select based on filename
@@ -2521,9 +2506,7 @@ impl Application for App {
                         match watcher_res {
                             Ok(watcher) => {
                                 match output
-                                    .send(Message::NotifyWatcher(WatcherWrapper {
-                                        watcher_opt: Some(watcher),
-                                    }))
+                                    .send(Message::NotifyWatcher(Handoff::new(watcher)))
                                     .await
                                 {
                                     Ok(()) => {}

@@ -201,8 +201,28 @@ impl Controller {
         matches!(self.state(), ControllerState::Paused)
     }
 
+    /// Pauses a running operation. One cancelled or failed stays so: the
+    /// look and the change are one step, so a cancel in between is not
+    /// overwritten.
     pub fn pause(&self) {
-        self.set_state(ControllerState::Paused);
+        self.change(ControllerState::Running, ControllerState::Paused);
+    }
+
+    /// Takes the state from `from` to `to`, if it still is `from`.
+    fn change(&self, from: ControllerState, to: ControllerState) {
+        if self
+            .inner
+            .state
+            .compare_exchange(
+                from.into(),
+                to.into(),
+                atomic::Ordering::Relaxed,
+                atomic::Ordering::Relaxed,
+            )
+            .is_ok()
+        {
+            self.inner.notify.notify_waiters();
+        }
     }
 
     /// Returns when the state is paused.
@@ -240,10 +260,10 @@ impl Controller {
         }
     }
 
+    /// Resumes a paused operation, as [`Self::pause`] does: one cancelled
+    /// or failed meanwhile stays so.
     pub fn unpause(&self) {
-        if !self.is_cancelled() && !self.is_failed() {
-            self.set_state(ControllerState::Running);
-        }
+        self.change(ControllerState::Paused, ControllerState::Running);
     }
 }
 
@@ -280,9 +300,22 @@ mod tests {
         controller.unpause();
         assert!(controller.is_failed());
 
+        let controller = Controller::default();
         controller.pause();
         controller.unpause();
         assert_eq!(controller.state(), ControllerState::Running);
+    }
+
+    #[test]
+    fn pause_does_not_overwrite_a_cancelled_or_failed_controller() {
+        let controller = Controller::default();
+        controller.cancel();
+        controller.pause();
+        assert!(controller.is_cancelled());
+
+        controller.set_state(ControllerState::Failed);
+        controller.pause();
+        assert!(controller.is_failed());
     }
 
     /// A cancel while paused ends the wait for a resume, which can never

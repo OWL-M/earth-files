@@ -294,9 +294,7 @@ pub async fn decode_large_image(
         // Asked for an image the gallery has since moved on from
         return Decoded::Superseded;
     }
-    let decoded = decode_now(path, target_dimensions).await;
-    drop(permit);
-    match decoded {
+    match decode_now(path, target_dimensions, permit).await {
         Some(Ok(done)) => Decoded::Done(done),
         Some(Err(Changed)) => Decoded::Changed,
         None => Decoded::Failed,
@@ -320,12 +318,17 @@ struct Changed;
 /// Taken by the decode under way.
 static DECODE_TURN: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(1);
 
+/// Decodes on a blocking thread, which holds `turn` until it is done: the
+/// decode goes on when the future awaiting it is dropped, and so does the
+/// memory it holds.
 async fn decode_now(
     path: PathBuf,
     target_dimensions: Option<(u32, u32)>,
+    turn: tokio::sync::SemaphorePermit<'static>,
 ) -> Option<Result<(PathBuf, u32, u32, Vec<u8>, FileStamp), Changed>> {
     // Decode image in blocking thread pool (CPU-intensive work should not block)
     tokio::task::spawn_blocking(move || {
+        let _turn = turn;
         log::info!("Starting async decode of {}", path.display());
         // Which file is read, looked at before and after: one replaced in
         // between gave pixels of neither for certain
@@ -824,6 +827,49 @@ mod tests {
         assert!(manager.try_decode(&path, None).0, "asked again");
     }
 
+    /// A decode dropped while it runs keeps the turn until the blocking
+    /// work ends, as that work still holds its memory
+    #[tokio::test]
+    async fn a_dropped_decode_keeps_its_turn_until_its_work_ends() {
+        use std::sync::Arc;
+        use std::sync::atomic::AtomicU64;
+
+        let _tests = TURN_TESTS.lock().await;
+        let dir = tempfile::tempdir().unwrap();
+        // Opening a FIFO waits for a writer: the decode blocks there
+        let fifo = dir.path().join("photo.png");
+        let name = std::ffi::CString::new(fifo.as_os_str().as_encoded_bytes()).unwrap();
+        assert_eq!(unsafe { libc::mkfifo(name.as_ptr(), 0o600) }, 0);
+
+        let decode = tokio::spawn(super::decode_large_image(
+            fifo.clone(),
+            None,
+            Arc::new(AtomicU64::new(0)),
+        ));
+        // The poll that takes the turn goes on to start the blocking work
+        while super::DECODE_TURN.available_permits() != 0 {
+            tokio::task::yield_now().await;
+        }
+        decode.abort();
+        assert!(decode.await.is_err_and(|err| err.is_cancelled()));
+        assert_eq!(super::DECODE_TURN.available_permits(), 0);
+
+        // A writer that writes nothing lets the open end, and the decode fail
+        drop(std::fs::OpenOptions::new().write(true).open(&fifo).unwrap());
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while super::DECODE_TURN.available_permits() != 1 {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "the turn was never given back"
+            );
+            tokio::task::yield_now().await;
+        }
+    }
+
+    /// Taken by the tests that hold or watch `DECODE_TURN`, which all
+    /// galleries share.
+    static TURN_TESTS: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
     /// One gallery asking for another image skips its own older decode, but
     /// not another gallery's
     #[tokio::test]
@@ -832,6 +878,7 @@ mod tests {
         use std::sync::Arc;
         use std::sync::atomic::AtomicU64;
 
+        let _tests = TURN_TESTS.lock().await;
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("photo.png");
         DynamicImage::new_rgb8(30, 20).save(&path).unwrap();
