@@ -30,11 +30,11 @@ pub(super) enum Place {
     Nowhere,
 }
 
-/// Where `path` would go in the trash: see [`crate::trashing::bin_for`].
+/// Where `path` would go in the trash: see [`crate::trashing::can_trash`].
 ///
 /// Blocking: it asks the filesystem.
 pub(super) fn trash_place(path: &Path) -> Place {
-    if fs::symlink_metadata(path).is_err() || crate::trashing::bin_for(path, false).is_some() {
+    if crate::trashing::can_trash(path) {
         Place::Here
     } else {
         Place::Nowhere
@@ -132,14 +132,16 @@ fn remove_at(
     Ok(())
 }
 
-/// Brings a trash entry back to where it was: renamed, or across drives
-/// copied and then removed from the trash. Never over something now in its
-/// place, and nothing is made there first: the trash crate's own restore
-/// makes an empty file, then cannot rename across drives.
+/// Brings a trash entry back to where it was: by the trash's own rename,
+/// or where that cannot, renamed by name or, across drives, copied and then
+/// removed from the trash. Never over something now in its place.
 pub(super) fn restore_entry(
     item: crate::trashing::TrashItem,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
-    let (kept, info) = crate::operation::in_trash(&item);
+    if crate::trashing::restore(&item)? == crate::trashing::Restored::Back {
+        return Ok(());
+    }
+    let (kept, _) = crate::operation::in_trash(&item);
     let to = item.original_path();
     if let Some(parent) = to.parent() {
         fs::create_dir_all(parent)?;
@@ -162,9 +164,7 @@ pub(super) fn restore_entry(
         }
         Err(err) => return Err(err.into()),
     }
-    if let Some(info) = info {
-        fs::remove_file(info)?;
-    }
+    crate::trashing::forget(&item)?;
     Ok(())
 }
 
@@ -1214,8 +1214,15 @@ mod tests {
     #[test(compio::test)]
     async fn purging_takes_an_orphan_too() {
         let top = tempfile::tempdir().expect("tempdir");
-        let bin = crate::trashing::drive_bin(top.path(), true).expect("bin");
-        fs::create_dir_all(bin.root.join("files/o/sub")).expect("mkdir");
+        let bin = top
+            .path()
+            .join(format!(".Trash-{}", unsafe { libc::getuid() }));
+        fs::create_dir_all(bin.join("files/o/sub")).expect("mkdir");
+        fs::create_dir_all(bin.join("info")).expect("mkdir");
+        let bin = crate::trashing::drive_bins(top.path())
+            .expect("opened")
+            .pop()
+            .expect("bin");
         let (orphan, _) = crate::trashing::list_bin(&bin)
             .expect("listed")
             .pop()
@@ -1225,6 +1232,9 @@ mod tests {
         ctx.purge(vec![(orphan, files, info)])
             .await
             .expect("purged");
-        assert_eq!(fs::read_dir(bin.root.join("files")).expect("ls").count(), 0);
+        assert_eq!(
+            fs::read_dir(bin.path().join("files")).expect("ls").count(),
+            0
+        );
     }
 }

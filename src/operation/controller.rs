@@ -40,6 +40,8 @@ struct ControllerInner {
     checking: AtomicBool,
     /// Cancelled by Abort: stopped where it was, nothing put back.
     aborted: AtomicBool,
+    /// A cancel was asked for: kept through what the state becomes after.
+    cancel_asked: AtomicBool,
     /// What the checks have walked so far: files, and their size in bytes.
     checked_files: AtomicU64,
     checked_bytes: AtomicU64,
@@ -61,6 +63,7 @@ impl Default for Controller {
                 progress: AtomicU32::new(0.0f32.to_bits()),
                 checking: AtomicBool::new(false),
                 aborted: AtomicBool::new(false),
+                cancel_asked: AtomicBool::new(false),
                 checked_files: AtomicU64::new(0),
                 checked_bytes: AtomicU64::new(0),
                 notify: Notify::new(),
@@ -149,7 +152,17 @@ impl Controller {
     }
 
     pub fn cancel(&self) {
+        self.inner
+            .cancel_asked
+            .store(true, atomic::Ordering::Relaxed);
         self.set_state(ControllerState::Cancelled);
+    }
+
+    /// Whether a cancel was asked for, though the state has moved on since:
+    /// a cancel whose putting back failed ends as failed, and what it
+    /// still can put back is put back all the same.
+    pub fn cancel_asked(&self) -> bool {
+        self.inner.cancel_asked.load(atomic::Ordering::Relaxed)
     }
 
     /// Stops the operation where it is and keeps what it did: a cancel that
@@ -284,6 +297,15 @@ mod tests {
         assert!(waiting.as_mut().poll(&mut cx).is_pending());
         controller.cancel();
         assert!(waiting.as_mut().poll(&mut cx).is_ready());
+    }
+
+    #[test]
+    fn a_cancel_asked_for_is_remembered_past_a_failure() {
+        let controller = Controller::default();
+        assert!(!controller.cancel_asked());
+        controller.cancel();
+        controller.set_state(ControllerState::Failed);
+        assert!(controller.cancel_asked() && controller.clone().cancel_asked());
     }
 
     #[test]

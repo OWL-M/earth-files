@@ -7,35 +7,6 @@ use std::sync::RwLock;
 use crate::config::IconSizes;
 use crate::tab::{Item, SearchItem};
 
-/// Decode the percent escapes of a `.trashinfo` `Path=` line into a path.
-///
-/// The escapes stand for bytes, not characters: a path holding `é` is written
-/// as two escapes. Collecting them as bytes and building the path from those
-/// keeps any name the filesystem allows, including ones that are not UTF-8.
-/// Pushing each byte as a `char` would instead read them as Latin-1 and
-/// mangle every non-ASCII name.
-pub(crate) fn percent_decode(s: &str) -> Option<PathBuf> {
-    use std::ffi::OsString;
-    use std::os::unix::ffi::OsStringExt;
-
-    let (mut out, mut bytes) = (Vec::with_capacity(s.len()), s.bytes());
-    while let Some(byte) = bytes.next() {
-        if byte == b'%' {
-            let (hi, lo) = (bytes.next()?, bytes.next()?);
-            let digit = |x: u8| match x {
-                b'0'..=b'9' => Some(x - b'0'),
-                b'a'..=b'f' => Some(x - b'a' + 10),
-                b'A'..=b'F' => Some(x - b'A' + 10),
-                _ => None,
-            };
-            out.push(digit(hi)? << 4 | digit(lo)?);
-        } else {
-            out.push(byte);
-        }
-    }
-    Some(PathBuf::from(OsString::from_vec(out)))
-}
-
 pub trait TrashExt {
     fn is_empty() -> bool;
 
@@ -71,9 +42,8 @@ pub fn trash_item_path(item: &crate::trashing::TrashItem) -> Option<PathBuf> {
 /// - Compute: `<original_path>/sub/file.txt`
 pub fn original_path_for_trash_child(p: &Path) -> Option<PathBuf> {
     let files = trash_files_dir(p)?;
-    let bin = crate::trashing::bin_at(files.parent()?);
     let top = p.strip_prefix(files).ok()?.components().next()?;
-    let mut result = crate::trashing::origin_of(&bin, top.as_os_str())?;
+    let mut result = crate::trashing::origin_at(files.parent()?, top.as_os_str())?;
     let rel = p.strip_prefix(files.join(top)).ok()?;
     if !rel.as_os_str().is_empty() {
         result.push(rel);
@@ -141,7 +111,8 @@ fn is_trash_root(root: &Path) -> bool {
     })
 }
 
-fn trash_files_dir(path: &Path) -> Option<&Path> {
+/// The `files/` folder of the trash `path` is in.
+pub(crate) fn trash_files_dir(path: &Path) -> Option<&Path> {
     path.ancestors()
         .find(|a| a.ends_with("files") && a.parent().is_some_and(is_trash_root))
 }
@@ -161,7 +132,7 @@ impl TrashExt for Trash {
     fn folders() -> HashSet<PathBuf> {
         crate::trashing::bins()
             .into_iter()
-            .map(|bin| bin.root)
+            .map(|bin| bin.path())
             .collect()
     }
 
@@ -193,42 +164,5 @@ impl TrashExt for Trash {
                 break;
             }
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn percent_decode_reads_escapes_as_bytes() {
-        // Percent escapes stand for UTF-8 bytes, not Latin-1 characters
-        assert_eq!(
-            percent_decode("/home/u/Documents/caf%C3%A9.txt"),
-            Some(PathBuf::from("/home/u/Documents/café.txt"))
-        );
-        assert_eq!(
-            percent_decode("/home/u/%D0%BF%D1%80%D0%B8%D0%B2%D0%B5%D1%82"),
-            Some(PathBuf::from("/home/u/привет"))
-        );
-
-        // A name that is not valid UTF-8 survives as raw bytes
-        use std::ffi::OsStr;
-        use std::os::unix::ffi::OsStrExt;
-        assert_eq!(
-            percent_decode("/home/u/%FF%FE"),
-            Some(PathBuf::from(OsStr::from_bytes(&[
-                b'/', b'h', b'o', b'm', b'e', b'/', b'u', b'/', 0xFF, 0xFE
-            ])))
-        );
-
-        // Plain paths pass through, and malformed escapes are refused
-        assert_eq!(
-            percent_decode("/home/u/plain.txt"),
-            Some(PathBuf::from("/home/u/plain.txt"))
-        );
-        assert_eq!(percent_decode("/home/u/bad%"), None);
-        assert_eq!(percent_decode("/home/u/bad%zz"), None);
-        assert_eq!(percent_decode("/home/u/bad%4"), None);
     }
 }

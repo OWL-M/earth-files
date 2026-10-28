@@ -774,10 +774,11 @@ fn is_trashinfo(id: &Path) -> bool {
         && !crate::trash::is_trash_path(id)
 }
 
-/// Brings trashed items back to where they were, as a move out of the
-/// trash: missing folders are made again, a name taken there is asked about
-/// as for any move, and so is a folder this user may not write to. An item
-/// all back leaves the trash, its `.trashinfo` with it.
+/// Brings trashed items back to where they were: by the trash's own rename
+/// where nothing is in the way, the folders they were in made again where
+/// gone; the rest as a move out of the trash, where a name taken there is
+/// asked about as for any move, and so is a folder this user may not write
+/// to. An item all back leaves the trash, its `.trashinfo` with it.
 async fn restore(
     items: Vec<crate::trashing::TrashItem>,
     msg_tx: &Arc<TokioMutex<Sender<Message>>>,
@@ -785,51 +786,38 @@ async fn restore(
 ) -> Result<OperationSelection, OperationError> {
     let msg_tx = msg_tx.clone();
     compio::runtime::spawn(async move {
-        let entries: Vec<_> = items
-            .iter()
-            .map(|item| (in_trash(item), item.original_path()))
-            .collect();
-        // The folders they were in, made again where gone
-        let folders: Vec<PathBuf> = entries
-            .iter()
-            .filter_map(|(_, to)| to.parent().map(Path::to_path_buf))
-            .collect();
-        compio::runtime::spawn_blocking(move || {
-            for folder in folders {
-                if let Err(err) = fs::create_dir_all(&folder) {
-                    log::warn!("failed to make {} again: {err}", folder.display());
-                }
-            }
-        })
-        .await
-        .map_err(wrap_compio_spawn_error)?;
-
-        // A rename where nothing is in the way; the rest through the move,
-        // which asks
         let mut op_sel = OperationSelection::default();
+        // Brought back by a rename, to go back into the trash if cancelled
+        let mut back = Vec::new();
         let mut pairs = Vec::new();
         let mut stopped = None;
-        for ((from, _), to) in &entries {
+        for item in &items {
             if let Err(state) = controller.check().await {
                 stopped = Some(state);
                 break;
             }
-            let renamed = compio::runtime::spawn_blocking({
-                let (from, to) = (from.clone(), to.clone());
-                move || rename_no_replace(&from, &to)
+            let (from, _) = in_trash(item);
+            let to = item.original_path();
+            let restored = compio::runtime::spawn_blocking({
+                let item = item.clone();
+                move || crate::trashing::restore(&item)
             })
             .await
             .map_err(wrap_compio_spawn_error)?;
-            if renamed.is_ok() {
+            if let Ok(crate::trashing::Restored::Back) = restored {
                 op_sel.moved.push((from.clone(), to.clone()));
-                op_sel.ignored.push(from.clone());
+                op_sel.ignored.push(from);
                 op_sel.created.push(to.clone());
                 op_sel.selected.push(to.clone());
+                back.push((item.clone(), to));
             } else {
-                pairs.push((from.clone(), to.clone()));
+                if let Err(err) = &restored {
+                    log::info!("{} goes back by a move: {err}", to.display());
+                }
+                pairs.push((item.clone(), from, to));
             }
         }
-        // Cancelled while the last rename ran: as if before it
+        // Cancelled while the last restore ran: as if before it
         if stopped.is_none() && controller.is_cancelled() {
             stopped = Some(ControllerState::Cancelled);
         }
@@ -837,21 +825,7 @@ async fn restore(
             // Cancelled: what came back goes into the trash again. Aborted:
             // it stays, and can be undone
             if state == ControllerState::Cancelled && !controller.is_aborted() {
-                let back = std::mem::take(&mut op_sel.moved);
-                op_sel = OperationSelection::default();
-                let not_back = compio::runtime::spawn_blocking(move || {
-                    back.into_iter()
-                        .filter(|(from, to)| rename_no_replace(to, from).is_err())
-                        .collect::<Vec<_>>()
-                })
-                .await
-                .map_err(wrap_compio_spawn_error)?;
-                for (from, to) in not_back {
-                    log::warn!("failed to put {} back in the trash", to.display());
-                    op_sel.moved.push((from, to.clone()));
-                    op_sel.created.push(to.clone());
-                    op_sel.selected.push(to);
-                }
+                op_sel = put_back_restored(back).await?;
             }
             Err(OperationError {
                 partial: Box::new(op_sel),
@@ -860,39 +834,67 @@ async fn restore(
         } else if pairs.is_empty() {
             Ok(op_sel)
         } else {
-            let renamed = op_sel.clone();
-            recursive_pairs(
-                pairs,
+            // The folders they were in, made again where gone
+            let folders: Vec<PathBuf> = pairs
+                .iter()
+                .filter_map(|(_, _, to)| to.parent().map(Path::to_path_buf))
+                .collect();
+            compio::runtime::spawn_blocking(move || {
+                for folder in folders {
+                    if let Err(err) = fs::create_dir_all(&folder) {
+                        log::warn!("failed to make {} again: {err}", folder.display());
+                    }
+                }
+            })
+            .await
+            .map_err(wrap_compio_spawn_error)?;
+            let moves = pairs
+                .iter()
+                .map(|(_, from, to)| (from.clone(), to.clone()))
+                .collect();
+            // Not handed what the trash brought back: cancelled, the move
+            // renames back into `files/` what it was given as done, and
+            // those have no record there any more
+            let moved = recursive_pairs(
+                moves,
                 Method::Move {
                     cross_device_copy: false,
                 },
-                op_sel,
+                OperationSelection::default(),
                 false,
                 msg_tx,
                 controller.clone(),
             )
-            .await
-            .map_err(|mut err| {
-                // What the renames brought back is still back
-                if err.partial.moved.is_empty() && !controller.is_cancelled() {
-                    err.partial = Box::new(renamed);
+            .await;
+            match moved {
+                Ok(moved) => {
+                    op_sel.absorb(moved);
+                    Ok(op_sel)
                 }
-                err
-            })
+                // The move put back its own; what the trash brought back
+                // goes back into it with a record
+                // Asked, though putting back the move's own may have failed
+                // since and turned the state to failed: what the trash
+                // brought back can still go back
+                Err(err) if controller.cancel_asked() && !controller.is_aborted() => {
+                    let not_back = put_back_restored(back).await?;
+                    Err(err.after(not_back))
+                }
+                // What the renames brought back is still back
+                Err(err) => Err(err.after(op_sel)),
+            }
         };
 
-        // Whatever the move came to, an item no longer in the trash's files
-        // leaves its listing
-        let infos: Vec<(PathBuf, PathBuf)> = entries
-            .into_iter()
-            .filter_map(|((from, info), _)| Some((from, info?)))
-            .collect();
+        // Whatever the move came to, an item no longer in the trash leaves
+        // its listing
+        let moved: Vec<_> = pairs.into_iter().map(|(item, ..)| item).collect();
         compio::runtime::spawn_blocking(move || {
-            for (from, info) in infos {
-                if fs::symlink_metadata(&from).is_err()
-                    && let Err(err) = fs::remove_file(&info)
-                {
-                    log::warn!("failed to remove {}: {err}", info.display());
+            for item in moved {
+                if let Err(err) = crate::trashing::forget(&item) {
+                    log::warn!(
+                        "failed to remove the record of {}: {err}",
+                        item.original_path().display()
+                    );
                 }
             }
         })
@@ -904,31 +906,51 @@ async fn restore(
     .map_err(wrap_compio_spawn_error)?
 }
 
-/// Empties `bins`: every item for good, as [`purge`] does, then the records
-/// left there without an item.
+/// Sends what a restore brought back by the trash's own rename back into
+/// that trash, as a cancel leaves it: with a record again, so it can be
+/// restored. Returns what could not go back, as still restored.
+async fn put_back_restored(
+    back: Vec<(crate::trashing::TrashItem, PathBuf)>,
+) -> Result<OperationSelection, OperationError> {
+    let not_back = compio::runtime::spawn_blocking(move || {
+        back.into_iter()
+            .filter(|(item, to)| crate::trashing::put_back(item, to).is_err())
+            .collect::<Vec<_>>()
+    })
+    .await
+    .map_err(wrap_compio_spawn_error)?;
+    let mut op_sel = OperationSelection::default();
+    for (item, to) in not_back {
+        log::warn!("failed to put {} back in the trash", to.display());
+        op_sel.moved.push((in_trash(&item).0, to.clone()));
+        op_sel.created.push(to.clone());
+        op_sel.selected.push(to);
+    }
+    Ok(op_sel)
+}
+
+/// Empties `bins`: every item for good, as [`purge`] does. A record left
+/// without its item stays: it holds nothing, and another program may be
+/// trashing that item right now.
 async fn empty(
     bins: Vec<crate::trashing::Bin>,
     msg_tx: &Arc<TokioMutex<Sender<Message>>>,
     controller: Controller,
 ) -> Result<OperationSelection, OperationError> {
-    let (listed, bins) = compio::runtime::spawn_blocking(move || {
+    let listed = compio::runtime::spawn_blocking(move || {
         let mut items = Vec::new();
         for bin in &bins {
             match crate::trashing::list_bin(bin) {
                 Ok(listed) => items.extend(listed.into_iter().map(|(item, _)| item)),
-                Err(err) => return Err((bin.root.join("files"), err)),
+                Err(err) => return Err((bin.path().join("files"), err)),
             }
         }
-        Ok((items, bins))
+        Ok(items)
     })
     .await
     .map_err(wrap_compio_spawn_error)?
     .map_err(|(path, err)| OperationError::from_err(failure_text(&path, &err), &controller))?;
-    let result = purge(listed, msg_tx, controller).await?;
-    compio::runtime::spawn_blocking(move || crate::trashing::remove_stray_records(&bins))
-        .await
-        .map_err(wrap_compio_spawn_error)?;
-    Ok(result)
+    purge(listed, msg_tx, controller).await
 }
 
 /// Removes items from the trash for good, asking about what this user may
@@ -2286,16 +2308,18 @@ impl Operation {
             Self::Delete { paths } => delete(paths, false, msg_tx, controller.clone()).await,
             Self::DeleteTrash { items } => purge(items, msg_tx, controller.clone()).await,
             Self::EmptyTrash => {
-                let bins = compio::runtime::spawn_blocking(crate::trashing::bins)
+                let bins = compio::runtime::spawn_blocking(crate::trashing::bins_to_empty)
                     .await
-                    .map_err(wrap_compio_spawn_error)?;
+                    .map_err(wrap_compio_spawn_error)?
+                    .map_err(|err| OperationError::from_err(err.to_string(), &controller))?;
                 empty(bins, msg_tx, controller.clone()).await
             }
             Self::EmptyDriveTrash { root } => {
                 let bins =
                     compio::runtime::spawn_blocking(move || crate::trashing::drive_bins(&root))
                         .await
-                        .map_err(wrap_compio_spawn_error)?;
+                        .map_err(wrap_compio_spawn_error)?
+                        .map_err(|err| OperationError::from_err(err.to_string(), &controller))?;
                 empty(bins, msg_tx, controller.clone()).await
             }
             Self::Extract {
@@ -4659,6 +4683,55 @@ mod tests {
         assert!(paths.contains(&path.join("to/d/a")));
         assert!(paths.contains(&path.join("gone/deeper/lone")));
         assert!(!paths.contains(&path.join("to/d")));
+        Ok(())
+    }
+
+    /// A restore cancelled at a name taken for one item puts the item the
+    /// trash already brought back into the trash again, with its record,
+    /// so it can still be restored
+    #[test(compio::test)]
+    async fn a_cancelled_restore_keeps_what_came_back_restorable() -> io::Result<()> {
+        use std::os::unix::fs::PermissionsExt;
+
+        let fs = empty_fs()?;
+        let top = fs.path();
+        // SAFETY: `getuid` has no preconditions and cannot fail
+        let bin = top.join(format!(".Trash-{}", unsafe { libc::getuid() }));
+        fs::create_dir_all(bin.join("files"))?;
+        fs::create_dir_all(bin.join("info"))?;
+        fs::set_permissions(&bin, fs::Permissions::from_mode(0o700))?;
+        let trashed = |name: &str| -> io::Result<crate::trashing::TrashItem> {
+            fs::write(bin.join("files").join(name), name)?;
+            let info = bin.join("info").join(format!("{name}.trashinfo"));
+            fs::write(
+                &info,
+                format!("[Trash Info]\nPath={name}\nDeletionDate=2026-10-28T10:00:00\n"),
+            )?;
+            Ok(crate::trashing::TrashItem {
+                id: info.into(),
+                name: name.into(),
+                original_parent: top.to_path_buf(),
+                time_deleted: 1,
+            })
+        };
+        let items = vec![trashed("a")?, trashed("b")?];
+        // B's name is taken
+        fs::write(top.join("b"), b"new")?;
+
+        perform(Operation::Restore { items }, ReplaceResult::Cancel)
+            .await
+            .expect_err("cancelled");
+        assert!(!top.join("a").exists(), "a went back");
+        assert_eq!(fs::read(top.join("b"))?, b"new");
+        let dir = crate::trashing::drive_bins(top)?.pop().expect("the trash");
+        let listed = crate::trashing::list_bin(&dir)?;
+        assert_eq!(listed.len(), 2, "{listed:?}");
+        assert!(
+            listed
+                .iter()
+                .all(|(item, _)| !crate::trashing::origin_unknown(item)),
+            "each with its record: {listed:?}"
+        );
         Ok(())
     }
 

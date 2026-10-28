@@ -33,6 +33,7 @@ dependencies = [
  "cipher",
  "cpubits",
  "cpufeatures",
+ "zeroize",
 ]
 
 [[package]]
@@ -311,7 +312,7 @@ dependencies = [
  "futures-lite",
  "parking",
  "polling",
- "rustix 1.1.5",
+ "rustix 1.1.6",
  "slab",
  "windows-sys 0.61.2",
 ]
@@ -342,7 +343,7 @@ dependencies = [
  "cfg-if",
  "event-listener",
  "futures-lite",
- "rustix 1.1.5",
+ "rustix 1.1.6",
 ]
 
 [[package]]
@@ -368,7 +369,7 @@ dependencies = [
  "cfg-if",
  "futures-core",
  "futures-io",
- "rustix 1.1.5",
+ "rustix 1.1.6",
  "signal-hook-registry",
  "slab",
  "windows-sys 0.61.2",
@@ -680,7 +681,7 @@ checksum = "43b32313e937c8721c9d17ee9bf60699a6402b4b7c2cb6ac1bee0ffcaa4b4e5e"
 dependencies = [
  "bitflags 2.13.2",
  "polling",
- "rustix 1.1.5",
+ "rustix 1.1.6",
  "tracing",
 ]
 
@@ -703,7 +704,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "138efcf0940a02ebf0cc8d1eff41a1682a46b431630f4c52450d6265876021fa"
 dependencies = [
  "calloop 0.14.5",
- "rustix 1.1.5",
+ "rustix 1.1.6",
  "wayland-backend",
  "wayland-client",
 ]
@@ -877,7 +878,7 @@ dependencies = [
  "once_cell",
  "pastey 0.2.3",
  "polling",
- "rustix 1.1.5",
+ "rustix 1.1.6",
  "smallvec",
  "socket2",
  "synchrony",
@@ -912,7 +913,7 @@ dependencies = [
  "futures-util",
  "libc",
  "pin-project-lite",
- "rustix 1.1.5",
+ "rustix 1.1.6",
  "widestring",
  "windows-sys 0.61.2",
 ]
@@ -1188,9 +1189,9 @@ dependencies = [
 
 [[package]]
 name = "ctutils"
-version = "0.4.5"
+version = "0.4.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "38d28fb6aa7dd680b3ffd1a3e64e115c177bdba63c0ae7f9cd48129ff05c4fa0"
+checksum = "fe3e9d21d39e6f39ff46e03d5b621424f88ee23d8a1672c6bfc9ccc7f2da4f6a"
 dependencies = [
  "cmov",
 ]
@@ -1621,7 +1622,7 @@ dependencies = [
 [[package]]
 name = "exwlshellev"
 version = "0.21.2"
-source = "git+https://github.com/waycrate/exwlshelleventloop?branch=master#492d8499f680633e6a932f12ebe08a212f255ae7"
+source = "git+https://github.com/waycrate/exwlshelleventloop?branch=master#6bf601ac05a14049d890874d9accbbcee148b95d"
 dependencies = [
  "calloop 0.14.5",
  "calloop-wayland-source 0.4.1",
@@ -2009,7 +2010,7 @@ version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1bd49230192a3797a9a4d6abe9b3eed6f7fa4c8a8a4947977c6f80025f92cbd8"
 dependencies = [
- "rustix 1.1.5",
+ "rustix 1.1.6",
  "windows-link",
 ]
 
@@ -2156,9 +2157,9 @@ checksum = "e4eba85ea1d0a966a983acd07deee566e67395d2d96b6fb39e62b5a833f1eb0b"
 
 [[package]]
 name = "globset"
-version = "0.4.20"
+version = "0.4.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "07c34a9410465b45bd9787443bc7370f37735bad04b0f0cd57ff1a3186c98988"
+checksum = "f98b0d85522dc0a824cfebbc9594ff4a9b289c568bea0370319dfbdf20ccdd2d"
 dependencies = [
  "aho-corasick",
  "bstr",
@@ -2499,7 +2500,7 @@ dependencies = [
 [[package]]
 name = "iced_exdevtools"
 version = "0.21.2"
-source = "git+https://github.com/waycrate/exwlshelleventloop?branch=master#492d8499f680633e6a932f12ebe08a212f255ae7"
+source = "git+https://github.com/waycrate/exwlshelleventloop?branch=master#6bf601ac05a14049d890874d9accbbcee148b95d"
 dependencies = [
  "iced_debug",
  "iced_devtools",
@@ -2512,7 +2513,7 @@ dependencies = [
 [[package]]
 name = "iced_exwlshell"
 version = "0.21.2"
-source = "git+https://github.com/waycrate/exwlshelleventloop?branch=master#492d8499f680633e6a932f12ebe08a212f255ae7"
+source = "git+https://github.com/waycrate/exwlshelleventloop?branch=master#6bf601ac05a14049d890874d9accbbcee148b95d"
 dependencies = [
  "enumflags2",
  "exwlshellev",
@@ -2538,7 +2539,7 @@ dependencies = [
 [[package]]
 name = "iced_exwlshell_macros"
 version = "0.21.2"
-source = "git+https://github.com/waycrate/exwlshelleventloop?branch=master#492d8499f680633e6a932f12ebe08a212f255ae7"
+source = "git+https://github.com/waycrate/exwlshelleventloop?branch=master#6bf601ac05a14049d890874d9accbbcee148b95d"
 dependencies = [
  "darling 0.24.1",
  "manyhow",
@@ -2658,13 +2659,13 @@ dependencies = [
 [[package]]
 name = "iced_wayland_subscriber"
 version = "0.21.2"
-source = "git+https://github.com/waycrate/exwlshelleventloop?branch=master#492d8499f680633e6a932f12ebe08a212f255ae7"
+source = "git+https://github.com/waycrate/exwlshelleventloop?branch=master#6bf601ac05a14049d890874d9accbbcee148b95d"
 dependencies = [
  "exwlshellev",
  "futures",
  "iced_core",
  "iced_futures",
- "rustix 1.1.5",
+ "rustix 1.1.6",
  "smithay-client-toolkit 0.21.1",
  "thiserror 2.0.21",
  "wayland-client",
@@ -3179,9 +3180,9 @@ dependencies = [
 
 [[package]]
 name = "ignore"
-version = "0.4.33"
+version = "0.4.34"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "00b69833ed729dc5aa7d19541d96d6cf8e9137194207a04916d658e43168402f"
+checksum = "484be5657551d7868d67587df967fb4fcbe9d266a761cc855aaa148fda0b3cc7"
 dependencies = [
  "crossbeam-deque",
  "globset",
@@ -4320,9 +4321,9 @@ dependencies = [
 
 [[package]]
 name = "notify-types"
-version = "2.1.0"
+version = "2.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "42b8cfee0e339a0337359f3c88165702ac6e600dc01c0cc9579a92d62b08477a"
+checksum = "0a437a9308232ce794b1e7fdf540d38ea37efc3c73492640c13b4c8568b8f108"
 dependencies = [
  "bitflags 2.13.2",
 ]
@@ -4818,9 +4819,9 @@ dependencies = [
 
 [[package]]
 name = "ordered-float"
-version = "5.5.0"
+version = "5.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8c7c9e0d9b23589f26070720bac724174bfec1083e82f7854cdd0267518343c0"
+checksum = "7f59006ce1e204c30956638535b74d317bca99477b9356dfaec54c37f6f600ab"
 dependencies = [
  "num-traits",
 ]
@@ -5087,7 +5088,7 @@ dependencies = [
  "concurrent-queue",
  "hermit-abi",
  "pin-project-lite",
- "rustix 1.1.5",
+ "rustix 1.1.6",
  "windows-sys 0.61.2",
 ]
 
@@ -5554,12 +5555,11 @@ dependencies = [
 
 [[package]]
 name = "ron"
-version = "0.12.2"
+version = "0.12.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "81116b9531d61eabc41aeb228e4b6b2435bcca3233b98cf3b3077d4e6e9debb3"
+checksum = "97b3fe97c18ff24299ea56f802c5693eb34266fb0bc8317f4e101debc8a3ceaf"
 dependencies = [
  "bitflags 2.13.2",
- "once_cell",
  "serde",
  "serde_derive",
  "typeid",
@@ -5643,9 +5643,9 @@ dependencies = [
 
 [[package]]
 name = "rustix"
-version = "1.1.5"
+version = "1.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "891efababe418670775f199f0d233d84843c227a0949a883ce15b37c78d6629d"
+checksum = "e5e76742e5294153d4dde1207dbec5bdd81eef6fabdc0d2118babadabfd858aa"
 dependencies = [
  "bitflags 2.13.2",
  "errno",
@@ -5959,7 +5959,7 @@ dependencies = [
  "libc",
  "log",
  "memmap2",
- "rustix 1.1.5",
+ "rustix 1.1.6",
  "thiserror 2.0.21",
  "wayland-backend",
  "wayland-client",
@@ -5987,7 +5987,7 @@ dependencies = [
  "log",
  "memmap2",
  "pkg-config",
- "rustix 1.1.5",
+ "rustix 1.1.6",
  "thiserror 2.0.21",
  "wayland-client",
  "wayland-csd-frame",
@@ -6059,7 +6059,7 @@ dependencies = [
  "objc2-quartz-core 0.3.2",
  "raw-window-handle",
  "redox_syscall 0.5.18",
- "rustix 1.1.5",
+ "rustix 1.1.6",
  "tracing",
  "wasm-bindgen",
  "wayland-backend",
@@ -6257,7 +6257,7 @@ dependencies = [
  "fastrand",
  "getrandom 0.4.3",
  "once_cell",
- "rustix 1.1.5",
+ "rustix 1.1.6",
  "windows-sys 0.61.2",
 ]
 
@@ -6735,9 +6735,9 @@ checksum = "b1d386ff53b415b7fe27b50bb44679e2cc4660272694b7b6f3326d8480823a94"
 
 [[package]]
 name = "unicode-width"
-version = "0.2.2"
+version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b4ac048d71ede7ee76d585517add45da530660ef4390e49b098733c6e897f254"
+checksum = "ca718471876992059f251e33aafc334346ada08042b7661dd1fe313a9bced557"
 
 [[package]]
 name = "url"
@@ -6945,7 +6945,7 @@ dependencies = [
 [[package]]
 name = "waycrate_xkbkeycode"
 version = "0.21.2"
-source = "git+https://github.com/waycrate/exwlshelleventloop?branch=master#492d8499f680633e6a932f12ebe08a212f255ae7"
+source = "git+https://github.com/waycrate/exwlshelleventloop?branch=master#6bf601ac05a14049d890874d9accbbcee148b95d"
 dependencies = [
  "calloop 0.14.5",
  "log",
@@ -6965,7 +6965,7 @@ checksum = "38a91b4eaddff87b1cd1074985e3713da4af2c49742d1b356b2c01670a67a078"
 dependencies = [
  "cc",
  "downcast-rs",
- "rustix 1.1.5",
+ "rustix 1.1.6",
  "scoped-tls",
  "smallvec",
  "wayland-sys",
@@ -6978,7 +6978,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e3c36a0f861ad76d0901f2800b46321410d9f73f2ea88aac0650d86c32688073"
 dependencies = [
  "bitflags 2.13.2",
- "rustix 1.1.5",
+ "rustix 1.1.6",
  "wayland-backend",
  "wayland-scanner",
 ]
@@ -7000,7 +7000,7 @@ version = "0.31.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4a52d18780be9b1314328a3de5f930b73d2200112e3849ca6cb11822793fb34d"
 dependencies = [
- "rustix 1.1.5",
+ "rustix 1.1.6",
  "wayland-client",
  "xcursor",
 ]
@@ -7772,7 +7772,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9993aa5be5a26815fe2c3eacfc1fde061fc1a1f094bf1ad2a18bf9c495dd7414"
 dependencies = [
  "gethostname",
- "rustix 1.1.5",
+ "rustix 1.1.6",
  "x11rb-protocol",
 ]
 
@@ -7784,12 +7784,12 @@ checksum = "ea6fc2961e4ef194dcbfe56bb845534d0dc8098940c7e5c012a258bfec6701bd"
 
 [[package]]
 name = "xattr"
-version = "1.6.1"
+version = "1.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "32e45ad4206f6d2479085147f02bc2ef834ac85886624a23575ae137c8aa8156"
+checksum = "963d6fab92d5504b971dc8bd90ca743c2575e590bc8071ea5bc571598667ae08"
 dependencies = [
  "libc",
- "rustix 1.1.5",
+ "rustix 1.1.6",
 ]
 
 [[package]]
@@ -7801,34 +7801,47 @@ checksum = "163b33ed8786455e2fa5d72f554057ce3f3182425434f756cd39c99839d88e23"
 [[package]]
 name = "xdg-kit"
 version = "0.1.0"
-source = "git+https://github.com/OWL-M/xdg-kit-rs#8ebf920136a63215d05ba5fa5c5c2b034eebe627"
+source = "git+https://github.com/OWL-M/xdg-kit-rs#f75a109916e3a5079a33ba7540eaf1e639167a53"
 dependencies = [
+ "xdg-kit-autostart",
  "xdg-kit-basedir",
  "xdg-kit-bookmarks",
  "xdg-kit-desktop-entry",
  "xdg-kit-icon-theme",
  "xdg-kit-locale",
+ "xdg-kit-menu",
  "xdg-kit-mime",
  "xdg-kit-mime-apps",
  "xdg-kit-thumbnails",
+ "xdg-kit-trash",
+]
+
+[[package]]
+name = "xdg-kit-autostart"
+version = "0.1.0"
+source = "git+https://github.com/OWL-M/xdg-kit-rs#f75a109916e3a5079a33ba7540eaf1e639167a53"
+dependencies = [
+ "rustix 1.1.6",
+ "xdg-kit-basedir",
+ "xdg-kit-desktop-entry",
 ]
 
 [[package]]
 name = "xdg-kit-basedir"
 version = "0.1.0"
-source = "git+https://github.com/OWL-M/xdg-kit-rs#8ebf920136a63215d05ba5fa5c5c2b034eebe627"
+source = "git+https://github.com/OWL-M/xdg-kit-rs#f75a109916e3a5079a33ba7540eaf1e639167a53"
 dependencies = [
  "libc",
- "rustix 1.1.5",
+ "rustix 1.1.6",
 ]
 
 [[package]]
 name = "xdg-kit-bookmarks"
 version = "0.1.0"
-source = "git+https://github.com/OWL-M/xdg-kit-rs#8ebf920136a63215d05ba5fa5c5c2b034eebe627"
+source = "git+https://github.com/OWL-M/xdg-kit-rs#f75a109916e3a5079a33ba7540eaf1e639167a53"
 dependencies = [
  "quick-xml 0.42.0",
- "rustix 1.1.5",
+ "rustix 1.1.6",
  "xdg-kit-basedir",
  "xdg-kit-mime",
 ]
@@ -7836,9 +7849,9 @@ dependencies = [
 [[package]]
 name = "xdg-kit-desktop-entry"
 version = "0.1.0"
-source = "git+https://github.com/OWL-M/xdg-kit-rs#8ebf920136a63215d05ba5fa5c5c2b034eebe627"
+source = "git+https://github.com/OWL-M/xdg-kit-rs#f75a109916e3a5079a33ba7540eaf1e639167a53"
 dependencies = [
- "rustix 1.1.5",
+ "rustix 1.1.6",
  "xdg-kit-basedir",
  "xdg-kit-locale",
  "zbus 6.1.0",
@@ -7848,7 +7861,7 @@ dependencies = [
 [[package]]
 name = "xdg-kit-icon-theme"
 version = "0.1.0"
-source = "git+https://github.com/OWL-M/xdg-kit-rs#8ebf920136a63215d05ba5fa5c5c2b034eebe627"
+source = "git+https://github.com/OWL-M/xdg-kit-rs#f75a109916e3a5079a33ba7540eaf1e639167a53"
 dependencies = [
  "xdg-kit-basedir",
  "xdg-kit-desktop-entry",
@@ -7858,16 +7871,28 @@ dependencies = [
 [[package]]
 name = "xdg-kit-locale"
 version = "0.1.0"
-source = "git+https://github.com/OWL-M/xdg-kit-rs#8ebf920136a63215d05ba5fa5c5c2b034eebe627"
+source = "git+https://github.com/OWL-M/xdg-kit-rs#f75a109916e3a5079a33ba7540eaf1e639167a53"
+
+[[package]]
+name = "xdg-kit-menu"
+version = "0.1.0"
+source = "git+https://github.com/OWL-M/xdg-kit-rs#f75a109916e3a5079a33ba7540eaf1e639167a53"
+dependencies = [
+ "quick-xml 0.42.0",
+ "rustix 1.1.6",
+ "xdg-kit-basedir",
+ "xdg-kit-desktop-entry",
+ "xdg-kit-locale",
+]
 
 [[package]]
 name = "xdg-kit-mime"
 version = "0.1.0"
-source = "git+https://github.com/OWL-M/xdg-kit-rs#8ebf920136a63215d05ba5fa5c5c2b034eebe627"
+source = "git+https://github.com/OWL-M/xdg-kit-rs#f75a109916e3a5079a33ba7540eaf1e639167a53"
 dependencies = [
  "libc",
  "quick-xml 0.42.0",
- "rustix 1.1.5",
+ "rustix 1.1.6",
  "xdg-kit-basedir",
  "xdg-kit-locale",
 ]
@@ -7875,10 +7900,10 @@ dependencies = [
 [[package]]
 name = "xdg-kit-mime-apps"
 version = "0.1.0"
-source = "git+https://github.com/OWL-M/xdg-kit-rs#8ebf920136a63215d05ba5fa5c5c2b034eebe627"
+source = "git+https://github.com/OWL-M/xdg-kit-rs#f75a109916e3a5079a33ba7540eaf1e639167a53"
 dependencies = [
  "libc",
- "rustix 1.1.5",
+ "rustix 1.1.6",
  "xdg-kit-basedir",
  "xdg-kit-desktop-entry",
  "xdg-kit-mime",
@@ -7887,12 +7912,22 @@ dependencies = [
 [[package]]
 name = "xdg-kit-thumbnails"
 version = "0.1.0"
-source = "git+https://github.com/OWL-M/xdg-kit-rs#8ebf920136a63215d05ba5fa5c5c2b034eebe627"
+source = "git+https://github.com/OWL-M/xdg-kit-rs#f75a109916e3a5079a33ba7540eaf1e639167a53"
 dependencies = [
- "rustix 1.1.5",
+ "rustix 1.1.6",
  "xdg-kit-basedir",
  "xdg-kit-desktop-entry",
  "xdg-kit-mime",
+]
+
+[[package]]
+name = "xdg-kit-trash"
+version = "0.1.0"
+source = "git+https://github.com/OWL-M/xdg-kit-rs#f75a109916e3a5079a33ba7540eaf1e639167a53"
+dependencies = [
+ "jiff",
+ "rustix 1.1.6",
+ "xdg-kit-basedir",
 ]
 
 [[package]]
@@ -8030,7 +8065,7 @@ dependencies = [
  "hex",
  "libc",
  "ordered-stream",
- "rustix 1.1.5",
+ "rustix 1.1.6",
  "serde",
  "serde_repr",
  "tokio",
@@ -8057,7 +8092,7 @@ dependencies = [
  "hex",
  "libc",
  "ordered-stream",
- "rustix 1.1.5",
+ "rustix 1.1.6",
  "serde",
  "serde_repr",
  "socket2",
@@ -8222,9 +8257,9 @@ dependencies = [
 
 [[package]]
 name = "zip"
-version = "9.1.0"
+version = "9.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2886b00003a72c4ccee3f42cfc34908d33b2508a74d827dc2a4244706475c704"
+checksum = "1156b39d142a34b999c2310a50455e0cb3760bf7efad0122f796d813bee26ccb"
 dependencies = [
  "aes",
  "bzip2",
@@ -8281,7 +8316,7 @@ checksum = "dfc035df602243402949ddf3dcc5bcfad7edeb732dd49ec6e605431c4eca54ce"
 dependencies = [
  "futures-core",
  "futures-io",
- "rustix 1.1.5",
+ "rustix 1.1.6",
  "socket2",
  "windows-sys 0.61.2",
 ]
