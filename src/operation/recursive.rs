@@ -2753,7 +2753,7 @@ impl Op {
 mod tests {
     use super::check::{Target, check_tree};
     use super::{Context, Done, Effect, Method, OpKind, PlannedOp};
-    use crate::operation::{Controller, ControllerState};
+    use crate::operation::Controller;
     use std::fs;
     use std::path::Path;
     use test_log::test;
@@ -3917,7 +3917,7 @@ mod tests {
         fs::write(from.join("a.txt"), b"a").expect("write");
 
         let controller = Controller::default();
-        controller.set_state(ControllerState::Cancelled);
+        controller.cancel();
 
         let result = check_tree(
             &from,

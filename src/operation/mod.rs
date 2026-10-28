@@ -13,7 +13,7 @@ use std::sync::Arc;
 use tokio::sync::{Mutex as TokioMutex, mpsc};
 use zip::AesMode::Aes256;
 
-pub use self::controller::{Controller, ControllerState};
+pub use self::controller::{CancelOnDrop, Controller, ControllerState};
 pub mod controller;
 
 pub use notifiers::*;
@@ -2032,16 +2032,17 @@ impl Operation {
         msg_tx: &Arc<TokioMutex<Sender<Message>>>,
         controller: Controller,
     ) -> Result<OperationSelection, OperationError> {
-        // A clone runs it: this one, the operation's own, cancels it when
-        // dropped, which must come after its end is set
+        // Dropped before it ends, its blocking jobs are told to stop
+        let running = CancelOnDrop::new(controller.clone());
         let result = self.run(msg_tx, controller.clone()).await;
         if let Err(err) = &result {
             if err.is_cancelled() {
                 controller.cancel();
             } else {
-                controller.set_state(ControllerState::Failed);
+                controller.fail();
             }
         }
+        running.disarm();
         result
     }
 
@@ -3605,6 +3606,34 @@ mod tests {
             .perform(&sync::Mutex::new(tx).into(), controller)
             .await;
         (result, watched)
+    }
+
+    /// An operation dropped part-way, as when the runtime lets its task go,
+    /// is cancelled, so the blocking jobs it started stop too
+    #[test(compio::test)]
+    async fn an_operation_dropped_part_way_is_cancelled() -> io::Result<()> {
+        let fs = empty_fs()?;
+        let (from, to) = (fs.path().join("from"), fs.path().join("to"));
+        fs::create_dir_all(&from)?;
+        fs::create_dir_all(&to)?;
+        fs::write(from.join("a"), b"new")?;
+        fs::write(to.join("a"), b"old")?;
+        let (tx, mut rx) = mpsc::channel(1);
+        let msg_tx = sync::Mutex::new(tx).into();
+        let controller = Controller::default();
+        let copy = Operation::Copy {
+            paths: vec![from.join("a")],
+            to,
+        }
+        .perform(&msg_tx, controller.clone());
+        let mut copy = Box::pin(copy);
+        // Run until it asks about the name taken, then let it go unanswered
+        let asked = future::select(copy.as_mut(), rx.next()).await;
+        assert!(matches!(asked, future::Either::Right((Some(_), _))));
+        assert!(!controller.is_cancelled());
+        drop(copy);
+        assert!(controller.is_cancelled());
+        Ok(())
     }
 
     /// A failure at a path keeps the path and the I/O error, and the

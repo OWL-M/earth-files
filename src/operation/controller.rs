@@ -48,16 +48,17 @@ struct ControllerInner {
     notify: Notify,
 }
 
-#[derive(Debug)]
+/// A handle on one operation's state. Clones control the same operation;
+/// dropping one changes nothing: what is to stop when its work is dropped
+/// holds a [`CancelOnDrop`].
+#[derive(Clone, Debug)]
 pub struct Controller {
-    primary: bool,
     inner: Arc<ControllerInner>,
 }
 
 impl Default for Controller {
     fn default() -> Self {
         Self {
-            primary: true,
             inner: Arc::new(ControllerInner {
                 state: AtomicU16::new(ControllerState::Running.into()),
                 progress: AtomicU32::new(0.0f32.to_bits()),
@@ -135,7 +136,14 @@ impl Controller {
             .unwrap_or(ControllerState::Failed)
     }
 
-    pub fn set_state(&self, state: ControllerState) {
+    /// Ends the operation as failed: set by what runs it, from how it
+    /// ended, over a cancel too, as when putting back what a cancel undoes
+    /// failed.
+    pub fn fail(&self) {
+        self.set_state(ControllerState::Failed);
+    }
+
+    fn set_state(&self, state: ControllerState) {
         self.inner
             .state
             .store(state.into(), atomic::Ordering::Relaxed);
@@ -267,20 +275,28 @@ impl Controller {
     }
 }
 
-impl Clone for Controller {
-    fn clone(&self) -> Self {
-        Self {
-            primary: false,
-            inner: self.inner.clone(),
-        }
+/// Cancels an operation when dropped, unless [`Self::disarm`]ed first: held
+/// by what runs it, so that work dropped part-way, such as a task the
+/// runtime let go, stops the blocking jobs it started, which notice nothing
+/// else.
+#[must_use]
+pub struct CancelOnDrop(Option<Controller>);
+
+impl CancelOnDrop {
+    pub fn new(controller: Controller) -> Self {
+        Self(Some(controller))
+    }
+
+    /// The work ended on its own: nothing to cancel.
+    pub fn disarm(mut self) {
+        self.0 = None;
     }
 }
 
-impl Drop for Controller {
+impl Drop for CancelOnDrop {
     fn drop(&mut self) {
-        // Cancel operations if primary controller is dropped and controller is still running
-        if self.primary && self.state() != ControllerState::Failed {
-            self.cancel();
+        if let Some(controller) = self.0.take() {
+            controller.cancel();
         }
     }
 }
@@ -296,7 +312,7 @@ mod tests {
         controller.unpause();
         assert!(controller.is_cancelled());
 
-        controller.set_state(ControllerState::Failed);
+        controller.fail();
         controller.unpause();
         assert!(controller.is_failed());
 
@@ -313,7 +329,7 @@ mod tests {
         controller.pause();
         assert!(controller.is_cancelled());
 
-        controller.set_state(ControllerState::Failed);
+        controller.fail();
         controller.pause();
         assert!(controller.is_failed());
     }
@@ -337,7 +353,7 @@ mod tests {
         let controller = Controller::default();
         assert!(!controller.cancel_asked());
         controller.cancel();
-        controller.set_state(ControllerState::Failed);
+        controller.fail();
         assert!(controller.cancel_asked() && controller.clone().cancel_asked());
     }
 
@@ -350,6 +366,16 @@ mod tests {
         controller.abort();
         assert!(controller.is_cancelled() && controller.is_aborted());
         assert!(controller.clone().is_aborted());
+    }
+
+    #[test]
+    fn only_a_guard_dropped_armed_cancels() {
+        let controller = Controller::default();
+        drop(controller.clone());
+        CancelOnDrop::new(controller.clone()).disarm();
+        assert_eq!(controller.state(), ControllerState::Running);
+        drop(CancelOnDrop::new(controller.clone()));
+        assert!(controller.is_cancelled());
     }
 
     #[test]

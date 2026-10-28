@@ -53,7 +53,7 @@ use crate::large_image::{
 use crate::localize::{LANGUAGE_SORTER, LOCALE};
 use crate::mime_icon::mime_for_path;
 use crate::mounter::MOUNTERS;
-use crate::operation::{Controller, ControllerState, OperationError};
+use crate::operation::{CancelOnDrop, Controller, ControllerState, OperationError};
 use crate::thumbnail_cacher::{self, CachedThumbnail, ThumbnailCacher};
 use crate::thumbnailer::thumbnailers;
 use crate::trash::{Trash, TrashExt};
@@ -211,14 +211,6 @@ where
 /// the drop has to reach it some other way. Scrolling a selected folder out of
 /// view drops its subscription, and this turns that into a cancellation the
 /// walk itself notices.
-struct CancelOnDrop(Controller);
-
-impl Drop for CancelOnDrop {
-    fn drop(&mut self) {
-        self.0.cancel();
-    }
-}
-
 /// What is known about an item from the disk itself, as opposed to from the
 /// listing it came in.
 ///
@@ -10205,7 +10197,7 @@ impl Tab {
                         1,
                         move |mut output: futures::channel::mpsc::Sender<_>| async move {
                             let controller = Controller::default();
-                            let _cancel = CancelOnDrop(controller.clone());
+                            let _cancel = CancelOnDrop::new(controller.clone());
                             let start = Instant::now();
                             let size = input.total(controller).await;
                             log::debug!(
@@ -10549,7 +10541,7 @@ impl Tab {
                                         let controller = Controller::default();
                                         // Cancel the walk when this subscription goes away,
                                         // which is the only notice a blocking job gets.
-                                        let _cancel = CancelOnDrop(controller.clone());
+                                        let _cancel = CancelOnDrop::new(controller.clone());
                                         let message = {
                                             let start = Instant::now();
                                             match calculate_dir_size(&path, controller).await {
