@@ -635,7 +635,7 @@ impl App {
             .items_opt()
             .into_iter()
             .flatten()
-            .filter(|item| item.selected && item.path_opt().is_some())
+            .filter(|item| self.tab.selection.is_selected(item) && item.path_opt().is_some())
             .map(|item| item.metadata.is_dir())
             .collect();
         if selected_dirs.is_empty() {
@@ -754,14 +754,17 @@ impl App {
     fn preview<'a>(&'a self, kind: &'a PreviewKind) -> Element<'a, tab::Message> {
         let mut children = Vec::with_capacity(1);
         match kind {
+            // Looked up on its own, not selected in any listing
             PreviewKind::Custom(PreviewItem(item)) => {
-                children.push(item.preview_view(None));
+                children.push(item.preview_view(None, false));
             }
             PreviewKind::Location(location) => {
                 if let Some(items) = self.tab.items_opt() {
                     for item in items {
                         if item.location_opt.as_ref() == Some(location) {
-                            children.push(item.preview_view(None));
+                            children.push(
+                                item.preview_view(None, self.tab.selection.is_selected(item)),
+                            );
                             // Only show one property view to avoid issues like hangs when generating
                             // preview images on thousands of files
                             break;
@@ -772,13 +775,15 @@ impl App {
             PreviewKind::Selected => {
                 if let Some(items) = self.tab.items_opt() {
                     let preview_opt = {
-                        let mut selected = items.iter().filter(|item| item.selected);
+                        let mut selected = items
+                            .iter()
+                            .filter(|item| self.tab.selection.is_selected(item));
 
                         match (selected.next(), selected.next()) {
                             // At least two selected items
                             (Some(_), Some(_)) => Some(self.tab.multi_preview_view(None)),
                             // Exactly one selected item
-                            (Some(item), None) => Some(item.preview_view(None)),
+                            (Some(item), None) => Some(item.preview_view(None, true)),
                             // No selected items
                             _ => None,
                         }
@@ -791,7 +796,8 @@ impl App {
                     if children.is_empty()
                         && let Some(item) = &self.tab.parent_item_opt
                     {
-                        children.push(item.preview_view(None));
+                        // The folder shown is not among what it lists
+                        children.push(item.preview_view(None, false));
                     }
                 }
             }
@@ -1204,7 +1210,7 @@ impl Application for App {
                     .and_then(|items| {
                         items
                             .iter()
-                            .find(|item| item.selected)
+                            .find(|item| self.tab.selection.is_selected(item))
                             .map(|item| item.preview_actions().map(Message::TabMessage))
                     })
                     .unwrap_or_else(|| widget::space::horizontal().into());
@@ -1854,7 +1860,7 @@ impl Application for App {
                 let mut paths = Vec::new();
                 if let Some(items) = self.tab.items_opt() {
                     for item in items {
-                        if item.selected
+                        if self.tab.selection.is_selected(item)
                             && let Some(path) = item.path_opt()
                         {
                             paths.push(path.clone());
@@ -1981,7 +1987,7 @@ impl Application for App {
                     && let Some(click_i) = click_i_opt
                     && let Some(items) = self.tab.items_opt()
                     && let Some(item) = items.get(click_i)
-                    && item.selected
+                    && self.tab.selection.is_selected(item)
                     && !item.metadata.is_dir()
                 {
                     filename.clone_from(&item.name);
@@ -2084,13 +2090,6 @@ impl Application for App {
                 // of the same folder
                 if browser::wants_scan(&self.tab, scan, &location, &location) {
                     self.filter_items(&mut items);
-
-                    // Select based on filename
-                    if let DialogKind::SaveFile { filename } = &self.flags.kind {
-                        for item in &mut items {
-                            item.selected = &item.name == filename;
-                        }
-                    }
 
                     let wanted = browser::take_scan(&mut self.tab, parent_item_opt, items);
                     // Apply a scroll offset restored from history, now that the items exist

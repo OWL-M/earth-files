@@ -2479,7 +2479,7 @@ impl App {
             return Task::none();
         };
         for item in items {
-            if item.selected {
+            if tab.selection.is_selected(item) {
                 if let Some(path) = item.path_opt()
                     && (op_sel.selected.contains(path) || op_sel.ignored.contains(path))
                 {
@@ -4194,8 +4194,9 @@ impl App {
         let mut children = Vec::with_capacity(1);
         let entity = entity_opt.unwrap_or_else(|| self.tab_model.active());
         match kind {
+            // Looked up on its own, not selected in any listing
             PreviewKind::Custom(PreviewItem(item)) => {
-                children.push(item.preview_view(self.mime_apps_for_view()));
+                children.push(item.preview_view(self.mime_apps_for_view(), false));
             }
             PreviewKind::Location(location) => {
                 if let Some(tab) = self.tabs.get(entity)
@@ -4203,7 +4204,10 @@ impl App {
                 {
                     for item in items {
                         if item.location_opt.as_ref() == Some(location) {
-                            children.push(item.preview_view(self.mime_apps_for_view()));
+                            children.push(item.preview_view(
+                                self.mime_apps_for_view(),
+                                tab.selection.is_selected(item),
+                            ));
                             // Only show one property view to avoid issues like hangs when generating
                             // preview images on thousands of files
                             break;
@@ -4227,9 +4231,10 @@ impl App {
                                 Some(tab.multi_preview_view(self.mime_apps_for_view()))
                             }
                             // Exactly one selected item
-                            (Some(item), None) => {
-                                Some(item.preview_view(self.mime_apps_for_view()))
-                            }
+                            (Some(item), None) => Some(item.preview_view(
+                                self.mime_apps_for_view(),
+                                tab.selection.is_selected(item),
+                            )),
                             // No selected items
                             _ => None,
                         }
@@ -4242,7 +4247,8 @@ impl App {
                     if children.is_empty()
                         && let Some(item) = &tab.parent_item_opt
                     {
-                        children.push(item.preview_view(self.mime_apps_for_view()));
+                        // The folder shown is not among what it lists
+                        children.push(item.preview_view(self.mime_apps_for_view(), false));
                     }
                 }
             }
@@ -5104,7 +5110,7 @@ impl Application for App {
                         if let Some(items) = tab.items_opt() {
                             let mut trash_items = Vec::new();
                             for item in items {
-                                if item.selected
+                                if tab.selection.is_selected(item)
                                     && let ItemMetadata::Trash { entry, .. } = &item.metadata
                                 {
                                     trash_items.push(entry.clone());
@@ -5946,7 +5952,10 @@ impl Application for App {
                         paths = items
                             .iter()
                             .filter_map(|item| {
-                                item.selected.then(|| item.path_opt().cloned()).flatten()
+                                tab.selection
+                                    .is_selected(item)
+                                    .then(|| item.path_opt().cloned())
+                                    .flatten()
                             })
                             .collect();
                     }
@@ -6097,12 +6106,16 @@ impl Application for App {
                 let chosen = self
                     .tabs
                     .get(entity)
-                    .and_then(Tab::items_opt)
-                    .and_then(|items| {
-                        items.iter().filter(|item| item.selected).find_map(|item| {
-                            item.path_opt()
-                                .map(|path| (path.clone(), item.mime.clone(), item.type_checked))
-                        })
+                    .and_then(|tab| Some((tab.items_opt()?, &tab.selection)))
+                    .and_then(|(items, selection)| {
+                        items
+                            .iter()
+                            .filter(|item| selection.is_selected(item))
+                            .find_map(|item| {
+                                item.path_opt().map(|path| {
+                                    (path.clone(), item.mime.clone(), item.type_checked)
+                                })
+                            })
                     });
                 if let Some((path, mime, type_checked)) = chosen {
                     // Typed by its name only so far: the applications offered
@@ -6901,7 +6914,7 @@ impl Application for App {
                     let selected: Box<[_]> = items
                         .iter()
                         .filter_map(|item| {
-                            if item.selected {
+                            if tab.selection.is_selected(item) {
                                 item.path_opt().cloned()
                             } else {
                                 None
@@ -6983,7 +6996,7 @@ impl Application for App {
                     for item in items {
                         // With no record of where it came from it has
                         // nowhere to go back to
-                        if item.selected
+                        if tab.selection.is_selected(item)
                             && let ItemMetadata::Trash { entry, .. } = &item.metadata
                             && !crate::trashing::origin_unknown(entry)
                         {
@@ -8111,7 +8124,10 @@ impl Application for App {
                     .tabs
                     .get(entity)
                     .and_then(|tab| {
-                        let mut selected = tab.items_opt()?.iter().filter(|item| item.selected);
+                        let mut selected = tab
+                            .items_opt()?
+                            .iter()
+                            .filter(|item| tab.selection.is_selected(item));
 
                         match (selected.next(), selected.next()) {
                             // Exactly one item

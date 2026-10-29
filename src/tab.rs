@@ -211,6 +211,59 @@ where
 /// the drop has to reach it some other way. Scrolling a selected folder out of
 /// view drops its subscription, and this turns that into a cancellation the
 /// walk itself notices.
+/// Which entries of a listing are selected, and which are highlighted, by
+/// each entry's own id. Kept by the tab rather than the entries, so an entry
+/// read again in place keeps it, and so do the ones search results arrive
+/// around. A listing read anew is new entries: its selection is restored
+/// by path where asked for.
+#[derive(Debug, Default)]
+pub struct Selection {
+    selected: rustc_hash::FxHashSet<widget::Id>,
+    highlighted: rustc_hash::FxHashSet<widget::Id>,
+}
+
+impl Selection {
+    pub fn is_selected(&self, item: &Item) -> bool {
+        self.selected.contains(&item.button_id)
+    }
+
+    pub fn select(&mut self, item: &Item, selected: bool) {
+        if selected {
+            self.selected.insert(item.button_id.clone());
+        } else {
+            self.selected.remove(&item.button_id);
+        }
+    }
+
+    pub fn is_highlighted(&self, item: &Item) -> bool {
+        self.highlighted.contains(&item.button_id)
+    }
+
+    pub fn highlight(&mut self, item: &Item, highlighted: bool) {
+        if highlighted {
+            self.highlighted.insert(item.button_id.clone());
+        } else {
+            self.highlighted.remove(&item.button_id);
+        }
+    }
+
+    /// Nothing selected; what is highlighted stays.
+    pub fn deselect_all(&mut self) {
+        self.selected.clear();
+    }
+
+    /// Whether anything is selected.
+    pub fn any(&self) -> bool {
+        !self.selected.is_empty()
+    }
+
+    /// Nothing selected or highlighted, as for a listing read anew.
+    pub fn clear(&mut self) {
+        self.selected.clear();
+        self.highlighted.clear();
+    }
+}
+
 /// What is known about an item from the disk itself, as opposed to from the
 /// listing it came in.
 ///
@@ -1232,8 +1285,6 @@ pub fn item_from_gvfs_info(path: PathBuf, file_info: gio::FileInfo, sizes: IconS
         button_id: widget::Id::unique(),
         pos_opt: Cell::new(None),
         rect_opt: Cell::new(None),
-        selected: false,
-        highlighted: false,
         overlaps_drag_rect: false,
         dir_size,
         cut: false,
@@ -1349,8 +1400,6 @@ fn item_from_entry_typed(
         button_id: widget::Id::unique(),
         pos_opt: Cell::new(None),
         rect_opt: Cell::new(None),
-        selected: false,
-        highlighted: false,
         overlaps_drag_rect: false,
         dir_size,
         cut: false,
@@ -1410,8 +1459,6 @@ pub fn item_from_trash_entry(
         button_id: widget::Id::unique(),
         pos_opt: Cell::new(None),
         rect_opt: Cell::new(None),
-        selected: false,
-        highlighted: false,
         overlaps_drag_rect: false,
         dir_size: DirSize::NotDirectory,
         cut: false,
@@ -1951,8 +1998,6 @@ fn network_item(
         button_id: widget::Id::unique(),
         pos_opt: Cell::new(None),
         rect_opt: Cell::new(None),
-        selected: false,
-        highlighted: false,
         overlaps_drag_rect: false,
         dir_size,
         cut: false,
@@ -3335,8 +3380,6 @@ pub struct Item {
     pub button_id: widget::Id,
     pub pos_opt: Cell<Option<(usize, usize)>>,
     pub rect_opt: Cell<Option<Rectangle>>,
-    pub selected: bool,
-    pub highlighted: bool,
     pub cut: bool,
     pub overlaps_drag_rect: bool,
     pub dir_size: DirSize,
@@ -3363,8 +3406,6 @@ impl Item {
             button_id: self.button_id.clone(),
             pos_opt: Cell::new(self.pos_opt.get()),
             rect_opt: Cell::new(self.rect_opt.get()),
-            selected: self.selected,
-            highlighted: self.highlighted,
             cut: self.cut,
             overlaps_drag_rect: self.overlaps_drag_rect,
             ..fresh
@@ -3422,9 +3463,9 @@ impl Item {
     }
 
     /// Whether the item is drawn faded: one that would be hidden, shown
-    /// because hidden files are, unless it is selected.
-    fn faded(&self) -> bool {
-        self.hidden && !self.selected
+    /// because hidden files are, unless it is `selected`.
+    fn faded(&self, selected: bool) -> bool {
+        self.hidden && !selected
     }
 
     pub fn path_opt(&self) -> Option<&PathBuf> {
@@ -3497,9 +3538,12 @@ impl Item {
         row.into()
     }
 
+    /// `selected`: whether it is selected in its listing, which offers to
+    /// open it.
     pub fn preview_view<'a>(
         &'a self,
         mime_app_cache_opt: Option<&'a mime_app::MimeAppCache>,
+        selected: bool,
     ) -> Element<'a, Message> {
         let Spacing {
             space_xxxs,
@@ -3743,7 +3787,7 @@ impl Item {
         }
 
         if let Some(path) = self.path_opt()
-            && self.selected
+            && selected
         {
             column = column.push(
                 widget::button::standard(fl!("open")).on_press(Message::Open(Some(path.clone()))),
@@ -4161,6 +4205,8 @@ pub struct Tab {
     pub gallery: bool,
     pub(crate) parent_item_opt: Option<Box<Item>>,
     pub(crate) items_opt: Option<Vec<Item>>,
+    /// Which of the items are selected and highlighted.
+    pub selection: Selection,
     // `iced_core::widget::Id` has no `Display` and a private `Internal`, so the
     // name cannot be recovered from an `Id`. Store it alongside the id; every
     // producer already has it as a literal.
@@ -4624,6 +4670,7 @@ impl Tab {
             gallery: false,
             parent_item_opt: None,
             items_opt: None,
+            selection: Selection::default(),
             scrollable_id,
             scrollable_name,
             select_focus: None,
@@ -4977,34 +5024,37 @@ impl Tab {
         true
     }
 
-    pub fn set_items(&mut self, mut items: Vec<Item>) {
+    pub fn set_items(&mut self, items: Vec<Item>) {
         // What the menus read of the selection is worked out again
         self.forget_selection();
         let marks = self.selection_marks();
         self.new_listing();
-        let highlighted = self
-            .items_opt
-            .as_ref()
-            .and_then(|items| items.iter().enumerate().find(|i| i.1.highlighted))
-            .map(|(i, _)| i);
+        let highlighted = self.items_opt.as_ref().and_then(|items| {
+            items
+                .iter()
+                .position(|item| self.selection.is_highlighted(item))
+        });
+        // The same places stay selected in the listing read anew
         let selected = self.selected_locations();
-        for item in &mut items {
-            item.selected = false;
-            if let Some(location) = &item.location_opt
-                && selected.contains(location)
+        self.selection.clear();
+        for item in &items {
+            if item
+                .location_opt
+                .as_ref()
+                .is_some_and(|location| selected.contains(location))
             {
-                item.selected = true;
+                self.selection.select(item, true);
             }
         }
         self.items_opt = Some(items);
         self.restore_selection_marks(marks);
         // The old listing's notes name other items
         self.highlight_marks.clear();
-        if let Some(i) = highlighted
-            .zip(self.items_opt.as_mut())
-            .and_then(|(h, items)| items.get_mut(h))
+        if let Some(item) = highlighted
+            .zip(self.items_opt.as_ref())
+            .and_then(|(h, items)| items.get(h))
         {
-            i.highlighted = true;
+            self.selection.highlight(item, true);
         }
         self.highlight_marks.extend(highlighted);
     }
@@ -5012,7 +5062,7 @@ impl Tab {
     pub fn cut_selected(&mut self) {
         if let Some(ref mut items) = self.items_opt {
             for item in items.iter_mut() {
-                item.cut = item.selected;
+                item.cut = self.selection.is_selected(item);
             }
         }
     }
@@ -5034,13 +5084,8 @@ impl Tab {
         if let Some(ref items) = self.items_opt {
             items
                 .iter()
-                .filter_map(|item| {
-                    if item.selected {
-                        item.location_opt.clone()
-                    } else {
-                        None
-                    }
-                })
+                .filter(|item| self.selection.is_selected(item))
+                .filter_map(|item| item.location_opt.clone())
                 .collect()
         } else {
             Vec::new()
@@ -5050,13 +5095,10 @@ impl Tab {
     pub fn select_all(&mut self) {
         // What the menus read of the selection is worked out again
         self.forget_selection();
-        if let Some(ref mut items) = self.items_opt {
-            for item in items.iter_mut() {
-                if !self.config.show_hidden && item.hidden {
-                    item.selected = false;
-                    continue;
-                }
-                item.selected = true;
+        if let Some(ref items) = self.items_opt {
+            for item in items {
+                self.selection
+                    .select(item, self.config.show_hidden || !item.hidden);
             }
         }
         self.settle_anchor();
@@ -5079,7 +5121,7 @@ impl Tab {
             self.items_opt
                 .as_ref()
                 .and_then(|items| items.get(i))
-                .is_some_and(|item| item.selected)
+                .is_some_and(|item| self.selection.is_selected(item))
         };
         if self
             .select_range
@@ -5089,7 +5131,11 @@ impl Tab {
         }
         let first = self
             .column_sort()
-            .and_then(|sorted| sorted.into_iter().find(|(_, item)| item.selected))
+            .and_then(|sorted| {
+                sorted
+                    .into_iter()
+                    .find(|(_, item)| self.selection.is_selected(item))
+            })
             .map(|(i, _)| i);
         self.select_range = first.map(|i| (i, i));
         if first.is_none() {
@@ -5137,8 +5183,8 @@ impl Tab {
         let mut had_selection = false;
         if let Some(ref mut items) = self.items_opt {
             for item in items.iter_mut() {
-                if item.selected {
-                    item.selected = false;
+                if self.selection.is_selected(item) {
+                    self.selection.select(item, false);
                     had_selection = true;
                 }
             }
@@ -5155,7 +5201,7 @@ impl Tab {
                 .iter()
                 .flatten()
                 .enumerate()
-                .filter(|(_, item)| item.selected)
+                .filter(|(_, item)| self.selection.is_selected(item))
                 .map(|(i, _)| i)
         };
         match self.search_select {
@@ -5198,7 +5244,7 @@ impl Tab {
             // choose once something eligible arrives.
             if let Some(items) = &mut self.items_opt {
                 for item in items.iter_mut() {
-                    item.selected = false;
+                    self.selection.select(item, false);
                 }
             }
             self.select_focus = None;
@@ -5208,7 +5254,7 @@ impl Tab {
         };
         if let Some(items) = &mut self.items_opt {
             for (i, item) in items.iter_mut().enumerate() {
-                item.selected = i == top;
+                self.selection.select(item, i == top);
             }
         }
         self.select_focus = Some(top);
@@ -5222,8 +5268,8 @@ impl Tab {
         let mut found = None;
         if let Some(ref mut items) = self.items_opt {
             for (i, item) in items.iter_mut().enumerate() {
-                item.selected = item.name == name;
-                if item.selected {
+                self.selection.select(item, item.name == name);
+                if self.selection.is_selected(item) {
                     found = Some(i);
                 }
             }
@@ -5251,7 +5297,7 @@ impl Tab {
         if let Some(ref mut items) = self.items_opt {
             // First, deselect all items
             for item in items.iter_mut() {
-                item.selected = false;
+                self.selection.select(item, false);
             }
 
             // Determine the start index of the search. When the index is before the currently focused item, it will be
@@ -5267,6 +5313,7 @@ impl Tab {
             self.select_focus = Self::select_first_prefix_from_index(
                 &prefix_lower,
                 items,
+                &mut self.selection,
                 start,
                 self.sort_direction,
             );
@@ -5292,6 +5339,7 @@ impl Tab {
             self.select_focus = Self::select_first_prefix_from_index(
                 &first.to_string(),
                 items,
+                &mut self.selection,
                 start,
                 self.sort_direction,
             );
@@ -5312,6 +5360,7 @@ impl Tab {
     fn select_first_prefix_from_index(
         prefix_lower: &str,
         items: &mut [Item],
+        selection: &mut Selection,
         start: usize,
         forward: bool,
     ) -> Option<usize> {
@@ -5330,9 +5379,9 @@ impl Tab {
             .chain(until.iter_mut().enumerate());
 
         if forward {
-            Self::select_first_prefix_match(prefix_lower, search_items)
+            Self::select_first_prefix_match(prefix_lower, search_items, selection)
         } else {
-            Self::select_first_prefix_match(prefix_lower, search_items.rev())
+            Self::select_first_prefix_match(prefix_lower, search_items.rev(), selection)
         }
     }
 
@@ -5342,10 +5391,11 @@ impl Tab {
     fn select_first_prefix_match<'a>(
         prefix: &str,
         items: impl Iterator<Item = (usize, &'a mut Item)>,
+        selection: &mut Selection,
     ) -> Option<usize> {
         for (i, item) in items {
             if item.name.to_lowercase().starts_with(prefix) {
-                item.selected = true;
+                selection.select(item, true);
                 return Some(i);
             }
         }
@@ -5358,11 +5408,11 @@ impl Tab {
         let mut found = None;
         if let Some(ref mut items) = self.items_opt {
             for (i, item) in items.iter_mut().enumerate() {
-                item.selected = false;
+                self.selection.select(item, false);
                 if let Some(path) = item.path_opt()
                     && paths.contains(path)
                 {
-                    item.selected = true;
+                    self.selection.select(item, true);
                     found = Some(i);
                 }
             }
@@ -5400,7 +5450,7 @@ impl Tab {
         let mut found = false;
         if let Some(ref mut items) = self.items_opt {
             for (i, item) in items.iter_mut().enumerate() {
-                item.selected = false;
+                self.selection.select(item, false);
                 let pos = match item.pos_opt.get() {
                     Some(some) => some,
                     None => continue,
@@ -5425,7 +5475,7 @@ impl Tab {
                     self.select_range = Some((anchor, i));
                     found = true;
                 }
-                item.selected = true;
+                self.selection.select(item, true);
             }
         }
         found
@@ -5452,15 +5502,18 @@ impl Tab {
                 let was_overlapped = item.overlaps_drag_rect;
                 item.overlaps_drag_rect = item.rect_opt.get().is_some_and(|r| r.intersects(&rect));
 
-                item.selected = if mod_ctrl || mod_shift {
-                    if was_overlapped == item.overlaps_drag_rect {
-                        item.selected
+                self.selection.select(
+                    item,
+                    if mod_ctrl || mod_shift {
+                        if was_overlapped == item.overlaps_drag_rect {
+                            self.selection.is_selected(item)
+                        } else {
+                            !self.selection.is_selected(item)
+                        }
                     } else {
-                        !item.selected
-                    }
-                } else {
-                    item.overlaps_drag_rect
-                };
+                        item.overlaps_drag_rect
+                    },
+                );
             }
         }
     }
@@ -5473,7 +5526,7 @@ impl Tab {
         };
         let selected: Vec<_> = items
             .iter()
-            .filter(|item| item.selected)
+            .filter(|item| self.selection.is_selected(item))
             .filter_map(|item| item.path_opt().cloned())
             .collect();
         if selected.is_empty() {
@@ -5586,7 +5639,7 @@ impl Tab {
         self.dnd_target = target;
         if let Some(items) = self.items_opt.as_mut() {
             for (i, item) in items.iter_mut().enumerate() {
-                item.highlighted = Some(i) == target;
+                self.selection.highlight(item, Some(i) == target);
             }
         }
         // Nothing else is highlighted now
@@ -5614,13 +5667,15 @@ impl Tab {
         if let Some(items) = self.items_opt.as_mut() {
             for index in self.highlight_marks.drain(..) {
                 if let Some(item) = items.get_mut(index) {
-                    item.highlighted = false;
+                    self.selection.highlight(item, false);
                 }
             }
             // A highlight made without a note shows here
             #[cfg(test)]
             assert!(
-                items.iter().all(|item| !item.highlighted),
+                items
+                    .iter()
+                    .all(|item| !self.selection.is_highlighted(item)),
                 "a highlight was left unnoted"
             );
         }
@@ -5832,12 +5887,12 @@ impl Tab {
 
         for &index in previous.iter() {
             if let Some(item) = items.get_mut(index) {
-                item.selected = false;
+                self.selection.select(item, false);
             }
         }
         let mut selected: Vec<usize> = layout.shown[range.clone()].to_vec();
         for &index in &selected {
-            items[index].selected = true;
+            self.selection.select(&items[index], true);
         }
         let target = (target.1 < cols)
             .then(|| target.0 * cols + target.1)
@@ -5994,8 +6049,8 @@ impl Tab {
             None
         };
         self.change_location(location, None);
-        if let Some(mut items) = kept {
-            Self::deselect(&mut items);
+        if let Some(items) = kept {
+            self.selection.clear();
             self.items_opt = Some(items);
         }
     }
@@ -6027,9 +6082,7 @@ impl Tab {
             self.location_ancestors = ancestors;
             self.location_title = title;
         }
-        if let Some(items) = &mut self.items_opt {
-            Self::deselect(items);
-        }
+        self.selection.clear();
         self.follow_search_top(self.search_selection_is_own());
     }
 
@@ -6082,13 +6135,6 @@ impl Tab {
     /// Whether `scan` is the latest read [`Self::start_scan`] numbered.
     pub fn is_latest_scan(&self, scan: u64) -> bool {
         scan == self.scans
-    }
-
-    fn deselect(items: &mut [Item]) {
-        for item in items {
-            item.selected = false;
-            item.highlighted = false;
-        }
     }
 
     pub fn change_location(&mut self, location: &Location, history_i_opt: Option<usize>) {
@@ -6221,7 +6267,7 @@ impl Tab {
                     items
                         .iter()
                         .enumerate()
-                        .filter(|(_, item)| item.selected)
+                        .filter(|(_, item)| self.selection.is_selected(item))
                         .map(|(index, _)| index)
                         .collect()
                 },
@@ -6326,7 +6372,7 @@ impl Tab {
                         && let Some(ref mut items) = self.items_opt
                     {
                         for (i, item) in items.iter_mut().enumerate() {
-                            item.selected = i == narrow_to;
+                            self.selection.select(item, i == narrow_to);
                         }
                         self.select_range = Some((narrow_to, narrow_to));
                     }
@@ -6335,11 +6381,14 @@ impl Tab {
                         && let Some(ref mut items) = self.items_opt
                     {
                         for (i, item) in items.iter_mut().enumerate() {
-                            if mod_ctrl && Some(i) == click_i_opt && item.selected {
-                                item.selected = false;
+                            if mod_ctrl
+                                && Some(i) == click_i_opt
+                                && self.selection.is_selected(item)
+                            {
+                                self.selection.select(item, false);
                             }
                         }
-                        if !items.iter().any(|item| item.selected) {
+                        if !items.iter().any(|item| self.selection.is_selected(item)) {
                             // The last one toggled off
                             self.anchor_selection(None);
                         }
@@ -6456,17 +6505,17 @@ impl Tab {
                                 // and adds to it.
                                 if !mod_ctrl {
                                     for item in items.iter_mut() {
-                                        item.selected = false;
+                                        self.selection.select(item, false);
                                     }
                                 }
                                 for &index in in_range {
                                     if let Some(item) = items.get_mut(index) {
                                         if item.hidden {
                                             if self.config.show_hidden {
-                                                item.selected = true;
+                                                self.selection.select(item, true);
                                             }
                                         } else {
-                                            item.selected = true;
+                                            self.selection.select(item, true);
                                         }
                                     }
                                 }
@@ -6485,8 +6534,9 @@ impl Tab {
                     let dont_unset = !clicked_folder_in_file_dialog
                         && (mod_ctrl
                             || self.column_sort().is_some_and(|l| {
-                                l.iter()
-                                    .any(|&(e_i, e)| Some(e_i) == click_i_opt && e.selected)
+                                l.iter().any(|&(e_i, e)| {
+                                    Some(e_i) == click_i_opt && self.selection.is_selected(e)
+                                })
                             }));
                     if let Some(ref mut items) = self.items_opt {
                         for (i, item) in items.iter_mut().enumerate() {
@@ -6502,17 +6552,17 @@ impl Tab {
                                         }
                                     }
                                 }
-                                if !item.selected {
+                                if !self.selection.is_selected(item) {
                                     self.clicked = click_i_opt;
-                                    item.selected = true;
+                                    self.selection.select(item, true);
                                 } else if !mod_ctrl {
                                     self.narrow_on_release = click_i_opt;
                                 }
                                 self.select_range = Some((i, i));
                                 self.select_focus = click_i_opt;
-                            } else if !dont_unset && item.selected {
+                            } else if !dont_unset && self.selection.is_selected(item) {
                                 self.clicked = click_i_opt;
-                                item.selected = false;
+                                self.selection.select(item, false);
                             }
                         }
                     }
@@ -6571,7 +6621,7 @@ impl Tab {
                     && let Some(ref mut items) = self.items_opt
                 {
                     for item in items.iter_mut() {
-                        item.selected = false;
+                        self.selection.select(item, false);
                     }
                     self.anchor_selection(None);
                 }
@@ -6933,11 +6983,17 @@ impl Tab {
                 match path.map_or_else(
                     || {
                         let items = self.items_opt.as_deref()?;
-                        items.iter().find(|&item| item.selected).and_then(|item| {
-                            let location = item.location_opt.as_ref()?;
-                            let path = location.path_opt()?;
-                            crate::desktop_entry::load_desktop_file(&[language.into()], path.into())
-                        })
+                        items
+                            .iter()
+                            .find(|&item| self.selection.is_selected(item))
+                            .and_then(|item| {
+                                let location = item.location_opt.as_ref()?;
+                                let path = location.path_opt()?;
+                                crate::desktop_entry::load_desktop_file(
+                                    &[language.into()],
+                                    path.into(),
+                                )
+                            })
                     },
                     |path| crate::desktop_entry::load_desktop_file(&[language.into()], path),
                 ) {
@@ -7000,7 +7056,7 @@ impl Tab {
             Message::GalleryToggle => {
                 if let Some(indices) = self.column_sort() {
                     for (_, item) in &indices {
-                        if item.selected && item.can_gallery() {
+                        if self.selection.is_selected(item) && item.can_gallery() {
                             self.gallery = !self.gallery;
 
                             if self.gallery {
@@ -7352,10 +7408,11 @@ impl Tab {
                         }
                         fn resolve_item(
                             item: &Item,
+                            selected: bool,
                             mode: &Mode,
                             is_only_one_selected: bool,
                         ) -> ResolveResult {
-                            if !item.selected {
+                            if !selected {
                                 return ResolveResult::Skip;
                             }
 
@@ -7389,10 +7446,18 @@ impl Tab {
                         }
                         let mut open_files = Vec::new();
                         if let Some(items) = self.items_opt.as_ref() {
-                            let selected_count = items.iter().filter(|i| i.selected).count();
+                            let selected_count = items
+                                .iter()
+                                .filter(|i| self.selection.is_selected(i))
+                                .count();
 
                             for item in items.iter() {
-                                match resolve_item(item, &self.mode, selected_count == 1) {
+                                match resolve_item(
+                                    item,
+                                    self.selection.is_selected(item),
+                                    &self.mode,
+                                    selected_count == 1,
+                                ) {
                                     ResolveResult::Open(Some(p)) => open_files.push(p),
                                     ResolveResult::OpenInTab(Some(p)) => {
                                         commands.push(Command::OpenInNewTab(p))
@@ -7428,12 +7493,15 @@ impl Tab {
                     self.update(Message::Click(click_i_opt), modifiers);
                 }
                 if let Some(ref mut items) = self.items_opt
-                    && !click_i_opt
-                        .is_some_and(|click_i| items.get(click_i).is_some_and(|x| x.selected))
+                    && !click_i_opt.is_some_and(|click_i| {
+                        items
+                            .get(click_i)
+                            .is_some_and(|x| self.selection.is_selected(x))
+                    })
                 {
                     // If item not selected, clear selection on other items
                     for (i, item) in items.iter_mut().enumerate() {
-                        item.selected = Some(i) == click_i_opt;
+                        self.selection.select(item, Some(i) == click_i_opt);
                     }
                     self.anchor_selection(click_i_opt);
                 }
@@ -7445,7 +7513,7 @@ impl Tab {
                 } else {
                     if let Some(ref mut items) = self.items_opt {
                         for (i, item) in items.iter_mut().enumerate() {
-                            item.selected = i == click_i;
+                            self.selection.select(item, i == click_i);
                         }
                         self.anchor_selection(Some(click_i));
                     }
@@ -7470,7 +7538,7 @@ impl Tab {
             Message::HighlightDeactivate(i) => {
                 self.watch_drag = true;
                 if let Some(item) = self.items_opt.as_mut().and_then(|f| f.get_mut(i)) {
-                    item.highlighted = false;
+                    self.selection.highlight(item, false);
                     // Notes stay as few as the highlights
                     self.highlight_marks.retain(|&mark| mark != i);
                 }
@@ -7478,7 +7546,7 @@ impl Tab {
             Message::HighlightActivate(i) => {
                 self.watch_drag = true;
                 if let Some(item) = self.items_opt.as_mut().and_then(|f| f.get_mut(i)) {
-                    item.highlighted = true;
+                    self.selection.highlight(item, true);
                     self.highlight_marks.push(i);
                 }
             }
@@ -7625,7 +7693,7 @@ impl Tab {
                     items
                         .iter()
                         .enumerate()
-                        .filter(|(_, item)| item.highlighted)
+                        .filter(|(_, item)| self.selection.is_highlighted(item))
                         .map(|(index, _)| index)
                         .collect()
                 });
@@ -7705,7 +7773,10 @@ impl Tab {
                 None => {
                     let mut permissions = Vec::new();
                     for item in self.items_opt().map_or(Vec::new(), |items| {
-                        items.iter().filter(|item| item.selected).collect()
+                        items
+                            .iter()
+                            .filter(|item| self.selection.is_selected(item))
+                            .collect()
                     }) {
                         if let (Some(path), Some(mode)) = (
                             item.path_opt(),
@@ -8212,7 +8283,7 @@ impl Tab {
             .map(|items| {
                 items
                     .into_iter()
-                    .filter(|(_, item)| item.selected)
+                    .filter(|(_, item)| self.selection.is_selected(item))
                     .map(|(_, item)| item.name.clone())
                     .collect()
             })
@@ -9324,7 +9395,7 @@ impl Tab {
                 for row in first..=last {
                     for &i in &layout.shown[row * cols..((row + 1) * cols).min(count)] {
                         let item = &items[i];
-                        let faded = item.faded();
+                        let faded = item.faded(self.selection.is_selected(item));
                         let mut name = Item::grid_display_name(&item.display_name);
                         // A cut name takes the button's dimmed colour
                         if faded && !item.cut {
@@ -9339,8 +9410,8 @@ impl Tab {
                             )
                             .padding(space_xxxs)
                             .class(button_style(
-                                item.selected,
-                                item.highlighted,
+                                self.selection.is_selected(item),
+                                self.selection.is_highlighted(item),
                                 item.cut,
                                 false,
                                 false,
@@ -9351,8 +9422,8 @@ impl Tab {
                                     .id(item.button_id.clone())
                                     .padding([0, space_xxxs])
                                     .class(button_style(
-                                        item.selected,
-                                        item.highlighted,
+                                        self.selection.is_selected(item),
+                                        self.selection.is_highlighted(item),
                                         item.cut,
                                         true,
                                         true,
@@ -9654,8 +9725,8 @@ impl Tab {
                 // A selected or cut row's button sets the text colour
                 // (on the accent fill, or dimmed), so its details take
                 // that colour instead of their own
-                let own_colours = !item.selected && !item.cut;
-                let faded = item.faded();
+                let own_colours = !self.selection.is_selected(item) && !item.cut;
+                let faded = item.faded(self.selection.is_selected(item));
                 if faded && own_colours {
                     name = name.class(theme::Text::Custom(faded_text_style));
                 }
@@ -9727,8 +9798,8 @@ impl Tab {
                         .id(item.button_id.clone())
                         .padding([0, space_xs])
                         .class(button_style(
-                            item.selected,
-                            item.highlighted,
+                            self.selection.is_selected(item),
+                            self.selection.is_highlighted(item),
                             item.cut,
                             true,
                             false,
@@ -9919,7 +9990,7 @@ impl Tab {
                 .iter()
                 .filter_map(|&index| items.get(index))
                 .filter(|item| {
-                    if item.selected {
+                    if self.selection.is_selected(item) {
                         item.location_opt
                             .as_ref()
                             .and_then(Location::path_opt)
@@ -10965,6 +11036,56 @@ fn text_editor_class(
 #[cfg(test)]
 mod tests {
 
+    /// The tab keeps the selection by each entry's own id: an entry read
+    /// again in place keeps it, and so does one that new entries arrive
+    /// around, as search results do; a listing read anew starts afresh,
+    /// but for the places selected before
+    #[test]
+    fn an_entry_keeps_its_selection_however_it_is_moved_or_read_again() {
+        let dir = tempfile::tempdir().unwrap();
+        for name in ["a", "b"] {
+            std::fs::write(dir.path().join(name), name).unwrap();
+        }
+        let sizes = super::IconSizes::default();
+        let mut tab = super::Tab::new(
+            super::Location::Path(dir.path().to_path_buf()),
+            super::TabConfig::default(),
+            super::ThumbCfg::default(),
+            None,
+            std::borrow::Cow::Borrowed("Undefined"),
+            None,
+        );
+        tab.set_items(super::scan_path(&dir.path().to_path_buf(), sizes));
+        let named = |tab: &super::Tab, name: &str| {
+            let items = tab.items_opt.as_ref().unwrap();
+            let item = items.iter().find(|item| item.name == name).unwrap();
+            tab.selection.is_selected(item)
+        };
+        let b = tab
+            .items_opt
+            .as_ref()
+            .unwrap()
+            .iter()
+            .position(|item| item.name == "b")
+            .unwrap();
+        tab.selection
+            .select(&tab.items_opt.as_ref().unwrap()[b], true);
+
+        // Read again in place
+        let fresh = super::item_from_path(dir.path().join("b"), sizes).unwrap();
+        tab.items_opt.as_mut().unwrap()[b].adopt(fresh);
+        assert!(named(&tab, "b"));
+
+        // Another entry arrives before it
+        let c = super::item_from_path(dir.path().join("a"), sizes).unwrap();
+        tab.items_opt.as_mut().unwrap().insert(0, c);
+        assert!(named(&tab, "b") && !named(&tab, "a"));
+
+        // Read anew: the same place stays selected, nothing else
+        tab.set_items(super::scan_path(&dir.path().to_path_buf(), sizes));
+        assert!(named(&tab, "b") && !named(&tab, "a"));
+    }
+
     /// A network entry becomes a listed item as the mounter described it:
     /// a file with its type, a folder as a folder, and the network's root
     /// as places to go into
@@ -11285,7 +11406,7 @@ mod tests {
         tab.column_sort()
             .into_iter()
             .flatten()
-            .filter(|(_, item)| item.selected)
+            .filter(|(_, item)| tab.selection.is_selected(item))
             .map(|(_, item)| item.name.clone())
             .collect()
     }
@@ -11938,7 +12059,7 @@ mod tests {
         for (i, (&expected, actual)) in expected_selected.iter().zip(items).enumerate() {
             assert_eq!(
                 expected,
-                actual.selected,
+                tab.selection.is_selected(actual),
                 "expected index {i} to be {}",
                 if expected {
                     "selected but it was deselected"
@@ -12500,7 +12621,7 @@ mod tests {
                 .expect("tab should be populated with items")
                 .iter()
                 .enumerate()
-                .filter_map(|(i, item)| item.selected.then_some(i))
+                .filter_map(|(i, item)| tab.selection.is_selected(item).then_some(i))
                 .collect()
         };
 
@@ -13204,7 +13325,8 @@ mod tests {
         let fs = folder_of_files(100)?;
         let mut tab = name_first_tab(&fs);
         show(&mut tab, 0..8);
-        tab.items_opt.as_mut().expect("populated")[90].selected = true;
+        tab.selection
+            .select(&tab.items_opt.as_ref().expect("populated")[90], true);
 
         let files = unchecked_files(&tab).expect("files are unchecked");
         assert_eq!(files.len(), 25);
@@ -13598,7 +13720,7 @@ mod tests {
             tab.items_opt()
                 .into_iter()
                 .flatten()
-                .filter(|item| item.selected)
+                .filter(|item| tab.selection.is_selected(item))
                 .count()
         };
         if let Some(items) = tab.items_opt.as_mut() {
@@ -13607,8 +13729,8 @@ mod tests {
                     *children_opt = Some(7);
                 }
             }
-            items[0].selected = true;
-            items[1].highlighted = true;
+            tab.selection.select(&items[0], true);
+            tab.selection.highlight(&items[1], true);
         }
         // As the rescan named it from the filesystem
         for (_, name) in &mut tab.location_ancestors {
@@ -13633,7 +13755,7 @@ mod tests {
             tab.items_opt()
                 .into_iter()
                 .flatten()
-                .all(|item| !item.highlighted)
+                .all(|item| !tab.selection.is_highlighted(item))
         );
         assert!(
             tab.location_ancestors
@@ -13827,8 +13949,8 @@ mod tests {
         tab.change_location(&search(""), None);
         tab.set_items(Location::Path(path.clone()).scan(IconSizes::default()).1);
         if let Some(items) = tab.items_opt.as_mut() {
-            items[0].selected = true;
-            items[0].highlighted = true;
+            tab.selection.select(&items[0], true);
+            tab.selection.highlight(&items[0], true);
         }
 
         tab.change_location_keeping_listing(&search(""));
@@ -13836,7 +13958,9 @@ mod tests {
             .items_opt()
             .expect("reading the search again blanked the listing");
         assert_eq!(NUM_DIRS, items.len());
-        assert!(items.iter().all(|item| !item.selected && !item.highlighted));
+        assert!(items.iter().all(|item| {
+            !tab.selection.is_selected(item) && !tab.selection.is_highlighted(item)
+        }));
 
         // A term lists something else: that listing starts empty
         tab.change_location_keeping_listing(&search("x"));
@@ -15051,7 +15175,7 @@ mod tests {
             tab.items_opt
                 .iter()
                 .flatten()
-                .filter(|item| item.selected)
+                .filter(|item| tab.selection.is_selected(item))
                 .map(|item| item.name.clone())
                 .collect()
         };
@@ -15157,7 +15281,7 @@ mod tests {
             .items_opt
             .iter()
             .flatten()
-            .filter(|item| item.selected)
+            .filter(|item| tab.selection.is_selected(item))
             .map(|item| item.name.as_str())
             .collect();
         assert_eq!(selected, ["a.txt"], "the folder's first item is selected");
@@ -15287,7 +15411,7 @@ mod tests {
             .items_opt
             .iter()
             .flatten()
-            .filter(|item| item.selected)
+            .filter(|item| tab.selection.is_selected(item))
             .map(|item| item.name.as_str())
             .collect();
         assert_eq!(
@@ -15377,7 +15501,7 @@ mod tests {
             tab.items_opt
                 .iter()
                 .flatten()
-                .filter(|item| item.selected)
+                .filter(|item| tab.selection.is_selected(item))
                 .map(|item| item.name.clone())
                 .collect()
         };
@@ -15902,7 +16026,10 @@ mod tests {
         }
         let selected = |tab: &Tab| -> Vec<bool> {
             at.iter()
-                .map(|&i| tab.items_opt.as_ref().unwrap()[i].selected)
+                .map(|&i| {
+                    tab.selection
+                        .is_selected(&tab.items_opt.as_ref().unwrap()[i])
+                })
                 .collect()
         };
 
@@ -16360,23 +16487,20 @@ mod tests {
             fs::write(dir.path().join(name), b"").expect("write");
         }
         fs::write(dir.path().join(".hidden"), b"snap\n").expect("write");
-        let mut items = scan_path(&dir.path().to_path_buf(), IconSizes::default());
-        let faded = |items: &[super::Item], name: &str| {
+        let items = scan_path(&dir.path().to_path_buf(), IconSizes::default());
+        let faded = |name: &str, selected: bool| {
             items
                 .iter()
                 .find(|item| item.name == name)
                 .expect("listed")
-                .faded()
+                .faded(selected)
         };
-        assert!(faded(&items, ".bashrc"));
-        assert!(faded(&items, "snap"));
-        assert!(!faded(&items, "notes.md"));
+        assert!(faded(".bashrc", false));
+        assert!(faded("snap", false));
+        assert!(!faded("notes.md", false));
 
-        for item in &mut items {
-            item.selected = item.name == ".bashrc";
-        }
-        assert!(!faded(&items, ".bashrc"));
-        assert!(faded(&items, "snap"));
+        assert!(!faded(".bashrc", true), "selected");
+        assert!(faded("snap", false));
     }
 
     #[test]

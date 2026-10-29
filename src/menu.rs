@@ -1378,10 +1378,13 @@ mod tests {
             IconSizes::default(),
         ));
         for item in tab.items_opt_mut().expect("items") {
-            item.selected = selected.contains(&item.name.as_str());
             if let Some((_, mime)) = types.iter().find(|(name, _)| *name == item.name) {
                 item.mime = Mime::from_static(mime);
             }
+        }
+        for item in tab.items_opt.iter().flatten() {
+            tab.selection
+                .select(item, selected.contains(&item.name.as_str()));
         }
         (dir, tab)
     }
