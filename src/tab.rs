@@ -220,6 +220,11 @@ where
 pub struct Selection {
     selected: rustc_hash::FxHashSet<widget::Id>,
     highlighted: rustc_hash::FxHashSet<widget::Id>,
+    /// Cut to the clipboard, drawn dimmed until pasted.
+    cut: rustc_hash::FxHashSet<widget::Id>,
+    /// Crossed by the rectangle being dragged out, which toggles what it
+    /// newly crosses or leaves.
+    dragged_over: rustc_hash::FxHashSet<widget::Id>,
 }
 
 impl Selection {
@@ -257,10 +262,42 @@ impl Selection {
         !self.selected.is_empty()
     }
 
-    /// Nothing selected or highlighted, as for a listing read anew.
+    pub fn is_cut(&self, item: &Item) -> bool {
+        self.cut.contains(&item.button_id)
+    }
+
+    pub fn set_cut(&mut self, item: &Item, cut: bool) {
+        if cut {
+            self.cut.insert(item.button_id.clone());
+        } else {
+            self.cut.remove(&item.button_id);
+        }
+    }
+
+    pub fn is_dragged_over(&self, item: &Item) -> bool {
+        self.dragged_over.contains(&item.button_id)
+    }
+
+    pub fn set_dragged_over(&mut self, item: &Item, over: bool) {
+        if over {
+            self.dragged_over.insert(item.button_id.clone());
+        } else {
+            self.dragged_over.remove(&item.button_id);
+        }
+    }
+
+    /// Nothing selected or highlighted.
     pub fn clear(&mut self) {
         self.selected.clear();
         self.highlighted.clear();
+    }
+
+    /// Nothing at all, for a listing read anew: its entries are new, and
+    /// what is cut is marked on them again from the clipboard.
+    pub fn forget_entries(&mut self) {
+        self.clear();
+        self.cut.clear();
+        self.dragged_over.clear();
     }
 }
 
@@ -1285,9 +1322,7 @@ pub fn item_from_gvfs_info(path: PathBuf, file_info: gio::FileInfo, sizes: IconS
         button_id: widget::Id::unique(),
         pos_opt: Cell::new(None),
         rect_opt: Cell::new(None),
-        overlaps_drag_rect: false,
         dir_size,
-        cut: false,
         checksums: ChecksumState::default(),
     }
 }
@@ -1400,9 +1435,7 @@ fn item_from_entry_typed(
         button_id: widget::Id::unique(),
         pos_opt: Cell::new(None),
         rect_opt: Cell::new(None),
-        overlaps_drag_rect: false,
         dir_size,
-        cut: false,
         checksums: ChecksumState::default(),
     }
 }
@@ -1459,9 +1492,7 @@ pub fn item_from_trash_entry(
         button_id: widget::Id::unique(),
         pos_opt: Cell::new(None),
         rect_opt: Cell::new(None),
-        overlaps_drag_rect: false,
         dir_size: DirSize::NotDirectory,
-        cut: false,
         checksums: ChecksumState::default(),
     }
 }
@@ -1998,9 +2029,7 @@ fn network_item(
         button_id: widget::Id::unique(),
         pos_opt: Cell::new(None),
         rect_opt: Cell::new(None),
-        overlaps_drag_rect: false,
         dir_size,
-        cut: false,
         checksums: ChecksumState::default(),
     }
 }
@@ -3380,8 +3409,7 @@ pub struct Item {
     pub button_id: widget::Id,
     pub pos_opt: Cell<Option<(usize, usize)>>,
     pub rect_opt: Cell<Option<Rectangle>>,
-    pub cut: bool,
-    pub overlaps_drag_rect: bool,
+
     pub dir_size: DirSize,
     pub checksums: ChecksumState,
 }
@@ -3406,8 +3434,6 @@ impl Item {
             button_id: self.button_id.clone(),
             pos_opt: Cell::new(self.pos_opt.get()),
             rect_opt: Cell::new(self.rect_opt.get()),
-            cut: self.cut,
-            overlaps_drag_rect: self.overlaps_drag_rect,
             ..fresh
         };
     }
@@ -5036,7 +5062,7 @@ impl Tab {
         });
         // The same places stay selected in the listing read anew
         let selected = self.selected_locations();
-        self.selection.clear();
+        self.selection.forget_entries();
         for item in &items {
             if item
                 .location_opt
@@ -5062,7 +5088,8 @@ impl Tab {
     pub fn cut_selected(&mut self) {
         if let Some(ref mut items) = self.items_opt {
             for item in items.iter_mut() {
-                item.cut = self.selection.is_selected(item);
+                let selected = self.selection.is_selected(item);
+                self.selection.set_cut(item, selected);
             }
         }
     }
@@ -5070,12 +5097,12 @@ impl Tab {
     pub fn refresh_cut(&mut self, locations: &[PathBuf]) {
         if let Some(ref mut items) = self.items_opt {
             for item in items.iter_mut() {
-                item.cut = false;
-                if let Some(location_path) = item.location_opt.as_ref().and_then(Location::path_opt)
-                    && locations.contains(location_path)
-                {
-                    item.cut = true;
-                }
+                let cut = item
+                    .location_opt
+                    .as_ref()
+                    .and_then(Location::path_opt)
+                    .is_some_and(|path| locations.contains(path));
+                self.selection.set_cut(item, cut);
             }
         }
     }
@@ -5489,8 +5516,8 @@ impl Tab {
     /// Forgets which items the last rectangle crossed, so the next one
     /// toggles only what it crosses itself.
     fn clear_drag_overlaps(&mut self) {
-        for item in self.items_opt.iter_mut().flatten() {
-            item.overlaps_drag_rect = false;
+        for item in self.items_opt.iter().flatten() {
+            self.selection.set_dragged_over(item, false);
         }
     }
 
@@ -5499,19 +5526,20 @@ impl Tab {
         self.forget_selection();
         if let Some(ref mut items) = self.items_opt {
             for item in items.iter_mut() {
-                let was_overlapped = item.overlaps_drag_rect;
-                item.overlaps_drag_rect = item.rect_opt.get().is_some_and(|r| r.intersects(&rect));
+                let was_overlapped = self.selection.is_dragged_over(item);
+                let overlapped = item.rect_opt.get().is_some_and(|r| r.intersects(&rect));
+                self.selection.set_dragged_over(item, overlapped);
 
                 self.selection.select(
                     item,
                     if mod_ctrl || mod_shift {
-                        if was_overlapped == item.overlaps_drag_rect {
+                        if was_overlapped == overlapped {
                             self.selection.is_selected(item)
                         } else {
                             !self.selection.is_selected(item)
                         }
                     } else {
-                        item.overlaps_drag_rect
+                        overlapped
                     },
                 );
             }
@@ -9398,7 +9426,7 @@ impl Tab {
                         let faded = item.faded(self.selection.is_selected(item));
                         let mut name = Item::grid_display_name(&item.display_name);
                         // A cut name takes the button's dimmed colour
-                        if faded && !item.cut {
+                        if faded && !self.selection.is_cut(item) {
                             name = name.class(theme::Text::Custom(faded_text_style));
                         }
                         let buttons: Vec<Element<Message>> = vec![
@@ -9412,7 +9440,7 @@ impl Tab {
                             .class(button_style(
                                 self.selection.is_selected(item),
                                 self.selection.is_highlighted(item),
-                                item.cut,
+                                self.selection.is_cut(item),
                                 false,
                                 false,
                             ))
@@ -9424,7 +9452,7 @@ impl Tab {
                                     .class(button_style(
                                         self.selection.is_selected(item),
                                         self.selection.is_highlighted(item),
-                                        item.cut,
+                                        self.selection.is_cut(item),
                                         true,
                                         true,
                                     )),
@@ -9725,7 +9753,7 @@ impl Tab {
                 // A selected or cut row's button sets the text colour
                 // (on the accent fill, or dimmed), so its details take
                 // that colour instead of their own
-                let own_colours = !self.selection.is_selected(item) && !item.cut;
+                let own_colours = !self.selection.is_selected(item) && !self.selection.is_cut(item);
                 let faded = item.faded(self.selection.is_selected(item));
                 if faded && own_colours {
                     name = name.class(theme::Text::Custom(faded_text_style));
@@ -9800,7 +9828,7 @@ impl Tab {
                         .class(button_style(
                             self.selection.is_selected(item),
                             self.selection.is_highlighted(item),
-                            item.cut,
+                            self.selection.is_cut(item),
                             true,
                             false,
                         )),
@@ -11070,20 +11098,33 @@ mod tests {
             .unwrap();
         tab.selection
             .select(&tab.items_opt.as_ref().unwrap()[b], true);
+        tab.selection
+            .set_cut(&tab.items_opt.as_ref().unwrap()[b], true);
 
         // Read again in place
         let fresh = super::item_from_path(dir.path().join("b"), sizes).unwrap();
         tab.items_opt.as_mut().unwrap()[b].adopt(fresh);
         assert!(named(&tab, "b"));
+        assert!(
+            tab.selection.is_cut(&tab.items_opt.as_ref().unwrap()[b]),
+            "still cut"
+        );
 
         // Another entry arrives before it
         let c = super::item_from_path(dir.path().join("a"), sizes).unwrap();
         tab.items_opt.as_mut().unwrap().insert(0, c);
         assert!(named(&tab, "b") && !named(&tab, "a"));
 
-        // Read anew: the same place stays selected, nothing else
+        // Read anew: the same place stays selected, nothing else; what is
+        // cut is marked again from the clipboard
         tab.set_items(super::scan_path(&dir.path().to_path_buf(), sizes));
         assert!(named(&tab, "b") && !named(&tab, "a"));
+        assert!(
+            tab.items_opt
+                .iter()
+                .flatten()
+                .all(|item| !tab.selection.is_cut(item))
+        );
     }
 
     /// A network entry becomes a listed item as the mounter described it:
