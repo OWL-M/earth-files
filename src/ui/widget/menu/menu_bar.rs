@@ -1102,7 +1102,11 @@ mod tests {
                 .into_iter()
                 .find_map(|m| match m {
                     Msg::Surface(crate::ui::surface::Action::Popup(settings, view)) => {
-                        Some((settings().id, view.expect("a popup has a view")))
+                        let view = view.and_then(crate::ui::surface::View::take);
+                        Some((
+                            settings().id,
+                            Box::new(view.expect("a popup has a view")) as PopupView,
+                        ))
                     }
                     _ => None,
                 })
@@ -1149,9 +1153,7 @@ mod tests {
         }
     }
 
-    type PopupView = std::sync::Arc<
-        dyn Fn() -> crate::ui::Element<'static, crate::ui::Action<Msg>> + Send + Sync,
-    >;
+    type PopupView = Box<dyn Fn() -> crate::ui::Element<'static, crate::ui::Action<Msg>>>;
 
     fn destroys(messages: &[Msg], popup: window::Id) -> Option<bool> {
         messages.iter().find_map(|m| match m {

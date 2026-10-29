@@ -18,6 +18,7 @@ use crate::ui::Element;
 use crate::ui::iced::{self, Rectangle, Size};
 use iced_core::layout::Limits;
 use iced_core::window;
+use std::any::Any;
 use std::sync::Arc;
 
 use iced_exwlshell::actions::IcedNewPopupSettings;
@@ -25,10 +26,104 @@ use iced_exwlshell::reexport::{PixelSize, PopupPlacement};
 pub use iced_exwlshell::reexport::{PopupAnchor, PopupConstraintAdjustment, PopupGravity};
 use iced_texture_cache::Corner;
 
-/// Produces the content of a surface created from within a widget.
+/// The content of a surface created from within a widget, typed on the
+/// message the widget publishes.
 ///
-/// Typed on the message the widget publishes.
-pub type View<M> = Arc<dyn Fn() -> Element<'static, crate::ui::Action<M>> + Send + Sync + 'static>;
+/// The view itself stays on the UI thread, in [`views`], as what it shows
+/// shares state with the widget that opened it. What travels with the
+/// request is its number, and how to turn what is kept under it into an
+/// element of this message type: the widget's own message, mapped by each
+/// component it passed through on the way.
+pub struct View<M> {
+    id: u64,
+    open: Open<M>,
+}
+
+/// Makes the element of a kept view, `None` for one of another type.
+type Open<M> =
+    Arc<dyn Fn(&dyn Any) -> Option<Element<'static, crate::ui::Action<M>>> + Send + Sync>;
+
+impl<M> Clone for View<M> {
+    fn clone(&self) -> Self {
+        Self {
+            id: self.id,
+            open: Arc::clone(&self.open),
+        }
+    }
+}
+
+impl<M: 'static> View<M> {
+    /// Keeps `view` on this thread, the UI thread, for the shell to open.
+    pub(crate) fn new(view: impl Fn() -> Element<'static, crate::ui::Action<M>> + 'static) -> Self {
+        type Kept<M> = Box<dyn Fn() -> Element<'static, crate::ui::Action<M>>>;
+        let id = views::keep(Box::new(Box::new(view) as Kept<M>));
+        Self {
+            id,
+            open: Arc::new(|kept: &dyn Any| kept.downcast_ref::<Kept<M>>().map(|view| view())),
+        }
+    }
+
+    /// This view, its messages mapped by `g`.
+    fn map<N: 'static>(
+        self,
+        g: impl Fn(crate::ui::Action<M>) -> crate::ui::Action<N> + Clone + Send + Sync + 'static,
+    ) -> View<N> {
+        let open = self.open;
+        View {
+            id: self.id,
+            open: Arc::new(move |kept: &dyn Any| open(kept).map(|element| element.map(g.clone()))),
+        }
+    }
+
+    /// The view, taken from where it is kept: on the UI thread, once.
+    pub(crate) fn take(self) -> Option<impl Fn() -> Element<'static, crate::ui::Action<M>>> {
+        let kept = views::take(self.id)?;
+        let open = self.open;
+        // Checked once here: the kept view is of the type it was made with
+        open(&*kept)?;
+        Some(move || open(&*kept).expect("checked when taken"))
+    }
+}
+
+/// The views of popups asked for and not yet opened, by number. On the UI
+/// thread only, where widgets ask for popups and the shell opens them.
+pub(crate) mod views {
+    use std::any::Any;
+    use std::cell::{Cell, RefCell};
+    use std::collections::BTreeMap;
+
+    /// Views asked for and never opened, as when the request was dropped,
+    /// are forgotten past this many, oldest first.
+    const KEPT: usize = 64;
+
+    thread_local! {
+        static NEXT: Cell<u64> = const { Cell::new(0) };
+        static VIEWS: RefCell<BTreeMap<u64, Box<dyn Any>>> = RefCell::new(BTreeMap::new());
+    }
+
+    pub(super) fn keep(view: Box<dyn Any>) -> u64 {
+        let id = NEXT.with(|next| {
+            let id = next.get();
+            next.set(id + 1);
+            id
+        });
+        VIEWS.with_borrow_mut(|views| {
+            views.insert(id, view);
+            while views.len() > KEPT {
+                views.pop_first();
+            }
+        });
+        id
+    }
+
+    pub(super) fn take(id: u64) -> Option<Box<dyn Any>> {
+        let view = VIEWS.with_borrow_mut(|views| views.remove(&id));
+        if view.is_none() {
+            log::warn!("popup view {id} is not kept on this thread");
+        }
+        view
+    }
+}
 
 /// Builds the settings for a popup, at the moment the shell acts on the request.
 pub type Settings = Arc<dyn Fn() -> PopupSettings + Send + Sync + 'static>;
@@ -163,10 +258,7 @@ impl<M: 'static> Action<M> {
         g: impl Fn(crate::ui::Action<M>) -> crate::ui::Action<N> + Clone + Send + Sync + 'static,
     ) -> Action<N> {
         match self {
-            Action::Popup(settings, view) => Action::Popup(
-                settings,
-                view.map(|view| Arc::new(move || view().map(g.clone())) as View<N>),
-            ),
+            Action::Popup(settings, view) => Action::Popup(settings, view.map(|view| view.map(g))),
             Action::DestroyPopup { id, animate } => Action::DestroyPopup { id, animate },
             Action::ResponsiveMenuBar {
                 menu_bar,
@@ -266,14 +358,14 @@ pub mod action {
 
     /// Used to create a popup action from within a widget.
     #[must_use]
+    ///
+    /// On the UI thread, as widgets run: the view is kept there, and may
+    /// hold what is not to leave it.
     pub fn simple_popup<M: 'static>(
         settings: impl Fn() -> PopupSettings + Send + Sync + 'static,
-        view: Option<impl Fn() -> Element<'static, crate::ui::Action<M>> + Send + Sync + 'static>,
+        view: Option<impl Fn() -> Element<'static, crate::ui::Action<M>> + 'static>,
     ) -> Action<M> {
-        Action::Popup(
-            Arc::new(settings),
-            view.map(|view| Arc::new(view) as View<M>),
-        )
+        Action::Popup(Arc::new(settings), view.map(View::new))
     }
 }
 
@@ -608,5 +700,37 @@ mod tests {
         // `Gravity` is generated from the xdg-shell protocol and carries
         // edge and `None` variants a context menu never asks for.
         assert_eq!(collapse_corner(PopupGravity::None), Corner::TopLeft);
+    }
+
+    /// A view travels as a number and stays on the thread that made it:
+    /// taken there once, mapped or not; elsewhere, or again, it is not there
+    #[test]
+    fn a_view_is_taken_once_and_only_on_its_thread() {
+        fn sendable<T: Send + Sync>(_: &T) {}
+        let shared = std::rc::Rc::new(());
+        let make = || {
+            let shared = std::rc::Rc::clone(&shared);
+            View::<u8>::new(move || {
+                let _ = &shared;
+                crate::ui::Element::from(crate::ui::widget::Space::new())
+            })
+        };
+
+        let view = make().map(|action| action.map(u16::from));
+        sendable(&view);
+        let again = view.clone();
+        let taken = view.take().expect("kept here");
+        let _ = taken();
+        assert!(again.take().is_none(), "taken once");
+
+        let elsewhere = make();
+        let id = elsewhere.id;
+        assert!(
+            std::thread::spawn(move || elsewhere.take().is_none())
+                .join()
+                .unwrap(),
+            "not on another thread"
+        );
+        assert!(super::views::take(id).is_some(), "still here");
     }
 }

@@ -7,20 +7,19 @@
 
 use std::borrow::Borrow;
 use std::cell::RefCell;
-use std::mem::ManuallyDrop;
 use std::rc::Rc;
-use std::thread::{self, ThreadId};
 
 use crate::ui::Element;
 use iced::{Length, Rectangle, Size};
 use iced_core::widget::tree;
 use iced_core::{Widget, widget};
 
+/// Shared, mutable state of a widget, kept on the UI thread: it is neither
+/// `Send` nor `Sync`, so it cannot leave it. A popup's view that shares it
+/// stays there too: see [`crate::ui::surface::View`].
 #[derive(Debug)]
 pub struct RcWrapper<T> {
-    /// Dropped by hand, and only on the creating thread; see [`Drop`].
-    pub(crate) data: ManuallyDrop<Rc<RefCell<T>>>,
-    pub(crate) thread_id: ThreadId,
+    pub(crate) data: Rc<RefCell<T>>,
 }
 
 impl<T: Default> Default for RcWrapper<T> {
@@ -30,71 +29,26 @@ impl<T: Default> Default for RcWrapper<T> {
 }
 
 impl<T> Clone for RcWrapper<T> {
-    /// # Panics
-    ///
-    /// Will panic if used outside of original thread.
     fn clone(&self) -> Self {
-        assert_eq!(self.thread_id, thread::current().id());
         Self {
-            data: self.data.clone(),
-            thread_id: self.thread_id,
+            data: Rc::clone(&self.data),
         }
     }
 }
-
-impl<T> Drop for RcWrapper<T> {
-    /// # Panics
-    ///
-    /// Will panic if dropped outside of original thread. The `Rc` is then
-    /// leaked rather than released: an assertion alone would not stop the
-    /// field's own drop from decrementing the non-atomic count on the wrong
-    /// thread during unwinding.
-    fn drop(&mut self) {
-        if self.thread_id == thread::current().id() {
-            // SAFETY: dropped exactly once, here, and never touched again.
-            unsafe { ManuallyDrop::drop(&mut self.data) };
-        } else if !thread::panicking() {
-            panic!("RcWrapper dropped off the thread that created it; leaked");
-        }
-    }
-}
-
-// SAFETY: `Rc<RefCell<T>>` is neither `Send` nor `Sync`. These impls exist
-// only so a wrapper can ride inside a `surface::View` closure (`Arc<dyn Fn()
-// + Send + Sync>`) that a `Task` carries through the executor. The invariant
-// is that the wrapper is only ever *moved* between threads, never used there:
-// every operation that touches the `Rc` count or the `RefCell` (`clone`,
-// `drop`, `with_data`, `with_data_mut`, `overlay`) asserts it runs on the
-// thread that created the wrapper, so a violation is a panic, not a data
-// race; a drop on the wrong thread leaks the `Rc` rather than touching its
-// count.
-unsafe impl<M: 'static> Send for RcWrapper<M> {}
-unsafe impl<M: 'static> Sync for RcWrapper<M> {}
 
 impl<T> RcWrapper<T> {
     pub fn new(element: T) -> Self {
         Self {
-            data: ManuallyDrop::new(Rc::new(RefCell::new(element))),
-            thread_id: thread::current().id(),
+            data: Rc::new(RefCell::new(element)),
         }
     }
 
-    /// # Panics
-    ///
-    /// Will panic if used outside of original thread.
     pub fn with_data<O>(&self, f: impl FnOnce(&T) -> O) -> O {
-        assert_eq!(self.thread_id, thread::current().id());
-        let my_ref: &T = &RefCell::borrow(self.data.as_ref());
-        f(my_ref)
+        f(&RefCell::borrow(&self.data))
     }
 
-    /// # Panics
-    ///
-    /// Will panic if used outside of original thread.
     pub fn with_data_mut<O>(&self, f: impl FnOnce(&mut T) -> O) -> O {
-        assert_eq!(self.thread_id, thread::current().id());
-        let my_refmut: &mut T = &mut RefCell::borrow_mut(self.data.as_ref());
-        f(my_refmut)
+        f(&mut RefCell::borrow_mut(&self.data))
     }
 }
 
@@ -224,7 +178,6 @@ impl<M> Widget<M, crate::ui::Theme, crate::ui::Renderer> for RcElementWrapper<M>
         viewport: &Rectangle,
         translation: iced_core::Vector,
     ) -> Option<iced_core::overlay::Element<'a, M, crate::ui::Theme, crate::ui::Renderer>> {
-        assert_eq!(self.element.thread_id, thread::current().id());
         Rc::get_mut(&mut self.element.data).and_then(|e| {
             e.get_mut()
                 .as_widget_mut()
@@ -250,23 +203,11 @@ mod tests {
     use super::RcWrapper;
 
     #[test]
-    fn clone_and_drop_on_the_creating_thread_work() {
+    fn clones_share_the_data() {
         let w = RcWrapper::new(1u8);
         let c = w.clone();
-        assert_eq!(c.with_data(|v| *v), 1);
+        c.with_data_mut(|v| *v = 2);
         drop(c);
-        assert_eq!(w.with_data(|v| *v), 1);
-    }
-
-    #[test]
-    fn drop_on_another_thread_panics_and_leaks() {
-        let w = RcWrapper::new(1u8);
-        let c = w.clone();
-        assert_eq!(std::rc::Rc::strong_count(&w.data), 2);
-        let joined = std::thread::spawn(move || drop(c)).join();
-        assert!(joined.is_err());
-        // The count was not touched from the other thread: the clone leaked
-        assert_eq!(std::rc::Rc::strong_count(&w.data), 2);
-        assert_eq!(w.with_data(|v| *v), 1);
+        assert_eq!(w.with_data(|v| *v), 2);
     }
 }

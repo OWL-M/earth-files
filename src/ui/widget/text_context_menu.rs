@@ -102,7 +102,7 @@ pub(crate) fn into_popup_view<Message: Clone + 'static>(
     req: PopupRequest,
 ) -> (
     PopupSettings,
-    Box<dyn Fn() -> crate::ui::Element<'static, crate::ui::Action<Message>> + Send + Sync>,
+    Box<dyn Fn() -> crate::ui::Element<'static, crate::ui::Action<Message>>>,
 ) {
     let PopupRequest {
         settings,

@@ -35,8 +35,9 @@ use iced_exwlshell::actions::IcedNewPopupSettings;
 use std::borrow::Cow;
 use std::cell::RefCell;
 
-/// Builds a popup's content, capturing everything it needs
-type PopupView<M> = Box<dyn Fn() -> Element<'static, crate::ui::Action<M>> + Send + Sync>;
+/// Builds a popup's content, capturing everything it needs. Kept on the UI
+/// thread, as is what it captures.
+type PopupView<M> = Box<dyn Fn() -> Element<'static, crate::ui::Action<M>>>;
 
 /// The windowing system the app is running under.
 ///
@@ -735,8 +736,8 @@ impl<App: Application> Shell<App> {
                 }
 
                 *self.opened_surfaces.entry(id).or_insert(0) += 1;
-                if let Some(view) = view {
-                    self.popup_views.insert(id, Box::new(move || view()));
+                if let Some(view) = view.and_then(crate::ui::surface::View::take) {
+                    self.popup_views.insert(id, Box::new(view));
                 }
 
                 self.close_other_chains(id, settings.parent)
