@@ -2759,12 +2759,7 @@ impl App {
     }
 
     fn search_get(&self) -> Option<&str> {
-        let entity = self.tab_model.active();
-        let tab = self.tabs.get(entity)?;
-        match &tab.location {
-            Location::Search(_, term, ..) => Some(term),
-            _ => None,
-        }
+        browser::search_term(self.tabs.get(self.tab_model.active())?)
     }
 
     fn search_set_active(&mut self, term_opt: Option<String>) -> Task<Message> {
@@ -2788,53 +2783,19 @@ impl App {
         track: bool,
     ) -> Task<Message> {
         let mut title_location_opt = None;
-        if let Some(tab) = self.tabs.get_mut(tab) {
-            let location_opt = match term_opt {
-                Some(term) => {
-                    let search_location = if let Some(path) = tab.location.path_opt() {
-                        Some(SearchLocation::Path(path.clone()))
-                    } else if tab.location.is_recents() {
-                        Some(SearchLocation::Recents)
-                    } else if tab.location.is_trash() {
-                        Some(SearchLocation::Trash)
-                    } else {
-                        None
-                    };
-
-                    search_location.map(|search_location| {
-                        (
-                            Location::Search(
-                                search_location,
-                                term,
-                                tab.search_options_for_query(),
-                                Instant::now(),
-                            ),
-                            true,
-                        )
-                    })
-                }
-                None => match &tab.location {
-                    Location::Search(search_location, ..) => match search_location {
-                        SearchLocation::Path(path) => Some((Location::Path(path.clone()), false)),
-                        SearchLocation::Recents => Some((Location::Recents, false)),
-                        SearchLocation::Trash => Some((Location::Trash, false)),
-                    },
-                    _ => None,
-                },
+        if let Some(tab) = self.tabs.get_mut(tab)
+            && let Some((location, focus_search)) = browser::search_target(tab, term_opt)
+        {
+            // Opening an empty search of the folder on screen, or closing it,
+            // lists the same folder: nothing to read again
+            let rescan = if selection_paths.is_none() && tab.only_switches_search(&location) {
+                tab.switch_search(&location);
+                false
+            } else {
+                tab.change_location_keeping_listing(&location);
+                true
             };
-            if let Some((location, focus_search)) = location_opt {
-                // Opening an empty search of the folder on screen, or closing
-                // it, lists the same folder: nothing to read again
-                let rescan = if selection_paths.is_none() && tab.only_switches_search(&location) {
-                    tab.switch_search(&location);
-                    false
-                } else {
-                    tab.change_location_keeping_listing(&location);
-                    true
-                };
-                title_location_opt =
-                    Some((tab.title(), tab.location.clone(), focus_search, rescan));
-            }
+            title_location_opt = Some((tab.title(), tab.location.clone(), focus_search, rescan));
         }
         if let Some((title, location, focus_search, rescan)) = title_location_opt {
             self.tab_model.text_set(tab, title);

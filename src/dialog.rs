@@ -37,7 +37,7 @@ use crate::handoff::Handoff;
 use crate::key_bind::key_binds;
 use crate::localize::LANGUAGE_SORTER;
 use crate::mounter::{MOUNTERS, MounterItem, MounterItems, MounterKey, MounterMessage};
-use crate::tab::{self, Location, SearchLocation, Tab};
+use crate::tab::{self, Location, Tab};
 use crate::ui::convert::{ToLength, ToPixels};
 use crate::ui::theme::{Container, Layer, Spacing, spacing};
 use crate::zoom::{zoom_in_view, zoom_out_view, zoom_to_default};
@@ -944,47 +944,11 @@ impl App {
     }
 
     fn search_get(&self) -> Option<&str> {
-        match &self.tab.location {
-            Location::Search(_, term, ..) => Some(term),
-            _ => None,
-        }
+        browser::search_term(&self.tab)
     }
 
     fn search_set(&mut self, term_opt: Option<String>) -> Task<Message> {
-        let location_opt = match term_opt {
-            Some(term) => {
-                let search_location = if let Some(path) = self.tab.location.path_opt() {
-                    Some(SearchLocation::Path(path.clone()))
-                } else if self.tab.location.is_recents() {
-                    Some(SearchLocation::Recents)
-                } else if self.tab.location.is_trash() {
-                    Some(SearchLocation::Trash)
-                } else {
-                    None
-                };
-
-                search_location.map(|search_location| {
-                    (
-                        Location::Search(
-                            search_location,
-                            term,
-                            self.tab.search_options_for_query(),
-                            Instant::now(),
-                        ),
-                        true,
-                    )
-                })
-            }
-            None => match &self.tab.location {
-                Location::Search(search_location, ..) => match search_location {
-                    SearchLocation::Path(path) => Some((Location::Path(path.clone()), false)),
-                    SearchLocation::Recents => Some((Location::Recents, false)),
-                    SearchLocation::Trash => Some((Location::Trash, false)),
-                },
-                _ => None,
-            },
-        };
-        if let Some((location, focus_search)) = location_opt {
+        if let Some((location, focus_search)) = browser::search_target(&self.tab, term_opt) {
             self.tab.change_location(&location, None);
             return Task::batch([
                 self.update_title(),

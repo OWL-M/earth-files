@@ -10,7 +10,7 @@ use notify_debouncer_full::{DebouncedEvent, Debouncer, RecommendedCache};
 use rustc_hash::FxHashSet;
 
 use crate::config::IconSizes;
-use crate::tab::{self, Item, ItemMetadata, Location, Tab};
+use crate::tab::{self, Item, ItemMetadata, Location, SearchLocation, Tab};
 
 /// A file watcher, and the folders it watches.
 pub struct Watcher {
@@ -171,6 +171,50 @@ pub fn take_scan(
     tab.refresh_icons(tab.config.icon_sizes)
 }
 
+/// What `tab` is searching for, while it searches.
+pub fn search_term(tab: &Tab) -> Option<&str> {
+    match &tab.location {
+        Location::Search(_, term, ..) => Some(term),
+        _ => None,
+    }
+}
+
+/// Where searching `tab` for `term` goes, or with `None`, where ending its
+/// search goes back to; and whether the search field is to have the
+/// keyboard, as it does while searching. `None` where there is nothing to
+/// search, or no search to end.
+pub fn search_target(tab: &Tab, term: Option<String>) -> Option<(Location, bool)> {
+    match term {
+        Some(term) => {
+            let searched = if let Some(path) = tab.location.path_opt() {
+                SearchLocation::Path(path.clone())
+            } else if tab.location.is_recents() {
+                SearchLocation::Recents
+            } else if tab.location.is_trash() {
+                SearchLocation::Trash
+            } else {
+                return None;
+            };
+            let options = tab.search_options_for_query();
+            Some((
+                Location::Search(searched, term, options, std::time::Instant::now()),
+                true,
+            ))
+        }
+        None => match &tab.location {
+            Location::Search(searched, ..) => Some((
+                match searched {
+                    SearchLocation::Path(path) => Location::Path(path.clone()),
+                    SearchLocation::Recents => Location::Recents,
+                    SearchLocation::Trash => Location::Trash,
+                },
+                false,
+            )),
+            _ => None,
+        },
+    }
+}
+
 /// Warms the icons `warmup` names, on a worker: the answer for the tab once
 /// they are ready, `None` when the worker failed.
 pub async fn warm_icons(warmup: tab::IconWarmup, sizes: IconSizes) -> Option<tab::Message> {
@@ -208,7 +252,9 @@ pub async fn resolve_network(request: u64, uri: String) -> tab::Message {
 
 #[cfg(test)]
 mod tests {
-    use super::{Changes, adopt_refreshed, changes, reread, wants_scan};
+    use super::{
+        Changes, adopt_refreshed, changes, reread, search_target, search_term, wants_scan,
+    };
     use crate::config::{IconSizes, TabConfig, ThumbCfg};
     use crate::tab::{Location, Tab};
     use notify_debouncer_full::DebouncedEvent;
@@ -325,5 +371,33 @@ mod tests {
         );
         // Read under its canonical name, asked for by the one the tab has
         assert!(wants_scan(&tab, latest, &here, &elsewhere));
+    }
+
+    /// A search of a folder goes back to the folder; there is nothing to
+    /// search where a tab lists no folder, recents or trash
+    #[test]
+    fn a_search_goes_back_to_what_it_searched() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut tab = listing(dir.path());
+        assert_eq!(search_term(&tab), None);
+        assert!(search_target(&tab, None).is_none(), "no search to end");
+
+        let (searching, focus) = search_target(&tab, Some("needle".into())).unwrap();
+        assert!(focus);
+        tab.change_location(&searching, None);
+        assert_eq!(search_term(&tab), Some("needle"));
+
+        let (back, focus) = search_target(&tab, None).unwrap();
+        assert!(!focus);
+        assert_eq!(back, Location::Path(dir.path().to_path_buf()));
+
+        tab.change_location(
+            &Location::Network("network:///".into(), "Network".into(), None),
+            None,
+        );
+        assert!(
+            search_target(&tab, Some("x".into())).is_none(),
+            "nothing to search"
+        );
     }
 }
