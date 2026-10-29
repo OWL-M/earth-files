@@ -3661,6 +3661,21 @@ impl App {
         }
     }
 
+    /// Warms the icons `warmup` names on a worker, and tells tab `entity`
+    /// once they are ready.
+    fn warm_icons(
+        entity: Entity,
+        warmup: tab::IconWarmup,
+        sizes: crate::config::IconSizes,
+    ) -> Task<Message> {
+        Task::future(async move {
+            match browser::warm_icons(warmup, sizes).await {
+                Some(ready) => crate::ui::action::app(Message::TabMessage(Some(entity), ready)),
+                None => crate::ui::action::none(),
+            }
+        })
+    }
+
     fn update_watcher(&mut self) -> Task<Message> {
         if let Some(watcher) = &mut self.watcher_opt {
             let shown = self
@@ -5942,18 +5957,7 @@ impl Application for App {
                     }));
                 }
                 for (entity, warmup, sizes) in warm {
-                    commands.push(Task::future(async move {
-                        if tokio::task::spawn_blocking(move || tab::warm_icons(&warmup, sizes))
-                            .await
-                            .is_err()
-                        {
-                            return crate::ui::action::none();
-                        }
-                        crate::ui::action::app(Message::TabMessage(
-                            Some(entity),
-                            tab::Message::IconsReady,
-                        ))
-                    }));
+                    commands.push(Self::warm_icons(entity, warmup, sizes));
                 }
                 return Task::batch(commands);
             }
@@ -6736,21 +6740,7 @@ impl Application for App {
                     Task::none()
                 };
                 if let Some((warmup, sizes)) = warm {
-                    return Task::batch([
-                        recheck,
-                        Task::future(async move {
-                            if tokio::task::spawn_blocking(move || tab::warm_icons(&warmup, sizes))
-                                .await
-                                .is_err()
-                            {
-                                return crate::ui::action::none();
-                            }
-                            crate::ui::action::app(Message::TabMessage(
-                                Some(entity),
-                                tab::Message::IconsReady,
-                            ))
-                        }),
-                    ]);
+                    return Task::batch([recheck, Self::warm_icons(entity, warmup, sizes)]);
                 }
                 return recheck;
             }
@@ -7234,20 +7224,7 @@ impl Application for App {
                 for tab_command in tab_commands {
                     match tab_command {
                         tab::Command::WarmIcons(warmup, sizes) => {
-                            commands.push(Task::future(async move {
-                                if tokio::task::spawn_blocking(move || {
-                                    tab::warm_icons(&warmup, sizes);
-                                })
-                                .await
-                                .is_err()
-                                {
-                                    return crate::ui::action::none();
-                                }
-                                crate::ui::action::app(Message::TabMessage(
-                                    Some(entity),
-                                    tab::Message::IconsReady,
-                                ))
-                            }));
+                            commands.push(Self::warm_icons(entity, warmup, sizes));
                         }
                         tab::Command::Action(action) => {
                             commands.push(self.update(action.message(Some(entity))));
@@ -7487,14 +7464,9 @@ impl Application for App {
                 read_ok,
             ) => {
                 // Both sides were normalized already: the tab's location by
-                // `Tab::new` or `change_location`, this one on the worker.
-                // Opening or closing an empty search meanwhile lists the same
-                // folder, and reads nothing itself: the read is still wanted.
-                // A read started after this one has the newer listing.
+                // `Tab::new` or `change_location`, this one on the worker
                 if let Some(tab) = self.tabs.get_mut(entity)
-                    && tab.is_latest_scan(scan)
-                    && (tab.location.lists_same_as(&location)
-                        || tab.location.lists_same_as(&requested))
+                    && browser::wants_scan(tab, scan, &requested, &location)
                 {
                     // Went to as given, without asking the filesystem: it is
                     // known by its canonical name from here on
@@ -7505,11 +7477,10 @@ impl Application for App {
                         None,
                         Instant::now(),
                     );
-                    tab.parent_item_opt = parent_item_opt;
                     // Asked of the listing being replaced. A selection being
                     // restored is the user's, not the search's.
                     let search_selects = tab.search_selection_is_own() && selection_paths.is_none();
-                    tab.set_items(items);
+                    let wanted = browser::take_scan(tab, parent_item_opt, items);
                     // Read for the other mode, folder or empty search, the
                     // names hold but the breadcrumbs and title are this one's
                     let (ancestors, title) = if location == tab.location {
@@ -7537,25 +7508,8 @@ impl Application for App {
 
                     let mut tasks = Vec::with_capacity(4);
 
-                    // Resolve the icons this listing needs on a worker.
-                    // The listing is already on screen with placeholders;
-                    // this swaps in the real icons when they are ready.
-                    let sizes = tab.config.icon_sizes;
-                    let wanted = tab.refresh_icons(sizes);
                     if !wanted.is_empty() {
-                        tasks.push(Task::future(async move {
-                            let warmed = tokio::task::spawn_blocking(move || {
-                                tab::warm_icons(&wanted, sizes);
-                            })
-                            .await;
-                            if warmed.is_err() {
-                                return crate::ui::action::none();
-                            }
-                            crate::ui::action::app(Message::TabMessage(
-                                Some(entity),
-                                tab::Message::IconsReady,
-                            ))
-                        }));
+                        tasks.push(Self::warm_icons(entity, wanted, tab.config.icon_sizes));
                     }
 
                     // Apply a scroll offset restored from history, now that the

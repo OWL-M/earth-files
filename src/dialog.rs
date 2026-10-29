@@ -1120,6 +1120,17 @@ impl App {
         self.set_window_title(self.title.clone(), self.flags.window_id)
     }
 
+    /// Warms the icons `warmup` names on a worker, and tells the tab once
+    /// they are ready.
+    fn warm_icons(warmup: tab::IconWarmup, sizes: crate::config::IconSizes) -> Task<Message> {
+        Task::future(async move {
+            match browser::warm_icons(warmup, sizes).await {
+                Some(ready) => crate::ui::action::app(Message::TabMessage(ready)),
+                None => crate::ui::action::none(),
+            }
+        })
+    }
+
     fn update_watcher(&mut self) -> Task<Message> {
         if let Some(watcher) = &mut self.watcher_opt {
             watcher.watch_only(self.tab.location.path_opt().cloned().into_iter().collect());
@@ -1846,17 +1857,7 @@ impl Application for App {
                     // their old types.
                     let warmup = self.tab.refresh_icons(sizes);
                     if !warmup.is_empty() {
-                        tasks.push(Task::future(async move {
-                            if tokio::task::spawn_blocking(move || {
-                                tab::warm_icons(&warmup, sizes);
-                            })
-                            .await
-                            .is_err()
-                            {
-                                return crate::ui::action::none();
-                            }
-                            crate::ui::action::app(Message::TabMessage(tab::Message::IconsReady))
-                        }));
+                        tasks.push(Self::warm_icons(warmup, sizes));
                     }
 
                     if !tasks.is_empty() {
@@ -1872,17 +1873,7 @@ impl Application for App {
                     let sizes = self.tab.config.icon_sizes;
                     let warmup = self.tab.refresh_icons(sizes);
                     if !warmup.is_empty() {
-                        return Task::future(async move {
-                            if tokio::task::spawn_blocking(move || {
-                                tab::warm_icons(&warmup, sizes);
-                            })
-                            .await
-                            .is_err()
-                            {
-                                return crate::ui::action::none();
-                            }
-                            crate::ui::action::app(Message::TabMessage(tab::Message::IconsReady))
-                        });
+                        return Self::warm_icons(warmup, sizes);
                     }
                 }
             }
@@ -2042,19 +2033,7 @@ impl Application for App {
                 for tab_command in tab_commands {
                     match tab_command {
                         tab::Command::WarmIcons(warmup, sizes) => {
-                            commands.push(Task::future(async move {
-                                if tokio::task::spawn_blocking(move || {
-                                    tab::warm_icons(&warmup, sizes);
-                                })
-                                .await
-                                .is_err()
-                                {
-                                    return crate::ui::action::none();
-                                }
-                                crate::ui::action::app(Message::TabMessage(
-                                    tab::Message::IconsReady,
-                                ))
-                            }));
+                            commands.push(Self::warm_icons(warmup, sizes));
                         }
                         tab::Command::Action(action) => {
                             commands.push(self.update(Message::from(action.message())));
@@ -2139,7 +2118,7 @@ impl Application for App {
             Message::TabRescan(scan, location, parent_item_opt, mut items, selection_paths) => {
                 // A read started after this one has the newer listing, even
                 // of the same folder
-                if self.tab.is_latest_scan(scan) && location == self.tab.location {
+                if browser::wants_scan(&self.tab, scan, &location, &location) {
                     self.filter_items(&mut items);
 
                     // Select based on filename
@@ -2149,30 +2128,16 @@ impl Application for App {
                         }
                     }
 
-                    self.tab.parent_item_opt = parent_item_opt;
-                    self.tab.set_items(items);
+                    let wanted = browser::take_scan(&mut self.tab, parent_item_opt, items);
                     // Apply a scroll offset restored from history, now that the items exist
                     let restore_scroll =
                         self.update(Message::TabMessage(tab::Message::ScrollRestore));
 
-                    // Resolve this listing's icons on a worker. The listing is
-                    // already drawn with placeholders; the real icons replace
-                    // them when they arrive, so opening a folder never waits
-                    // on the icon theme.
                     let sizes = self.tab.config.icon_sizes;
-                    let wanted = self.tab.refresh_icons(sizes);
                     let warm_icons = if wanted.is_empty() {
                         Task::none()
                     } else {
-                        Task::future(async move {
-                            if tokio::task::spawn_blocking(move || tab::warm_icons(&wanted, sizes))
-                                .await
-                                .is_err()
-                            {
-                                return crate::ui::action::none();
-                            }
-                            crate::ui::action::app(Message::TabMessage(tab::Message::IconsReady))
-                        })
+                        Self::warm_icons(wanted, sizes)
                     };
 
                     if let Some(mut selection_paths) = selection_paths {

@@ -148,6 +148,38 @@ pub fn adopt_refreshed(
     adopted
 }
 
+/// Whether `tab` takes the read `scan` of `location`, asked for as
+/// `requested`: only the latest read started is, as an earlier one landing
+/// after it, or before it, describes the folder as it was. Opening or
+/// closing an empty search meanwhile lists the same folder, and reads
+/// nothing itself: the read is still wanted.
+pub fn wants_scan(tab: &Tab, scan: u64, requested: &Location, location: &Location) -> bool {
+    tab.is_latest_scan(scan)
+        && (tab.location.lists_same_as(location) || tab.location.lists_same_as(requested))
+}
+
+/// Takes into `tab` a read it wants: the folder above and the items. The
+/// icons they need, warmed on a worker: they are drawn with placeholders
+/// until then.
+pub fn take_scan(
+    tab: &mut Tab,
+    parent_item_opt: Option<Box<Item>>,
+    items: Vec<Item>,
+) -> tab::IconWarmup {
+    tab.parent_item_opt = parent_item_opt;
+    tab.set_items(items);
+    tab.refresh_icons(tab.config.icon_sizes)
+}
+
+/// Warms the icons `warmup` names, on a worker: the answer for the tab once
+/// they are ready, `None` when the worker failed.
+pub async fn warm_icons(warmup: tab::IconWarmup, sizes: IconSizes) -> Option<tab::Message> {
+    tokio::task::spawn_blocking(move || tab::warm_icons(&warmup, sizes))
+        .await
+        .ok()
+        .map(|()| tab::Message::IconsReady)
+}
+
 /// Where `location_request` leads, asked on a worker: a mount that has
 /// stopped answering would stop the interface with it. The answer for the
 /// tab that asked, as its step `request`; `None` when the worker failed.
@@ -176,7 +208,7 @@ pub async fn resolve_network(request: u64, uri: String) -> tab::Message {
 
 #[cfg(test)]
 mod tests {
-    use super::{Changes, adopt_refreshed, changes, reread};
+    use super::{Changes, adopt_refreshed, changes, reread, wants_scan};
     use crate::config::{IconSizes, TabConfig, ThumbCfg};
     use crate::tab::{Location, Tab};
     use notify_debouncer_full::DebouncedEvent;
@@ -272,5 +304,26 @@ mod tests {
             batch,
             read(vec![a])
         ));
+    }
+
+    /// Only the latest read started is taken, and only for what the tab
+    /// still lists: the folder it shows, or the one it was asked to go to
+    #[test]
+    fn only_the_latest_read_of_what_is_listed_is_taken() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut tab = listing(dir.path());
+        let here = tab.location.clone();
+        let elsewhere = Location::Path(PathBuf::from("/elsewhere"));
+        let earlier = tab.start_scan();
+        let latest = tab.start_scan();
+
+        assert!(wants_scan(&tab, latest, &here, &here));
+        assert!(!wants_scan(&tab, earlier, &here, &here), "superseded");
+        assert!(
+            !wants_scan(&tab, latest, &elsewhere, &elsewhere),
+            "gone elsewhere"
+        );
+        // Read under its canonical name, asked for by the one the tab has
+        assert!(wants_scan(&tab, latest, &here, &elsewhere));
     }
 }
