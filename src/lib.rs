@@ -17,6 +17,7 @@ mod action_card;
 pub mod app;
 mod archive;
 mod batch_rename;
+mod browser;
 mod child;
 pub mod clipboard;
 pub mod config;

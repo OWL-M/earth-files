@@ -20,7 +20,7 @@ use crate::ui::widget::scrollable::AbsoluteOffset;
 use crate::ui::widget::{self, segmented_button};
 use notify_debouncer_full::notify::{self, RecommendedWatcher};
 use notify_debouncer_full::{DebouncedEvent, Debouncer, RecommendedCache, new_debouncer};
-use rustc_hash::{FxHashMap, FxHashSet};
+use rustc_hash::FxHashMap;
 use std::any::TypeId;
 use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
@@ -37,11 +37,11 @@ use crate::handoff::Handoff;
 use crate::key_bind::key_binds;
 use crate::localize::LANGUAGE_SORTER;
 use crate::mounter::{MOUNTERS, MounterItem, MounterItems, MounterKey, MounterMessage};
-use crate::tab::{self, ItemMetadata, Location, SearchLocation, Tab};
+use crate::tab::{self, Location, SearchLocation, Tab};
 use crate::ui::convert::{ToLength, ToPixels};
 use crate::ui::theme::{Container, Layer, Spacing, spacing};
 use crate::zoom::{zoom_in_view, zoom_out_view, zoom_to_default};
-use crate::{fl, home_dir, menu, mime_icon};
+use crate::{browser, fl, home_dir, menu, mime_icon};
 
 #[derive(Clone, Debug)]
 pub struct DialogMessage(crate::ui::Action<Message>);
@@ -614,10 +614,7 @@ struct App {
     search_id: widget::Id,
     tab: Tab,
     key_binds: HashMap<KeyBind, Action>,
-    watcher_opt: Option<(
-        Debouncer<RecommendedWatcher, RecommendedCache>,
-        FxHashSet<PathBuf>,
-    )>,
+    watcher_opt: Option<browser::Watcher>,
     auto_scroll_speed: Option<i16>,
     type_select_prefix: String,
     type_select_last_key: Option<Instant>,
@@ -1124,43 +1121,9 @@ impl App {
     }
 
     fn update_watcher(&mut self) -> Task<Message> {
-        if let Some((mut watcher, old_paths)) = self.watcher_opt.take() {
-            let mut new_paths = FxHashSet::default();
-            if let Some(path) = &self.tab.location.path_opt() {
-                new_paths.insert((*path).clone());
-            }
-
-            // Unwatch paths no longer used
-            for path in &old_paths {
-                if !new_paths.contains(path) {
-                    match watcher.unwatch(path) {
-                        Ok(()) => {
-                            log::debug!("unwatching {}", path.display());
-                        }
-                        Err(err) => {
-                            log::debug!("failed to unwatch {}: {}", path.display(), err);
-                        }
-                    }
-                }
-            }
-
-            // Watch new paths
-            for path in &new_paths {
-                if !old_paths.contains(path) {
-                    match watcher.watch(path, notify::RecursiveMode::NonRecursive) {
-                        Ok(()) => {
-                            log::debug!("watching {}", path.display());
-                        }
-                        Err(err) => {
-                            log::debug!("failed to watch {}: {}", path.display(), err);
-                        }
-                    }
-                }
-            }
-
-            self.watcher_opt = Some((watcher, new_paths));
+        if let Some(watcher) = &mut self.watcher_opt {
+            watcher.watch_only(self.tab.location.path_opt().cloned().into_iter().collect());
         }
-
         Task::none()
     }
 }
@@ -1840,44 +1803,11 @@ impl Application for App {
             Message::NotifyEvents(events) => {
                 log::debug!("{events:?}");
 
-                if let Some(path) = self.tab.location.path_opt() {
-                    let mut contains_change = false;
-                    // Deduplicated: a burst names the same path many times,
-                    // and re-reading it once per mention is work with nothing
-                    // to show for it.
-                    let mut changed: Vec<PathBuf> = Vec::new();
-                    for event in &events {
-                        for event_path in &event.paths {
-                            if event_path.starts_with(path) {
-                                if let notify::EventKind::Modify(
-                                    notify::event::ModifyKind::Metadata(_)
-                                    | notify::event::ModifyKind::Data(_),
-                                ) = event.kind
-                                {
-                                    // Metadata or data changed, so the
-                                    // matching item is out of date. Note it;
-                                    // re-reading it is disk work and happens
-                                    // on a worker.
-                                    let known = self.tab.items_opt.as_ref().is_some_and(|items| {
-                                        items.iter().any(|item| {
-                                            item.path_opt() == Some(event_path)
-                                                && matches!(
-                                                    item.metadata,
-                                                    ItemMetadata::Path { .. }
-                                                )
-                                        })
-                                    });
-                                    if known && !changed.contains(event_path) {
-                                        changed.push(event_path.clone());
-                                    }
-                                } else {
-                                    // Any other events reload the whole tab
-                                    contains_change = true;
-                                    break;
-                                }
-                            }
-                        }
-                    }
+                if let Some(browser::Changes {
+                    reload: contains_change,
+                    changed,
+                }) = browser::changes(&self.tab, &events)
+                {
                     // Not while searching: a rescan of a search location comes
                     // back empty and would throw the results away, and nothing
                     // would ask for them again.
@@ -1894,19 +1824,7 @@ impl Application for App {
                         let batch = self.tab.next_refresh_batch();
                         tasks.push(Task::future(async move {
                             let rebuilt = tokio::task::spawn_blocking(move || {
-                                changed
-                                    .into_iter()
-                                    .filter_map(|path| match tab::item_from_path(&path, sizes) {
-                                        Ok(item) => Some((path, Box::new(item))),
-                                        Err(err) => {
-                                            log::warn!(
-                                                "failed to reload {}: {err}",
-                                                path.display()
-                                            );
-                                            None
-                                        }
-                                    })
-                                    .collect::<Vec<_>>()
+                                browser::reread(changed, sizes)
                             })
                             .await;
 
@@ -1947,37 +1865,7 @@ impl Application for App {
                 }
             }
             Message::RefreshedItems(location, listing, batch, rebuilt) => {
-                let mut adopted = false;
-                // The chooser may have been sent somewhere else, or rescanned
-                // from scratch, while these were being read; either way they
-                // describe a listing it is no longer showing.
-                if self.tab.location == location && self.tab.listing() == listing {
-                    let mut keep = Vec::new();
-                    for (path, fresh) in rebuilt {
-                        // Batches overlap: two bursts naming the same file
-                        // start two workers, and the older one can finish
-                        // last. Whatever was read more recently for a path is
-                        // what the chooser keeps.
-                        if self.tab.accept_refresh(listing, batch, &path) {
-                            keep.push((path, fresh));
-                        }
-                    }
-                    if let Some(items) = &mut self.tab.items_opt {
-                        for (path, fresh) in keep {
-                            // One item per path in a listing, so the first
-                            // match is the only one.
-                            if let Some(item) =
-                                items.iter_mut().find(|item| item.path_opt() == Some(&path))
-                            {
-                                item.adopt(*fresh);
-                                adopted = true;
-                            }
-                        }
-                    }
-                }
-                if adopted {
-                    // A refreshed file may sort elsewhere now
-                    self.tab.invalidate_order();
+                if browser::adopt_refreshed(&mut self.tab, &location, listing, batch, rebuilt) {
                     // Asked for after adopting, not before: a refreshed item
                     // may now be a type whose icon has never been resolved,
                     // and until it is adopted the tab still holds the old one.
@@ -2000,7 +1888,7 @@ impl Application for App {
             }
             Message::NotifyWatcher(watcher) => match watcher.take() {
                 Some(watcher) => {
-                    self.watcher_opt = Some((watcher, FxHashSet::default()));
+                    self.watcher_opt = Some(browser::Watcher::new(watcher));
                     return self.update_watcher();
                 }
                 None => {
@@ -2226,42 +2114,19 @@ impl Application for App {
                             }
                         }
                         tab::Command::ResolveLocation(request, location_request) => {
-                            // Asked on a worker: a mount that has stopped
-                            // answering would stop the interface with it
                             commands.push(Task::future(async move {
-                                let asked = tokio::task::spawn_blocking(move || {
-                                    tab::resolve_location(&location_request)
-                                })
-                                .await;
-                                let Ok(resolved) = asked else {
-                                    log::warn!("failed to resolve a location");
-                                    return crate::ui::action::none();
-                                };
-                                crate::ui::action::app(Message::TabMessage(
-                                    tab::Message::LocationResolved(request, resolved),
-                                ))
+                                match browser::resolve_location(request, location_request).await {
+                                    Some(answer) => {
+                                        crate::ui::action::app(Message::TabMessage(answer))
+                                    }
+                                    None => crate::ui::action::none(),
+                                }
                             }));
                         }
                         tab::Command::ResolveNetwork(request, uri) => {
-                            // Asked on a worker: the mounter answers over a
-                            // channel the GVFS thread writes to when it has
-                            // been round the network and back, and waiting for
-                            // that here is waiting for a server.
                             commands.push(Task::future(async move {
-                                let asked: Result<_, std::convert::Infallible> =
-                                    Ok(crate::mounter::dir_info(&uri).await);
-                                let resolved = match asked {
-                                    Ok(info) => info.map(|(uri, display_name, path_opt)| {
-                                        Location::Network(uri, display_name, path_opt)
-                                    }),
-                                    Err(err) => {
-                                        log::warn!("failed to resolve {uri}: {err}");
-                                        None
-                                    }
-                                };
-                                crate::ui::action::app(Message::TabMessage(
-                                    tab::Message::NetworkResolved(request, uri, resolved),
-                                ))
+                                let answer = browser::resolve_network(request, uri).await;
+                                crate::ui::action::app(Message::TabMessage(answer))
                             }));
                         }
                         unsupported => {

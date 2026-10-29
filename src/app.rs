@@ -28,7 +28,7 @@ use crate::ui::widget::{self, icon, settings};
 use crate::ui::{Element, surface};
 use notify_debouncer_full::notify::{self, RecommendedWatcher};
 use notify_debouncer_full::{DebouncedEvent, Debouncer, RecommendedCache, new_debouncer};
-use rustc_hash::{FxHashMap, FxHashSet};
+use rustc_hash::FxHashMap;
 use serde::{Deserialize, Serialize};
 use slotmap::Key as SlotMapKey;
 use std::any::TypeId;
@@ -74,7 +74,7 @@ use crate::trash::{Trash, TrashExt};
 use crate::ui::convert::{PushMaybe, ToColor, ToPadding, ToPixels};
 use crate::ui::theme::{Button, Container, Spacing, spacing};
 use crate::zoom::{zoom_in_view, zoom_out_view, zoom_to_default};
-use crate::{batch_rename, context_action, fl, home_dir, menu, mime_icon};
+use crate::{batch_rename, browser, context_action, fl, home_dir, menu, mime_icon};
 
 static PERMANENT_DELETE_BUTTON_ID: LazyLock<widget::Id> =
     LazyLock::new(|| widget::Id::new("permanent-delete-button"));
@@ -1224,10 +1224,7 @@ pub struct App {
     search_closing: Option<(Entity, String)>,
     size: Option<Size>,
     toasts: widget::toaster::Toasts<Message>,
-    watcher_opt: Option<(
-        Debouncer<RecommendedWatcher, RecommendedCache>,
-        FxHashSet<PathBuf>,
-    )>,
+    watcher_opt: Option<browser::Watcher>,
     windows: FxHashMap<window::Id, Window>,
     type_select_prefix: String,
     type_select_last_key: Option<Instant>,
@@ -3665,47 +3662,14 @@ impl App {
     }
 
     fn update_watcher(&mut self) -> Task<Message> {
-        if let Some((mut watcher, old_paths)) = self.watcher_opt.take() {
-            let new_paths: FxHashSet<_> = self
+        if let Some(watcher) = &mut self.watcher_opt {
+            let shown = self
                 .tab_model
                 .iter()
-                .filter_map(|entity| {
-                    let tab = self.tabs.get(entity)?;
-                    tab.location.path_opt().cloned()
-                })
+                .filter_map(|entity| self.tabs.get(entity)?.location.path_opt().cloned())
                 .collect();
-
-            // Unwatch paths no longer used
-            for path in &old_paths {
-                if !new_paths.contains(path) {
-                    match watcher.unwatch(path) {
-                        Ok(()) => {
-                            log::debug!("unwatching {}", path.display());
-                        }
-                        Err(err) => {
-                            log::debug!("failed to unwatch {}: {}", path.display(), err);
-                        }
-                    }
-                }
-            }
-
-            // Watch new paths
-            for path in &new_paths {
-                if !old_paths.contains(path) {
-                    match watcher.watch(path, notify::RecursiveMode::NonRecursive) {
-                        Ok(()) => {
-                            log::debug!("watching {}", path.display());
-                        }
-                        Err(err) => {
-                            log::debug!("failed to watch {}: {}", path.display(), err);
-                        }
-                    }
-                }
-            }
-
-            self.watcher_opt = Some((watcher, new_paths));
+            watcher.watch_only(shown);
         }
-
         Task::none()
     }
 
@@ -5923,65 +5887,29 @@ impl Application for App {
 
                 let mut needs_reload = Vec::new();
                 let mut warm: Vec<(Entity, tab::IconWarmup, crate::config::IconSizes)> = Vec::new();
-                // Paths to re-read, per tab, deduplicated. A burst -- an
-                // archive being unpacked, a program rewriting one file over
-                // and over -- names the same path many times, and re-reading
-                // it once per mention is work with nothing to show for it.
                 let mut refresh: Vec<(Entity, Location, crate::config::IconSizes, Vec<PathBuf>)> =
                     Vec::new();
                 let entities: Box<[_]> = self.tab_model.iter().collect();
                 for entity in entities {
-                    if let Some(tab) = self.tabs.get_mut(entity)
-                        && let Some(path) = tab.location.path_opt()
-                    {
-                        let mut contains_change = false;
-                        let mut changed: Vec<PathBuf> = Vec::new();
-                        for event in &events {
-                            for event_path in &event.paths {
-                                if event_path.starts_with(path) {
-                                    if let notify::EventKind::Modify(
-                                        notify::event::ModifyKind::Metadata(_)
-                                        | notify::event::ModifyKind::Data(_),
-                                    ) = event.kind
-                                    {
-                                        // Metadata or data changed, so the
-                                        // matching item is out of date. Note
-                                        // it; re-reading it is disk work and
-                                        // happens on a worker.
-                                        let known = tab.items_opt.as_ref().is_some_and(|items| {
-                                            items.iter().any(|item| {
-                                                item.path_opt() == Some(event_path)
-                                                    && matches!(
-                                                        item.metadata,
-                                                        ItemMetadata::Path { .. }
-                                                    )
-                                            })
-                                        });
-                                        if known && !changed.contains(event_path) {
-                                            changed.push(event_path.clone());
-                                        }
-                                    } else {
-                                        // Any other events reload the whole tab
-                                        contains_change = true;
-                                        break;
-                                    }
-                                }
-                            }
-                        }
-                        // Icons still standing in as placeholders from an
-                        // earlier scan of this tab. Items being re-read below
-                        // are warmed after they are adopted instead, because
-                        // until then the tab still holds their old types.
-                        let sizes = tab.config.icon_sizes;
-                        let warmup = tab.refresh_icons(sizes);
-                        if !warmup.is_empty() {
-                            warm.push((entity, warmup, sizes));
-                        }
-                        if contains_change {
-                            needs_reload.push((entity, tab.location.clone()));
-                        } else if !changed.is_empty() {
-                            refresh.push((entity, tab.location.clone(), sizes, changed));
-                        }
+                    let Some(tab) = self.tabs.get_mut(entity) else {
+                        continue;
+                    };
+                    let Some(changes) = browser::changes(tab, &events) else {
+                        continue;
+                    };
+                    // Icons still standing in as placeholders from an
+                    // earlier scan of this tab. Items being re-read below
+                    // are warmed after they are adopted instead, because
+                    // until then the tab still holds their old types.
+                    let sizes = tab.config.icon_sizes;
+                    let warmup = tab.refresh_icons(sizes);
+                    if !warmup.is_empty() {
+                        warm.push((entity, warmup, sizes));
+                    }
+                    if changes.reload {
+                        needs_reload.push((entity, tab.location.clone()));
+                    } else if !changes.changed.is_empty() {
+                        refresh.push((entity, tab.location.clone(), sizes, changes.changed));
                     }
                 }
 
@@ -5998,19 +5926,9 @@ impl Application for App {
                         continue;
                     };
                     commands.push(Task::future(async move {
-                        let rebuilt = tokio::task::spawn_blocking(move || {
-                            paths
-                                .into_iter()
-                                .filter_map(|path| match tab::item_from_path(&path, sizes) {
-                                    Ok(item) => Some((path, Box::new(item))),
-                                    Err(err) => {
-                                        log::warn!("failed to reload {}: {err}", path.display());
-                                        None
-                                    }
-                                })
-                                .collect::<Vec<_>>()
-                        })
-                        .await;
+                        let rebuilt =
+                            tokio::task::spawn_blocking(move || browser::reread(paths, sizes))
+                                .await;
 
                         // Answered even when it found nothing, so the count of
                         // batches still out stays honest.
@@ -6041,7 +5959,7 @@ impl Application for App {
             }
             Message::NotifyWatcher(watcher) => match watcher.take() {
                 Some(watcher) => {
-                    self.watcher_opt = Some((watcher, FxHashSet::default()));
+                    self.watcher_opt = Some(browser::Watcher::new(watcher));
                     return self.update_watcher();
                 }
                 None => {
@@ -6795,50 +6713,18 @@ impl Application for App {
             Message::RefreshedItems(entity, location, listing, batch, rebuilt) => {
                 let mut warm = None;
                 let mut recheck = false;
-                if let Some(tab) = self.tabs.get_mut(entity) {
-                    // The tab may have been sent somewhere else, or rescanned
-                    // from scratch, while these were being read; either way
-                    // they describe a listing it is no longer showing. Opening
-                    // or closing an empty search keeps the listing.
-                    if tab.location.lists_same_as(&location) && tab.listing() == listing {
-                        let mut adopted = Vec::new();
-                        for (path, fresh) in rebuilt {
-                            // Batches overlap: two bursts naming the same file
-                            // start two workers, and the older one can finish
-                            // last. Whatever was read more recently for a path
-                            // is what the tab keeps.
-                            if tab.accept_refresh(listing, batch, &path) {
-                                adopted.push((path, fresh));
-                            }
-                        }
-                        let mut any = false;
-                        if let Some(items) = &mut tab.items_opt {
-                            for (path, fresh) in adopted {
-                                // One item per path in a listing, so the first
-                                // match is the only one.
-                                if let Some(item) =
-                                    items.iter_mut().find(|item| item.path_opt() == Some(&path))
-                                {
-                                    item.adopt(*fresh);
-                                    any = true;
-                                }
-                            }
-                        }
-                        if any {
-                            // The image a gallery shows may be one of them
-                            recheck = tab.gallery;
-                            // A refreshed file may sort elsewhere now
-                            tab.invalidate_order();
-                            // Asked for after adopting, not before: a refreshed
-                            // item may now be a type whose icon has never been
-                            // resolved, and until it is adopted the tab still
-                            // holds the old type.
-                            let sizes = tab.config.icon_sizes;
-                            let warmup = tab.refresh_icons(sizes);
-                            if !warmup.is_empty() {
-                                warm = Some((warmup, sizes));
-                            }
-                        }
+                if let Some(tab) = self.tabs.get_mut(entity)
+                    && browser::adopt_refreshed(tab, &location, listing, batch, rebuilt)
+                {
+                    // The image a gallery shows may be one of them
+                    recheck = tab.gallery;
+                    // Asked for after adopting, not before: a refreshed item
+                    // may now be a type whose icon has never been resolved,
+                    // and until it is adopted the tab still holds the old type.
+                    let sizes = tab.config.icon_sizes;
+                    let warmup = tab.refresh_icons(sizes);
+                    if !warmup.is_empty() {
+                        warm = Some((warmup, sizes));
                     }
                 }
                 let recheck = if recheck {
@@ -7463,44 +7349,20 @@ impl Application for App {
                             }
                         },
                         tab::Command::ResolveLocation(request, location_request) => {
-                            // Asked on a worker: a mount that has stopped
-                            // answering would stop the interface with it
                             commands.push(Task::future(async move {
-                                let asked = tokio::task::spawn_blocking(move || {
-                                    tab::resolve_location(&location_request)
-                                })
-                                .await;
-                                let Ok(resolved) = asked else {
-                                    log::warn!("failed to resolve a location");
-                                    return crate::ui::action::none();
-                                };
-                                crate::ui::action::app(Message::TabMessage(
-                                    Some(entity),
-                                    tab::Message::LocationResolved(request, resolved),
-                                ))
+                                match browser::resolve_location(request, location_request).await {
+                                    Some(answer) => crate::ui::action::app(Message::TabMessage(
+                                        Some(entity),
+                                        answer,
+                                    )),
+                                    None => crate::ui::action::none(),
+                                }
                             }));
                         }
                         tab::Command::ResolveNetwork(request, uri) => {
-                            // Asked on a worker: the mounter answers over a
-                            // channel the GVFS thread writes to when it has
-                            // been round the network and back, and waiting for
-                            // that here is waiting for a server.
                             commands.push(Task::future(async move {
-                                let asked: Result<_, std::convert::Infallible> =
-                                    Ok(crate::mounter::dir_info(&uri).await);
-                                let resolved = match asked {
-                                    Ok(info) => info.map(|(uri, display_name, path_opt)| {
-                                        Location::Network(uri, display_name, path_opt)
-                                    }),
-                                    Err(err) => {
-                                        log::warn!("failed to resolve {uri}: {err}");
-                                        None
-                                    }
-                                };
-                                crate::ui::action::app(Message::TabMessage(
-                                    Some(entity),
-                                    tab::Message::NetworkResolved(request, uri, resolved),
-                                ))
+                                let answer = browser::resolve_network(request, uri).await;
+                                crate::ui::action::app(Message::TabMessage(Some(entity), answer))
                             }));
                         }
                         tab::Command::Preview(kind) => {
