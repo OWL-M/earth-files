@@ -323,9 +323,53 @@ struct State {
     dnd_generation: Option<u64>,
     prev_click: Option<(mouse::Click, Instant)>,
     viewport: Option<Rectangle>,
-    /// The finger touching down here, where it did, and what the area stood
-    /// for then, while it may still be a tap. See [`MouseArea::touch_taps`].
-    tap: Option<(touch::Finger, Point, Option<Id>)>,
+    /// A finger that may still be tapping. See [`MouseArea::touch_taps`].
+    tap: Tap,
+}
+
+/// Tells a tap from the other things a finger does: it touches down alone,
+/// moves no further than [`TAP_SLOP`], and lifts while the area still
+/// stands for what it stood for when the finger came down.
+#[derive(Default)]
+struct Tap {
+    /// The finger touching down, where it did, and what the area stood for
+    /// then.
+    down: Option<(touch::Finger, Point, Option<Id>)>,
+}
+
+impl Tap {
+    /// A finger touched down, over the area or not, which stands for
+    /// `identity`. A second finger makes it something other than a tap.
+    fn press(&mut self, finger: touch::Finger, at: Point, over: bool, identity: Option<Id>) {
+        self.down = (self.down.is_none() && over).then_some((finger, at, identity));
+    }
+
+    /// A finger moved to `at`: beyond the slop, it is scrolling.
+    fn moved(&mut self, finger: touch::Finger, at: Point) {
+        if self
+            .down
+            .as_ref()
+            .is_some_and(|(down, from, _)| *down == finger && from.distance(at) > TAP_SLOP)
+        {
+            self.down = None;
+        }
+    }
+
+    /// A finger lifted at `at`, the area now standing for `identity`:
+    /// whether that was a tap.
+    fn lift(&mut self, finger: touch::Finger, at: Point, identity: &Option<Id>) -> bool {
+        self.down.take().is_some_and(|(down, from, was)| {
+            down == finger && from.distance(at) <= TAP_SLOP && was == *identity
+        })
+    }
+
+    /// Whatever `finger` was doing is over without a tap, as when something
+    /// else took its lift, or it was lost.
+    fn forget(&mut self, finger: touch::Finger) {
+        if self.down.as_ref().is_some_and(|(down, ..)| *down == finger) {
+            self.down = None;
+        }
+    }
 }
 
 /// How far a finger may move, in logical pixels, and still tap rather than
@@ -528,10 +572,7 @@ where
                     touch::Event::FingerLifted { id, .. } | touch::Event::FingerLost { id, .. },
                 ) = event
             {
-                let state = tree.state.downcast_mut::<State>();
-                if state.tap.as_ref().is_some_and(|(finger, ..)| finger == id) {
-                    state.tap = None;
-                }
+                tree.state.downcast_mut::<State>().tap.forget(*id);
             }
             return;
         }
@@ -802,22 +843,16 @@ fn update<Message: Clone>(
     {
         match *touch_event {
             touch::Event::FingerPressed { id, position } => {
-                // A second finger makes it something other than a tap
-                state.tap = (state.tap.is_none() && cursor.is_over(layout_bounds))
-                    .then(|| (id, position, widget.identity.clone()));
+                state.tap.press(
+                    id,
+                    position,
+                    cursor.is_over(layout_bounds),
+                    widget.identity.clone(),
+                );
             }
-            touch::Event::FingerMoved { id, position } => {
-                if state.tap.as_ref().is_some_and(|(finger, from, _)| {
-                    *finger == id && from.distance(position) > TAP_SLOP
-                }) {
-                    state.tap = None;
-                }
-            }
+            touch::Event::FingerMoved { id, position } => state.tap.moved(id, position),
             touch::Event::FingerLifted { id, position } => {
-                if let Some((finger, from, identity)) = state.tap.take()
-                    && finger == id
-                    && from.distance(position) <= TAP_SLOP
-                    && identity == widget.identity
+                if state.tap.lift(id, position, &widget.identity)
                     && let Some(at) = cursor.position_in(layout_bounds)
                 {
                     let on_click = match state.click(at).kind() {
@@ -834,7 +869,7 @@ fn update<Message: Clone>(
                     }
                 }
             }
-            touch::Event::FingerLost { .. } => state.tap = None,
+            touch::Event::FingerLost { id, .. } => state.tap.forget(id),
         }
         return;
     }
@@ -1111,6 +1146,54 @@ fn in_area(drag_rect: Rectangle, bounds: Rectangle) -> Option<Rectangle> {
         rect.y -= bounds.y;
         rect
     })
+}
+
+#[cfg(test)]
+mod tap_tests {
+    use super::{TAP_SLOP, Tap};
+    use crate::ui::iced_core::{Point, touch};
+    use crate::ui::widget::Id;
+
+    const ONE: touch::Finger = touch::Finger(1);
+    const TWO: touch::Finger = touch::Finger(2);
+
+    #[test]
+    fn a_finger_down_and_up_in_place_on_the_same_thing_taps() {
+        let item = Some(Id::new("item"));
+        let mut tap = Tap::default();
+        tap.press(ONE, Point::ORIGIN, true, item.clone());
+        tap.moved(ONE, Point::new(TAP_SLOP, 0.0));
+        assert!(tap.lift(ONE, Point::new(TAP_SLOP, 0.0), &item));
+        assert!(!tap.lift(ONE, Point::ORIGIN, &item), "once");
+    }
+
+    #[test]
+    fn scrolling_another_finger_or_another_thing_is_no_tap() {
+        let item = Some(Id::new("item"));
+        let mut tap = Tap::default();
+
+        // Moved past the slop: scrolling
+        tap.press(ONE, Point::ORIGIN, true, item.clone());
+        tap.moved(ONE, Point::new(TAP_SLOP + 1.0, 0.0));
+        assert!(!tap.lift(ONE, Point::ORIGIN, &item));
+
+        // A second finger
+        tap.press(ONE, Point::ORIGIN, true, item.clone());
+        tap.press(TWO, Point::ORIGIN, true, item.clone());
+        assert!(!tap.lift(ONE, Point::ORIGIN, &item));
+
+        // The area stands for something else by the lift, as when the
+        // listing changed under the finger
+        tap.press(ONE, Point::ORIGIN, true, item.clone());
+        assert!(!tap.lift(ONE, Point::ORIGIN, &Some(Id::new("other"))));
+
+        // Down outside the area, or lost
+        tap.press(ONE, Point::ORIGIN, false, item.clone());
+        assert!(!tap.lift(ONE, Point::ORIGIN, &item));
+        tap.press(ONE, Point::ORIGIN, true, item.clone());
+        tap.forget(ONE);
+        assert!(!tap.lift(ONE, Point::ORIGIN, &item));
+    }
 }
 
 #[cfg(test)]

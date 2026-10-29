@@ -4241,7 +4241,7 @@ pub struct Tab {
     pub(crate) scrollable_name: std::borrow::Cow<'static, str>,
     select_focus: Option<usize>,
     select_range: Option<(usize, usize)>,
-    clicked: Option<usize>,
+    clicked: Option<widget::Id>,
     /// Set by a double click so the release that follows it does not open the
     /// item a second time. In single-click mode the first release has already
     /// opened it, and a double click is still two presses and two releases.
@@ -4254,7 +4254,7 @@ pub struct Tab {
     /// the selection, so it can be dragged as a whole; if the release comes
     /// on the same item with no drag started in between, the selection
     /// narrows to it.
-    narrow_on_release: Option<usize>,
+    narrow_on_release: Option<widget::Id>,
     last_right_click: Option<usize>,
     search_context: Option<SearchContext>,
     search_select: SearchSelect,
@@ -5513,6 +5513,12 @@ impl Tab {
         self.items_opt.as_ref()?.get(i?)?.location_opt.clone()
     }
 
+    /// The entry listed at `i`, by its own id: the same entry wherever it
+    /// moves in the listing, as search results arrive around it.
+    fn entry_at(&self, i: Option<usize>) -> Option<widget::Id> {
+        Some(self.items_opt.as_ref()?.get(i?)?.button_id.clone())
+    }
+
     /// Forgets which items the last rectangle crossed, so the next one
     /// toggles only what it crosses itself.
     fn clear_drag_overlaps(&mut self) {
@@ -6359,6 +6365,7 @@ impl Tab {
                 commands.push(Command::AutoScroll(auto_scroll));
             }
             Message::ClickRelease(click_i_opt) => {
+                let released = self.entry_at(click_i_opt);
                 'release: {
                     // Single click to open, once per click sequence: the release
                     // that completes a double click must not open it again
@@ -6395,8 +6402,11 @@ impl Tab {
                         }
                     }
 
-                    if let Some(narrow_to) = self.narrow_on_release.take()
-                        && click_i_opt == Some(narrow_to)
+                    if self
+                        .narrow_on_release
+                        .take()
+                        .is_some_and(|entry| Some(entry) == released)
+                        && let Some(narrow_to) = click_i_opt
                         && let Some(ref mut items) = self.items_opt
                     {
                         for (i, item) in items.iter_mut().enumerate() {
@@ -6405,7 +6415,7 @@ impl Tab {
                         self.select_range = Some((narrow_to, narrow_to));
                     }
 
-                    if click_i_opt != self.clicked.take()
+                    if released != self.clicked.take()
                         && let Some(ref mut items) = self.items_opt
                     {
                         for (i, item) in items.iter_mut().enumerate() {
@@ -6492,6 +6502,7 @@ impl Tab {
                 }
             }
             Message::Click(click_i_opt) => {
+                let pressed = self.entry_at(click_i_opt);
                 self.dismiss_edit_location();
                 self.narrow_on_release = None;
                 self.pressed_on = self.location_at(click_i_opt);
@@ -6501,7 +6512,7 @@ impl Tab {
                 // Nor does an earlier rectangle say what this one crosses
                 self.clear_drag_overlaps();
                 if click_i_opt.is_none() {
-                    self.clicked = click_i_opt;
+                    self.clicked = None;
                 }
 
                 if mod_shift {
@@ -6549,7 +6560,7 @@ impl Tab {
                                 }
                             }
                         }
-                        self.clicked = click_i_opt;
+                        self.clicked = pressed.clone();
                         self.select_focus = click_i_opt;
                     }
                 } else {
@@ -6581,15 +6592,15 @@ impl Tab {
                                     }
                                 }
                                 if !self.selection.is_selected(item) {
-                                    self.clicked = click_i_opt;
+                                    self.clicked = pressed.clone();
                                     self.selection.select(item, true);
                                 } else if !mod_ctrl {
-                                    self.narrow_on_release = click_i_opt;
+                                    self.narrow_on_release = pressed.clone();
                                 }
                                 self.select_range = Some((i, i));
                                 self.select_focus = click_i_opt;
                             } else if !dont_unset && self.selection.is_selected(item) {
-                                self.clicked = click_i_opt;
+                                self.clicked = pressed.clone();
                                 self.selection.select(item, false);
                             }
                         }
@@ -12686,6 +12697,37 @@ mod tests {
         tab.update(Message::Click(Some(0)), Modifiers::CTRL);
         tab.update(Message::ClickRelease(Some(0)), Modifiers::CTRL);
         assert_eq!(selected(&tab), [1]);
+        Ok(())
+    }
+
+    /// The release narrows the selection to the entry pressed even when
+    /// entries arrived before it between press and release, as search
+    /// results do: it is the same entry, now listed further down
+    #[test]
+    fn a_press_narrows_on_release_though_the_entry_moved_meanwhile() -> io::Result<()> {
+        let (fs, mut tab) = tab_click_new(NUM_FILES, NUM_NESTED, NUM_DIRS, NUM_NESTED, NAME_LEN)?;
+        for i in 0..2 {
+            tab.update(Message::Click(Some(i)), Modifiers::CTRL);
+            tab.update(Message::ClickRelease(Some(i)), Modifiers::CTRL);
+        }
+        let pressed = tab.items_opt.as_ref().unwrap()[1].name.clone();
+        tab.update(Message::Click(Some(1)), Modifiers::empty());
+
+        // An entry arrives at the top
+        let arrived = fs.path().join("arrived");
+        fs::write(&arrived, b"x")?;
+        let item = super::item_from_path(arrived, IconSizes::default()).expect("item");
+        tab.items_opt.as_mut().unwrap().insert(0, item);
+
+        tab.update(Message::ClickRelease(Some(2)), Modifiers::empty());
+        let selected: Vec<_> = tab
+            .items_opt
+            .iter()
+            .flatten()
+            .filter(|item| tab.selection.is_selected(item))
+            .map(|item| item.name.clone())
+            .collect();
+        assert_eq!(selected, [pressed]);
         Ok(())
     }
 
