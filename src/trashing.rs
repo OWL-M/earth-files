@@ -187,9 +187,31 @@ fn with_policy(base: Context, mounts: &[Mount]) -> Context {
     base.with_policy(policy)
 }
 
+/// The zone deletion dates are written and read in: the system's, or UTC
+/// where there is none (no `TZ` and no `/etc/localtime`, as in a build
+/// sandbox or a bare container, or an unusable `TZ`). The dates are then
+/// off by the zone's offset, but the trash works.
+fn zone() -> xdg_kit::trash::LocalZone {
+    static ZONE: std::sync::LazyLock<xdg_kit::trash::LocalZone> = std::sync::LazyLock::new(|| {
+        xdg_kit::trash::LocalZone::system().unwrap_or_else(|err| {
+            log::warn!("{err}; trash dates are in UTC");
+            xdg_kit::trash::LocalZone::utc()
+        })
+    });
+    ZONE.clone()
+}
+
 /// The trash as this user has it now, with the mounts it was made for.
 fn context() -> io::Result<(Context, Vec<Mount>)> {
-    let base = Context::from_env().map_err(io::Error::other)?;
+    // As `Context::from_env`, which fails without a system time zone
+    let data_home = crate::xdg_dirs::BASE_DIRS
+        .as_ref()
+        .ok_or_else(|| io::Error::other("no XDG base directories"))?
+        .data_home();
+    let cwd = std::env::current_dir()?;
+    // SAFETY: `getuid` has no preconditions and cannot fail
+    let uid = unsafe { libc::getuid() };
+    let base = Context::new(data_home, uid, cwd, zone()).map_err(io::Error::other)?;
     let mounts = mounts();
     Ok((with_policy(base, &mounts), mounts))
 }
@@ -854,7 +876,7 @@ mod tests {
     /// A context whose home trash is in `data`, so tests leave the user's
     /// own alone.
     fn context_in(data: &Path) -> Context {
-        let zone = xdg_kit::trash::LocalZone::system().expect("zone");
+        let zone = super::zone();
         let base = Context::new(
             data,
             // SAFETY: `getuid` has no preconditions and cannot fail
@@ -1251,7 +1273,7 @@ mod tests {
             real.path().display()
         );
         let mounts = xdg_kit::trash::parse_mountinfo(mountinfo.as_bytes()).expect("parsed");
-        let zone = xdg_kit::trash::LocalZone::system().expect("zone");
+        let zone = super::zone();
         // SAFETY: `getuid` has no preconditions and cannot fail
         let base = Context::new(&data, unsafe { libc::getuid() }, "/", zone).expect("context");
         let context = with_policy(base, &mounts);
@@ -1278,16 +1300,28 @@ mod tests {
     /// for the one the home trash is on, whose files go there
     #[test]
     fn network_drives_are_excluded_but_the_homes() {
-        let mountinfo = b"1 0 8:1 / / rw - ext4 /dev/sda1 rw\n\
-            2 1 0:40 / /home rw - nfs4 server:/home rw\n\
-            3 1 0:41 / /mnt/share rw - cifs //server/share rw\n";
-        let mounts = xdg_kit::trash::parse_mountinfo(mountinfo).expect("parsed");
-        let zone = xdg_kit::trash::LocalZone::system().expect("zone");
-        let base = Context::new("/home/u/.local/share", 1000, "/", zone).expect("context");
+        // The drives are folders here, so the home trash's place is found
+        // on this machine whatever it has at `/home`, as a build sandbox
+        // has nothing there
+        let root = tempfile::tempdir().expect("tempdir");
+        let root = fs::canonicalize(root.path()).expect("canonical");
+        let (home, share) = (root.join("home"), root.join("mnt/share"));
+        fs::create_dir_all(home.join("u/.local/share")).expect("mkdir");
+        fs::create_dir_all(&share).expect("mkdir");
+        let mountinfo = format!(
+            "1 0 8:1 / / rw - ext4 /dev/sda1 rw\n\
+             2 1 0:40 / {} rw - nfs4 server:/home rw\n\
+             3 1 0:41 / {} rw - cifs //server/share rw\n",
+            home.display(),
+            share.display()
+        );
+        let mounts = xdg_kit::trash::parse_mountinfo(mountinfo.as_bytes()).expect("parsed");
+        let base =
+            Context::new(home.join("u/.local/share"), 1000, "/", super::zone()).expect("context");
         let context = with_policy(base, &mounts);
-        let excluded = |path: &str| matches!(context.plan(path), Err(TrashError::Excluded(_)));
-        assert!(excluded("/mnt/share/a"), "a network drive");
-        assert!(!excluded("/home/u/a"), "the home trash's drive");
+        let excluded = |path: &Path| matches!(context.plan(path), Err(TrashError::Excluded(_)));
+        assert!(excluded(&share.join("a")), "a network drive");
+        assert!(!excluded(&home.join("u/a")), "the home trash's drive");
     }
 
     /// A bind mount is a mount of its own: the innermost mount names a path
