@@ -1497,6 +1497,33 @@ pub fn item_from_trash_entry(
     }
 }
 
+/// What `path`, inside a trash's `files/`, is to the trash: an entry of
+/// its own right in `files/`, with its `.trashinfo` or without one, or
+/// something inside such an entry, which the trash knows nothing of.
+fn trash_id_of(path: &Path) -> crate::trashing::TrashId {
+    use crate::trashing::TrashId;
+    let files = crate::trash::trash_files_dir(path);
+    let (Some(files), Some(name)) = (
+        files.filter(|files| path.parent() == Some(*files)),
+        path.file_name(),
+    ) else {
+        return TrashId::Child(path.to_path_buf());
+    };
+    let mut record = name.to_os_string();
+    record.push(".trashinfo");
+    let info = files
+        .parent()
+        .map(|trash| trash.join("info").join(record))
+        .filter(|info| info.symlink_metadata().is_ok());
+    match info {
+        Some(info) => TrashId::Recorded {
+            info,
+            payload: path.to_path_buf(),
+        },
+        None => TrashId::Orphan(path.to_path_buf()),
+    }
+}
+
 fn item_from_trash_child(
     path: PathBuf,
     name: String,
@@ -1507,7 +1534,7 @@ fn item_from_trash_child(
     let original_parent = crate::trash::original_path_for_trash_child(&path)
         .and_then(|original| original.parent().map(Path::to_path_buf));
     let entry = crate::trashing::TrashItem {
-        id: crate::trashing::TrashId::Child(path.clone()),
+        id: trash_id_of(&path),
         name: std::ffi::OsString::from(&name),
         original_parent,
         time_deleted: 0,
@@ -5060,6 +5087,19 @@ impl Tab {
                 .iter()
                 .position(|item| self.selection.is_highlighted(item))
         });
+        // A press still waiting for its release, and the entry it narrows
+        // to, follow their places into the listing read anew too: the
+        // release comes on the same file, which is a new entry now
+        let place_of = |entry: &Option<widget::Id>| {
+            let entry = entry.as_ref()?;
+            self.items_opt
+                .as_ref()?
+                .iter()
+                .find(|item| item.button_id == *entry)?
+                .location_opt
+                .clone()
+        };
+        let (clicked_at, narrow_at) = (place_of(&self.clicked), place_of(&self.narrow_on_release));
         // The same places stay selected in the listing read anew
         let selected = self.selected_locations();
         self.selection.forget_entries();
@@ -5073,6 +5113,16 @@ impl Tab {
             }
         }
         self.items_opt = Some(items);
+        let entry_at_place = |place: Option<Location>| {
+            let place = place?;
+            self.items_opt
+                .as_ref()?
+                .iter()
+                .find(|item| item.location_opt.as_ref() == Some(&place))
+                .map(|item| item.button_id.clone())
+        };
+        self.clicked = entry_at_place(clicked_at);
+        self.narrow_on_release = entry_at_place(narrow_at);
         self.restore_selection_marks(marks);
         // The old listing's notes name other items
         self.highlight_marks.clear();
@@ -11075,6 +11125,39 @@ fn text_editor_class(
 #[cfg(test)]
 mod tests {
 
+    /// Browsing a trash's `files/` itself, an entry right there is the
+    /// trash's own, with its record or without one; what is inside one is
+    /// not, so deleting or restoring an entry takes its record with it
+    #[test]
+    fn an_entry_of_trash_storage_is_told_from_what_it_holds() {
+        use crate::trashing::TrashId;
+        let trash = tempfile::tempdir().unwrap();
+        let (files, info) = (trash.path().join("files"), trash.path().join("info"));
+        std::fs::create_dir_all(files.join("d")).unwrap();
+        std::fs::create_dir_all(&info).unwrap();
+        for path in [files.join("a"), files.join("b"), files.join("d/inner")] {
+            std::fs::write(path, "x").unwrap();
+        }
+        std::fs::write(info.join("a.trashinfo"), "[Trash Info]").unwrap();
+        crate::trash::remember_folder(trash.path().to_path_buf());
+
+        assert_eq!(
+            super::trash_id_of(&files.join("a")),
+            TrashId::Recorded {
+                info: info.join("a.trashinfo"),
+                payload: files.join("a"),
+            }
+        );
+        assert_eq!(
+            super::trash_id_of(&files.join("b")),
+            TrashId::Orphan(files.join("b"))
+        );
+        assert_eq!(
+            super::trash_id_of(&files.join("d/inner")),
+            TrashId::Child(files.join("d/inner"))
+        );
+    }
+
     /// The tab keeps the selection by each entry's own id: an entry read
     /// again in place keeps it, and so does one that new entries arrive
     /// around, as search results do; a listing read anew starts afresh,
@@ -12728,6 +12811,51 @@ mod tests {
             .map(|item| item.name.clone())
             .collect();
         assert_eq!(selected, [pressed]);
+        Ok(())
+    }
+
+    /// A folder read again between press and release lists the same files
+    /// as new entries; the release on the same file still completes the
+    /// press: a Ctrl-press keeps what it selected, and a press on a
+    /// selected file still narrows to it
+    #[test]
+    fn a_press_completes_across_a_rescan_of_its_folder() -> io::Result<()> {
+        let (fs, mut tab) = tab_click_new(NUM_FILES, NUM_NESTED, NUM_DIRS, NUM_NESTED, NAME_LEN)?;
+        let selected = |tab: &Tab| -> Vec<String> {
+            tab.items_opt
+                .iter()
+                .flatten()
+                .filter(|item| tab.selection.is_selected(item))
+                .map(|item| item.name.clone())
+                .collect()
+        };
+        let rescan = |tab: &mut Tab| {
+            tab.set_items(super::scan_path(
+                &fs.path().to_path_buf(),
+                IconSizes::default(),
+            ));
+        };
+        let at = |tab: &Tab, name: &str| {
+            tab.items_opt
+                .as_ref()
+                .unwrap()
+                .iter()
+                .position(|item| item.name == name)
+        };
+        let first = tab.items_opt.as_ref().unwrap()[0].name.clone();
+        let second = tab.items_opt.as_ref().unwrap()[1].name.clone();
+
+        tab.update(Message::Click(Some(0)), Modifiers::CTRL);
+        rescan(&mut tab);
+        tab.update(Message::ClickRelease(at(&tab, &first)), Modifiers::CTRL);
+        assert_eq!(selected(&tab), [first], "the Ctrl-press keeps it");
+
+        tab.update(Message::Click(at(&tab, &second)), Modifiers::CTRL);
+        tab.update(Message::ClickRelease(at(&tab, &second)), Modifiers::CTRL);
+        tab.update(Message::Click(at(&tab, &second)), Modifiers::empty());
+        rescan(&mut tab);
+        tab.update(Message::ClickRelease(at(&tab, &second)), Modifiers::empty());
+        assert_eq!(selected(&tab), [second], "narrowed to it");
         Ok(())
     }
 

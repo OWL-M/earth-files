@@ -27,17 +27,29 @@ use serde::de::DeserializeOwned;
 static FILES: LazyLock<Mutex<HashMap<PathBuf, Arc<Owner>>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
-/// One config file's owner. Holds whether the file is unsafe to write: set
-/// when a malformed file could not be copied aside, as overwriting it would
-/// destroy settings the user could otherwise still recover by hand.
+/// One config file's owner: its turn, which reading and rescuing it and
+/// writing it each take for as long as they touch the disk, and whether it
+/// is unsafe to write. That is set when a malformed file could not be
+/// copied aside, as overwriting it would destroy settings the user could
+/// otherwise still recover by hand. Read without the turn, so asking for a
+/// save never waits on the disk.
 #[derive(Debug, Default)]
 struct Owner {
-    sealed: Mutex<bool>,
+    turn: Mutex<()>,
+    sealed: AtomicBool,
 }
 
 impl Owner {
-    fn hold(&self) -> std::sync::MutexGuard<'_, bool> {
-        self.sealed.lock().unwrap_or_else(|err| err.into_inner())
+    fn hold(&self) -> std::sync::MutexGuard<'_, ()> {
+        self.turn.lock().unwrap_or_else(|err| err.into_inner())
+    }
+
+    fn is_sealed(&self) -> bool {
+        self.sealed.load(Ordering::Acquire)
+    }
+
+    fn seal(&self, sealed: bool) {
+        self.sealed.store(sealed, Ordering::Release);
     }
 }
 
@@ -79,7 +91,7 @@ impl Store {
     pub fn load<T: DeserializeOwned + Default>(&self) -> T {
         // Held through the rescue: no write lands between reading the file
         // and moving it aside
-        let mut sealed = self.file.hold();
+        let _turn = self.file.hold();
         let text = match fs::read_to_string(&self.path) {
             Ok(text) => text,
             Err(err) => {
@@ -87,7 +99,7 @@ impl Store {
                     // Nothing is there to protect any more, so a seal from an
                     // earlier failed rescue must not keep blocking saves: the
                     // user may have moved the bad file aside by hand
-                    *sealed = false;
+                    self.file.seal(false);
                 } else {
                     log::warn!("failed to read {}: {err}", self.path.display());
                 }
@@ -99,7 +111,7 @@ impl Store {
             Ok(value) => {
                 // The file reads cleanly, so whatever made it unsafe to write
                 // is behind us and saving may resume
-                *sealed = false;
+                self.file.seal(false);
                 value
             }
             Err(err) => {
@@ -108,7 +120,7 @@ impl Store {
                     Ok(backup) => {
                         // The bad file is out of the way, so writing a fresh
                         // one destroys nothing
-                        *sealed = false;
+                        self.file.seal(false);
                         log::error!(
                             "kept the unreadable {} as {}; starting from defaults",
                             self.path.display(),
@@ -121,7 +133,7 @@ impl Store {
                              over it, so it can still be recovered by hand",
                             self.path.display()
                         );
-                        *sealed = true;
+                        self.file.seal(true);
                     }
                 }
                 T::default()
@@ -191,7 +203,7 @@ impl Store {
 
     /// The seal check and serialization both saves share.
     fn prepare<T: Serialize>(&self, value: &T) -> io::Result<String> {
-        if *self.file.hold() {
+        if self.file.is_sealed() {
             return Err(io::Error::other(format!(
                 "refusing to overwrite the unreadable {}",
                 self.path.display()
@@ -209,8 +221,8 @@ impl Store {
 /// and it must not go through then either. The file is held while it is
 /// written, so a rescue waits for the write, and the write for the rescue.
 fn write_text(path: &Path, file: &Owner, text: &str) -> io::Result<()> {
-    let sealed = file.hold();
-    if *sealed {
+    let _turn = file.hold();
+    if file.is_sealed() {
         return Err(io::Error::other(format!(
             "refusing to overwrite the unreadable {}",
             path.display()
@@ -567,6 +579,24 @@ mod tests {
         drop(held);
         saving.join().unwrap().unwrap();
         assert_eq!(fs::read_to_string(&path).unwrap(), "(value: 1)");
+    }
+
+    /// Asking for a save does not wait for the file's turn, which a write
+    /// holds through its sync: only the writer thread does
+    #[test]
+    fn a_background_save_does_not_wait_on_the_disk() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::at(dir.path().join("busy.ron"));
+        let held = store.file.hold();
+        let (done, asked) = std::sync::mpsc::channel();
+        std::thread::spawn({
+            let store = store.clone();
+            move || done.send(store.save_in_background(&Sample::default()).is_ok())
+        });
+        let returned = asked.recv_timeout(std::time::Duration::from_secs(5));
+        drop(held);
+        assert_eq!(returned, Ok(true), "queued while the file was busy");
+        flush();
     }
 
     #[test]

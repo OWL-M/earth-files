@@ -355,9 +355,9 @@ pub struct Context {
     /// The step running replaced what was at its destination: what it puts
     /// there is its own, to take away when putting things back.
     replaced_now: bool,
-    /// How many trash entries there were when the running step started:
-    /// the ones after are its own.
-    step_trash: usize,
+    /// How long the journal was when the running step started: what comes
+    /// after is the step's own.
+    step_start: usize,
     /// A folder whose name is taken by a folder goes into it without asking,
     /// as an extraction does; a copy or move asks.
     pub(crate) merge_folders: bool,
@@ -418,12 +418,15 @@ impl Context {
         })
     }
 
-    /// Takes the latest entry sent to the trash out of the journal.
-    fn pop_trashed(&mut self) -> Option<crate::trashing::TrashItem> {
-        let at = self
-            .journal
-            .iter()
-            .rposition(|effect| matches!(effect, Effect::Trashed(_)))?;
+    /// Takes the latest entry sent to the trash from the journal, if it came
+    /// at or after `since`.
+    fn pop_trashed_since(&mut self, since: usize) -> Option<crate::trashing::TrashItem> {
+        let at = since
+            + self
+                .journal
+                .get(since..)?
+                .iter()
+                .rposition(|effect| matches!(effect, Effect::Trashed(_)))?;
         match self.journal.remove(at) {
             Effect::Trashed(item) => Some(item),
             _ => None,
@@ -592,7 +595,7 @@ impl Context {
             deleted: Vec::new(),
             deleted_more: 0,
             replaced_now: false,
-            step_trash: 0,
+            step_start: 0,
             merge_folders: false,
             id: NEXT_CONTEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
             #[cfg(not(test))]
@@ -694,9 +697,7 @@ impl Context {
         self.op_sel.skipped.push(path.to_path_buf());
         // Only an entry of this step's: one it removed for good, as root,
         // has none, and the ones before it belong to other steps
-        if self.trashed().count() > self.step_trash
-            && let Some(item) = self.pop_trashed()
-        {
+        if let Some(item) = self.pop_trashed_since(self.step_start) {
             let (to, restore, kept) = (item.named_path(), self.trash.restore, item.clone());
             let restored = compio::runtime::spawn_blocking(move || restore(item))
                 .await
@@ -1709,7 +1710,7 @@ impl Context {
             let to_before = op.to.clone();
             let to_existed = compio::fs::symlink_metadata(&to_before).await.is_ok();
             self.replaced_now = false;
-            self.step_trash = self.trashed().count();
+            self.step_start = self.journal.len();
             // A step stopped for lack of permission asks the user, and runs
             // again for as long as they answer Retry.
             let mut left_alone = false;
@@ -3727,7 +3728,7 @@ mod tests {
         ));
         fs::write(&earlier, b"copied").expect("write");
         // This step: as `root_taken` leaves it after removing for good
-        ctx.step_trash = ctx.trashed().count();
+        ctx.step_start = ctx.journal.len();
         ctx.replaced_now = true;
         let op = Op {
             kind: OpKind::Copy,
