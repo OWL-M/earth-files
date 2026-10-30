@@ -391,6 +391,9 @@ where
                         width: custom_style.border_width,
                         color: custom_style.border_color,
                     },
+                    // Independent pixel snapping can move the two circles'
+                    // centers apart at fractional display scales.
+                    snap: false,
                     ..renderer::Quad::default()
                 },
                 custom_style.background,
@@ -406,6 +409,7 @@ where
                             height: dot_size,
                         },
                         border: border::rounded(dot_size / 2.0),
+                        snap: false,
                         ..renderer::Quad::default()
                     },
                     custom_style.dot_color,
@@ -533,6 +537,82 @@ mod tests {
             self.send(Event::Mouse(mouse::Event::ButtonReleased(
                 mouse::Button::Left,
             )))
+        }
+    }
+
+    #[derive(Default)]
+    struct QuadRecorder(Vec<renderer::Quad>);
+
+    impl renderer::Renderer for QuadRecorder {
+        fn start_layer(&mut self, _: Rectangle) {}
+        fn end_layer(&mut self) {}
+        fn start_transformation(&mut self, _: iced_core::Transformation) {}
+        fn end_transformation(&mut self) {}
+        fn fill_quad(&mut self, quad: renderer::Quad, _: impl Into<iced_core::Background>) {
+            self.0.push(quad);
+        }
+        fn reset(&mut self, _: Rectangle) {
+            self.0.clear();
+        }
+        fn allocate_image(
+            &mut self,
+            _: &iced_core::image::Handle,
+            _: impl FnOnce(Result<iced_core::image::Allocation, iced_core::image::Error>)
+            + Send
+            + 'static,
+        ) {
+            unreachable!("radio circles do not allocate images");
+        }
+    }
+
+    #[test]
+    fn selected_radio_circles_remain_concentric_after_display_scaling() {
+        // Match the edge snapping used by iced_wgpu's quad shader.
+        fn rendered_center(quad: &renderer::Quad, scale: f32) -> Point {
+            let edge = |value: f32| {
+                let value = value * scale;
+                if quad.snap {
+                    (value + 0.001).round()
+                } else {
+                    value
+                }
+            };
+            Point::new(
+                (edge(quad.bounds.x) + edge(quad.bounds.x + quad.bounds.width)) / 2.0,
+                (edge(quad.bounds.y) + edge(quad.bounds.y + quad.bounds.height)) / 2.0,
+            )
+        }
+        for size in [16.0, 19.0] {
+            for position in [Point::new(0.0, 0.0), Point::new(3.25, 7.5)] {
+                for theme in [Theme::dark(), Theme::light()] {
+                    let radio: Radio<'_, u8, QuadRecorder> =
+                        Radio::new_no_label(RADIO, Some(RADIO), |v| v).size(size);
+                    let tree = Tree::new(&radio as &dyn Widget<u8, Theme, QuadRecorder>);
+                    let node = layout::Node::new(Size::new(size, size)).move_to(position);
+                    let mut recorder = QuadRecorder::default();
+                    radio.draw(
+                        &tree,
+                        &mut recorder,
+                        &theme,
+                        &renderer::Style {
+                            text_color: iced_core::Color::BLACK,
+                        },
+                        Layout::new(&node),
+                        mouse::Cursor::Unavailable,
+                        &Rectangle::with_size(WINDOW),
+                    );
+                    assert_eq!(recorder.0.len(), 2);
+                    for scale in [1.0, 1.25, 1.5, 1.75, 2.0] {
+                        let outer = rendered_center(&recorder.0[0], scale);
+                        let inner = rendered_center(&recorder.0[1], scale);
+                        assert!(
+                            (outer.x - inner.x).abs() < 0.0001
+                                && (outer.y - inner.y).abs() < 0.0001,
+                            "size={size}, position={position:?}, scale={scale}: outer={outer:?}, inner={inner:?}"
+                        );
+                    }
+                }
+            }
         }
     }
 

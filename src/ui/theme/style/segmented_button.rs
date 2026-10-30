@@ -130,7 +130,24 @@ impl StyleSheet for Theme {
                 }
             }
 
-            SegmentedButton::NavBar | SegmentedButton::FileNav => Appearance {
+            SegmentedButton::NavBar => {
+                let mut appearance = vertical::tab_bar(cosmic, container);
+                let radius = crate::ui::widget::nav_bar::row_radius(cosmic).to_radius();
+                for state in [
+                    &mut appearance.active,
+                    &mut appearance.inactive,
+                    &mut appearance.hover,
+                    &mut appearance.pressed,
+                ] {
+                    state.first.border.radius = radius;
+                    state.middle.border.radius = radius;
+                    state.last.border.radius = radius;
+                }
+                appearance.active_width = 0.0;
+                appearance
+            }
+
+            SegmentedButton::FileNav => Appearance {
                 active_width: 0.0,
                 ..vertical::tab_bar(cosmic, container)
             },

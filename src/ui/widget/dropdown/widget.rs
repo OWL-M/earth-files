@@ -43,6 +43,8 @@ where
     icons: Cow<'a, [icon::Handle]>,
     #[setters(skip)]
     selected: Option<usize>,
+    /// Center the popup horizontally below the picker and spring it open.
+    centered_animated: bool,
     #[setters(into)]
     width: Length,
     gap: f32,
@@ -88,6 +90,7 @@ where
             selections,
             icons: Cow::Borrowed(&[]),
             selected,
+            centered_animated: false,
             placeholder: None,
             width: Length::Shrink,
             gap: Self::DEFAULT_GAP,
@@ -205,6 +208,7 @@ where
         shell: &mut Shell<'_, Message>,
         _viewport: &Rectangle,
     ) {
+        let previous_popup = tree.state.downcast_ref::<State>().popup_id;
         update::<S, Message, AppMessage>(
             event,
             layout,
@@ -223,7 +227,12 @@ where
             self.text_size,
             self.font,
             self.selected,
-        )
+        );
+        let state = tree.state.downcast_mut::<State>();
+        if self.centered_animated && state.popup_id != previous_popup {
+            // Each opening starts a fresh spring and scroll position.
+            state.menu = menu::State::new();
+        }
     }
 
     fn mouse_interaction(
@@ -300,6 +309,7 @@ where
             self.on_selected.as_ref(),
             translation,
             None,
+            self.centered_animated,
         )
     }
 }
@@ -578,6 +588,7 @@ pub fn overlay<'a, S: AsRef<str> + Send + Sync + Clone + 'static, Message: std::
     on_selected: &'a dyn Fn(usize) -> Message,
     translation: Vector,
     close_on_selected: Option<Message>,
+    centered_animated: bool,
 ) -> Option<overlay::Element<'a, Message, crate::ui::Theme, crate::ui::Renderer>>
 where
     [S]: std::borrow::ToOwned,
@@ -618,10 +629,25 @@ where
                 + icon_width
         })
         .padding(padding)
-        .text_size(text_size);
+        .text_size(text_size)
+        .centered_animated(centered_animated);
+
+        let menu = if centered_animated {
+            menu.menu_padding(6).option_spacing(3.0).padding(Padding {
+                top: (padding.top - 2.0).max(0.0),
+                bottom: (padding.bottom - 2.0).max(0.0),
+                ..padding
+            })
+        } else {
+            menu
+        };
 
         let mut position = layout.position();
-        position.x -= padding.left;
+        if centered_animated {
+            position.x = bounds.center_x();
+        } else {
+            position.x -= padding.left;
+        }
         position.x += translation.x;
         position.y += translation.y;
         Some(menu.overlay(position, bounds.height))

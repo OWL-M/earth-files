@@ -476,23 +476,19 @@ fn button_appearance(
             appearance.background = Some(cosmic.bg_component_color().to_color().into());
         }
     } else if highlighted {
+        appearance.background = Some(file_background(theme, HIGHLIGHT_MIX).into());
         if accent {
-            appearance.background = Some(cosmic.bg_component_color().to_color().into());
-            appearance.icon_color = Some(cosmic.on_bg_component_color().to_color());
-            appearance.text_color = Some(cosmic.on_bg_component_color().to_color());
-            if cut {
-                appearance.text_color = Some(
-                    cosmic
-                        .background(theme.transparent)
-                        .component
-                        .on_disabled
-                        .to_color(),
-                );
+            // Drawn on the window background, lifted: its text colour, not a
+            // component's, which a theme may make the opposite
+            let on = cosmic.background(theme.transparent).on;
+            appearance.icon_color = Some(on.to_color());
+            appearance.text_color = Some(if cut {
+                let mut dimmed = on;
+                dimmed.alpha *= crate::ui::theme::custom::DISABLED_ALPHA;
+                dimmed.to_color()
             } else {
-                appearance.text_color = Some(cosmic.on_bg_component_color().to_color());
-            }
-        } else {
-            appearance.background = Some(cosmic.bg_component_color().to_color().into());
+                on.to_color()
+            });
         }
     } else if cut {
         appearance.text_color = Some(
@@ -4110,16 +4106,40 @@ fn faded_dim_text_style(theme: &theme::Theme) -> widget::text::Style {
     style
 }
 
+/// How far a highlighted row's fill moves from the window background
+/// toward its text colour, in dark and in light themes.
+const HIGHLIGHT_MIX: (f32, f32) = (0.08, 0.22);
+
+/// How far a list stripe moves from the window background toward its text
+/// colour, in dark and in light themes.
+const STRIPE_MIX: (f32, f32) = (0.04, 0.11);
+
+/// The file view's background moved toward its text colour by `mix` (for
+/// dark, for light themes), keeping its opacity. Toward the text colour,
+/// which contrasts with the background, rather than scaled: scaling leaves
+/// a black background black, and clips a light one in a dark theme.
+fn file_background(theme: &theme::Theme, (dark, light): (f32, f32)) -> Color {
+    let cosmic = theme.cosmic();
+    let background = cosmic.background(theme.transparent);
+    let t = if cosmic.is_dark { dark } else { light };
+    toward(background.base, background.on, t).to_color()
+}
+
+/// `base` moved toward `on` by `t`, keeping the opacity of `base`.
+fn toward(mut base: palette::Srgba, on: palette::Srgba, t: f32) -> palette::Srgba {
+    base.red += (on.red - base.red) * t;
+    base.green += (on.green - base.green) * t;
+    base.blue += (on.blue - base.blue) * t;
+    base
+}
+
 /// The faint fill of every other list row, so the eye keeps to a row
 /// across a wide window.
 fn stripe_style(theme: &theme::Theme) -> widget::container::Style {
-    let cosmic = theme.cosmic();
-    let mut color = cosmic.background(theme.transparent).on;
-    color.alpha = if cosmic.is_dark { 0.025 } else { 0.03 };
     widget::container::Style {
-        background: Some(color.to_color().into()),
+        background: Some(file_background(theme, STRIPE_MIX).into()),
         border: crate::ui::iced::Border {
-            radius: cosmic.radius_s().to_radius(),
+            radius: theme.cosmic().radius_s().to_radius(),
             ..Default::default()
         },
         ..Default::default()
@@ -11124,6 +11144,28 @@ fn text_editor_class(
 
 #[cfg(test)]
 mod tests {
+
+    /// Stripes and the highlighted row stand out from any background: black
+    /// and white too, which scaling the background left unchanged
+    #[test]
+    fn row_fills_stand_out_from_any_background() {
+        use palette::Srgba;
+        let dark = |level: f32| Srgba::new(level, level, level, 0.8);
+        for (base, on) in [
+            (dark(0.0), dark(1.0)),
+            (dark(1.0), dark(0.0)),
+            (dark(0.106), dark(0.908)),
+        ] {
+            for t in [super::STRIPE_MIX.0, super::HIGHLIGHT_MIX.0] {
+                let fill = super::toward(base, on, t);
+                assert!(
+                    (fill.red - base.red).abs() >= t * 0.5,
+                    "{base:?} -> {fill:?}"
+                );
+                assert_eq!(fill.alpha, base.alpha, "keeps its opacity");
+            }
+        }
+    }
 
     /// Browsing a trash's `files/` itself, an entry right there is the
     /// trash's own, with its record or without one; what is inside one is

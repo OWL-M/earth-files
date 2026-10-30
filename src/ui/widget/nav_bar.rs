@@ -20,8 +20,34 @@ use crate::ui::widget::Icon;
 use crate::ui::widget::{Container, container};
 use crate::ui::widget::{menu, scrollable, segmented_button};
 
-/// How far the scrollbar sits in from every edge of the panel
+/// Horizontal margin of the scrollbar from the panel edge
 const SCROLLBAR_MARGIN: f32 = 5.0;
+
+/// Minimum inset of the entry rows from the panel edges.
+const MIN_ROW_INSET: f32 = 5.0;
+
+/// Match iwwc's tray menu proportions, retaining a minimum panel inset.
+fn row_geometry(outer: [f32; 4]) -> (f32, [f32; 4]) {
+    let outer = outer.map(|radius| radius.max(0.0));
+    let inset = outer.iter().copied().fold(0.0_f32, f32::max) * 0.8;
+    let inset = inset.max(MIN_ROW_INSET);
+    (
+        inset,
+        outer.map(|radius| (radius - inset).max(inset).min(radius)),
+    )
+}
+
+pub(crate) fn row_radius(palette: &crate::ui::theme::Palette) -> [f32; 4] {
+    if theme::custom::nav_radius_is_custom(palette.is_dark) {
+        palette.corner_radii.radius_m
+    } else {
+        row_geometry(palette.corner_radii.radius_s).1
+    }
+}
+
+fn row_inset() -> f32 {
+    row_geometry(theme::active().cosmic().corner_radii.radius_s).0
+}
 
 /// Size of the entry labels. Set on the widget below rather than left to its
 /// default, so that [`min_width`] measures what is drawn.
@@ -193,6 +219,7 @@ impl<'a, Message: Clone + 'static> From<NavBar<'a, Message>>
         let spacing = crate::ui::theme::spacing();
         let space_s = spacing.space_s;
         let space_xxs = spacing.space_xxs;
+        let inset = row_inset();
 
         this.segmented_button
             .button_height(32)
@@ -205,11 +232,7 @@ impl<'a, Message: Clone + 'static> From<NavBar<'a, Message>>
             // Directly in the scrollable below, with nothing above it.
             .at_scrollable_top(true)
             .apply(container)
-            .padding(
-                Padding::ZERO
-                    .left(f32::from(space_xxs))
-                    .right(f32::from(space_xxs)),
-            )
+            .padding(Padding::ZERO.left(inset).right(inset))
             .apply(scrollable)
             // Held clear of the panel's trailing edge, so the bar and the
             // divider drawn on that edge are not on top of each other
@@ -220,7 +243,7 @@ impl<'a, Message: Clone + 'static> From<NavBar<'a, Message>>
             // The bar is inset from the sides but not from the ends,
             // so the scrollable is held off the top and bottom instead. The
             // panel's background still reaches them: it is painted here.
-            .padding(Padding::ZERO.top(SCROLLBAR_MARGIN).bottom(SCROLLBAR_MARGIN))
+            .padding(Padding::ZERO.top(inset).bottom(inset))
             .height(Length::Fill)
             .class(theme::Container::custom(nav_bar_style))
     }
@@ -242,7 +265,7 @@ impl<'a, Message: Clone + 'static> From<NavBar<'a, Message>> for crate::ui::Elem
 pub fn min_width(model: &segmented_button::SingleSelectModel) -> f32 {
     let spacing = crate::ui::theme::spacing();
     // The panel's own padding, and what `From<NavBar>` gives the buttons
-    let around = f32::from(spacing.space_xxs) * 2.0;
+    let around = row_inset() * 2.0;
     let button_padding = f32::from(spacing.space_s) * 2.0;
     let button_spacing = f32::from(spacing.space_xxs);
     let font = crate::ui::font::default();
@@ -309,5 +332,22 @@ pub fn nav_bar_style(theme: &Theme) -> iced::widget::container::Style {
         },
         shadow: Shadow::default(),
         snap: true,
+    }
+}
+
+#[cfg(test)]
+mod geometry_tests {
+    #[test]
+    fn sidebar_corners_follow_outer_radius_and_keep_minimum_inset() {
+        for (outer, inset, inner) in [
+            (0.0, 5.0, 0.0),
+            (4.0, 5.0, 4.0),
+            (8.0, 6.4, 6.4),
+            (20.0, 16.0, 16.0),
+        ] {
+            let (actual_inset, actual_inner) = super::row_geometry([outer; 4]);
+            assert!((actual_inset - inset).abs() < 0.001);
+            assert!(actual_inner.iter().all(|r| (r - inner).abs() < 0.001));
+        }
     }
 }

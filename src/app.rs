@@ -4277,17 +4277,20 @@ impl App {
                         AppTheme::Light => 2,
                         AppTheme::System => 0,
                     };
-                    settings::item::builder(fl!("theme")).control(widget::dropdown(
-                        &self.app_themes,
-                        Some(app_theme_selected),
-                        move |index| {
-                            Message::AppTheme(match index {
-                                1 => AppTheme::Dark,
-                                2 => AppTheme::Light,
-                                _ => AppTheme::System,
-                            })
-                        },
-                    ))
+                    settings::item::builder(fl!("theme")).control(
+                        widget::dropdown(
+                            &self.app_themes,
+                            Some(app_theme_selected),
+                            move |index| {
+                                Message::AppTheme(match index {
+                                    1 => AppTheme::Dark,
+                                    2 => AppTheme::Light,
+                                    _ => AppTheme::System,
+                                })
+                            },
+                        )
+                        .centered_animated(true),
+                    )
                 })
                 .into(),
             settings::section()

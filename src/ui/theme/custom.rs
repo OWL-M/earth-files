@@ -31,7 +31,7 @@ const FOCUS_MIX: f32 = 0.20;
 const SELECTED_MIX: f32 = 0.10;
 const BORDER_MIX: f32 = 0.15;
 /// Alpha applied to a colour to show it is unavailable
-const DISABLED_ALPHA: f32 = 0.5;
+pub(crate) const DISABLED_ALPHA: f32 = 0.5;
 /// Alpha of a divider drawn in the text colour
 const DIVIDER_ALPHA: f32 = 0.2;
 /// Alpha of the subtle fill behind a small widget
@@ -725,6 +725,38 @@ static WINDOW_OUTLINE: OnceLock<Option<f32>> = OnceLock::new();
 pub fn window_outline() -> Option<f32> {
     WINDOW_OUTLINE.get().copied().flatten()
 }
+
+/// Whether a theme file set the sidebar row rounding, per mode.
+static DARK_NAV_RADIUS_IS_CUSTOM: OnceLock<bool> = OnceLock::new();
+static LIGHT_NAV_RADIUS_IS_CUSTOM: OnceLock<bool> = OnceLock::new();
+
+/// Whether `theme` gives the sidebar rows a radius of their own: all radii,
+/// or the medium one.
+fn defines_nav_radius(theme: &ThemeFile) -> bool {
+    matches!(
+        theme.corner_radii,
+        Some(
+            RadiiOverride::All { .. }
+                | RadiiOverride::Each {
+                    radius_m: Some(_),
+                    ..
+                }
+        )
+    )
+}
+
+/// Whether the sidebar rows of the dark or light theme keep the theme file's
+/// rounding rather than one derived from the panel's.
+#[must_use]
+pub(crate) fn nav_radius_is_custom(is_dark: bool) -> bool {
+    let flag = if is_dark {
+        &DARK_NAV_RADIUS_IS_CUSTOM
+    } else {
+        &LIGHT_NAV_RADIUS_IS_CUSTOM
+    };
+    flag.get().copied().unwrap_or(false)
+}
+
 /// Whether a theme file set the standard button's colours, per mode. A
 /// standard button normally inherits its container's text colour, which only
 /// works while its fill stays a near-neutral close to that container.
@@ -806,6 +838,9 @@ fn load_once() {
         .and_then(|theme| theme.window_outline)
         .or_else(|| light.as_ref().and_then(|theme| theme.window_outline));
     let _ = WINDOW_OUTLINE.set(outline);
+
+    let _ = DARK_NAV_RADIUS_IS_CUSTOM.set(dark.as_ref().is_some_and(defines_nav_radius));
+    let _ = LIGHT_NAV_RADIUS_IS_CUSTOM.set(light.as_ref().is_some_and(defines_nav_radius));
 
     let _ = DARK_BUTTON_IS_CUSTOM.set(dark.as_ref().is_some_and(|theme| theme.button.is_some()));
     let _ = LIGHT_BUTTON_IS_CUSTOM.set(light.as_ref().is_some_and(|theme| theme.button.is_some()));
@@ -897,6 +932,18 @@ mod tests {
 
     fn read_and_apply(path: &Path, base: &Palette) -> Option<Palette> {
         Some(read_file(path)?.apply(base))
+    }
+
+    #[test]
+    fn nav_radius_override_requires_an_explicit_row_radius() {
+        assert!(!defines_nav_radius(&parse("()")));
+        assert!(!defines_nav_radius(&parse(
+            "(corner_radii: (radius_s: 20.0))"
+        )));
+        assert!(defines_nav_radius(&parse(
+            "(corner_radii: (radius_m: 0.0))"
+        )));
+        assert!(defines_nav_radius(&parse("(corner_radii: (all: 8.0))")));
     }
 
     #[test]

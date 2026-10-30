@@ -59,6 +59,17 @@ impl StyleSheet for Theme {
         let cosmic = self.cosmic();
         let component = &cosmic.background(!is_overlay && self.transparent).component;
         let bg = component.base;
+        let border_color = if cosmic.is_dark {
+            component.divider.to_color()
+        } else {
+            Color {
+                r: bg.red * 0.7,
+                g: bg.green * 0.7,
+                b: bg.blue * 0.7,
+                // As translucent as the menu it outlines
+                a: bg.alpha,
+            }
+        };
 
         match style {
             MenuBarStyle::Default => Appearance {
@@ -66,7 +77,7 @@ impl StyleSheet for Theme {
                 border_width: 1.0,
                 bar_border_radius: cosmic.corner_radii.radius_xl,
                 menu_border_radius: cosmic.corner_radii.radius_s,
-                border_color: component.divider.to_color(),
+                border_color,
                 background_expand: [1; 4],
                 path: component.hover.to_color(),
             },
