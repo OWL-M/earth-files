@@ -385,11 +385,20 @@ impl<'a, Message: Clone + 'a> Overlay<'a, Message> {
         viewport: &Rectangle,
         renderer: &crate::ui::Renderer,
     ) -> mouse::Interaction {
-        self.state.with_data(|tree| {
+        let interaction = self.state.with_data(|tree| {
             self.container
                 .as_widget()
                 .mouse_interaction(tree, layout, cursor, viewport, renderer)
-        })
+        });
+        // The runtime gives the pointer to what lies under an overlay that
+        // answers `None`, and the list answers it wherever no option is:
+        // in the gaps between options and in its padding. A button under the
+        // list then took the hover, so the list keeps the pointer anywhere
+        // over itself.
+        if interaction == mouse::Interaction::None && cursor.is_over(layout.bounds()) {
+            return mouse::Interaction::Idle;
+        }
+        interaction
     }
 
     fn _draw(

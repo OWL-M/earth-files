@@ -180,6 +180,9 @@ where
 #[derive(Default)]
 struct State {
     is_pressed: bool,
+    /// Whether the pointer was over the radio when it was last drawn: see
+    /// the end of `update`.
+    drawn_hovered: Option<bool>,
 }
 
 impl<Message, Renderer> Widget<Message, Theme, Renderer> for Radio<'_, Message, Renderer>
@@ -309,6 +312,18 @@ where
                 }
                 _ => {}
             }
+        }
+
+        // `draw` takes the hover from the pointer, and nothing redraws the
+        // window when only the pointer moves: as a button does, what is
+        // drawn is noted as it is drawn, and a pointer that crossed the edge
+        // since asks for the frame showing it
+        let state = tree.state.downcast_mut::<State>();
+        let hovered = cursor.is_over(layout.bounds());
+        if let Event::Window(iced::window::Event::RedrawRequested(_)) = event {
+            state.drawn_hovered = Some(hovered);
+        } else if state.drawn_hovered.is_some_and(|drawn| drawn != hovered) {
+            shell.request_redraw();
         }
     }
 
@@ -537,6 +552,57 @@ mod tests {
             self.send(Event::Mouse(mouse::Event::ButtonReleased(
                 mouse::Button::Left,
             )))
+        }
+    }
+
+    /// The pointer crossing the radio's edge asks for the frame that shows
+    /// its hover, even within the button of a settings item, whose own hover
+    /// does not change as the pointer moves inside it
+    #[test]
+    fn crossing_the_edge_redraws_the_hover() {
+        for in_button in [false, true] {
+            let mut renderer = iced_texture_cache::testing::headless_tiny_skia();
+            let mut cache = Some(Cache::default());
+            let mut redraw_asked = |event: Event, at: Point| {
+                let mut ui = UserInterface::build(
+                    view(in_button),
+                    WINDOW,
+                    cache.take().unwrap(),
+                    &mut renderer,
+                );
+                let (state, _) = ui.update(
+                    &[event],
+                    mouse::Cursor::Available(at),
+                    &mut renderer,
+                    &mut clipboard::Null,
+                    &mut Vec::new(),
+                );
+                cache = Some(ui.into_cache());
+                matches!(
+                    state,
+                    iced_runtime::user_interface::State::Updated {
+                        redraw_request: iced::window::RedrawRequest::NextFrame,
+                        ..
+                    }
+                )
+            };
+            let moved = |at| Event::Mouse(mouse::Event::CursorMoved { position: at });
+            let drawn = Event::Window(iced::window::Event::RedrawRequested(
+                std::time::Instant::now(),
+            ));
+            // Beside the radio, inside the button when there is one
+            let beside = Point::new(60.0, 8.0);
+            let on = Point::new(8.0, 8.0);
+            redraw_asked(drawn.clone(), beside);
+            assert!(
+                redraw_asked(moved(on), on),
+                "entering it, in_button {in_button}"
+            );
+            redraw_asked(drawn.clone(), on);
+            assert!(
+                redraw_asked(moved(beside), beside),
+                "leaving it, in_button {in_button}"
+            );
         }
     }
 

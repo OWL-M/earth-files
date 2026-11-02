@@ -341,6 +341,12 @@ pub struct State {
     hashes: Vec<u64>,
     selections: Vec<crate::ui::widget::dropdown::Plain>,
     popup_id: window::Id,
+    /// Whether the pointer was over the dropdown when it was last drawn.
+    /// `draw` reads the hover from the pointer, but nothing redraws the
+    /// window when only the pointer moves: without asking for a redraw as
+    /// it crosses the edge, the hover showed late, or only once something
+    /// else, such as an open dropdown's spring, redrew the window.
+    drawn_hovered: Option<bool>,
 }
 
 impl State {
@@ -358,6 +364,7 @@ impl State {
             selections: Vec::new(),
             hashes: Vec::new(),
             popup_id: window::Id::unique(),
+            drawn_hovered: None,
             close_operation: false,
             open_operation: false,
         }
@@ -555,6 +562,15 @@ pub fn update<
             state.keyboard_modifiers = *modifiers;
         }
         _ => {}
+    }
+
+    // As a button does: what is drawn is noted as it is drawn, and a
+    // pointer that crossed the edge since asks for the frame showing it
+    let hovered = cursor.is_over(layout.bounds());
+    if let Event::Window(window::Event::RedrawRequested(_)) = event {
+        state.drawn_hovered = Some(hovered);
+    } else if state.drawn_hovered.is_some_and(|drawn| drawn != hovered) {
+        shell.request_redraw();
     }
 }
 
@@ -772,6 +788,9 @@ mod tests {
     /// dropdown, inside the list's padding.
     const ROW_FIRST: Point = Point::new(20.0, 56.0);
     const ROW_SECOND: Point = Point::new(20.0, 92.0);
+    /// In the gap between the first and second options of the centred list
+    /// of [`view_over_button`], once it has sprung open.
+    const BETWEEN_OPTIONS: Point = Point::new(50.0, 70.0);
 
     fn view() -> crate::ui::Element<'static, Msg> {
         iced::widget::row![
@@ -824,6 +843,130 @@ mod tests {
 
         let _ = click(&mut renderer, cache, ON_BUTTON, &mut messages);
         assert_eq!(messages, vec![Msg::Pressed]);
+    }
+
+    /// Hands `event` to the view with the pointer at `cursor`, and answers
+    /// whether a redraw was asked for.
+    fn redraw_asked(
+        renderer: &mut crate::ui::Renderer,
+        cache: &mut Option<Cache>,
+        event: Event,
+        cursor: Point,
+    ) -> bool {
+        let mut ui = UserInterface::build(view(), WINDOW, cache.take().unwrap(), renderer);
+        let (state, _) = ui.update(
+            &[event],
+            mouse::Cursor::Available(cursor),
+            renderer,
+            &mut clipboard::Null,
+            &mut Vec::new(),
+        );
+        *cache = Some(ui.into_cache());
+        matches!(
+            state,
+            iced_runtime::user_interface::State::Updated {
+                redraw_request: window::RedrawRequest::NextFrame,
+                ..
+            }
+        )
+    }
+
+    /// The pointer crossing the dropdown's edge asks for the frame that
+    /// shows its hover, and only then: drawn from the pointer alone, the
+    /// hover showed late, or only when something else redrew the window
+    #[test]
+    fn crossing_the_edge_redraws_the_hover() {
+        let mut renderer = iced_texture_cache::testing::headless_tiny_skia();
+        let mut cache = Some(Cache::default());
+        let away = Point::new(300.0, 250.0);
+        let moved = |at| Event::Mouse(mouse::Event::CursorMoved { position: at });
+        let drawn = Event::Window(window::Event::RedrawRequested(std::time::Instant::now()));
+
+        redraw_asked(&mut renderer, &mut cache, drawn.clone(), away);
+        assert!(
+            redraw_asked(&mut renderer, &mut cache, moved(ON_DROPDOWN), ON_DROPDOWN),
+            "entering it redraws"
+        );
+        redraw_asked(&mut renderer, &mut cache, drawn.clone(), ON_DROPDOWN);
+        assert!(
+            !redraw_asked(
+                &mut renderer,
+                &mut cache,
+                moved(Point::new(60.0, 12.0)),
+                Point::new(60.0, 12.0)
+            ),
+            "moving within it does not"
+        );
+        assert!(
+            redraw_asked(&mut renderer, &mut cache, moved(away), away),
+            "leaving it redraws"
+        );
+    }
+
+    /// The dropdown, centred and springing open as in the details and the
+    /// settings, over a button that reaches under where its list opens.
+    fn view_over_button() -> crate::ui::Element<'static, Msg> {
+        iced::widget::column![
+            Dropdown::<_, Msg, Msg>::new(Cow::Borrowed(&["a", "b", "c"][..]), None, Msg::Selected)
+                .width(Length::Fixed(100.0))
+                .centered_animated(true),
+            button::custom(
+                space::horizontal()
+                    .width(Length::Fixed(400.0))
+                    .height(Length::Fixed(260.0))
+            )
+            .on_press(Msg::Pressed),
+        ]
+        .into()
+    }
+
+    /// Opens the list, lets it spring to its full height, and clicks `at`:
+    /// what was published.
+    fn click_over_open_list(at: Point) -> Vec<Msg> {
+        let mut renderer = iced_texture_cache::testing::headless_tiny_skia();
+        let mut messages = Vec::new();
+        let mut cache = Cache::default();
+        let mut now = std::time::Instant::now();
+        let press = Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left));
+        let release = Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left));
+        let moved = |position| Event::Mouse(mouse::Event::CursorMoved { position });
+        let mut events = vec![
+            (moved(ON_DROPDOWN), ON_DROPDOWN),
+            (press.clone(), ON_DROPDOWN),
+            (release.clone(), ON_DROPDOWN),
+        ];
+        for _ in 0..90 {
+            now += std::time::Duration::from_millis(16);
+            events.push((
+                Event::Window(window::Event::RedrawRequested(now)),
+                ON_DROPDOWN,
+            ));
+        }
+        events.extend([(moved(at), at), (press, at), (release, at)]);
+        for (event, cursor) in events {
+            let mut ui = UserInterface::build(view_over_button(), WINDOW, cache, &mut renderer);
+            let _ = ui.update(
+                &[event],
+                mouse::Cursor::Available(cursor),
+                &mut renderer,
+                &mut clipboard::Null,
+                &mut messages,
+            );
+            cache = ui.into_cache();
+        }
+        messages
+    }
+
+    /// Where the open list covers no option, between two of them, the
+    /// pointer is still the list's: the button under it got the hover there,
+    /// and a click
+    #[test]
+    fn the_open_list_keeps_the_pointer_between_its_options() {
+        let published = click_over_open_list(BETWEEN_OPTIONS);
+        assert!(
+            !published.contains(&Msg::Pressed),
+            "the button under the list took it: {published:?}"
+        );
     }
 
     /// Presses `at` in the open list after the pointer last moved to
