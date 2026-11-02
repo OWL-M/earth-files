@@ -275,7 +275,10 @@ pub enum Action {
     PinVariant(crate::menu::SplitRow, Option<crate::menu::MenuVariant>),
     Paste,
     PermanentlyDelete,
+    /// Shows or hides the details, as the View menu's check box does
     Preview,
+    /// Shows the details, as a context menu's item does: never hides them
+    ShowDetails,
     Reload,
     RemoveFromRecents,
     Rename,
@@ -360,6 +363,7 @@ impl Action {
             Self::Paste => Message::Paste(entity_opt),
             Self::PermanentlyDelete => Message::PermanentlyDelete(entity_opt),
             Self::Preview => Message::Preview,
+            Self::ShowDetails => Message::ShowDetails,
             Self::Reload => Message::TabMessage(entity_opt, tab::Message::Reload),
             Self::RemoveFromRecents => Message::RemoveFromRecents(entity_opt),
             Self::Rename => Message::Rename(entity_opt),
@@ -596,7 +600,10 @@ pub enum Message {
     /// for the paths its operation skipped.
     ProgressDismiss(u64),
     PermanentlyDelete(Option<Entity>),
+    /// Shows the details if hidden, hides them if shown
     Preview,
+    /// Shows the details of what is selected, whatever the drawer shows now
+    ShowDetails,
     /// Items re-read off the event loop after the filesystem changed beneath
     /// them, tagged with the location and listing they were read from and the
     /// number of the batch that asked for them.
@@ -710,6 +717,31 @@ pub enum Message {
     None,
     Surface(surface::Action<Message>),
     CutPaths(Vec<PathBuf>),
+}
+
+/// Whether a drawer `shown` on `page` shows the details.
+fn details_shown(shown: bool, page: &ContextPage) -> bool {
+    shown && matches!(page, ContextPage::Preview(..))
+}
+
+/// What asking for `asked` does to a drawer `shown` on `open`: the page
+/// showing closes (`None`), and any other opens in its place. Two previews
+/// are one page whatever they show, so the details' own close button
+/// closes them.
+fn toggled_page(shown: bool, open: &ContextPage, asked: ContextPage) -> Option<ContextPage> {
+    let same = match (open, &asked) {
+        (ContextPage::Preview(..), ContextPage::Preview(..)) => true,
+        (open, asked) => open == asked,
+    };
+    if shown && same { None } else { Some(asked) }
+}
+
+/// What the View menu's Show details does: hides the details when they
+/// show, and otherwise shows those of the selection, in place of any other
+/// page. Toggled from what shows, not from the saved setting, which another
+/// page or a condensed sidebar may have left behind.
+fn toggled_details(details_shown: bool) -> Option<ContextPage> {
+    (!details_shown).then_some(ContextPage::Preview(None, PreviewKind::Selected))
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -3687,6 +3719,31 @@ impl App {
         Task::batch(tasks)
     }
 
+    /// Whether the drawer shows the details.
+    fn details_shown(&self) -> bool {
+        details_shown(self.core.window.show_context, &self.context_page)
+    }
+
+    /// Opens the drawer on `page`, or closes it for `None`, and keeps the
+    /// saved setting for the details, which are kept across restarts, in
+    /// step with what shows. Every opening and closing goes through here:
+    /// one that set the page or the drawer alone left the two, or the
+    /// setting, out of step, so that a later toggle did the wrong thing.
+    fn show_context_page(&mut self, page: Option<ContextPage>) -> Task<Message> {
+        match page {
+            Some(page) => {
+                self.context_page = page;
+                self.set_show_context(true);
+            }
+            None => self.set_show_context(false),
+        }
+        let shown = self.details_shown();
+        if shown == self.config.show_details {
+            return Task::none();
+        }
+        self.update(Message::SetShowDetails(shown))
+    }
+
     fn network_drive(&self) -> Element<'_, Message> {
         let Spacing {
             space_xxs, space_m, ..
@@ -4883,11 +4940,11 @@ impl Application for App {
     }
 
     fn on_context_drawer(&mut self) -> Task<Self::Message> {
-        if let ContextPage::Preview(..) = self.context_page {
-            // Persist state of preview page
-            if self.core.window.show_context != self.config.show_details {
-                return self.update(Message::Preview);
-            }
+        // The shell has already opened or closed the drawer: only the saved
+        // setting for the details is left to follow it
+        let shown = self.details_shown();
+        if shown != self.config.show_details {
+            return self.update(Message::SetShowDetails(shown));
         }
         Task::none()
     }
@@ -4920,10 +4977,7 @@ impl Application for App {
         // Usually, the Escape key (for example) closes menus and panes one by one instead
         // of closing everything on one press
         if self.core.window.show_context {
-            self.set_show_context(false);
-            return crate::ui::task::message(crate::ui::action::app(Message::SetShowDetails(
-                false,
-            )));
+            return self.show_context_page(None);
         }
         if let Some(tab) = self.tabs.get_mut(entity) {
             if tab.edit_location.is_some() {
@@ -5873,8 +5927,10 @@ impl Application for App {
                 match res {
                     Ok(true) => {
                         log::info!("connected to {uri:?}");
-                        if matches!(self.context_page, ContextPage::NetworkDrive) {
-                            self.set_show_context(false);
+                        if self.core.window.show_context
+                            && matches!(self.context_page, ContextPage::NetworkDrive)
+                        {
+                            return self.show_context_page(None);
                         }
                     }
                     Ok(false) => {
@@ -6738,10 +6794,12 @@ impl Application for App {
                 }
             }
             Message::Preview => {
-                let show_details = !self.config.show_details;
-                self.context_page = ContextPage::Preview(None, PreviewKind::Selected);
-                self.core.window.show_context = show_details;
-                return crate::ui::task::message(Message::SetShowDetails(show_details));
+                let page = toggled_details(self.details_shown());
+                return self.show_context_page(page);
+            }
+            Message::ShowDetails => {
+                return self
+                    .show_context_page(Some(ContextPage::Preview(None, PreviewKind::Selected)));
             }
             Message::RemoveFromRecents(entity_opt) => {
                 let paths: Box<[_]> = self.selected_paths(entity_opt).collect();
@@ -7197,6 +7255,14 @@ impl Application for App {
                     }
                 }
 
+                // Details kept for this tab follow the active one instead,
+                // rather than staying open on a tab that is gone
+                if let ContextPage::Preview(preview_entity @ Some(_), _) = &mut self.context_page
+                    && *preview_entity == Some(entity)
+                {
+                    *preview_entity = None;
+                }
+
                 // Remove item
                 self.tab_model.remove(entity);
                 self.tabs.remove(entity);
@@ -7263,8 +7329,7 @@ impl Application for App {
                             commands.push(self.update(action.message(Some(entity))));
                         }
                         tab::Command::AddNetworkDrive => {
-                            self.context_page = ContextPage::NetworkDrive;
-                            self.set_show_context(true);
+                            commands.push(self.show_context_page(Some(ContextPage::NetworkDrive)));
                         }
                         tab::Command::AddToSidebar(path) => {
                             let mut favorites = self.config.favorites.clone();
@@ -7381,8 +7446,12 @@ impl Application for App {
                             }));
                         }
                         tab::Command::Preview(kind) => {
-                            self.context_page = ContextPage::Preview(Some(entity), kind);
-                            self.set_show_context(true);
+                            commands.push(
+                                self.show_context_page(Some(ContextPage::Preview(
+                                    Some(entity),
+                                    kind,
+                                ))),
+                            );
                         }
                         tab::Command::SetOpenWith(mime, id) => {
                             // Queued here, in the order the user made the
@@ -7613,20 +7682,12 @@ impl Application for App {
                 }
             }
             Message::ToggleContextPage(context_page) => {
-                if self.context_page == context_page
-                    || matches!(self.context_page, ContextPage::Preview(_, _))
-                {
-                    self.set_show_context(!self.core.window.show_context);
-                } else {
-                    self.set_show_context(true);
-                }
-                self.context_page = context_page;
-                // Preview status is preserved across restarts
-                if matches!(self.context_page, ContextPage::Preview(_, _)) {
-                    return crate::ui::task::message(crate::ui::action::app(
-                        Message::SetShowDetails(self.core.window.show_context),
-                    ));
-                }
+                let page = toggled_page(
+                    self.core.window.show_context,
+                    &self.context_page,
+                    context_page,
+                );
+                return self.show_context_page(page);
             }
             Message::Undo => {
                 // Skip entries whose files have changed since; they can no longer apply
@@ -7996,11 +8057,10 @@ impl Application for App {
                     {
                         match tab::item_from_path(path, IconSizes::default()) {
                             Ok(item) => {
-                                self.context_page = ContextPage::Preview(
+                                return self.show_context_page(Some(ContextPage::Preview(
                                     None,
                                     PreviewKind::Custom(PreviewItem(Box::new(item))),
-                                );
-                                self.set_show_context(true);
+                                )));
                             }
                             Err(err) => {
                                 log::warn!(
@@ -9223,7 +9283,7 @@ impl Application for App {
         vec![menu::menu_bar(
             &self.core,
             self.tabs.get(self.tab_model.active()),
-            &self.config,
+            self.details_shown(),
             &self.modifiers,
             &self.key_binds,
             self.clipboard_has_content(),
@@ -10733,6 +10793,42 @@ mod tests {
         assert_eq!(uri_for_display("smb://host/share"), "smb://host/share");
         assert_eq!(uri_for_display("smb://host/a@b"), "smb://host/a@b");
         assert_eq!(uri_for_display("host/share"), "host/share");
+    }
+
+    /// Every page opens over any other, the one showing closes, and the
+    /// details hide only from their own toggle: the details open and
+    /// Settings asked for gave Settings, not a closed drawer
+    #[test]
+    fn side_pages_open_over_one_another_and_close_themselves() {
+        use super::{ContextPage, PreviewKind, toggled_details, toggled_page};
+        let details = || ContextPage::Preview(None, PreviewKind::Selected);
+        let others = [
+            ContextPage::About,
+            ContextPage::EditHistory,
+            ContextPage::NetworkDrive,
+            ContextPage::Settings,
+        ];
+        for open in others.iter().cloned().chain([details()]) {
+            for asked in others.iter().cloned().chain([details()]) {
+                let same = open == asked;
+                assert_eq!(
+                    toggled_page(true, &open, asked.clone()),
+                    (!same).then(|| asked.clone()),
+                    "{asked:?} asked over {open:?}"
+                );
+                // Closed, whatever was open last opens what is asked
+                assert_eq!(toggled_page(false, &open, asked.clone()), Some(asked));
+            }
+        }
+        // The details' close button, sent for the preview it shows, closes
+        // a preview of something else too
+        let custom = ContextPage::Preview(None, PreviewKind::Location(tab::Location::Trash));
+        assert_eq!(toggled_page(true, &custom, details()), None);
+
+        // Show details from the View menu, over Settings, shows them
+        assert!(!super::details_shown(true, &ContextPage::Settings));
+        assert_eq!(toggled_details(false), Some(details()));
+        assert_eq!(toggled_details(true), None);
     }
 
     #[test]

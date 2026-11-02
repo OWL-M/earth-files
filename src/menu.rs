@@ -14,7 +14,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::rc::Rc;
 
 use crate::app::{Action, Message};
-use crate::config::{Config, ContextActionPreset};
+use crate::config::ContextActionPreset;
 use crate::fl;
 use crate::service_menu::{ServiceAction, ServiceEntry, ServiceItem};
 use crate::tab::{
@@ -749,7 +749,7 @@ fn context_menu_items(tab: &Tab, sources: &Sources) -> Vec<menu::Item<TabAction,
                 push_group(&mut children, place);
                 push_group(
                     &mut children,
-                    vec![plain(fl!("show-details"), "details", Action::Preview)],
+                    vec![plain(fl!("show-details"), "details", Action::ShowDetails)],
                 );
 
                 // Last: the trash row, or Eject for a drive
@@ -821,7 +821,7 @@ fn context_menu_items(tab: &Tab, sources: &Sources) -> Vec<menu::Item<TabAction,
                 // With nothing selected the details pane shows the current folder
                 push_group(
                     &mut children,
-                    vec![plain(fl!("show-details"), "details", Action::Preview)],
+                    vec![plain(fl!("show-details"), "details", Action::ShowDetails)],
                 );
             }
         }
@@ -848,7 +848,7 @@ fn context_menu_items(tab: &Tab, sources: &Sources) -> Vec<menu::Item<TabAction,
                 push_group(&mut children, open);
                 push_group(
                     &mut children,
-                    vec![plain(fl!("show-details"), "details", Action::Preview)],
+                    vec![plain(fl!("show-details"), "details", Action::ShowDetails)],
                 );
             } else {
                 let mut new = Vec::new();
@@ -907,7 +907,7 @@ fn context_menu_items(tab: &Tab, sources: &Sources) -> Vec<menu::Item<TabAction,
                 push_group(&mut children, program_rows(sources, selected, selected_dir));
                 push_group(
                     &mut children,
-                    vec![plain(fl!("show-details"), "details", Action::Preview)],
+                    vec![plain(fl!("show-details"), "details", Action::ShowDetails)],
                 );
             } else {
                 if tab.mode.multiple() {
@@ -1087,7 +1087,9 @@ pub fn dialog_menu(
 pub fn menu_bar<'a>(
     core: &Core,
     tab_opt: Option<&Tab>,
-    config: &Config,
+    // What shows, not the saved setting: another page may have taken the
+    // drawer, or a condensed sidebar closed it
+    show_details: bool,
     modifiers: &Modifiers,
     key_binds: &HashMap<KeyBind, Action>,
     clipboard_paste_available: bool,
@@ -1245,7 +1247,7 @@ pub fn menu_bar<'a>(
                         menu::Item::CheckBox(
                             fl!("show-details"),
                             None,
-                            config.show_details,
+                            show_details,
                             Action::Preview,
                         ),
                         menu::Item::Divider,

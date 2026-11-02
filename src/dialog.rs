@@ -536,6 +536,8 @@ enum Message {
     WatchRetry(u64),
     Open,
     Preview,
+    /// Shows the details of what is selected, as a context menu's item does
+    ShowDetails,
     /// Items re-read off the event loop after the filesystem changed beneath
     /// them, tagged with the location and listing they were read from and the
     /// number of the batch that asked for them.
@@ -572,6 +574,7 @@ impl From<AppMessage> for Message {
         match app_message {
             AppMessage::None => Self::None,
             AppMessage::Preview => Self::Preview,
+            AppMessage::ShowDetails => Self::ShowDetails,
             AppMessage::SearchActivate => Self::SearchActivate,
             AppMessage::ScrollTab(scroll_speed) => Self::ScrollTab(scroll_speed),
             AppMessage::TabMessage(_entity_opt, tab_message) => Self::TabMessage(tab_message),
@@ -601,6 +604,11 @@ struct App {
     accept_label: DialogLabel,
     choices: Vec<DialogChoice>,
     context_page: ContextPage,
+    /// The saved setting for the details as the drawer last followed it.
+    /// The drawer follows the setting only when it changes: a condensed
+    /// sidebar opened over the details closes them without changing it,
+    /// and an unrelated change of the config must not open them again.
+    applied_show_details: Option<bool>,
     dialog_pages: VecDeque<DialogPage>,
     dialog_text_input: widget::Id,
     filters: Vec<DialogFilter>,
@@ -977,11 +985,21 @@ impl App {
         crate::ui::theme::set_header_size(self.flags.config.header_size);
         crate::ui::widget::scrollable::set_kinetic_wheel(self.flags.config.kinetic_wheel);
         self.core.set_nav_bar_width(self.flags.config.nav_bar_width);
-        self.core.window.show_context = self.flags.config.dialog.show_details;
+        let show_details = self.flags.config.dialog.show_details;
+        if self.applied_show_details != Some(show_details) {
+            self.show_details(show_details);
+        }
         let config = self.flags.config.dialog_tab();
         self.tab.config.view = config.view;
         self.update_nav_model();
         self.update(Message::TabMessage(tab::Message::Config(config)))
+    }
+
+    /// Opens or closes the details, through the setter, which closes a
+    /// condensed sidebar the drawer would otherwise share the window with.
+    fn show_details(&mut self, show: bool) {
+        self.core.set_show_context(show);
+        self.applied_show_details = Some(show);
     }
 
     fn with_dialog_config<F: Fn(&mut DialogConfig)>(&mut self, f: F) -> Task<Message> {
@@ -1200,6 +1218,7 @@ impl Application for App {
             accept_label: DialogLabel::from(accept_label),
             choices: Vec::new(),
             context_page: ContextPage::Preview(None, PreviewKind::Selected),
+            applied_show_details: None,
             dialog_pages: VecDeque::new(),
             dialog_text_input: widget::Id::new("Dialog Text Input"),
             filters: Vec::new(),
@@ -1947,9 +1966,19 @@ impl Application for App {
                 }
             }
             Message::Preview => {
+                // Toggled from what shows, not from the saved setting
                 self.context_page = ContextPage::Preview(None, PreviewKind::Selected);
+                let show = !self.core.window.show_context;
+                self.show_details(show);
                 return self.with_dialog_config(|config| {
-                    config.show_details = !config.show_details;
+                    config.show_details = show;
+                });
+            }
+            Message::ShowDetails => {
+                self.context_page = ContextPage::Preview(None, PreviewKind::Selected);
+                self.show_details(true);
+                return self.with_dialog_config(|config| {
+                    config.show_details = true;
                 });
             }
             Message::Save(replace) => {
@@ -2088,6 +2117,7 @@ impl Application for App {
                         }
                         tab::Command::Preview(kind) => {
                             self.context_page = ContextPage::Preview(None, kind);
+                            self.show_details(true);
                             commands.push(self.with_dialog_config(|config| {
                                 config.show_details = true;
                             }));
