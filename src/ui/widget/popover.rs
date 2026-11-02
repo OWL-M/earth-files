@@ -345,6 +345,10 @@ where
     Renderer: iced_core::Renderer,
 {
     fn layout(&mut self, renderer: &Renderer, bounds: Size) -> layout::Node {
+        // Each clamp below keeps the content inside `bounds`; content wider
+        // or taller than a small window would give a range ending below 0,
+        // which panics, so the far end is held at 0 and the content starts
+        // at the window's edge
         let mut position = self.pos;
         let limits = layout::Limits::new(Size::UNIT, bounds);
         let node = self
@@ -356,28 +360,30 @@ where
                 // Position is set to the center of the widget
                 let width = node.size().width;
                 let height = node.size().height;
-                position.x = (position.x - width / 2.0).clamp(0.0, bounds.width - width);
-                position.y = (position.y - height / 2.0).clamp(0.0, bounds.height - height);
+                position.x = (position.x - width / 2.0).clamp(0.0, (bounds.width - width).max(0.0));
+                position.y =
+                    (position.y - height / 2.0).clamp(0.0, (bounds.height - height).max(0.0));
             }
             Position::Top => {
                 let width = node.size().width;
                 let height = node.size().height;
-                position.x = (position.x - width / 2.0).clamp(0.0, bounds.width - width);
-                position.y = (position.y - height).clamp(0.0, bounds.height - height);
+                position.x = (position.x - width / 2.0).clamp(0.0, (bounds.width - width).max(0.0));
+                position.y = (position.y - height).clamp(0.0, (bounds.height - height).max(0.0));
             }
             Position::Bottom => {
                 // Position is set to the center bottom of the widget
                 let width = node.size().width;
                 let height = node.size().height;
-                position.x = (position.x - width / 2.0).clamp(0.0, bounds.width - width);
-                position.y = position.y.clamp(0.0, bounds.height - height);
+                position.x = (position.x - width / 2.0).clamp(0.0, (bounds.width - width).max(0.0));
+                position.y = position.y.clamp(0.0, (bounds.height - height).max(0.0));
             }
             Position::Point(_) => {
                 // Position is using context menu logic
                 let size = node.size();
-                position.x = position.x.clamp(0.0, bounds.width - size.width);
+                position.x = position.x.clamp(0.0, (bounds.width - size.width).max(0.0));
                 if position.y + size.height > bounds.height {
-                    position.y = (position.y - size.height).clamp(0.0, bounds.height - size.height);
+                    position.y = (position.y - size.height)
+                        .clamp(0.0, (bounds.height - size.height).max(0.0));
                 }
             }
         }
@@ -615,6 +621,25 @@ mod tests {
             );
             self.cache = Some(ui.into_cache());
             messages
+        }
+    }
+
+    /// A window with less room than the dialog, down to none at all, puts
+    /// the dialog at its edge: keeping it inside asked for a range that
+    /// ended below 0, which panics
+    #[test]
+    fn a_dialog_in_a_window_too_small_for_it_lays_out() {
+        let mut renderer = iced_texture_cache::testing::headless_tiny_skia();
+        for window in [Size::new(10.0, 10.0), Size::new(0.5, 0.5), Size::ZERO] {
+            let mut ui = UserInterface::build(view(true), window, Cache::default(), &mut renderer);
+            let mut messages = Vec::new();
+            let _ = ui.update(
+                &[moved(Point::ORIGIN)],
+                mouse::Cursor::Available(Point::ORIGIN),
+                &mut renderer,
+                &mut clipboard::Null,
+                &mut messages,
+            );
         }
     }
 

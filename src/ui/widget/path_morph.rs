@@ -244,16 +244,20 @@ impl<Message> Widget<Message, Theme, Renderer> for PathMorph<'_, Message> {
             // the field no longer holds
             spring.snap();
         }
+        // A row squeezed below its padding and spacing hands down a negative
+        // width; taken as nothing, so the clamp below cannot be asked for a
+        // range that ends before it starts, which panics
+        let max_width = limits.max().width.max(0.0);
         if let Some(editing) = &self.editing {
             state.text.clone_from(&editing.text);
             let wanted = text_width(&editing.text) + 2.0 * self.names.field_inset + CURSOR;
-            state.field_width = wanted.min(limits.max().width).max(kept);
+            state.field_width = wanted.min(max_width).max(kept);
         }
         let field_width = state.field_width.max(kept);
         let width = if measuring {
             kept
         } else {
-            (kept + (field_width - kept) * state.progress()).clamp(0.0, limits.max().width)
+            (kept + (field_width - kept) * state.progress()).clamp(0.0, max_width)
         };
 
         let field = self.field.as_widget_mut().layout(
@@ -1118,6 +1122,32 @@ mod tests {
     }
 
     const TEXT: &str = "/m/Photos/2024/a folder with a long name";
+
+    /// A row narrower than its spacing and its fixed-width siblings, as the
+    /// header's is in a narrow window, hands it a negative width. Taking that as the end of its range panicked in
+    /// release builds too, crashing the app once its window got narrow
+    #[test]
+    fn a_negative_width_from_a_squeezed_row_lays_out() {
+        let mut renderer = iced_texture_cache::testing::headless_tiny_skia();
+        for editing in [None, Some(TEXT)] {
+            let mut morph = path_morph(crumbs(), names());
+            if let Some(text) = editing {
+                morph = morph.field(
+                    space::horizontal().width(Length::Fill),
+                    text.to_owned(),
+                    Id::new("field"),
+                );
+            }
+            let view: Element<'static, Msg, Theme, Renderer> = crate::ui::widget::Row::new()
+                .spacing(8)
+                .push(space::horizontal().width(Length::Fixed(40.0)))
+                .push(morph)
+                .into();
+            let ui =
+                UserInterface::build(view, Size::new(4.0, 30.0), Cache::default(), &mut renderer);
+            drop(ui.into_cache());
+        }
+    }
 
     #[test]
     fn the_width_springs_from_the_crumbs_to_the_field_and_back() {
