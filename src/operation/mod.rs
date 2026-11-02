@@ -2,9 +2,11 @@ use crate::spawn_detached::spawn_detached;
 use crate::ui::iced::futures::{self, StreamExt, stream};
 use crate::{FxOrderMap, archive, fl};
 use std::borrow::Cow;
+use std::ffi::{OsStr, OsString};
 use std::fmt::{self, Formatter};
 use std::fs;
 use std::io::{self, Read, Write};
+use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::mpsc;
@@ -130,10 +132,14 @@ async fn handle_blocked(
     rx.recv().await.unwrap_or(BlockedAnswer::Cancel)
 }
 
-fn get_directory_name(file_name: &str) -> &str {
+/// The name of the folder an archive named `file_name` extracts into: its
+/// name without the archive extension. Taken on the name's bytes, so a name
+/// that is not UTF-8 keeps them as they are.
+fn get_directory_name(file_name: &OsStr) -> &OsStr {
+    let bytes = file_name.as_bytes();
     for ext in crate::archive::SUPPORTED_EXTENSIONS {
-        if let Some(stripped) = file_name.strip_suffix(ext) {
-            return stripped;
+        if let Some(stripped) = bytes.strip_suffix(ext.as_bytes()) {
+            return OsStr::from_bytes(stripped);
         }
     }
     file_name
@@ -208,19 +214,18 @@ impl Drop for PermissionsTurn {
 /// and nothing else's, to take away again should the extraction fail. A
 /// name that is not one of its own, such as `..` from `...zip`, gives way
 /// to `fallback`, the archive's name.
-fn extract_dir(to: &Path, dir_name: &str, fallback: &str) -> Result<PathBuf, OperationError> {
-    let dir_name = if matches!(dir_name, "" | "." | "..") {
+fn extract_dir(to: &Path, dir_name: &OsStr, fallback: &OsStr) -> Result<PathBuf, OperationError> {
+    let dir_name = if matches!(dir_name.as_bytes(), b"" | b"." | b"..") {
         fallback
     } else {
         dir_name
     };
     let copy = fl!("copy_noun");
     for n in 0..=MAX_UNIQUE_ATTEMPTS {
-        let name = if n == 0 {
-            dir_name.to_string()
-        } else {
-            format!("{dir_name} ({copy} {n})")
-        };
+        let mut name = dir_name.to_os_string();
+        if n > 0 {
+            name.push(format!(" ({copy} {n})"));
+        }
         let path = to.join(name);
         match fs::create_dir(&path) {
             Ok(()) => return Ok(path),
@@ -233,13 +238,14 @@ fn extract_dir(to: &Path, dir_name: &str, fallback: &str) -> Result<PathBuf, Ope
     )))
 }
 
-fn staging_dir(to: &Path, dir_name: &str) -> Result<PathBuf, OperationError> {
+fn staging_dir(to: &Path, dir_name: &OsStr) -> Result<PathBuf, OperationError> {
     for n in 0.. {
-        let name = if n == 0 {
-            format!(".{dir_name}.extracting")
-        } else {
-            format!(".{dir_name}.extracting.{n}")
-        };
+        let mut name = OsString::from(".");
+        name.push(dir_name);
+        name.push(".extracting");
+        if n > 0 {
+            name.push(format!(".{n}"));
+        }
         let path = to.join(name);
         match fs::create_dir(&path) {
             Ok(()) => return Ok(path),
@@ -2353,10 +2359,17 @@ impl Operation {
 
                         controller.set_progress((i as f32) / total_paths as f32);
 
-                        let Some(file_name) = path.file_name().and_then(|f| f.to_str()) else {
-                            continue;
+                        // Every path a caller gives names a file, but one
+                        // that does not is said, never passed over: the
+                        // operation would end as if it had been extracted
+                        let Some(file_name) = path.file_name() else {
+                            return Err(OperationError::from_msg(format!(
+                                "{} names no archive",
+                                path.display()
+                            ))
+                            .after(done()));
                         };
-                        let dir_name = get_directory_name(file_name).to_string();
+                        let dir_name = get_directory_name(file_name).to_os_string();
 
                         if as_folder {
                             let new_dir = extract_dir(&to, &dir_name, file_name)
@@ -5149,6 +5162,158 @@ mod tests {
         };
         assert_eq!(&*paths, [cut]);
         Ok(())
+    }
+
+    /// A name made of `bytes`, which need not be UTF-8.
+    fn native(bytes: &[u8]) -> PathBuf {
+        use std::os::unix::ffi::OsStrExt;
+        PathBuf::from(std::ffi::OsStr::from_bytes(bytes))
+    }
+
+    /// Write a zip archive holding `entries`, by name and contents.
+    fn write_zip_with(path: &std::path::Path, entries: &[(&str, &[u8])]) -> io::Result<()> {
+        use std::io::Write;
+        let mut zip = zip::ZipWriter::new(File::create(path)?);
+        for (name, data) in entries {
+            zip.start_file(*name, zip::write::SimpleFileOptions::default())?;
+            zip.write_all(data)?;
+        }
+        zip.finish()?;
+        Ok(())
+    }
+
+    /// Archives whose names are not UTF-8 extract, straight into the
+    /// destination and each into a folder named from its own bytes: none
+    /// is passed over while the operation reports success
+    #[test(compio::test)]
+    async fn archives_named_in_bytes_that_are_not_utf8_extract() -> io::Result<()> {
+        for as_folder in [false, true] {
+            let fs = empty_fs()?;
+            let path = fs.path();
+            let zip = path.join(native(b"z\xff.zip"));
+            write_test_zip(&zip)?;
+            let tar = path.join(native(b"t\xfe.tar.gz"));
+            write_test_tar_gz(&tar)?;
+
+            for (archive, folder) in [(&zip, native(b"z\xff")), (&tar, native(b"t\xfe"))] {
+                let to = path.join(if as_folder { "folders" } else { "direct" });
+                fs::create_dir_all(&to)?;
+                let op_sel = operation_extract(
+                    vec![archive.clone()],
+                    to.clone(),
+                    as_folder,
+                    ReplaceResult::Replace(true),
+                )
+                .await
+                .expect("extracted");
+                assert_eq!(
+                    op_sel.ignored,
+                    std::slice::from_ref(archive),
+                    "not marked done"
+                );
+                let root = if as_folder {
+                    to.join(&folder)
+                } else {
+                    to.clone()
+                };
+                assert_eq!(fs::read(root.join("a.txt"))?, b"archive a", "{archive:?}");
+                assert_eq!(fs::read(root.join("sub/b.txt"))?, b"archive b");
+                if as_folder {
+                    assert_eq!(op_sel.created, std::slice::from_ref(&root));
+                    assert_eq!(op_sel.selected, [root]);
+                }
+                assert_no_staging_dir(&to)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Two names that differ only in bytes shown alike, both as U+FFFD, are
+    /// two archives with two folders, each with its own contents
+    #[test(compio::test)]
+    async fn names_shown_alike_are_not_taken_for_one_another() -> io::Result<()> {
+        let fs = empty_fs()?;
+        let path = fs.path();
+        let (one, two) = (
+            path.join(native(b"x\xff.zip")),
+            path.join(native(b"x\xfe.zip")),
+        );
+        assert_eq!(
+            one.to_string_lossy(),
+            two.to_string_lossy(),
+            "the names look the same"
+        );
+        write_zip_with(&one, &[("which.txt", b"one")])?;
+        write_zip_with(&two, &[("which.txt", b"two")])?;
+
+        let to = path.join("out");
+        fs::create_dir(&to)?;
+        operation_extract(vec![one, two], to.clone(), true, ReplaceResult::Cancel)
+            .await
+            .expect("extracted");
+        assert_eq!(fs::read(to.join(native(b"x\xff/which.txt")))?, b"one");
+        assert_eq!(fs::read(to.join(native(b"x\xfe/which.txt")))?, b"two");
+        assert_eq!(fs::read_dir(&to)?.count(), 2, "no copy-numbered folder");
+        Ok(())
+    }
+
+    /// An archive with a name that is not UTF-8 counts as done when a later
+    /// one fails: it stays to undo, and a retry leaves it out
+    #[test(compio::test)]
+    async fn a_failure_after_a_non_utf8_archive_keeps_it_done() -> io::Result<()> {
+        let fs = empty_fs()?;
+        let path = fs.path();
+        let good = path.join(native(b"g\xff.zip"));
+        write_test_zip(&good)?;
+        let cut = path.join(native(b"c\xfe.tar.gz"));
+        write_test_tar_gz(&cut)?;
+        let len = fs::metadata(&cut)?.len();
+        File::options().write(true).open(&cut)?.set_len(len - 30)?;
+
+        let to = path.join("out");
+        fs::create_dir(&to)?;
+        let err = operation_extract(
+            vec![good.clone(), cut.clone()],
+            to.clone(),
+            true,
+            ReplaceResult::Cancel,
+        )
+        .await
+        .expect_err("the cut archive fails");
+        let folder = to.join(native(b"g\xff"));
+        assert_eq!(fs::read(folder.join("a.txt"))?, b"archive a");
+        assert_eq!(err.partial.created, [folder]);
+        assert_eq!(err.partial.ignored, std::slice::from_ref(&good));
+        assert!(!to.join(native(b"c\xfe")).exists(), "no half of it is left");
+        let extract = Operation::Extract {
+            paths: vec![good, cut.clone()].into(),
+            to,
+            password: None,
+            as_folder: true,
+        };
+        let Operation::Extract { paths, .. } = extract.remaining(&err.partial) else {
+            panic!("an extract");
+        };
+        assert_eq!(&*paths, [cut]);
+        Ok(())
+    }
+
+    /// The folder name is the archive's name less its extension, on bytes
+    #[test]
+    fn the_folder_name_strips_the_extension_from_the_bytes() {
+        use std::os::unix::ffi::OsStrExt;
+        for (name, folder) in [
+            (&b"a\xff.tar.gz"[..], &b"a\xff"[..]),
+            (b"a\xff.zip", b"a\xff"),
+            (b"a\xff.tgz", b"a\xff"),
+            (b"plain.tar.xz", b"plain"),
+            (b"no-extension\xff", b"no-extension\xff"),
+        ] {
+            assert_eq!(
+                super::get_directory_name(std::ffi::OsStr::from_bytes(name)).as_bytes(),
+                folder
+            );
+        }
     }
 
     /// An archive whose name leaves no folder name of its own, `..zip`,
