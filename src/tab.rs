@@ -3648,6 +3648,7 @@ impl Item {
                                     .position(|(x, _)| mime_app_cache.is_default(x, &self.mime)),
                                 move |index| index,
                             )
+                            .centered_animated(true)
                             .icons(Cow::Owned(icons)),
                         )
                         .map(move |index| {
@@ -3744,17 +3745,20 @@ impl Item {
                 settings.push(
                     widget::settings::item::builder(user_name)
                         .description(fl!("owner"))
-                        .control(widget::dropdown(
-                            Cow::Borrowed(MODE_NAMES.as_slice()),
-                            Some(get_mode_part(mode, MODE_SHIFT_USER).try_into().unwrap()),
-                            move |selected| {
-                                Message::ShiftPermissions(
-                                    Some((user_path.clone(), mode)),
-                                    MODE_SHIFT_USER,
-                                    selected.try_into().unwrap(),
-                                )
-                            },
-                        )),
+                        .control(
+                            widget::dropdown(
+                                Cow::Borrowed(MODE_NAMES.as_slice()),
+                                Some(get_mode_part(mode, MODE_SHIFT_USER).try_into().unwrap()),
+                                move |selected| {
+                                    Message::ShiftPermissions(
+                                        Some((user_path.clone(), mode)),
+                                        MODE_SHIFT_USER,
+                                        selected.try_into().unwrap(),
+                                    )
+                                },
+                            )
+                            .centered_animated(true),
+                        ),
                 );
 
                 let group_name = group_name(metadata.gid());
@@ -3762,33 +3766,39 @@ impl Item {
                 settings.push(
                     widget::settings::item::builder(group_name)
                         .description(fl!("group"))
-                        .control(widget::dropdown(
-                            Cow::Borrowed(MODE_NAMES.as_slice()),
-                            Some(get_mode_part(mode, MODE_SHIFT_GROUP).try_into().unwrap()),
-                            move |selected| {
-                                Message::ShiftPermissions(
-                                    Some((group_path.clone(), mode)),
-                                    MODE_SHIFT_GROUP,
-                                    selected.try_into().unwrap(),
-                                )
-                            },
-                        )),
+                        .control(
+                            widget::dropdown(
+                                Cow::Borrowed(MODE_NAMES.as_slice()),
+                                Some(get_mode_part(mode, MODE_SHIFT_GROUP).try_into().unwrap()),
+                                move |selected| {
+                                    Message::ShiftPermissions(
+                                        Some((group_path.clone(), mode)),
+                                        MODE_SHIFT_GROUP,
+                                        selected.try_into().unwrap(),
+                                    )
+                                },
+                            )
+                            .centered_animated(true),
+                        ),
                 );
 
                 let other_path = path.clone();
-                settings.push(widget::settings::item::builder(fl!("other")).control(
-                    widget::dropdown(
-                        Cow::Borrowed(MODE_NAMES.as_slice()),
-                        Some(get_mode_part(mode, MODE_SHIFT_OTHER).try_into().unwrap()),
-                        move |selected| {
-                            Message::ShiftPermissions(
-                                Some((other_path.clone(), mode)),
-                                MODE_SHIFT_OTHER,
-                                selected.try_into().unwrap(),
-                            )
-                        },
+                settings.push(
+                    widget::settings::item::builder(fl!("other")).control(
+                        widget::dropdown(
+                            Cow::Borrowed(MODE_NAMES.as_slice()),
+                            Some(get_mode_part(mode, MODE_SHIFT_OTHER).try_into().unwrap()),
+                            move |selected| {
+                                Message::ShiftPermissions(
+                                    Some((other_path.clone(), mode)),
+                                    MODE_SHIFT_OTHER,
+                                    selected.try_into().unwrap(),
+                                )
+                            },
+                        )
+                        .centered_animated(true),
                     ),
-                ));
+                );
             }
         }
 
@@ -10399,6 +10409,7 @@ impl Tab {
                                     .position(|(x, _)| mime_app_cache.is_default(x, &mime)),
                                 move |index| (index, mime_closure.clone()),
                             )
+                            .centered_animated(true)
                             .icons(Cow::Owned(icons)),
                         )
                         .map(move |(index, mime)| {
@@ -10446,6 +10457,7 @@ impl Tab {
                                 )
                             },
                         )
+                        .centered_animated(true)
                         .placeholder(fl!("mixed")),
                     ),
             );
@@ -10466,6 +10478,7 @@ impl Tab {
                                 )
                             },
                         )
+                        .centered_animated(true)
                         .placeholder(fl!("mixed")),
                     ),
             );
@@ -10484,6 +10497,7 @@ impl Tab {
                             )
                         },
                     )
+                    .centered_animated(true)
                     .placeholder(fl!("mixed")),
                 ),
             );
