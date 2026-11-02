@@ -372,6 +372,8 @@ item-count = {$count ->
         [many] {$count} mír
        *[other] {$count} mír
     }
+selected-count = {$selected} as {$count} roghnaithe
+not-updating-automatically = Ní nuashonraítear go huathoibríoch
 item-size = Méid: { $size }
 item-created = Cruthaithe: { $created }
 item-modified = Mionathraithe: { $modified }
@@ -517,6 +519,7 @@ move-to = Bog go...
 comment = Bainisteoir comhad
 keywords = Fillteán;Bainisteoir;
 show-recents = Fillteán le déanaí sa bharra taoibh
+show-footer = Buntásc
 clear-recents-history = Glan stair na n-earraí le déanaí
 copy-path = Cóipeáil an chosán
 mixed = Measctha

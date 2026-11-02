@@ -22,6 +22,8 @@ item-count = {$count ->
         [one] {$count} आइटम
        *[other] {$count} आइटम
     }
+selected-count = {$count} में से {$selected} चयनित
+not-updating-automatically = स्वचालित रूप से अपडेट नहीं हो रहा
 file-type-folder = फ़ोल्डर
 file-type-image = छवि
 file-type-video = वीडियो

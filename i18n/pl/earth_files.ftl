@@ -425,6 +425,8 @@ item-count = {$count ->
         [many] {$count} elementów
        *[other] {$count} elementu
     }
+selected-count = Zaznaczono {$selected} z {$count}
+not-updating-automatically = Nie odświeża się automatycznie
 item-size = Rozmiar: { $size }
 item-created = Utworzono: { $created }
 item-modified = Zmodyfikowano: { $modified }
@@ -536,6 +538,7 @@ move-to-button-label = Przenieś
 copy-to = Skopiuj do…
 move-to = Przenieś do…
 show-recents = Ostatnie katalogi w panelu bocznym
+show-footer = Stopka
 clear-recents-history = Wyczyść bierzącą historię
 copy-path = Skopiuj ścieżkę
 mixed = Mieszane

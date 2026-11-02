@@ -429,6 +429,8 @@ item-count = {$count ->
         [many] {$count} элементаў
        *[other] {$count} элемента
     }
+selected-count = Выбрана {$selected} з {$count}
+not-updating-automatically = Не абнаўляецца аўтаматычна
 item-size = Памер: { $size }
 item-created = Створана: { $created }
 item-modified = Зменена: { $modified }

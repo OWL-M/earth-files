@@ -320,6 +320,8 @@ item-count = {$count ->
         [many] {$count} عنصرًا
        *[other] {$count} عنصر
     }
+selected-count = {$selected} من {$count} محدّد
+not-updating-automatically = لا يتحدّث تلقائيًا
 item-size = الحجم: { $size }
 item-created = أُنشئ في: { $created }
 item-modified = عُدّل في: { $modified }
@@ -481,6 +483,7 @@ move-to-button-label = انقل
 copy-to = انسخ إلى...
 move-to = انقل إلى...
 show-recents = مجلد الحديثة في الشريط الجانبي
+show-footer = التذييل
 clear-recents-history = امحُ التأريخ الحديث
 copy-path = انسخ المسار
 mixed = مختلط

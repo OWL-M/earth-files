@@ -363,6 +363,8 @@ item-count = {$count ->
         [one] {$count} element
        *[other] {$count} elements
     }
+selected-count = {$selected} de {$count} seleccionats
+not-updating-automatically = No s'actualitza automàticament
 item-size = Mida: { $size }
 item-created = Creat: { $created }
 item-modified = Modificat: { $modified }

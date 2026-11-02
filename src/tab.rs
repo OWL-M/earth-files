@@ -2425,6 +2425,14 @@ impl Location {
         }
     }
 
+    /// Whether reading this location again gives its listing back. A search
+    /// is listed as its results come in, so a rescan of it comes back empty
+    /// and throws them away; an empty search of a folder, eye shut, lists
+    /// the folder and is read again like it.
+    pub fn rescans(&self) -> bool {
+        !matches!(self, Self::Search(..)) || self.empty_search_folder().is_some()
+    }
+
     /// The folder this lists in full: a folder's own, or the one an empty
     /// search of it shows.
     fn listed_folder(&self) -> Option<&PathBuf> {
@@ -2625,6 +2633,9 @@ pub enum Command {
     AddToSidebar(PathBuf),
     AutoScroll(Option<f32>),
     ChangeLocation(String, Location, Option<Vec<PathBuf>>),
+    /// The user reloaded this folder: if it could not be watched, try again
+    /// now rather than when the next retry is due.
+    Rewatch(PathBuf),
     /// Ask a mounter what this URI names, off the event loop, and answer with
     /// [`Message::NetworkResolved`] carrying the same request number back.
     ResolveNetwork(u64, String),
@@ -3943,6 +3954,10 @@ pub const SORT_LABELS_MIN: f32 = 600.0;
 /// Height of the list's sort bar.
 const SORT_BAR_HEIGHT: f32 = 44.0;
 
+/// Height of the footer island, fixed so the listing knows how much of the
+/// tab it leaves before the footer is laid out.
+const FOOTER_HEIGHT: f32 = 32.0;
+
 /// The width `content` takes in the default font family at `size`, shaped
 /// the way a label draws it.
 fn label_width(content: &str, size: f32, font: crate::ui::font::Font) -> f32 {
@@ -4079,6 +4094,13 @@ fn dim_text_style(theme: &theme::Theme) -> widget::text::Style {
     color.alpha *= 0.75;
     widget::text::Style {
         color: Some(color.to_color()),
+        ..Default::default()
+    }
+}
+
+fn warning_text_style(theme: &theme::Theme) -> widget::text::Style {
+    widget::text::Style {
+        color: Some(theme.cosmic().warning_text_color().to_color()),
         ..Default::default()
     }
 }
@@ -4260,6 +4282,10 @@ pub struct Tab {
     /// clear of the card the app floats over the bottom-right corner: what
     /// [`Self::view`] was given, read at each layout. 0 without a card.
     bottom_reserve: Cell<f32>,
+    /// The folder shown could not be watched, so it does not update by
+    /// itself: the footer says so, with a Reload. Set by the app, through
+    /// [`Self::set_watch_failed`].
+    watch_failed: bool,
     pub viewport_opt: Option<Rectangle>,
     pub item_view_size_opt: Cell<Option<Size>>,
     pub edit_location: Option<EditLocation>,
@@ -4728,6 +4754,7 @@ impl Tab {
             size_opt: Cell::new(None),
             content_height_opt: Cell::new(None),
             bottom_reserve: Cell::new(0.0),
+            watch_failed: false,
             viewport_opt: None,
             item_view_size_opt: Cell::new(None),
             edit_location: None,
@@ -7590,6 +7617,9 @@ impl Tab {
                     .filter_map(Location::into_path_opt)
                     .collect();
                 let location = self.location.clone();
+                if let Some(path) = location.path_opt() {
+                    commands.push(Command::Rewatch(path.clone()));
+                }
                 self.change_location(&location, None);
                 commands.push(Command::ChangeLocation(
                     self.title(),
@@ -9354,6 +9384,132 @@ impl Tab {
             .into()
     }
 
+    /// Records whether the folder shown is watched. True when it has just
+    /// come back: what changed while it was not has to be read again.
+    pub fn set_watch_failed(&mut self, failed: bool) -> bool {
+        let recovered = self.watch_failed && !failed;
+        self.watch_failed = failed;
+        recovered
+    }
+
+    /// The height the footer takes from the listing, gap above it included:
+    /// what the listing's own viewport is short of the tab's.
+    fn footer_height(&self) -> f32 {
+        if self.shows_footer() {
+            FOOTER_HEIGHT + f32::from(spacing().space_xs)
+        } else {
+            0.0
+        }
+    }
+
+    /// The size of the listing in a tab of `size`: the tab less the footer.
+    /// Scrolling to an item, paging and the visible rows all go by it.
+    fn listing_size(&self, size: Size) -> Size {
+        Size {
+            height: (size.height - self.footer_height()).max(0.0),
+            ..size
+        }
+    }
+
+    /// How many items the listing shows. The view lays out the shown items
+    /// on each frame and keeps that layout while the listing holds, so
+    /// while it is the current one its count is the answer, with no pass
+    /// over a large folder each frame.
+    fn shown_count(&self) -> usize {
+        let Some(items) = self.items_opt.as_ref() else {
+            return 0;
+        };
+        if self.config.show_hidden {
+            return items.len();
+        }
+        if let Some(order) = self.sorted_order()
+            && let Some(layout) = self.shown_layout.borrow().as_ref()
+            && Arc::ptr_eq(&layout.key.order, &order)
+            && !layout.key.show_hidden
+        {
+            return layout.shown.len();
+        }
+        items.iter().filter(|item| !item.hidden).count()
+    }
+
+    /// Whether the footer under the listing shows: when the settings ask for
+    /// it, and always while the folder does not update by itself.
+    pub fn shows_footer(&self) -> bool {
+        self.config.show_footer || self.watch_failed
+    }
+
+    /// What the footer says about the listing: how many items it has,
+    /// or how many of them are selected.
+    fn footer_text(&self) -> String {
+        let count = self.shown_count();
+        match self.selected_indices().len() {
+            0 => fl!("item-count", count = count),
+            selected => fl!("selected-count", selected = selected, count = count),
+        }
+    }
+
+    /// The footer under the listing, if it shows: an island like the
+    /// sidebar's, on its background and with its corners, set off from the
+    /// listing by the gap that sets the sidebar off from it. While the
+    /// folder cannot be watched it says that changes made elsewhere will not
+    /// appear, next to a Reload. The Reload sits right after the text, not
+    /// at the far end, where the card the app floats over the bottom-right
+    /// corner covers it.
+    fn footer(&self) -> Option<Element<'_, Message>> {
+        if !self.shows_footer() {
+            return None;
+        }
+        let Spacing {
+            space_xxs,
+            space_xs,
+            space_s,
+            ..
+        } = spacing();
+        let mut row = widget::Row::with_capacity(5)
+            .align_y(Alignment::Center)
+            .spacing(space_xxs.to_pixels())
+            .push(
+                widget::text::caption(self.footer_text())
+                    .class(theme::Text::Custom(dim_text_style)),
+            );
+        if self.watch_failed {
+            row = row
+                .push(widget::text::caption("·").class(theme::Text::Custom(dim_text_style)))
+                .push(
+                    widget::icon::from_name("dialog-warning-symbolic")
+                        .size(16)
+                        .icon()
+                        .class(theme::Svg::Custom(std::rc::Rc::new(
+                            |theme: &theme::Theme| crate::ui::iced::widget::svg::Style {
+                                color: Some(theme.cosmic().warning_text_color().to_color()),
+                            },
+                        ))),
+                )
+                .push(
+                    widget::text::caption(fl!("not-updating-automatically"))
+                        .class(theme::Text::Custom(warning_text_style)),
+                )
+                .push(
+                    widget::button::link(fl!("reload-folder"))
+                        .on_press(Message::Reload)
+                        .padding(0),
+                );
+        }
+        let island = widget::container(row)
+            .padding([0, space_s])
+            .center_y(Length::Fixed(FOOTER_HEIGHT))
+            .width(Length::Fill)
+            .class(theme::Container::custom(
+                crate::ui::widget::nav_bar::nav_bar_style,
+            ));
+        Some(
+            widget::container(island)
+                .padding(padding::top(f32::from(space_xs)))
+                .width(Length::Fill)
+                .into(),
+        )
+    }
+
     pub fn empty_view(&self, has_hidden: bool) -> Element<'_, Message> {
         let Spacing { space_xxs, .. } = spacing();
 
@@ -9998,8 +10154,8 @@ impl Tab {
         sources: menu::Sources<'a>,
         column_slide: Option<&ColumnSlide>,
     ) -> Element<'a, Message> {
-        // Update cached size
-        self.size_opt.set(Some(size));
+        // Update cached size: the listing's, which the footer takes from
+        self.size_opt.set(Some(self.listing_size(size)));
 
         let location_view = self.location_view(column_slide);
         let (item_view, can_scroll) = match self.config.view {
@@ -10053,9 +10209,12 @@ impl Tab {
             context_menu = context_menu.window_id(window_id);
         }
 
-        let mut tab_column = widget::Column::with_capacity(2);
+        let mut tab_column = widget::Column::with_capacity(3);
         tab_column = tab_column.push(location_view);
         tab_column = tab_column.push(context_menu);
+        if let Some(footer) = self.footer() {
+            tab_column = tab_column.push(footer);
+        }
         let tab_view = widget::container(tab_column)
             .height(Length::Fill)
             .width(Length::Fill);
@@ -11144,6 +11303,162 @@ fn text_editor_class(
 
 #[cfg(test)]
 mod tests {
+
+    /// The footer is off by default, shows whenever the folder is not
+    /// watched, and goes again once it is; switched on, it counts the
+    /// items, or the selected ones
+    #[test]
+    fn the_footer_shows_when_asked_and_while_the_folder_is_not_watched() {
+        let dir = tempfile::tempdir().unwrap();
+        for name in ["a", "b", "c"] {
+            std::fs::write(dir.path().join(name), name).unwrap();
+        }
+        let mut tab = super::Tab::new(
+            super::Location::Path(dir.path().to_path_buf()),
+            super::TabConfig::default(),
+            super::ThumbCfg::default(),
+            None,
+            std::borrow::Cow::Borrowed("Undefined"),
+            None,
+        );
+        tab.set_items(super::scan_path(
+            &dir.path().to_path_buf(),
+            super::IconSizes::default(),
+        ));
+        assert!(!tab.shows_footer(), "shown by default");
+        assert!(!tab.set_watch_failed(true));
+        assert!(tab.shows_footer(), "hidden while not watched");
+        assert!(tab.set_watch_failed(false), "recovery not reported");
+        assert!(!tab.shows_footer(), "still shown after recovery");
+
+        tab.config.show_footer = true;
+        assert!(tab.shows_footer());
+        assert_eq!(tab.footer_text(), crate::fl!("item-count", count = 3));
+        tab.select_paths(vec![dir.path().join("a"), dir.path().join("b")]);
+        assert_eq!(
+            tab.footer_text(),
+            crate::fl!("selected-count", selected = 2, count = 3)
+        );
+    }
+
+    /// The listing's viewport, which scrolling to an item and paging go by,
+    /// is the tab less the footer whenever the footer shows
+    #[test]
+    fn the_footer_is_taken_out_of_the_listing_viewport() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut tab = super::Tab::new(
+            super::Location::Path(dir.path().to_path_buf()),
+            super::TabConfig::default(),
+            super::ThumbCfg::default(),
+            None,
+            std::borrow::Cow::Borrowed("Undefined"),
+            None,
+        );
+        let size = super::Size::new(400.0, 300.0);
+        assert_eq!(tab.listing_size(size), size, "no footer, nothing taken");
+        let with_footer = 300.0 - super::FOOTER_HEIGHT - f32::from(super::spacing().space_xs);
+        tab.set_watch_failed(true);
+        assert_eq!(tab.listing_size(size).height, with_footer);
+        tab.set_watch_failed(false);
+        tab.config.show_footer = true;
+        assert_eq!(tab.listing_size(size), super::Size::new(400.0, with_footer));
+    }
+
+    /// The footer's count comes from the layout the view keeps while it is
+    /// the current one, and from the items only when it is not
+    #[test]
+    fn the_footer_counts_from_the_current_layout() {
+        let dir = tempfile::tempdir().unwrap();
+        for name in ["a", "b", ".hidden"] {
+            std::fs::write(dir.path().join(name), name).unwrap();
+        }
+        let mut tab = super::Tab::new(
+            super::Location::Path(dir.path().to_path_buf()),
+            super::TabConfig::default(),
+            super::ThumbCfg::default(),
+            None,
+            std::borrow::Cow::Borrowed("Undefined"),
+            None,
+        );
+        tab.set_items(super::scan_path(
+            &dir.path().to_path_buf(),
+            super::IconSizes::default(),
+        ));
+        assert_eq!(tab.shown_count(), 2, "hidden files left out");
+        let layout = |order: std::sync::Arc<[usize]>| super::ShownLayout {
+            key: super::LayoutKey {
+                order,
+                show_hidden: false,
+                columns: 1,
+                width: 0.0,
+                pitch: 0.0,
+            },
+            // Not what a pass over the items gives, so its use shows
+            shown: (0..7).collect(),
+            columns: 1,
+            top: 0.0,
+            pitch: 10.0,
+        };
+        // A layout made for another order is stale and not used
+        tab.shown_layout
+            .replace(Some(layout(std::sync::Arc::from([0, 1]))));
+        assert_eq!(tab.shown_count(), 2);
+        let order = tab.sorted_order().unwrap();
+        tab.shown_layout.replace(Some(layout(order)));
+        assert_eq!(tab.shown_count(), 7, "the current layout was not used");
+        // Hidden files shown: every item, counted by length
+        tab.config.show_hidden = true;
+        assert_eq!(tab.shown_count(), 3);
+    }
+
+    /// Only a search with results to lose is kept from being read again:
+    /// an empty search of a folder, eye shut, lists the folder and is
+    /// read again like it
+    #[test]
+    fn an_empty_folder_search_is_read_again_and_a_real_search_is_not() {
+        use super::{Location, SearchLocation, SearchOptions};
+        let folder = std::path::PathBuf::from("/some/folder");
+        let search = |term: &str, recursive: bool| {
+            Location::Search(
+                SearchLocation::Path(folder.clone()),
+                term.to_string(),
+                SearchOptions {
+                    show_hidden: false,
+                    recursive,
+                },
+                std::time::Instant::now(),
+            )
+        };
+        assert!(Location::Path(folder.clone()).rescans());
+        assert!(search("", false).rescans(), "an empty folder search");
+        assert!(!search("x", false).rescans(), "results would be lost");
+        assert!(!search("", true).rescans(), "an empty search of the tree");
+    }
+
+    /// Reloading a folder asks for its watch to be tried again at once
+    #[test]
+    fn reload_asks_to_watch_the_folder_again() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut tab = super::Tab::new(
+            super::Location::Path(dir.path().to_path_buf()),
+            super::TabConfig::default(),
+            super::ThumbCfg::default(),
+            None,
+            std::borrow::Cow::Borrowed("Undefined"),
+            None,
+        );
+        let commands = tab.update(super::Message::Reload, super::Modifiers::empty());
+        let rewatch = commands.iter().position(
+            |command| matches!(command, super::Command::Rewatch(path) if path == dir.path()),
+        );
+        let change = commands
+            .iter()
+            .position(|command| matches!(command, super::Command::ChangeLocation(..)));
+        assert!(
+            rewatch.zip(change).is_some_and(|(r, c)| r < c),
+            "{commands:?}"
+        );
+    }
 
     /// Stripes and the highlighted row stand out from any background: black
     /// and white too, which scaling the background left unchanged

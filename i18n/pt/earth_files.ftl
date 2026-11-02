@@ -408,6 +408,8 @@ item-count = {$count ->
         [one] {$count} item
        *[other] {$count} itens
     }
+selected-count = {$selected} de {$count} selecionados
+not-updating-automatically = Não atualiza automaticamente
 item-size = Tamanho: { $size }
 item-created = Criado: { $created }
 item-modified = Modificado: { $modified }

@@ -308,6 +308,8 @@ item-count = {$count ->
         [one] {$count} element
        *[other] {$count} elementer
     }
+selected-count = {$selected} af {$count} valgt
+not-updating-automatically = Opdateres ikke automatisk
 item-size = Størrelse: { $size }
 item-created = Oprettet: { $created }
 item-modified = Ændret: { $modified }
@@ -462,6 +464,7 @@ deleting =
 setting-permissions = Indstiller tilladelser for “{ $name }” til { $mode }
 set-permissions = Sæt tilladelser for “{ $name }” til { $mode }
 show-recents = Seneste-mappe i sidepanelet
+show-footer = Sidefod
 type-to-search = Skriv for at søge
 type-to-search-recursive = Søger i den aktuelle mappe og alle undermapper
 type-to-search-select = Vælger den første matchende fil eller mappe

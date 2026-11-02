@@ -427,6 +427,7 @@ dimmed-origin-unknown = Alkuperää ei ole tallennettu
 dimmed-trash-empty = Roskakori on tyhjä
 selected-items = { $items } valittua kohdetta
 show-recents = Viimeaikaisten kansio sivupalkissa
+show-footer = Alatunniste
 copy-to = Kopioi…
 move-to = Siirrä…
 details = Yksityiskohdat
@@ -462,6 +463,8 @@ item-count = {$count ->
         [one] {$count} kohde
        *[other] {$count} kohdetta
     }
+selected-count = {$selected}/{$count} valittu
+not-updating-automatically = Ei päivity automaattisesti
 item-accessed = Käytetty: { $accessed }
 type-to-search-enter-path = Kirjoittaa polun kansioon tai tiedostoon
 eject = Poista asemasta

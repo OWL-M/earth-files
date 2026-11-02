@@ -518,6 +518,8 @@ pub enum Message {
     NotificationClosed,
     NotifyEvents(Vec<DebouncedEvent>),
     NotifyWatcher(Handoff<Debouncer<RecommendedWatcher, RecommendedCache>>),
+    /// The file watcher's retry timer with this token fired
+    WatchRetry(u64),
     OpenTerminal(Option<Entity>),
     OpenInNewTab(Option<Entity>),
     OpenInNewWindow(Option<Entity>),
@@ -3644,9 +3646,45 @@ impl App {
                 .iter()
                 .filter_map(|entity| self.tabs.get(entity)?.location.path_opt().cloned())
                 .collect();
-            watcher.watch_only(shown);
+            watcher.watch_only(shown, Instant::now());
         }
-        Task::none()
+        self.watch_status()
+    }
+
+    /// Tells each tab whether its folder is watched, and starts the timer
+    /// for the next retry of those that are not, if one is needed.
+    fn watch_status(&mut self) -> Task<Message> {
+        let Some(watcher) = &mut self.watcher_opt else {
+            return Task::none();
+        };
+        // A folder watched again may have changed while it was not: it is
+        // read again, as a change on disk would have it read
+        let mut recovered = Vec::new();
+        for entity in self.tab_model.iter() {
+            if let Some(tab) = self.tabs.get_mut(entity) {
+                let failed = tab
+                    .location
+                    .path_opt()
+                    .is_some_and(|path| watcher.is_failing(path));
+                if tab.set_watch_failed(failed) {
+                    recovered.push((entity, tab.location.clone()));
+                }
+            }
+        }
+        let timer = match browser::retry_timer(watcher) {
+            Some(timer) => {
+                Task::future(
+                    async move { crate::ui::action::app(Message::WatchRetry(timer.await)) },
+                )
+            }
+            None => Task::none(),
+        };
+        let mut tasks: Vec<_> = recovered
+            .into_iter()
+            .map(|(entity, location)| self.update_tab(entity, location, None, false))
+            .collect();
+        tasks.push(timer);
+        Task::batch(tasks)
     }
 
     fn network_drive(&self) -> Element<'_, Message> {
@@ -4323,6 +4361,17 @@ impl App {
                         move |single_click| {
                             Message::TabConfig(TabConfig {
                                 single_click,
+                                ..tab_config
+                            })
+                        },
+                    )
+                })
+                .add({
+                    settings::item::builder(fl!("show-footer")).toggler(
+                        tab_config.show_footer,
+                        move |show_footer| {
+                            Message::TabConfig(TabConfig {
+                                show_footer,
                                 ..tab_config
                             })
                         },
@@ -5940,6 +5989,13 @@ impl Application for App {
                     log::warn!("message did not contain notify watcher");
                 }
             },
+            Message::WatchRetry(token) => {
+                if let Some(watcher) = &mut self.watcher_opt
+                    && watcher.fire(token, Instant::now())
+                {
+                    return self.watch_status();
+                }
+            }
             Message::OpenTerminal(entity_opt) => {
                 // Which folders to open is decided now, from the selection as
                 // it is at the moment the user asks. Everything below may have
@@ -7227,6 +7283,11 @@ impl Application for App {
                                 self.auto_scroll_speed = Some((scroll_speed_float * 10.0) as i16);
                             } else {
                                 self.auto_scroll_speed = None;
+                            }
+                        }
+                        tab::Command::Rewatch(path) => {
+                            if let Some(watcher) = &mut self.watcher_opt {
+                                watcher.retry_now(&path, Instant::now());
                             }
                         }
                         tab::Command::ChangeLocation(tab_title, tab_path, selection_paths) => {

@@ -271,6 +271,8 @@ items = Item: { $items }
 item-count = {$count ->
        *[other] {$count} item
     }
+selected-count = {$selected} dari {$count} dipilih
+not-updating-automatically = Tidak diperbarui otomatis
 item-size = Ukuran: { $size }
 moving =
     Memindahkan { $items } { $items ->
@@ -394,6 +396,7 @@ copy-to-title = Pilih destinasi salinan
 keywords = Map;Pengelola;
 comment = Pengelola berkas
 show-recents = Map terbaru di bilah sisi
+show-footer = Bagian bawah
 clear-recents-history = Bersihkan riwayat Terbaru
 copy-path = Salin jalur
 mixed = Bercampur

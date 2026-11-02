@@ -334,6 +334,8 @@ item-count = {$count ->
         [many] {$count} elemento
        *[other] {$count} elementų
     }
+selected-count = Pasirinkta {$selected} iš {$count}
+not-updating-automatically = Neatnaujinama automatiškai
 item-size = Dydis: { $size }
 item-created = Sukurtas: { $created }
 item-modified = Modifikuota: { $modified }
@@ -414,6 +416,7 @@ pasted-image = Įklijuotas Atvaizdas
 pasted-text = Įklijuotas Tekstas
 pasted-video = Įklijuotas Vaizdo įrašas
 show-recents = Neseniai naudotų aplankas šonjuostėje
+show-footer = Poraštė
 type-to-search-select = Parenkamas pirmas atitinkantis failas arba aplankas
 clear-recents-history = Išvalyti Neseniai naudotų istoriją
 copy-to = Kopijuoti į...

@@ -368,6 +368,8 @@ item-count = {$count ->
         [one] {$count} elemento
        *[other] {$count} elementos
     }
+selected-count = {$selected} de {$count} seleccionados
+not-updating-automatically = Non se actualiza automaticamente
 item-size = Tamaño: { $size }
 item-created = Creado: { $created }
 item-modified = Modificado: { $modified }
@@ -378,6 +380,7 @@ calculate = Calculado
 error = Erro
 single-click = Clic único para abrir
 show-recents = Cartafol de recentes no panel lateral
+show-footer = Pé de páxina
 type-to-search = Escribe para atopar
 type-to-search-recursive = Busca no cartafol actual e en todos os subcartafoles
 type-to-search-enter-path = Introduce a ruta do cartafol ou ficheiro

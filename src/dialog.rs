@@ -532,6 +532,8 @@ enum Message {
     NewFolderFailed(PathBuf, String, String),
     NotifyEvents(Vec<DebouncedEvent>),
     NotifyWatcher(Handoff<Debouncer<RecommendedWatcher, RecommendedCache>>),
+    /// The file watcher's retry timer with this token fired
+    WatchRetry(u64),
     Open,
     Preview,
     /// Items re-read off the event loop after the filesystem changed beneath
@@ -1103,9 +1105,39 @@ impl App {
 
     fn update_watcher(&mut self) -> Task<Message> {
         if let Some(watcher) = &mut self.watcher_opt {
-            watcher.watch_only(self.tab.location.path_opt().cloned().into_iter().collect());
+            watcher.watch_only(
+                self.tab.location.path_opt().cloned().into_iter().collect(),
+                Instant::now(),
+            );
         }
-        Task::none()
+        self.watch_status()
+    }
+
+    /// Tells the tab whether its folder is watched, and starts the timer for
+    /// the next retry if it is not and one is needed.
+    fn watch_status(&mut self) -> Task<Message> {
+        let Some(watcher) = &mut self.watcher_opt else {
+            return Task::none();
+        };
+        let failed = self
+            .tab
+            .location
+            .path_opt()
+            .is_some_and(|path| watcher.is_failing(path));
+        let timer = match browser::retry_timer(watcher) {
+            Some(timer) => {
+                Task::future(
+                    async move { crate::ui::action::app(Message::WatchRetry(timer.await)) },
+                )
+            }
+            None => Task::none(),
+        };
+        // A folder watched again may have changed while it was not: it is
+        // read again, as a change on disk would have it read
+        if self.tab.set_watch_failed(failed) && self.tab.location.rescans() {
+            return Task::batch([self.rescan_tab(None), timer]);
+        }
+        timer
     }
 }
 
@@ -1791,8 +1823,9 @@ impl Application for App {
                 {
                     // Not while searching: a rescan of a search location comes
                     // back empty and would throw the results away, and nothing
-                    // would ask for them again.
-                    if contains_change && !matches!(self.tab.location, Location::Search(..)) {
+                    // would ask for them again. An empty search of a folder
+                    // lists the folder, and is read again like it.
+                    if contains_change && self.tab.location.rescans() {
                         return self.rescan_tab(None);
                     }
 
@@ -1856,6 +1889,13 @@ impl Application for App {
                     log::warn!("message did not contain notify watcher");
                 }
             },
+            Message::WatchRetry(token) => {
+                if let Some(watcher) = &mut self.watcher_opt
+                    && watcher.fire(token, Instant::now())
+                {
+                    return self.watch_status();
+                }
+            }
             Message::Open => {
                 let mut paths = Vec::new();
                 if let Some(items) = self.tab.items_opt() {
@@ -2007,6 +2047,11 @@ impl Application for App {
                         }
                         tab::Command::Action(action) => {
                             commands.push(self.update(Message::from(action.message())));
+                        }
+                        tab::Command::Rewatch(path) => {
+                            if let Some(watcher) = &mut self.watcher_opt {
+                                watcher.retry_now(&path, Instant::now());
+                            }
                         }
                         tab::Command::ChangeLocation(_tab_title, _tab_path, selection_paths) => {
                             commands.push(Task::batch([

@@ -209,6 +209,8 @@ item-count = {$count ->
         [one] {$count} üksus
        *[other] {$count} üksust
     }
+selected-count = Valitud {$selected}/{$count}
+not-updating-automatically = Ei uuene automaatselt
 renaming-many = Nimetan ümber { item-count }
 renamed-many = Ümber nimetatud: { item-count }
 item-size = Suurus: { $size }

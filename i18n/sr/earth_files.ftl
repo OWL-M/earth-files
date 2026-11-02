@@ -111,6 +111,8 @@ item-count = {$count ->
         [few] {$count} ставке
        *[other] {$count} ставки
     }
+selected-count = Изабрано {$selected} од {$count}
+not-updating-automatically = Не освежава се самостално
 no-results = Нису пронађени резултати
 theme = Тема
 type = Врста: { $mime }
@@ -416,6 +418,7 @@ pasted-image = Убачена слика
 pasted-text = Убачен текст
 pasted-video = Убачен видео
 show-recents = Недавна фасцикла у бочној површи
+show-footer = Подножје
 type-to-search-select = Обира прву подударајућу датотеку или фасциклу
 clear-recents-history = Очисти историју недавних
 compress = Сажми...

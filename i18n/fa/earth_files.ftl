@@ -348,6 +348,8 @@ item-count = {$count ->
         [one] {$count} مورد
        *[other] {$count} مورد
     }
+selected-count = {$selected} از {$count} انتخاب شده
+not-updating-automatically = به‌طور خودکار به‌روز نمی‌شود
 item-size = حجم: { $size }
 item-created = ایجاد شده: { $created }
 item-modified = تغییر یافته: { $modified }

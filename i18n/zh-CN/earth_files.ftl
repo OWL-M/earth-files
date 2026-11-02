@@ -394,6 +394,8 @@ items = 文件数：{ $items }
 item-count = {$count ->
        *[other] {$count} 个项目
     }
+selected-count = 已选择 {$selected} 个，共 {$count} 个
+not-updating-automatically = 不会自动更新
 item-size = 文件大小：{ $size }
 item-created = 创建于：{ $created }
 item-modified = 修改于：{ $modified }
@@ -513,6 +515,7 @@ keywords = 文件夹;管理器;
 clear-recents-history = 清除最近访问历史
 copy-path = 复制文件路径
 show-recents = 侧边栏中的最近访问
+show-footer = 页脚
 mixed = 混合
 context-action-confirm-title = 运行 “{ $name }” ？
 run = 运行

@@ -144,6 +144,8 @@ items = 항목: { $items }
 item-count = {$count ->
        *[other] {$count}개 항목
     }
+selected-count = {$count}개 중 {$selected}개 선택됨
+not-updating-automatically = 자동으로 업데이트되지 않음
 no-results = 결과 없음
 type = 형식: { $mime }
 resume = 재개

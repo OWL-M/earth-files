@@ -472,6 +472,8 @@ item-count = {$count ->
         [few] {$count} položky
        *[other] {$count} položek
     }
+selected-count = Vybráno {$selected} z {$count}
+not-updating-automatically = Neaktualizuje se automaticky
 item-size = Velikost: { $size }
 item-created = Vytvořeno: { $created }
 item-modified = Změněno: { $modified }
@@ -507,6 +509,7 @@ move-to = Přesunout do...
 copy-to-title = Vyberte cíl kopírování
 move-to-title = Vyberte cíl přesunutí
 show-recents = Složka „Nedávné“ v postranním panelu
+show-footer = Zápatí
 copy-path = Kopírovat cestu
 clear-recents-history = Vymazat historii „Nedávné“
 mixed = Různé

@@ -382,6 +382,8 @@ item-count = {$count ->
         [one] {$count} Element
        *[other] {$count} Elemente
     }
+selected-count = {$selected} von {$count} ausgewählt
+not-updating-automatically = Wird nicht automatisch aktualisiert
 item-size = Größe: { $size }
 item-created = Erstellt: { $created }
 item-modified = Geändert: { $modified }
@@ -496,6 +498,7 @@ pasted-text = Eingefügter Text
 pasted-video = Eingefügtes Video
 copy-to = Kopieren nach ...
 show-recents = Ordner zuletzt verwendeter Elemente in der Seitenleiste
+show-footer = Fußzeile
 clear-recents-history = Verlauf zuletzt verwendeter Elemente leeren
 comment = Dateimanager
 keywords = Ordner;Manager;

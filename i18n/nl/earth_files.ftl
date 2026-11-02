@@ -405,6 +405,8 @@ item-count = {$count ->
         [one] {$count} item
        *[other] {$count} items
     }
+selected-count = {$selected} van {$count} geselecteerd
+not-updating-automatically = Wordt niet automatisch bijgewerkt
 item-size = Grootte: { $size }
 item-created = Aangemaakt op: { $created }
 item-modified = Bewerkt op: { $modified }

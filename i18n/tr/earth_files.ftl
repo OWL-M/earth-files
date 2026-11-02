@@ -320,6 +320,8 @@ item-count = {$count ->
         [one] {$count} öğe
        *[other] {$count} öğe
     }
+selected-count = {$count} öğeden {$selected} seçili
+not-updating-automatically = Otomatik olarak güncellenmiyor
 item-size = Boyut: { $size }
 item-created = Oluşturulma: { $created }
 item-modified = Düzenlenme: { $modified }
@@ -495,6 +497,7 @@ type-to-search-select = İlk eşleşen dosyayı veya klasörü seçer
 copy-to = Buraya kopyala…
 move-to = Buraya taşı…
 show-recents = Kenar çubuğundaki son kullanılanlar klasörü
+show-footer = Alt bilgi
 
 close = Kapat
 

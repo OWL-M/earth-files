@@ -233,6 +233,8 @@ item-count = {$count ->
         [one] {$count} uferdis
        *[other] {$count} iferdisen
     }
+selected-count = {$selected} seg {$count} yettwafernen
+not-updating-automatically = Ur ittwaleqqem ara s wudem awurman
 item-size = Tiddi: { $size }
 item-created = Yettwarna: { $created }
 item-modified = Ittusnifel: { $modified }
@@ -413,6 +415,7 @@ type-to-search-select = Fren afaylu amezwaru neɣ akaram yemṣadan
 copy-to = Nɣel ɣer...
 move-to = Smutti ɣer…
 show-recents = Akaram n melmi kan deg ufeggag adisan
+show-footer = Aḍar
 clear-recents-history = Sfeḍ azray n melmi kan
 copy-path = Nɣel abrid
 

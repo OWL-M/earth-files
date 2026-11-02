@@ -233,6 +233,8 @@ item-count = {$count ->
         [one] {$count} στοιχείο
        *[other] {$count} στοιχεία
     }
+selected-count = Επιλέχθηκαν {$selected} από {$count}
+not-updating-automatically = Δεν ενημερώνεται αυτόματα
 type = Τύπος: { $mime }
 compressed =
     Έγινε συμπίεση { $items } { $items ->
@@ -399,6 +401,7 @@ pasted-image = Επικολλημένη εικόνα
 pasted-text = Επικολλημένο κείμενο
 pasted-video = Επικολλημένο βίντεο
 show-recents = Φάκελος «Πρόσφατα» στην πλαϊνή στήλη
+show-footer = Υποσέλιδο
 move-to = Μετακίνηση σε...
 copy-path = Αντιγραφή διαδρομής
 move-to-title = Επιλογή προορισμού μετακίνησης

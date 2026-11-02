@@ -430,6 +430,8 @@ items = アイテム: { $items }
 item-count = {$count ->
        *[other] {$count} 個のアイテム
     }
+selected-count = {$count} 個中 {$selected} 個を選択
+not-updating-automatically = 自動では更新されません
 item-size = サイズ: { $size }
 item-created = 作成日時: { $created }
 item-modified = 最終更新日時: { $modified }

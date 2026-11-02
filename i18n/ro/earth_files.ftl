@@ -394,6 +394,8 @@ item-count = {$count ->
         [few] {$count} elemente
        *[other] {$count} de elemente
     }
+selected-count = {$selected} din {$count} selectate
+not-updating-automatically = Nu se actualizează automat
 item-size = Dimensiune: { $size }
 item-created = Creat: { $created }
 item-modified = Modificat: { $modified }

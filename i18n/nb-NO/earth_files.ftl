@@ -352,6 +352,8 @@ item-count = {$count ->
         [one] {$count} element
        *[other] {$count} elementer
     }
+selected-count = {$selected} av {$count} valgt
+not-updating-automatically = Oppdateres ikke automatisk
 item-size = Størrelse: { $size }
 item-created = Opprettet: { $created }
 item-modified = Endret: { $modified }

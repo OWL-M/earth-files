@@ -399,6 +399,8 @@ item-count = {$count ->
         [one] {$count} elem
        *[other] {$count} elem
     }
+selected-count = {$count} elemből {$selected} kijelölve
+not-updating-automatically = Nem frissül automatikusan
 item-size = Méret: { $size }
 item-created = Létrehozva: { $created }
 item-modified = Módosítva: { $modified }
@@ -514,6 +516,7 @@ move-to-button-label = Áthelyezés
 copy-to = Másolás ide…
 move-to = Áthelyezés ide…
 show-recents = Legutóbbiak mappa megjelenítése az oldalsávban
+show-footer = Lábléc
 copy-path = Útvonal másolása
 clear-recents-history = Legutóbbiak előzményének törlése
 mixed = Vegyes

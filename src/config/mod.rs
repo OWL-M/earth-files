@@ -246,6 +246,8 @@ impl Config {
             max_search_results: DEFAULT_MAX_SEARCH_RESULTS,
             search_recursive: self.tab.search_recursive,
             single_click: false,
+            // One setting for both: the chooser follows the main window
+            show_footer: self.tab.show_footer,
             view: self.dialog.view,
         }
     }
@@ -353,6 +355,9 @@ pub struct TabConfig {
     pub search_recursive: bool,
     /// Single click to open
     pub single_click: bool,
+    /// Show the footer under the listing with its item count. Off by default;
+    /// a folder that cannot be watched shows it anyway.
+    pub show_footer: bool,
     /// Selected view, grid or list
     pub view: View,
 }
@@ -366,6 +371,7 @@ impl Default for TabConfig {
             max_search_results: DEFAULT_MAX_SEARCH_RESULTS,
             search_recursive: false,
             single_click: false,
+            show_footer: false,
             view: View::List,
         }
     }

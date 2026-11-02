@@ -328,6 +328,7 @@ pasted-text = Nivîsa pêvekirî
 pasted-video = Vîdiyoya pêvekirî
 copy-path = Rêgehê jê bigire
 show-recents = Peldanka dawî di benda kêlekê de
+show-footer = Jêrenivîs
 clear-recents-history = Dîroka dawî pak bike
 compress = Biguvşîne...
 copy-to = Jê bigire bo...
@@ -355,6 +356,8 @@ item-count = {$count ->
         [one] {$count} hêman
        *[other] {$count} hêman
     }
+selected-count = {$selected} ji {$count} hatin hilbijartin
+not-updating-automatically = Bixweber nayê nûkirin
 type = Cûre: { $mime }
 replace-warning = Tu dixwazî bi ya ku tu niha tomar dikî biguhêrînî? Naveroka berê wê were jêbirin.
 show-details = Hûrgiliyan nîşan bide

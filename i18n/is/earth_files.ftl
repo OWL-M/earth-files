@@ -301,6 +301,8 @@ item-count = {$count ->
         [one] {$count} atriði
        *[other] {$count} atriði
     }
+selected-count = {$selected} af {$count} valin
+not-updating-automatically = Uppfærist ekki sjálfkrafa
 item-size = Stærð: { $size }
 item-created = Búið til: { $created }
 item-modified = Breytt: { $modified }

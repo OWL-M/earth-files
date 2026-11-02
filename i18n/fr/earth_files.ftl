@@ -390,6 +390,8 @@ item-count = {$count ->
         [one] {$count} élément
        *[other] {$count} éléments
     }
+selected-count = {$selected} sur {$count} sélectionnés
+not-updating-automatically = Pas de mise à jour automatique
 item-size = Taille : { $size }
 item-created = Créé : { $created }
 item-modified = Modifié : { $modified }
@@ -521,6 +523,7 @@ move-to = Déplacer vers...
 comment = Explorateur de fichiers
 keywords = Dossier;Gestionnaire;
 show-recents = Dossier Récents dans la barre latérale
+show-footer = Pied de page
 copy-path = Copier le chemin
 clear-recents-history = Effacer l'historique des Récents
 mixed = Mixte

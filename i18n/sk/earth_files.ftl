@@ -466,6 +466,8 @@ item-count = {$count ->
         [many] {$count} položky
        *[other] {$count} položiek
     }
+selected-count = Vybraté {$selected} z {$count}
+not-updating-automatically = Neaktualizuje sa automaticky
 item-size = Veľkosť: { $size }
 item-created = Vytvorené: { $created }
 item-modified = Upravené: { $modified }

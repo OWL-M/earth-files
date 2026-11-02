@@ -422,6 +422,8 @@ item-count = {$count ->
         [one] {$count} елемент
        *[other] {$count} елемента
     }
+selected-count = Избрани {$selected} от {$count}
+not-updating-automatically = Не се обновява автоматично
 item-size = Размер: { $size }
 item-created = Създаден: { $created }
 item-modified = Променян: { $modified }

@@ -446,6 +446,8 @@ items = 項目：{ $items }
 item-count = {$count ->
        *[other] {$count} 個項目
     }
+selected-count = 已選取 {$selected} 個，共 {$count} 個
+not-updating-automatically = 不會自動更新
 item-size = 大小：{ $size }
 item-created = 建立時間：{ $created }
 item-modified = 修改時間：{ $modified }
@@ -454,6 +456,7 @@ type-to-search-select = 選取第一個符合條件的檔案或資料夾
 copy-to = 複製至...
 move-to = 移動至...
 show-recents = 側邊欄中的最近使用資料夾
+show-footer = 頁尾
 clear-recents-history = 清除最近使用歷史記錄
 copy-path = 複製路徑
 setting-executable-and-launching = 設定「{ $name }」為可以執行並進行啟動

@@ -273,6 +273,8 @@ item-count = {$count ->
         [one] {$count} ਆਈਟਮ
        *[other] {$count} ਆਈਟਮਾਂ
     }
+selected-count = {$count} ਵਿੱਚੋਂ {$selected} ਚੁਣੇ
+not-updating-automatically = ਆਪਣੇ-ਆਪ ਅੱਪਡੇਟ ਨਹੀਂ ਹੋ ਰਿਹਾ
 item-size = ਆਕਾਰ: { $size }
 item-created = ਬਣਾਇਆ: { $created }
 item-modified = ਸੋਧ ਕੀਤੀ: { $modified }
@@ -280,6 +282,7 @@ item-accessed = ਪਹੁੰਚ: { $accessed }
 calculating = ਗਿਣਤੀ ਕੀਤੀ ਜਾ ਰਹੀ ਹੈ...
 single-click = ਇੱਕ ਵਾਰ ਕਲਿੱਕ ਕਰਕੇ ਖੋਲ੍ਹੋ
 show-recents = ਬਾਹੀ ਵਿੱਚ ਸੱਜਰੇ ਫੋਲਡਰ
+show-footer = ਫੁੱਟਰ
 match-desktop = ਡੈਸਕਟਾਪ ਨਾਲ ਮਿਲਾਓ
 dark = ਗੂੜ੍ਹਾ
 light = ਫਿੱਕਾ

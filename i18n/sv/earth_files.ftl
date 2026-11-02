@@ -317,6 +317,8 @@ item-count = {$count ->
         [one] {$count} objekt
        *[other] {$count} objekt
     }
+selected-count = {$selected} av {$count} markerade
+not-updating-automatically = Uppdateras inte automatiskt
 item-size = Storlek: { $size }
 item-created = Skapad: { $created }
 item-modified = Ändrad: { $modified }
@@ -493,6 +495,7 @@ move-to-button-label = Flytta
 copy-to = Kopiera till...
 move-to = Flytta till...
 show-recents = Mapp för senast använda filer i sidofältet
+show-footer = Sidfot
 clear-recents-history = Töm historik för Senaste
 copy-path = Kopiera sökväg
 context-action = Kontextåtgärd

@@ -312,6 +312,8 @@ item-count = {$count ->
         [one] {$count} элемент
        *[other] {$count} элемент
     }
+selected-count = {$count} ішінен {$selected} таңдалды
+not-updating-automatically = Автоматты түрде жаңартылмайды
 item-size = Өлшемі: { $size }
 item-created = Жасалған: { $created }
 item-modified = Өзгертілген: { $modified }
@@ -396,6 +398,7 @@ move-to = Қайда жылжыту...
 comment = Файлдар басқарушысы
 keywords = Folder;Manager;Бума;Басқарушы;
 show-recents = Бүйір панеліндегі «Жуырдағы құжаттар» бумасы
+show-footer = Төменгі деректеме
 clear-recents-history = Жуырдағылар тарихын өшіру
 copy-path = Орналасқан жолын көшіру
 mixed = Аралас

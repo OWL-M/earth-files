@@ -396,6 +396,8 @@ item-count = {$count ->
         [one] {$count} item
        *[other] {$count} items
     }
+selected-count = {$selected} of {$count} selected
+not-updating-automatically = Not updating automatically
 item-size = Size: {$size}
 item-created = Created: {$created}
 item-modified = Modified: {$modified}
@@ -409,6 +411,7 @@ error = Error
 settings = Settings
 single-click = Single click to open
 show-recents = Recents folder in the sidebar
+show-footer = Footer
 
 ### Appearance
 appearance = Appearance

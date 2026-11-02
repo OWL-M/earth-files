@@ -413,6 +413,8 @@ item-count = {$count ->
         [one] {$count} item
        *[other] {$count} itens
     }
+selected-count = {$selected} de {$count} selecionados
+not-updating-automatically = Não atualiza automaticamente
 item-size = Tamanho: { $size }
 item-created = Criado: { $created }
 item-modified = Modificado: { $modified }
@@ -526,6 +528,7 @@ copy-to = Copiar para...
 move-to = Mover para...
 keywords = Pasta;Gerenciador;
 show-recents = Pasta de recentes na barra lateral
+show-footer = Rodapé
 clear-recents-history = Limpar histórico de recentes
 copy-path = Copiar caminho
 mixed = Misto

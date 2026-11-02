@@ -415,6 +415,8 @@ item-count = {$count ->
         [many] {$count} элементов
        *[other] {$count} элемента
     }
+selected-count = Выбрано {$selected} из {$count}
+not-updating-automatically = Не обновляется автоматически
 item-size = Размер: { $size }
 item-created = Дата создания: { $created }
 item-modified = Дата изменения: { $modified }
@@ -479,6 +481,7 @@ move-to = Переместить в...
 comment = Файловый менеджер
 keywords = Папка;Менеджер;
 show-recents = «Недавние документы» в бок. панели
+show-footer = Нижняя панель
 clear-recents-history = Очистить историю недавних
 copy-path = Копировать путь
 mixed = Смешанные

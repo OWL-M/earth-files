@@ -406,6 +406,8 @@ item-count = {$count ->
         [many] {$count} елементів
        *[other] {$count} елемента
     }
+selected-count = Вибрано {$selected} з {$count}
+not-updating-automatically = Не оновлюється автоматично
 item-size = Розмір: { $size }
 item-created = Створено: { $created }
 item-modified = Змінено: { $modified }
@@ -474,6 +476,7 @@ move-to-title = Виберіть місце призначення
 comment = Менеджер файлів
 keywords = Тека;Папка;Провідник;Менеджер;Каталог;
 show-recents = Тека «Нещодавні» на бічній панелі
+show-footer = Нижня панель
 copy-path = Копіювати шлях
 clear-recents-history = Очистити нещодавні
 context-action-confirm-title = Запустити «{ $name }»?
