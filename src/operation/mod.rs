@@ -452,20 +452,87 @@ impl Cause {
 
     /// `"name": the reason`, for `path`.
     fn text(&self, path: &Path) -> String {
-        let name = path.file_name().map_or_else(
-            || path.display().to_string(),
-            |name| name.to_string_lossy().into_owned(),
-        );
-        let reason = match self.io {
+        fl!(
+            "failed-path",
+            name = display_name(path),
+            reason = self.reason()
+        )
+    }
+
+    /// The reason, in the words the user reads.
+    fn reason(&self) -> String {
+        match self.io {
             Some(io::ErrorKind::PermissionDenied) => fl!("reason-no-permission"),
             Some(io::ErrorKind::StorageFull) => fl!("reason-drive-full"),
             Some(io::ErrorKind::ReadOnlyFilesystem) => fl!("reason-read-only"),
             Some(io::ErrorKind::NotFound) => fl!("reason-gone"),
             Some(io::ErrorKind::FileTooLarge) => fl!("reason-too-big"),
             _ => self.message.clone(),
-        };
-        fl!("failed-path", name = name, reason = reason)
+        }
     }
+}
+
+/// `path`'s name as the user reads it, or the whole path where it has none.
+fn display_name(path: &Path) -> String {
+    path.file_name().map_or_else(
+        || path.display().to_string(),
+        |name| name.to_string_lossy().into_owned(),
+    )
+}
+
+/// What a copy could not keep of a file it made whole.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum Unkept {
+    /// Its mode: who may read, write and run it.
+    Permissions,
+    /// When it was last modified and read.
+    Dates,
+}
+
+/// Something an operation could not do that does not make it fail: the
+/// files are there, whole, but not everything about them is as it was.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Warning {
+    pub path: PathBuf,
+    pub unkept: Unkept,
+    pub cause: Cause,
+}
+
+/// What `warnings` say, a line for each thing not kept and each reason, in
+/// the order first met, or `None` without warnings. A file named, or how
+/// many: a copy to a drive that cannot keep modes says so once, not for
+/// every file.
+pub fn warnings_text(warnings: &[Warning]) -> Option<String> {
+    let mut groups: Vec<(Unkept, String, usize, &Path)> = Vec::new();
+    for warning in warnings {
+        let reason = warning.cause.reason();
+        match groups
+            .iter_mut()
+            .find(|(unkept, said, _, _)| *unkept == warning.unkept && *said == reason)
+        {
+            Some((_, _, count, _)) => *count += 1,
+            None => groups.push((warning.unkept, reason, 1, &warning.path)),
+        }
+    }
+    let lines: Vec<String> = groups
+        .into_iter()
+        .map(|(unkept, reason, count, first)| {
+            // By the number itself, not a plural category: some languages
+            // count 21 as "one"
+            let name = display_name(first);
+            match (unkept, count) {
+                (Unkept::Permissions, 1) => {
+                    fl!("permissions-not-kept-one", name = name, reason = reason)
+                }
+                (Unkept::Permissions, _) => {
+                    fl!("permissions-not-kept-many", count = count, reason = reason)
+                }
+                (Unkept::Dates, 1) => fl!("dates-not-kept-one", name = name, reason = reason),
+                (Unkept::Dates, _) => fl!("dates-not-kept-many", count = count, reason = reason),
+            }
+        })
+        .collect();
+    (!lines.is_empty()).then(|| lines.join("\n"))
 }
 
 /// How a [`Blocked`] question is asked: what it offers besides Skip and
@@ -1576,6 +1643,9 @@ pub struct OperationSelection {
     /// it could not read, folders it could not list, and originals of a move
     /// it could not remove.
     pub skipped: Vec<PathBuf>,
+    /// What it could not keep of files it made whole, such as their modes
+    /// on a drive that refuses them: told when it completes, not a failure.
+    pub warnings: Vec<Warning>,
 }
 
 impl OperationSelection {
@@ -1596,6 +1666,7 @@ impl OperationSelection {
         self.moved.extend(other.moved);
         self.trash_items.extend(other.trash_items);
         self.skipped.extend(other.skipped);
+        self.warnings.extend(other.warnings);
     }
 }
 
@@ -2066,6 +2137,7 @@ impl Operation {
                             moved: Vec::new(),
                             trash_items: Vec::new(),
                             skipped: Vec::new(),
+                            warnings: Vec::new(),
                         };
 
                         let mut paths = paths;
@@ -2477,6 +2549,7 @@ impl Operation {
                             op_sel.selected.extend(moved.selected);
                             op_sel.created.extend(moved.created);
                             op_sel.trash_items.extend(moved.trash_items);
+                            op_sel.warnings.extend(moved.warnings);
                         }
                         // The archive done: a retry leaves it out
                         op_sel.ignored.push(path.clone());
@@ -2520,6 +2593,7 @@ impl Operation {
                         moved: Vec::new(),
                         trash_items: Vec::new(),
                         skipped: Vec::new(),
+                        warnings: Vec::new(),
                     })
                 })
             }
@@ -2551,6 +2625,7 @@ impl Operation {
                         moved: Vec::new(),
                         trash_items: Vec::new(),
                         skipped: Vec::new(),
+                        warnings: Vec::new(),
                     })
                 })
             }
@@ -2657,6 +2732,7 @@ impl Operation {
                         moved: Vec::new(),
                         trash_items: Vec::new(),
                         skipped: Vec::new(),
+                        warnings: Vec::new(),
                     })
                 })
             }
@@ -2725,6 +2801,7 @@ impl Operation {
                         moved: Vec::new(),
                         trash_items: Vec::new(),
                         skipped: Vec::new(),
+                        warnings: Vec::new(),
                     })
                 })
             }
@@ -2827,6 +2904,7 @@ impl Operation {
                     moved: Vec::new(),
                     trash_items: Vec::new(),
                     skipped: Vec::new(),
+                    warnings: Vec::new(),
                 })
             }
         };
@@ -3874,6 +3952,90 @@ mod tests {
             );
         }
         Ok(())
+    }
+
+    /// Merged results keep the warnings of both: a restore that falls back
+    /// to a move, and a failure after earlier steps, both merge
+    #[test]
+    fn merged_results_keep_their_warnings() {
+        use super::{Cause, OperationError, OperationSelection, Unkept, Warning};
+        let warned = |name: &str| OperationSelection {
+            warnings: vec![Warning {
+                path: PathBuf::from(name),
+                unkept: Unkept::Permissions,
+                cause: Cause {
+                    io: None,
+                    message: "refused".into(),
+                },
+            }],
+            ..OperationSelection::default()
+        };
+        let paths = |sel: &OperationSelection| -> Vec<PathBuf> {
+            sel.warnings.iter().map(|w| w.path.clone()).collect()
+        };
+
+        let mut earlier = warned("a");
+        earlier.absorb(warned("b"));
+        assert_eq!(paths(&earlier), [PathBuf::from("a"), PathBuf::from("b")]);
+
+        let failed = OperationError {
+            partial: Box::new(warned("later")),
+            ..OperationError::from_msg("failed")
+        }
+        .after(warned("before"));
+        assert_eq!(
+            paths(&failed.partial),
+            [PathBuf::from("before"), PathBuf::from("later")]
+        );
+    }
+
+    /// What a copy could not keep is told once for each thing and reason,
+    /// with the file's name when it is one and how many when more, in the
+    /// order first met; nothing at all without warnings
+    #[test]
+    fn warnings_are_told_once_for_each_thing_and_reason() {
+        use super::{Cause, Unkept, Warning, warnings_text};
+        let warning = |name: &str, unkept, io| Warning {
+            path: PathBuf::from("/drive").join(name),
+            unkept,
+            cause: Cause {
+                io: Some(io),
+                message: "os message".into(),
+            },
+        };
+        assert_eq!(warnings_text(&[]), None);
+        let denied = io::ErrorKind::PermissionDenied;
+        let text = warnings_text(&[
+            warning("a", Unkept::Permissions, denied),
+            warning("b", Unkept::Dates, io::ErrorKind::Other),
+            warning("c", Unkept::Permissions, denied),
+            warning("d", Unkept::Permissions, denied),
+        ])
+        .expect("warnings");
+        let no_permission = fl!("reason-no-permission");
+        assert_eq!(
+            text.lines().collect::<Vec<_>>(),
+            [
+                fl!(
+                    "permissions-not-kept-many",
+                    count = 3,
+                    reason = no_permission.clone()
+                ),
+                fl!("dates-not-kept-one", name = "b", reason = "os message"),
+            ]
+        );
+        // 21 is not one file, though some languages count it as "one"
+        let many: Vec<_> = (0..21)
+            .map(|i| warning(&format!("f{i}"), Unkept::Dates, denied))
+            .collect();
+        assert_eq!(
+            warnings_text(&many),
+            Some(fl!(
+                "dates-not-kept-many",
+                count = 21,
+                reason = no_permission
+            ))
+        );
     }
 
     /// The failed operation dialog prints the operation, so a paste must not

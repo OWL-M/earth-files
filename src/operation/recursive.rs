@@ -2488,12 +2488,22 @@ impl Op {
         progress.total_bytes = metadata.as_ref().map(|m| m.len());
         (ctx.on_progress)(self, &progress);
 
+        // What this attempt could not keep, the operation's only once the
+        // file is whole: a copy that fails part-way is removed, and a retry
+        // starts again from nothing
+        let mut unkept = Vec::new();
         if let Some(metadata) = metadata.as_ref()
             && let Err(why) = to_file.set_permissions(metadata.permissions()).await
         {
-            // This error is not propagated upwards as some filesystems do not support setting permissions
+            // Not a failure: some filesystems keep no modes. Where one refuses
+            // them for another reason, the user is told when the copy ends
             if !matches!(why.kind(), std::io::ErrorKind::Unsupported) {
                 tracing::warn!(?why, "failed to set permissions for {}", self.to.display(),);
+                unkept.push(super::Warning {
+                    path: self.to.clone(),
+                    unkept: super::Unkept::Permissions,
+                    cause: super::Cause::of(&why),
+                });
             }
         }
 
@@ -2610,8 +2620,14 @@ impl Op {
                     tracing::info!("set times for {} to {:?}", self.to.display(), times);
                 }
                 Err(why) => {
+                    // As with the mode above
                     if !matches!(why.kind(), std::io::ErrorKind::Unsupported) {
                         tracing::error!(?why, "failed to set times for {}", self.to.display());
+                        unkept.push(super::Warning {
+                            path: self.to.clone(),
+                            unkept: super::Unkept::Dates,
+                            cause: super::Cause::of(&why),
+                        });
                     }
                 }
             }
@@ -2620,6 +2636,7 @@ impl Op {
         _ = to_file.close().await;
         ctx.written.push(self.to.clone());
 
+        ctx.op_sel.warnings.extend(unkept);
         Ok(true)
     }
 

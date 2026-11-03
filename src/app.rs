@@ -2405,14 +2405,33 @@ impl App {
 
                 // Skipped paths or not, it reports success. Seen in the card
                 // while the window has the keyboard; otherwise as a desktop
-                // notification instead
+                // notification instead. What it could not keep of the files
+                // it made is told too, and keeps its row until closed
                 let key = progress::Key::Operation(id);
+                let note = crate::operation::warnings_text(&op_sel_pending.warnings);
                 if self.window_is_seen() {
-                    self.progress
-                        .finish(&key, true, Some(op.completed_text()), Instant::now());
+                    match note {
+                        Some(note) => self.progress.finish_noted(
+                            &key,
+                            op.completed_text(),
+                            note,
+                            Instant::now(),
+                        ),
+                        None => {
+                            self.progress.finish(
+                                &key,
+                                true,
+                                Some(op.completed_text()),
+                                Instant::now(),
+                            );
+                        }
+                    }
                 } else {
                     self.progress.remove(&key);
-                    commands.push(notify_done(op.completed_text()));
+                    commands.push(notify_done(match note {
+                        Some(note) => format!("{}\n{note}", op.completed_text()),
+                        None => op.completed_text(),
+                    }));
                 }
             }
         }
@@ -3977,6 +3996,10 @@ impl App {
             return Self::failed_row(*id, row, &failed.reason);
         }
 
+        if let (progress::State::Done, Some(note)) = (row.state, row.note) {
+            return Self::noted_row(row, note);
+        }
+
         let bar: Option<Element<'a, Message>> = match row.state {
             progress::State::Running => Some(
                 widget::indeterminate_linear()
@@ -4129,6 +4152,30 @@ impl App {
                     .align_y(Alignment::Center),
             )
             .push(widget::text::caption(reason))
+            .spacing(space_xxs)
+            .into()
+    }
+
+    /// A row whose operation completed with something to read, such as what
+    /// it could not keep of the files it made. It stays until closed.
+    fn noted_row<'a>(row: &progress::Row<'a>, note: &'a str) -> Element<'a, Message> {
+        let space_xxs = spacing().space_xxs.to_pixels();
+        widget::Column::with_capacity(2)
+            .push(
+                widget::Row::with_capacity(3)
+                    .push(widget::text::body(row.label))
+                    .push(widget::space::horizontal())
+                    .push(widget::tooltip(
+                        widget::button::icon(icon::from_name("window-close-symbolic"))
+                            .on_press(Message::ProgressDismiss(row.id))
+                            .padding(8),
+                        widget::text::body(fl!("close")),
+                        widget::tooltip::Position::Top,
+                    ))
+                    .spacing(space_xxs)
+                    .align_y(Alignment::Center),
+            )
+            .push(widget::text::caption(note))
             .spacing(space_xxs)
             .into()
     }

@@ -82,8 +82,11 @@ struct Entry {
     /// While it waits on the user: in which turn it asked, lowest first.
     blocked: Option<u64>,
     /// Its ended row stays until it is dismissed: it failed and can be
-    /// tried again from there.
+    /// tried again from there, or completed with something to read.
     kept: bool,
+    /// What its row says under its label once it ended: what a completed
+    /// operation could not keep.
+    note: Option<String>,
     /// When its row was dismissed.
     dismissed: Option<Instant>,
     /// The pointer is over its row, which holds it.
@@ -131,6 +134,8 @@ pub(crate) struct Row<'a> {
     /// state by.
     pub(crate) id: u64,
     pub(crate) label: &'a str,
+    /// What it says under its label: see [`Tasks::finish_noted`].
+    pub(crate) note: Option<&'a str>,
     pub(crate) state: State,
     /// Past its linger: sliding out.
     pub(crate) leaving: bool,
@@ -185,6 +190,7 @@ impl Tasks {
             entry.ended = None;
             entry.blocked = None;
             entry.kept = false;
+            entry.note = None;
             entry.dismissed = None;
             entry.held = false;
             entry.released = None;
@@ -201,6 +207,7 @@ impl Tasks {
             ended: None,
             blocked: None,
             kept: false,
+            note: None,
             dismissed: None,
             held: false,
             released: None,
@@ -231,6 +238,15 @@ impl Tasks {
     /// reason can be read and it can be tried again.
     pub(crate) fn finish_failed_kept(&mut self, key: &Key, label: Option<String>, now: Instant) {
         self.finish_kept(key, false, true, label, now);
+    }
+
+    /// Task `key` completed with `note` to read, such as what it could not
+    /// keep: its row says so and stays until closed.
+    pub(crate) fn finish_noted(&mut self, key: &Key, label: String, note: String, now: Instant) {
+        self.finish_kept(key, true, true, Some(label), now);
+        if let Some(entry) = self.ended_now(key, now) {
+            entry.note = Some(note);
+        }
     }
 
     /// Task `key` failed: its row says so and stays until closed. A task
@@ -402,6 +418,7 @@ impl Tasks {
                 key: &entry.key,
                 id: entry.id,
                 label: &entry.label,
+                note: entry.note.as_deref(),
                 state: match (entry.ended, entry.blocked) {
                     (None, Some(_)) if Some(entry.id) == asking_id => State::Asking,
                     (None, Some(_)) => State::Waiting,
@@ -547,6 +564,31 @@ mod tests {
             states(&tasks, now + FAILED_LINGER * 10),
             [("rename", State::Failed)]
         );
+    }
+
+    /// A task completed with a note keeps its row, note and all, until it
+    /// is closed; started again, its row has no note
+    #[test]
+    fn a_noted_row_stays_until_dismissed() {
+        let now = Instant::now();
+        let mut tasks = Tasks::default();
+        tasks.start(op(1), "copying".into(), Duration::ZERO, now);
+        tasks.finish_noted(&op(1), "copied".into(), "modes not kept".into(), now);
+
+        let later = now + FAILED_LINGER * 10;
+        let visible = tasks.visible(later);
+        let row = visible.rows.first().expect("still shown");
+        assert_eq!(
+            (row.label, row.note, row.state, row.leaving),
+            ("copied", Some("modes not kept"), State::Done, false)
+        );
+        let id = row.id;
+        tasks.dismiss(id, later);
+        assert!(tasks.visible(later).rows.iter().all(|row| row.leaving));
+
+        tasks.start(op(1), "copying".into(), Duration::ZERO, now);
+        tasks.finish(&op(1), true, Some("copied".into()), now);
+        assert_eq!(tasks.visible(now).rows[0].note, None);
     }
 
     #[test]
