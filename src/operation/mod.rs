@@ -504,7 +504,10 @@ pub enum BlockedAnswer {
     /// Leave the path out; `true` also leaves out every later path of this
     /// operation that is blocked, without asking.
     Skip(bool),
-    /// Stop the operation, keeping what it has done.
+    /// Stop the operation and undo what it did that can be undone, so that
+    /// as far as it can be, things are as they were before it started. What
+    /// cannot come back, such as files deleted for good, stays gone, and
+    /// anything that could not be put back is reported.
     Cancel,
     /// Do it as root; `true` also does every later path of this kind as root,
     /// without asking.
@@ -2858,6 +2861,8 @@ fn wrap_compio_spawn_error(err: compio::runtime::JoinError) -> OperationError {
 
 #[cfg(test)]
 mod tests {
+    mod failing_fs;
+
     use std::fs::{self, File};
     use std::io;
     use std::path::PathBuf;
