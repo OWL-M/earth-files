@@ -17,16 +17,23 @@
 //! later path outside them. A path's folder is resolved first, so `..` or a
 //! link in a parent cannot reach outside; the last part of a path is never
 //! followed when it is a link.
+//!
+//! The check and the step are apart in time, and whoever can write in a
+//! folder on the way may swap it for a link between them. So no step goes
+//! by the path again: each opens the folder it works in one part at a time
+//! from `/`, refusing a link at every part ([`open_parent`]), and works on
+//! the last part through that handle, never following it. A metadata change
+//! is made through a handle on what it changes.
 
-use std::ffi::OsString;
+use std::ffi::{CString, OsStr, OsString};
 use std::fs;
 use std::io::{self, Read, Write};
-use std::os::fd::AsFd;
+use std::os::fd::{AsFd, AsRawFd, FromRawFd, OwnedFd};
 use std::os::unix::ffi::{OsStrExt, OsStringExt};
-use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
-use std::path::{Path, PathBuf};
+use std::os::unix::fs::{MetadataExt, PermissionsExt};
+use std::path::{Component, Path, PathBuf};
 
-use crate::fs_at::{names_in, open_dir_at, read_link_at, rename_no_replace, stat_at};
+use crate::fs_at::{names_in, open_dir_at, read_link_at, stat_at, unlink_at};
 
 /// What the app asks the helper to do.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -391,72 +398,229 @@ fn carry_out(
         Request::Scope { .. } => Err(io::Error::from_raw_os_error(libc::EINVAL)),
         // The copy it was for had already ended
         Request::Stop => Ok(Reply::Done),
-        Request::List(dir) => {
-            let dir = scope.check(&dir)?;
-            // Through the folder's handle, never through a link put in its
-            // place: what is listed is that folder, whatever its path names
-            let handle = open_dir_at(None, dir.as_os_str(), false)?;
-            let mut entries = Vec::new();
-            for name in names_in(handle.as_fd())? {
-                let stat = stat_at(handle.as_fd(), &name)?;
-                let kind = match stat.st_mode & libc::S_IFMT {
-                    libc::S_IFLNK => Kind::Link,
-                    libc::S_IFDIR => Kind::Dir,
-                    libc::S_IFREG => Kind::File,
-                    _ => Kind::Other,
-                };
-                let target = if kind == Kind::Link {
-                    Some(read_link_at(handle.as_fd(), &name)?)
-                } else {
-                    None
-                };
-                entries.push(Entry {
-                    name,
-                    kind,
-                    size: u64::try_from(stat.st_size).unwrap_or(0),
-                    target,
-                });
-            }
-            Ok(Reply::Listed(entries))
-        }
+        Request::List(dir) => list(&scope.check(&dir)?).map(Reply::Listed),
         Request::Copy { from, to } => {
             let (from, to) = (scope.check(&from)?, scope.check(&to)?);
             copy(&from, &to, input, queued, output).map(Reply::Copied)
         }
         Request::Mkdir { from, to } => {
             let (from, to) = (scope.check(&from)?, scope.check(&to)?);
-            let meta = fs::symlink_metadata(&from)?;
-            match fs::create_dir(&to) {
-                Err(err) if err.kind() != io::ErrorKind::AlreadyExists => return Err(err),
-                _ => {}
-            }
-            std::os::unix::fs::lchown(&to, Some(meta.uid()), Some(meta.gid()))?;
-            fs::set_permissions(&to, fs::Permissions::from_mode(meta.mode() & 0o7777))?;
-            Ok(Reply::Done)
+            mkdir(&from, &to).map(|()| Reply::Done)
         }
         Request::Symlink { target, to, from } => {
             let (from, to) = (scope.check(&from)?, scope.check(&to)?);
-            let meta = fs::symlink_metadata(&from)?;
-            std::os::unix::fs::symlink(&target, &to)?;
-            std::os::unix::fs::lchown(&to, Some(meta.uid()), Some(meta.gid()))?;
-            Ok(Reply::Done)
+            symlink(&target, &to, &from).map(|()| Reply::Done)
         }
-        Request::Remove(path) => {
-            let path = scope.check(&path)?;
-            if fs::symlink_metadata(&path)?.is_dir() {
-                return Err(io::Error::from_raw_os_error(libc::EISDIR));
-            }
-            fs::remove_file(path).map(|()| Reply::Done)
-        }
-        Request::Rmdir(path) => {
-            let path = scope.check(&path)?;
-            fs::remove_dir(path).map(|()| Reply::Done)
-        }
+        Request::Remove(path) => remove(&scope.check(&path)?).map(|()| Reply::Done),
+        Request::Rmdir(path) => rmdir(&scope.check(&path)?).map(|()| Reply::Done),
         Request::Rename { from, to } => {
             let (from, to) = (scope.check(&from)?, scope.check(&to)?);
-            rename_no_replace(&from, &to).map(|()| Reply::Done)
+            rename(&from, &to).map(|()| Reply::Done)
         }
     }
+}
+
+/// The folder `path` is in, opened one part at a time from `/` without
+/// following a link at any part, and `path`'s last part. `path` is one
+/// [`Scope::check`] resolved, so its folder held no link then: a link met
+/// now was put there since, and is refused (`ELOOP` or `ENOTDIR`), not
+/// followed out of the scope.
+fn open_parent(path: &Path) -> io::Result<(OwnedFd, &OsStr)> {
+    let invalid = || io::Error::from_raw_os_error(libc::EINVAL);
+    let name = path.file_name().ok_or_else(invalid)?;
+    let mut dir = open_dir_at(None, OsStr::new("/"), false)?;
+    for part in path.parent().ok_or_else(invalid)?.components() {
+        match part {
+            Component::RootDir => {}
+            Component::Normal(part) => dir = open_dir_at(Some(dir.as_fd()), part, false)?,
+            _ => return Err(invalid()),
+        }
+    }
+    Ok((dir, name))
+}
+
+/// `name` as the system takes it.
+fn c_name(name: &OsStr) -> io::Result<CString> {
+    CString::new(name.as_bytes()).map_err(|err| io::Error::new(io::ErrorKind::InvalidInput, err))
+}
+
+/// The answer of a system call that returns -1 on failure.
+fn checked(status: libc::c_int) -> io::Result<libc::c_int> {
+    if status < 0 {
+        Err(io::Error::last_os_error())
+    } else {
+        Ok(status)
+    }
+}
+
+/// What `path` is, not following it when it is a link.
+fn stat_path(path: &Path) -> io::Result<libc::stat> {
+    let (dir, name) = open_parent(path)?;
+    stat_at(dir.as_fd(), name)
+}
+
+/// The entries of the folder `dir`.
+fn list(dir: &Path) -> io::Result<Vec<Entry>> {
+    // Through the folder's handle, opened from its parent's: a link put
+    // in place of the folder or of any folder above it is refused, so
+    // what is listed is the folder checked, whatever its path names now
+    // `/` has no parent, and nothing above it to swap
+    let handle = if dir == Path::new("/") {
+        open_dir_at(None, dir.as_os_str(), false)?
+    } else {
+        let (parent, name) = open_parent(dir)?;
+        open_dir_at(Some(parent.as_fd()), name, false)?
+    };
+    let mut entries = Vec::new();
+    for name in names_in(handle.as_fd())? {
+        let stat = stat_at(handle.as_fd(), &name)?;
+        let kind = match stat.st_mode & libc::S_IFMT {
+            libc::S_IFLNK => Kind::Link,
+            libc::S_IFDIR => Kind::Dir,
+            libc::S_IFREG => Kind::File,
+            _ => Kind::Other,
+        };
+        let target = if kind == Kind::Link {
+            Some(read_link_at(handle.as_fd(), &name)?)
+        } else {
+            None
+        };
+        entries.push(Entry {
+            name,
+            kind,
+            size: u64::try_from(stat.st_size).unwrap_or(0),
+            target,
+        });
+    }
+    Ok(entries)
+}
+
+/// Makes the folder `to` with `from`'s owner and mode. A folder already
+/// there is taken, as a merge into it needs; anything else there, a link
+/// above all, is refused rather than followed. Owner and mode are set
+/// through a handle on the folder itself.
+fn mkdir(from: &Path, to: &Path) -> io::Result<()> {
+    let meta = stat_path(from)?;
+    let (dir, name) = open_parent(to)?;
+    let c = c_name(name)?;
+    // SAFETY: a valid descriptor and a CString that outlives the call
+    match checked(unsafe { libc::mkdirat(dir.as_raw_fd(), c.as_ptr(), 0o700) }) {
+        Err(err) if err.kind() != io::ErrorKind::AlreadyExists => return Err(err),
+        _ => {}
+    }
+    let made = fs::File::from(open_dir_at(Some(dir.as_fd()), name, false)?);
+    std::os::unix::fs::fchown(&made, Some(meta.st_uid), Some(meta.st_gid))?;
+    made.set_permissions(fs::Permissions::from_mode(meta.st_mode & 0o7777))
+}
+
+/// Makes the link `to` pointing at `target`, owned as `from` is.
+fn symlink(target: &Path, to: &Path, from: &Path) -> io::Result<()> {
+    let meta = stat_path(from)?;
+    let (dir, name) = open_parent(to)?;
+    let (target, c) = (c_name(target.as_os_str())?, c_name(name)?);
+    // SAFETY: a valid descriptor and CStrings that outlive the calls
+    unsafe {
+        checked(libc::symlinkat(
+            target.as_ptr(),
+            dir.as_raw_fd(),
+            c.as_ptr(),
+        ))?;
+        checked(libc::fchownat(
+            dir.as_raw_fd(),
+            c.as_ptr(),
+            meta.st_uid,
+            meta.st_gid,
+            libc::AT_SYMLINK_NOFOLLOW,
+        ))?;
+    }
+    Ok(())
+}
+
+/// Removes the file or link `path`; a folder is refused.
+fn remove(path: &Path) -> io::Result<()> {
+    let (dir, name) = open_parent(path)?;
+    if stat_at(dir.as_fd(), name)?.st_mode & libc::S_IFMT == libc::S_IFDIR {
+        return Err(io::Error::from_raw_os_error(libc::EISDIR));
+    }
+    unlink_at(dir.as_fd(), name, false)
+}
+
+/// Removes the empty folder `path`.
+fn rmdir(path: &Path) -> io::Result<()> {
+    let (dir, name) = open_parent(path)?;
+    unlink_at(dir.as_fd(), name, true)
+}
+
+/// Renames `from` to `to`, refusing to replace anything at `to`: the
+/// steps of [`crate::fs_at::rename_no_replace`], through folder handles.
+/// Where the filesystem cannot rename without replacing, anything but a
+/// folder is linked at `to` and unlinked at `from`; a folder, or a
+/// filesystem without hard links, is renamed after looking that `to` is
+/// free.
+fn rename(from: &Path, to: &Path) -> io::Result<()> {
+    let (from_dir, from_name) = open_parent(from)?;
+    let (to_dir, to_name) = open_parent(to)?;
+    let (from_c, to_c) = (c_name(from_name)?, c_name(to_name)?);
+    let (from_fd, to_fd) = (from_dir.as_raw_fd(), to_dir.as_raw_fd());
+    // SAFETY, for each call below: valid descriptors and CStrings that
+    // outlive the call
+    let renamed = checked(unsafe {
+        libc::renameat2(
+            from_fd,
+            from_c.as_ptr(),
+            to_fd,
+            to_c.as_ptr(),
+            libc::RENAME_NOREPLACE,
+        )
+    });
+    let Err(err) = renamed else {
+        return Ok(());
+    };
+    if !matches!(
+        err.raw_os_error(),
+        Some(libc::EINVAL | libc::ENOSYS | libc::EOPNOTSUPP)
+    ) {
+        return Err(err);
+    }
+    if stat_at(from_dir.as_fd(), from_name)?.st_mode & libc::S_IFMT != libc::S_IFDIR {
+        // A link is made without following one at `from`
+        match checked(unsafe { libc::linkat(from_fd, from_c.as_ptr(), to_fd, to_c.as_ptr(), 0) }) {
+            Ok(_) => {
+                return unlink_at(from_dir.as_fd(), from_name, false).inspect_err(|_| {
+                    // Both names are the one file: the new goes
+                    let _ = unlink_at(to_dir.as_fd(), to_name, false);
+                });
+            }
+            Err(err) if err.kind() == io::ErrorKind::AlreadyExists => return Err(err),
+            // No hard links here, or not across these folders
+            Err(_) => {}
+        }
+    }
+    if stat_at(to_dir.as_fd(), to_name).is_ok() {
+        return Err(io::Error::from_raw_os_error(libc::EEXIST));
+    }
+    checked(unsafe { libc::renameat(from_fd, from_c.as_ptr(), to_fd, to_c.as_ptr()) }).map(drop)
+}
+
+/// Opens `name` in `dir` with `flags`, never following a link there.
+fn open_at(
+    dir: &OwnedFd,
+    name: &OsStr,
+    flags: libc::c_int,
+    mode: libc::mode_t,
+) -> io::Result<fs::File> {
+    let c = c_name(name)?;
+    // SAFETY: a valid descriptor and a CString that outlives the call
+    let fd = checked(unsafe {
+        libc::openat(
+            dir.as_raw_fd(),
+            c.as_ptr(),
+            flags | libc::O_NOFOLLOW | libc::O_CLOEXEC,
+            libc::c_uint::from(mode),
+        )
+    })?;
+    // SAFETY: `openat` just returned it, and nothing else owns it
+    Ok(fs::File::from(unsafe { OwnedFd::from_raw_fd(fd) }))
 }
 
 /// How often a copy reports how far it got, in bytes.
@@ -502,20 +666,19 @@ fn copy(
     queued: &mut Option<Request>,
     output: &mut impl Write,
 ) -> io::Result<u64> {
-    let mut source = fs::OpenOptions::new()
-        .read(true)
-        .custom_flags(libc::O_NOFOLLOW)
-        .open(from)?;
+    let (from_dir, from_name) = open_parent(from)?;
+    let mut source = open_at(&from_dir, from_name, libc::O_RDONLY, 0)?;
     let meta = source.metadata()?;
     if !meta.is_file() {
         return Err(io::Error::from_raw_os_error(libc::EINVAL));
     }
-    let mut dest = fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .custom_flags(libc::O_NOFOLLOW)
-        .mode(0o600)
-        .open(to)?;
+    let (to_dir, to_name) = open_parent(to)?;
+    let mut dest = open_at(
+        &to_dir,
+        to_name,
+        libc::O_WRONLY | libc::O_CREAT | libc::O_EXCL,
+        0o600,
+    )?;
     let result = (|| {
         let mut buf = vec![0; 128 * 1024];
         let mut copied = 0u64;
@@ -549,7 +712,8 @@ fn copy(
         Ok(copied)
     })();
     if result.is_err() {
-        let _ = fs::remove_file(to);
+        // Through the same handle it was made in
+        let _ = unlink_at(to_dir.as_fd(), to_name, false);
     }
     result
 }
@@ -747,6 +911,179 @@ mod tests {
                 ("f".to_owned(), Kind::File, None),
                 ("l".to_owned(), Kind::Link, Some(PathBuf::from("f"))),
             ]
+        );
+    }
+
+    /// A link already where a folder is to be made is refused, not
+    /// followed: its target keeps its owner and mode
+    #[test]
+    fn a_mkdir_over_a_link_changes_nothing_it_leads_to() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let (src, dst, outside) = (
+            dir.path().join("src"),
+            dir.path().join("dst"),
+            dir.path().join("outside"),
+        );
+        for folder in [&src, &dst, &outside] {
+            fs::create_dir(folder).expect("mkdir");
+        }
+        fs::set_permissions(&src, fs::Permissions::from_mode(0o777)).expect("chmod");
+        let secret = outside.join("secret");
+        fs::write(&secret, b"s").expect("write");
+        fs::set_permissions(&secret, fs::Permissions::from_mode(0o600)).expect("chmod");
+        let link = dst.join("folder");
+        std::os::unix::fs::symlink(&secret, &link).expect("symlink");
+
+        let replies = run(&[
+            scope(&[&src], &[&dst]),
+            Request::Mkdir {
+                from: src.clone(),
+                to: link.clone(),
+            },
+        ]);
+        assert!(matches!(replies[1], Reply::Failed(_)), "{replies:?}");
+        let mode = fs::metadata(&secret).expect("stat").mode() & 0o7777;
+        assert_eq!(mode, 0o600, "the link's target was changed");
+        assert!(fs::symlink_metadata(&link).expect("lstat").is_symlink());
+
+        // A link to a folder, which a merge would otherwise take as its own
+        fs::set_permissions(&outside, fs::Permissions::from_mode(0o700)).expect("chmod");
+        let to_folder = dst.join("folder2");
+        std::os::unix::fs::symlink(&outside, &to_folder).expect("symlink");
+        let replies = run(&[
+            scope(&[&src], &[&dst]),
+            Request::Mkdir {
+                from: src.clone(),
+                to: to_folder,
+            },
+        ]);
+        assert!(matches!(replies[1], Reply::Failed(_)), "{replies:?}");
+        let mode = fs::metadata(&outside).expect("stat").mode() & 0o7777;
+        assert_eq!(mode, 0o700, "the linked folder was changed");
+    }
+
+    /// A folder already there is taken as it is, as a merge needs, and
+    /// given the source folder's mode
+    #[test]
+    fn a_mkdir_over_a_folder_takes_it() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let (src, dst) = (dir.path().join("src"), dir.path().join("dst"));
+        fs::create_dir(&src).expect("mkdir");
+        fs::create_dir_all(dst.join("src")).expect("mkdir");
+        fs::set_permissions(&src, fs::Permissions::from_mode(0o750)).expect("chmod");
+
+        let replies = run(&[
+            scope(&[&src], &[&dst]),
+            Request::Mkdir {
+                from: src.clone(),
+                to: dst.join("src"),
+            },
+            Request::Mkdir {
+                from: src.clone(),
+                to: dst.join("new"),
+            },
+        ]);
+        assert_eq!(replies[1..], [Reply::Done, Reply::Done], "{replies:?}");
+        for made in ["src", "new"] {
+            let meta = fs::metadata(dst.join(made)).expect("stat");
+            assert!(meta.is_dir());
+            assert_eq!(meta.mode() & 0o7777, 0o750, "{made}");
+        }
+    }
+
+    /// The folders of `paths`, checked in `scope`, with `dst/sub` then
+    /// swapped for a link to `outside`: what a request meets when the swap
+    /// lands between its check and its step.
+    struct Swapped {
+        _dir: tempfile::TempDir,
+        src: PathBuf,
+        outside: PathBuf,
+        /// `dst/sub/<name>`, as the check resolved it before the swap
+        checked: PathBuf,
+        scope: Scope,
+    }
+
+    fn swapped(name: &str) -> Swapped {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let (src, dst, outside) = (
+            dir.path().join("src"),
+            dir.path().join("dst"),
+            dir.path().join("outside"),
+        );
+        fs::create_dir(&src).expect("mkdir");
+        fs::create_dir_all(dst.join("sub")).expect("mkdir");
+        fs::create_dir(&outside).expect("mkdir");
+        fs::write(src.join("f"), b"payload").expect("write");
+        fs::write(outside.join("keep"), b"k").expect("write");
+        fs::write(dst.join("sub").join("keep"), b"k").expect("write");
+        let scope = Scope::new(vec![src.clone()], vec![dst.clone()]);
+        let checked = scope.check(&dst.join("sub").join(name)).expect("in scope");
+        // The parent replaced after the check
+        fs::rename(dst.join("sub"), dst.join("old")).expect("rename");
+        std::os::unix::fs::symlink(&outside, dst.join("sub")).expect("symlink");
+        Swapped {
+            _dir: dir,
+            src,
+            outside,
+            checked,
+            scope,
+        }
+    }
+
+    /// A folder swapped for a link between a request's check and its step
+    /// is refused: nothing is made, changed or removed where the link leads
+    #[test]
+    fn a_parent_swapped_after_the_check_is_not_followed() {
+        let s = swapped("new");
+        assert!(mkdir(&s.src, &s.checked).is_err());
+        assert!(!s.outside.join("new").exists(), "a folder was made outside");
+
+        let s = swapped("new");
+        let (mut input, mut output) = (fed(Vec::new()), Vec::new());
+        assert!(
+            copy(
+                &s.src.join("f"),
+                &s.checked,
+                &mut input,
+                &mut None,
+                &mut output
+            )
+            .is_err()
+        );
+        assert!(!s.outside.join("new").exists(), "a file was copied outside");
+
+        let s = swapped("new");
+        assert!(symlink(Path::new("anywhere"), &s.checked, &s.src).is_err());
+        assert!(
+            fs::symlink_metadata(s.outside.join("new")).is_err(),
+            "a link was made outside"
+        );
+
+        let s = swapped("keep");
+        assert!(remove(&s.checked).is_err());
+        assert!(
+            s.outside.join("keep").exists(),
+            "a file outside was removed"
+        );
+
+        let s = swapped("new");
+        let from = s.scope.check(&s.src.join("f")).expect("in scope");
+        assert!(rename(&from, &s.checked).is_err());
+        assert!(!s.outside.join("new").exists(), "a file was moved outside");
+        assert!(s.src.join("f").exists());
+
+        let s = swapped("listed");
+        fs::create_dir(s.outside.join("listed")).expect("mkdir");
+        fs::write(s.outside.join("listed").join("secret"), b"s").expect("write");
+        assert!(list(&s.checked).is_err(), "a folder outside was listed");
+
+        let s = swapped("keep");
+        fs::create_dir(s.outside.join("empty")).expect("mkdir");
+        let empty = s.checked.with_file_name("empty");
+        assert!(rmdir(&empty).is_err());
+        assert!(
+            s.outside.join("empty").exists(),
+            "a folder outside was removed"
         );
     }
 
