@@ -250,13 +250,31 @@ pub fn changes(tab: &Tab, events: &[DebouncedEvent]) -> Option<Changes> {
     // A burst -- an archive being unpacked, a program rewriting one file
     // over and over -- names the same path many times, and re-reading it
     // once per mention is work with nothing to show for it.
+    //
+    // Both lookups are by set once a batch has more than a few: asked of
+    // the item list and of the changes so far, a burst of thousands of
+    // writes in a folder of tens of thousands of files took seconds on the
+    // event loop. The set of what the tab lists costs a pass over every
+    // item, so a batch of a few changes, the usual one, looks them up
+    // directly instead.
+    let mut listed: Option<FxHashSet<&Path>> = None;
+    let mut lookups = 0;
+    let mut taken: FxHashSet<&Path> = FxHashSet::default();
     for event in events {
         for path in event.paths.iter().filter(|path| path.starts_with(folder)) {
             if let notify::EventKind::Modify(
                 notify::event::ModifyKind::Metadata(_) | notify::event::ModifyKind::Data(_),
             ) = event.kind
             {
-                if lists(tab, path) && !changes.changed.contains(path) {
+                lookups += 1;
+                if listed.is_none() && lookups > DIRECT_LOOKUPS {
+                    listed = Some(listed_paths(tab));
+                }
+                let is_listed = match &listed {
+                    Some(listed) => listed.contains(path.as_path()),
+                    None => lists(tab, path),
+                };
+                if is_listed && taken.insert(path) {
                     changes.changed.push(path.clone());
                 }
             } else {
@@ -269,6 +287,10 @@ pub fn changes(tab: &Tab, events: &[DebouncedEvent]) -> Option<Changes> {
     Some(changes)
 }
 
+/// How many changed files a batch looks up in the item list directly
+/// before gathering what it lists into a set.
+const DIRECT_LOOKUPS: usize = 8;
+
 /// Whether `tab` lists the file at `path`, read from disk.
 fn lists(tab: &Tab, path: &Path) -> bool {
     tab.items_opt.as_ref().is_some_and(|items| {
@@ -277,6 +299,16 @@ fn lists(tab: &Tab, path: &Path) -> bool {
                 && matches!(item.metadata, ItemMetadata::Path { .. })
         })
     })
+}
+
+/// The files `tab` lists as read from disk, by path.
+fn listed_paths(tab: &Tab) -> FxHashSet<&Path> {
+    tab.items_opt
+        .iter()
+        .flatten()
+        .filter(|item| matches!(item.metadata, ItemMetadata::Path { .. }))
+        .filter_map(|item| item.path_opt().map(PathBuf::as_path))
+        .collect()
 }
 
 /// Reads `paths` again as items. Blocking: it goes to the disk.
@@ -468,6 +500,53 @@ mod tests {
             Event::new(kind).add_path(path.to_path_buf()),
             Instant::now(),
         )
+    }
+
+    /// A batch looked up in the items directly, one that turns to the set at
+    /// its last lookup, and one mostly looked up in the set give the same
+    /// answer: each listed file once, in the order first named, and nothing
+    /// that is not listed
+    #[test]
+    fn a_large_batch_is_taken_as_a_small_one_is() {
+        let dir = tempfile::tempdir().unwrap();
+        let files: Vec<PathBuf> = (0..40)
+            .map(|i| dir.path().join(format!("f{i:02}")))
+            .collect();
+        for file in &files {
+            std::fs::write(file, "").unwrap();
+        }
+        let unlisted = dir.path().join("unlisted");
+        let tab = listing(dir.path());
+        let written = EventKind::Modify(ModifyKind::Data(DataChange::Content));
+        for lookups in [
+            super::DIRECT_LOOKUPS,
+            super::DIRECT_LOOKUPS + 1,
+            super::DIRECT_LOOKUPS * 4,
+        ] {
+            // In threes: a file, an unlisted path, the same file again; one
+            // event, and one lookup, each. The last is a file not named
+            // before, so it is taken only if the last lookup, made directly
+            // or through the set as the batch's size has it, finds it
+            let mut named: Vec<&PathBuf> = (0..lookups - 1)
+                .map(|i| if i % 3 == 1 { &unlisted } else { &files[i / 3] })
+                .collect();
+            named.push(files.last().unwrap());
+            let burst: Vec<_> = named.iter().map(|path| event(written, path)).collect();
+            let mut expected: Vec<PathBuf> = Vec::new();
+            for path in named.into_iter().filter(|path| **path != unlisted) {
+                if !expected.contains(path) {
+                    expected.push(path.clone());
+                }
+            }
+            assert_eq!(
+                changes(&tab, &burst),
+                Some(Changes {
+                    reload: false,
+                    changed: expected,
+                }),
+                "{lookups} lookups"
+            );
+        }
     }
 
     #[test]
