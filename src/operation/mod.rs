@@ -1452,10 +1452,14 @@ impl Operation {
     /// carrying. Without this a pasted video stays in memory for the rest of
     /// the session. Undo does not need them either: it works from the paths
     /// the operation created.
-    pub fn release_payload(&mut self) {
+    /// Drops the bytes it carries, if any: whether it carried some, so a
+    /// retry of it would no longer write what was asked.
+    pub fn release_payload(&mut self) -> bool {
         if let Self::WriteFile { data, .. } = self {
             *data = Payload::from(&[][..]);
+            return true;
         }
+        false
     }
 
     /// Whether everything this operation acts on is still where it expects

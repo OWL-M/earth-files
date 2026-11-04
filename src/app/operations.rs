@@ -5,7 +5,9 @@
 use std::collections::{BTreeMap, VecDeque};
 
 use crate::mounter::{MounterItem, MounterKey};
-use crate::operation::{Controller, Operation, OperationError, OperationSelection};
+use std::path::PathBuf;
+
+use crate::operation::{Controller, Operation, OperationError, OperationSelection, Warning};
 
 use super::{Question, Stall};
 
@@ -20,7 +22,7 @@ pub(super) struct Operations {
     /// closed or they are retried.
     failed: BTreeMap<u64, Failed>,
     /// Completed ones, without the payload they carried.
-    complete: BTreeMap<u64, Operation>,
+    complete: BTreeMap<u64, Completed>,
     /// What undoes each of the last completed operations, newest last.
     undo_stack: Vec<Vec<Operation>>,
 }
@@ -56,6 +58,18 @@ pub(super) struct Failed {
     pub op: Operation,
     pub controller: Controller,
     pub reason: String,
+    /// The bytes it carried were let go when its row was closed: a retry
+    /// would write nothing where a paste was asked for, so there is none.
+    pub released: bool,
+}
+
+/// A completed operation, and what it has to say beyond being done.
+pub(super) struct Completed {
+    pub op: Operation,
+    /// What it could not keep of files it made whole.
+    pub warnings: Vec<Warning>,
+    /// What the user chose to leave out when asked.
+    pub skipped: Vec<PathBuf>,
 }
 
 /// An operation that just ended, as it was.
@@ -126,7 +140,14 @@ impl Operations {
         }
         let mut kept = op.clone();
         kept.release_payload();
-        self.complete.insert(id, kept);
+        self.complete.insert(
+            id,
+            Completed {
+                op: kept,
+                warnings: result.warnings.clone(),
+                skipped: result.skipped.clone(),
+            },
+        );
         Some(Ended {
             op,
             controller,
@@ -155,6 +176,7 @@ impl Operations {
                 op: op.remaining(&err.partial),
                 controller: controller.clone(),
                 reason: err.to_string(),
+                released: false,
             },
         );
         Some(Ended {
@@ -181,7 +203,7 @@ impl Operations {
         self.failed.remove(&id)
     }
 
-    pub fn complete_ops(&self) -> impl DoubleEndedIterator<Item = &Operation> {
+    pub fn complete_ops(&self) -> impl DoubleEndedIterator<Item = &Completed> {
         self.complete.values()
     }
 
@@ -221,6 +243,44 @@ mod tests {
             from: PathBuf::from(from),
             to: PathBuf::from(to),
         }
+    }
+
+    /// What a completed operation could not keep and what it left out stay
+    /// with it, for the edit history to show once its row is gone
+    #[test]
+    fn a_completed_operation_keeps_its_warnings_and_what_it_skipped() {
+        use crate::operation::{Cause, Unkept, Warning};
+        let mut ops = Operations::default();
+        let (id, _) = ops.start(rename("/a", "/b"), Then::default());
+        let warning = Warning {
+            path: PathBuf::from("/b"),
+            unkept: Unkept::Dates,
+            cause: Cause {
+                io: None,
+                message: "refused".into(),
+            },
+        };
+        let result = OperationSelection {
+            warnings: vec![warning.clone()],
+            skipped: vec![PathBuf::from("/left")],
+            ..OperationSelection::default()
+        };
+        ops.complete(id, &result).unwrap();
+        let completed = ops.complete_ops().next().expect("kept");
+        assert_eq!(completed.warnings, [warning]);
+        assert_eq!(completed.skipped, [PathBuf::from("/left")]);
+    }
+
+    /// Only an operation carrying bytes lets go of something a retry would
+    /// need: any other stays retryable once its row is closed
+    #[test]
+    fn only_a_payload_is_released() {
+        let mut paste = Operation::WriteFile {
+            path: PathBuf::from("/pasted"),
+            data: vec![1, 2, 3].into(),
+        };
+        assert!(paste.release_payload());
+        assert!(!rename("/a", "/b").release_payload());
     }
 
     #[test]

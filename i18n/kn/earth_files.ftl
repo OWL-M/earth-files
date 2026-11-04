@@ -174,6 +174,8 @@ username = ಬಳಕೆಹೆಸರು
 edit-history = ಸಂಪಾದನೆ ಇತಿಹಾಸ
 history = ಇತಿಹಾಸ
 no-history = ಇತಿಹಾಸದಲ್ಲಿ ಐಟಂಗಳಿಲ್ಲ
+skipped-one = "{$name}" ಬಿಟ್ಟುಬಿಡಲಾಗಿದೆ
+skipped-many = {$count} ಐಟಂಗಳನ್ನು ಬಿಟ್ಟುಬಿಡಲಾಗಿದೆ: {$names}
 pending = ಬಾಕಿ
 tasks-count = { $count } { $count ->
     [one] ಕಾರ್ಯ

@@ -744,6 +744,37 @@ fn toggled_details(details_shown: bool) -> Option<ContextPage> {
     (!details_shown).then_some(ContextPage::Preview(None, PreviewKind::Selected))
 }
 
+/// What a completed operation left out, by name: the first few, then how
+/// many more. `None` when it left nothing out.
+fn skipped_text(skipped: &[PathBuf]) -> Option<String> {
+    /// Names shown before the rest is counted
+    const NAMED: usize = 3;
+    let name = |path: &PathBuf| {
+        path.file_name().map_or_else(
+            || path.display().to_string(),
+            |name| name.to_string_lossy().into_owned(),
+        )
+    };
+    // By the number itself, not a plural category: some languages count
+    // 21 as "one"
+    match skipped {
+        [] => None,
+        [one] => Some(fl!("skipped-one", name = name(one))),
+        _ => {
+            let mut names: Vec<String> = skipped.iter().take(NAMED).map(name).collect();
+            if skipped.len() > NAMED {
+                let more: usize = skipped.len() - NAMED;
+                names.push(fl!("tasks-more", count = more));
+            }
+            Some(fl!(
+                "skipped-many",
+                count = skipped.len(),
+                names = names.join(", ")
+            ))
+        }
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ContextPage {
     About,
@@ -4297,21 +4328,40 @@ impl App {
 
         if self.operations.failed().next().is_some() {
             let mut section = widget::settings::section().title(fl!("failed"));
-            for (_, failed) in self.operations.failed().rev() {
+            for (id, failed) in self.operations.failed().rev() {
                 let (op, controller, error) = (&failed.op, &failed.controller, &failed.reason);
                 let progress = controller.progress();
-                section = section.add(widget::Column::with_children([
-                    widget::text::body(op.pending_text(progress, controller.state())).into(),
-                    widget::text::body(error).into(),
-                ]));
+                // Its row's Try again, here too: the row may be closed
+                let retry = (!failed.released).then(|| {
+                    widget::button::link(fl!("try-again"))
+                        .on_press(Message::RetryFailed(id))
+                        .padding(0)
+                });
+                section = section.add(
+                    widget::Column::with_capacity(3)
+                        .push(widget::text::body(
+                            op.pending_text(progress, controller.state()),
+                        ))
+                        .push(widget::text::body(error))
+                        .push_maybe(retry),
+                );
             }
             children.push(section.into());
         }
 
         if self.operations.complete_ops().next().is_some() {
             let mut section = widget::settings::section().title(fl!("complete"));
-            for op in self.operations.complete_ops().rev() {
-                section = section.add(widget::text::body(op.completed_text()));
+            // What it could not keep, and what was left out, stay to be
+            // read here once its row in the card is gone
+            for completed in self.operations.complete_ops().rev() {
+                let warnings = crate::operation::warnings_text(&completed.warnings);
+                let skipped = skipped_text(&completed.skipped);
+                section = section.add(
+                    widget::Column::with_capacity(3)
+                        .push(widget::text::body(completed.op.completed_text()))
+                        .push_maybe(warnings.map(widget::text::caption))
+                        .push_maybe(skipped.map(widget::text::caption)),
+                );
             }
             children.push(section.into());
         }
@@ -6768,9 +6818,15 @@ impl Application for App {
                 }
             }
             Message::RetryFailed(id) => {
-                // Closed, its row may still be sliding out under the
-                // pointer, but a paste's bytes went with it
-                if self.progress.is_dismissed(&progress::Key::Operation(id)) {
+                // A paste whose row was closed has let go of its bytes: its
+                // row may still be sliding out under the pointer, but there
+                // is nothing to retry. Anything else is retried from the
+                // edit history as well as from its row
+                if self
+                    .operations
+                    .get_failed(id)
+                    .is_some_and(|failed| failed.released)
+                {
                     return Task::none();
                 }
                 if let Some(failed) = self.operations.take_failed(id) {
@@ -6816,7 +6872,7 @@ impl Application for App {
                     self.progress.dismiss(row, Instant::now())
                     && let Some(failed) = self.operations.get_failed_mut(*id)
                 {
-                    failed.op.release_payload();
+                    failed.released |= failed.op.release_payload();
                 }
             }
             Message::ProgressHover(row, over) => {
@@ -10830,6 +10886,34 @@ mod tests {
         assert_eq!(
             action_card_heights(tab::TabAction::AddNetworkDrive(0)).0,
             title_only
+        );
+    }
+
+    /// What was left out is named, the first few, and the rest counted;
+    /// one alone is named on its own, 21 included as many
+    #[test]
+    fn what_was_skipped_is_named_then_counted() {
+        use super::skipped_text;
+        let paths = |n: usize| -> Vec<PathBuf> {
+            (0..n).map(|i| PathBuf::from(format!("/d/f{i}"))).collect()
+        };
+        assert_eq!(skipped_text(&[]), None);
+        assert_eq!(
+            skipped_text(&paths(1)),
+            Some(fl!("skipped-one", name = "f0"))
+        );
+        assert_eq!(
+            skipped_text(&paths(3)),
+            Some(fl!("skipped-many", count = 3, names = "f0, f1, f2"))
+        );
+        let more = fl!("tasks-more", count = 18);
+        assert_eq!(
+            skipped_text(&paths(21)),
+            Some(fl!(
+                "skipped-many",
+                count = 21,
+                names = format!("f0, f1, f2, {more}")
+            ))
         );
     }
 
