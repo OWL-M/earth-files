@@ -146,25 +146,44 @@ fn get_directory_name(file_name: &OsStr) -> &OsStr {
 }
 
 /// Extract one archive on the blocking pool and flush what it wrote to disk.
+///
+/// Entries it could not extract whole come back as warnings, by their name
+/// in the archive: the rest was extracted, as `7z x` goes on past damage.
 async fn extract_archive(
     path: PathBuf,
     dir: PathBuf,
     password: &Option<String>,
     controller: &Controller,
-) -> Result<(), OperationError> {
+) -> Result<Vec<Warning>, OperationError> {
     let password = password.clone();
     let controller_clone = controller.clone();
-    let (written_files, target_dirs) = compio::runtime::spawn_blocking(move || {
+    let extracted = compio::runtime::spawn_blocking(move || {
         crate::archive::extract(&path, &dir, &password, &controller_clone)
     })
     .await
     .map_err(wrap_compio_spawn_error)??;
-    if !written_files.is_empty() || !target_dirs.is_empty() {
-        sync_to_disk(written_files, target_dirs)
+    if !extracted.written.is_empty() || !extracted.dirs.is_empty() {
+        sync_to_disk(extracted.written, extracted.dirs)
             .await
             .map_err(|(path, err)| OperationError::at(&path, &err))?;
     }
-    Ok(())
+    // The decoders' own words name their internals, not what the user can
+    // act on: they go to the log, and the warning says the data is damaged
+    Ok(extracted
+        .damaged
+        .into_iter()
+        .map(|(path, message)| {
+            log::warn!("could not extract {} whole: {message}", path.display());
+            Warning {
+                path,
+                unkept: Unkept::Whole,
+                cause: Cause {
+                    io: None,
+                    message: fl!("reason-damaged"),
+                },
+            }
+        })
+        .collect())
 }
 
 /// Create a unique hidden directory inside `to` to stage an extraction in.
@@ -487,6 +506,8 @@ pub enum Unkept {
     Permissions,
     /// When it was last modified and read.
     Dates,
+    /// An archive's entry, damaged: what could be read of it was extracted.
+    Whole,
 }
 
 /// Something an operation could not do that does not make it fail: the
@@ -529,6 +550,10 @@ pub fn warnings_text(warnings: &[Warning]) -> Option<String> {
                 }
                 (Unkept::Dates, 1) => fl!("dates-not-kept-one", name = name, reason = reason),
                 (Unkept::Dates, _) => fl!("dates-not-kept-many", count = count, reason = reason),
+                (Unkept::Whole, 1) => fl!("not-extracted-whole-one", name = name, reason = reason),
+                (Unkept::Whole, _) => {
+                    fl!("not-extracted-whole-many", count = count, reason = reason)
+                }
             }
         })
         .collect();
@@ -2453,14 +2478,15 @@ impl Operation {
                         if as_folder {
                             let new_dir = extract_dir(&to, &dir_name, file_name)
                                 .map_err(|err| err.after(done()))?;
-                            if let Err(err) = extract_archive(
+                            let extracted = extract_archive(
                                 path.clone(),
                                 new_dir.clone(),
                                 &password,
                                 &controller,
                             )
-                            .await
-                            {
+                            .await;
+                            if let Err(err) = &extracted {
+                                let err = err.clone();
                                 // The folder was made for it, so it is ours:
                                 // half an archive goes with it. Aborted,
                                 // what was done stays, to undo
@@ -2475,6 +2501,7 @@ impl Operation {
                                 }
                                 return Err(err.after(done));
                             }
+                            op_sel.warnings.extend(extracted.unwrap_or_default());
                             op_sel.created.push(new_dir.clone());
                             op_sel.selected.push(new_dir);
                         } else {
@@ -2485,7 +2512,7 @@ impl Operation {
                             let staging =
                                 staging_dir(&to, &dir_name).map_err(|err| err.after(done()))?;
                             let result = async {
-                                extract_archive(
+                                let damaged = extract_archive(
                                     path.clone(),
                                     staging.clone(),
                                     &password,
@@ -2531,6 +2558,7 @@ impl Operation {
                                         }
                                     }
                                 }
+                                moved.warnings.extend(damaged);
                                 Ok::<_, OperationError>(moved)
                             }
                             .await;
@@ -5308,8 +5336,8 @@ mod tests {
         write_test_zip(&good)?;
         let cut = path.join("cut.tar.gz");
         write_test_tar_gz(&cut)?;
-        let len = fs::metadata(&cut)?.len();
-        File::options().write(true).open(&cut)?.set_len(len - 30)?;
+        // Cut to its gzip header and a little: nothing in it can be read
+        File::options().write(true).open(&cut)?.set_len(12)?;
 
         let err = operation_extract(
             vec![good.clone(), cut.clone()],
@@ -5332,6 +5360,43 @@ mod tests {
             panic!("an extract");
         };
         assert_eq!(&*paths, [cut]);
+        Ok(())
+    }
+
+    /// An archive with a damaged entry completes, the rest extracted, and
+    /// says which entry was damaged, in plain words
+    #[test(compio::test)]
+    async fn an_extract_past_a_damaged_entry_completes_with_a_warning() -> io::Result<()> {
+        use std::io::Write;
+        let fs = empty_fs()?;
+        let path = fs.path();
+        let archive = path.join("hurt.zip");
+        let mut zip = zip::ZipWriter::new(File::create(&archive)?);
+        let stored = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Stored);
+        zip.start_file("a.txt", stored)?;
+        zip.write_all(b"FIRST-ENTRY-DATA")?;
+        zip.start_file("b.txt", stored)?;
+        zip.write_all(b"SECOND-ENTRY-DATA")?;
+        zip.finish()?;
+        let mut bytes = fs::read(&archive)?;
+        let at = bytes
+            .windows(16)
+            .position(|w| w == b"FIRST-ENTRY-DATA")
+            .expect("stored data");
+        bytes[at + 8] ^= 0xff;
+        fs::write(&archive, bytes)?;
+
+        let done = operation_extract(vec![archive], path.to_owned(), true, ReplaceResult::Cancel)
+            .await
+            .expect("completed past the damage");
+        assert_eq!(fs::read(path.join("hurt/b.txt"))?, b"SECOND-ENTRY-DATA");
+        let [warning] = done.warnings.as_slice() else {
+            panic!("{:?}", done.warnings);
+        };
+        assert_eq!(warning.unkept, super::Unkept::Whole);
+        assert_eq!(warning.path, PathBuf::from("a.txt"));
+        assert_eq!(warning.cause.message, fl!("reason-damaged"));
         Ok(())
     }
 
@@ -5438,8 +5503,8 @@ mod tests {
         write_test_zip(&good)?;
         let cut = path.join(native(b"c\xfe.tar.gz"));
         write_test_tar_gz(&cut)?;
-        let len = fs::metadata(&cut)?.len();
-        File::options().write(true).open(&cut)?.set_len(len - 30)?;
+        // Cut to its gzip header and a little: nothing in it can be read
+        File::options().write(true).open(&cut)?.set_len(12)?;
 
         let to = path.join("out");
         fs::create_dir(&to)?;

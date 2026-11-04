@@ -67,6 +67,8 @@ jxl-oxide = { version = "0.12.5", features = ["image"] }
 filetime = "0.2"
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+sevenz-rust2 = { version = "0.24", default-features = false, features = ["bzip2", "deflate", "zstd", "aes256"] }
+zstd = { version = "0.14", default-features = false }
 
 # Completion-based IO runtime to enable io_uring / IOCP file IO support.
 [dependencies.compio]
@@ -236,6 +238,8 @@ xdgen = "0.1"
 # cap-tempfile = "3"
 fastrand = "2"
 test-log = "0.2"
+# Writes the 7z archives the extraction tests read
+sevenz-rust2 = { version = "0.24", default-features = false, features = ["compress"] }
 tokio = { version = "1", features = ["rt", "macros"] }
 
 [patch.crates-io]
