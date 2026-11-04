@@ -94,6 +94,9 @@ impl App {
         if let Some(folder) = request.folder.clone() {
             settings = settings.path(folder);
         }
+        if let Some(parent) = request.parent.clone() {
+            settings = settings.parent(parent);
+        }
 
         let (mut dialog, task) = Dialog::new(
             settings,

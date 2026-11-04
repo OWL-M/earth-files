@@ -5,6 +5,7 @@
 //!
 //! Kept apart from the service so it can be tested without a bus.
 
+use iced_exwlshell::reexport::ForeignToplevelHandle;
 use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::os::unix::ffi::{OsStrExt, OsStringExt};
@@ -44,13 +45,25 @@ pub struct Request {
     /// The names `SaveFiles` was asked to write, joined onto the chosen
     /// directory when the answer comes back
     pub save_names: Vec<std::ffi::OsString>,
+    /// The asking program's window, from the request's `parent_window`
+    /// when that names a Wayland one: the chooser is opened as its child.
+    pub parent: Option<ForeignToplevelHandle>,
+    /// Whether the chooser should be modal to that window: the `modal`
+    /// option, true when it is not given. Not applied yet: the window
+    /// runtime cannot mark a window modal (xdg-dialog).
+    pub modal: bool,
 }
 
 fn get_bool(options: &HashMap<String, OwnedVariant>, key: &str) -> bool {
+    get_bool_or(options, key, false)
+}
+
+/// The boolean option `key`, or `default` when it is not given.
+fn get_bool_or(options: &HashMap<String, OwnedVariant>, key: &str, default: bool) -> bool {
     options
         .get(key)
         .and_then(|value| bool::try_from(value).ok())
-        .unwrap_or(false)
+        .unwrap_or(default)
 }
 
 /// Whether a name the caller supplied can be joined onto the chosen folder
@@ -250,7 +263,20 @@ impl Request {
             filter_selected,
             choices: options.get("choices").map(get_choices).unwrap_or_default(),
             save_names,
+            parent: None,
+            // Modal unless the caller says otherwise, as the portal's
+            // FileChooser specification has it
+            modal: get_bool_or(options, "modal", true),
         }
+    }
+
+    /// This request, for the window the portal's `parent_window` names: a
+    /// Wayland window (`wayland:<handle>`) becomes the chooser's parent;
+    /// anything else, an X11 window or none, leaves it without one.
+    #[must_use]
+    pub fn with_parent_window(mut self, parent_window: &str) -> Self {
+        self.parent = ForeignToplevelHandle::from_portal_parent_window(parent_window);
+        self
     }
 
     /// The paths the caller should be told about.
@@ -688,5 +714,32 @@ mod tests {
         let bare = results(&[PathBuf::from("/tmp/a.txt")], &[], None);
         assert!(!bare.contains_key("choices"));
         assert!(!bare.contains_key("current_filter"));
+    }
+
+    /// A Wayland `parent_window` becomes the chooser's parent, by its
+    /// handle; an X11 one, an empty one or anything else gives none
+    #[test]
+    fn a_wayland_parent_window_becomes_the_parent() {
+        let request = |parent: &str| {
+            Request::from_options(Method::OpenFile, "Open", &options(vec![]))
+                .with_parent_window(parent)
+                .parent
+                .map(|handle| handle.into_string())
+        };
+        assert_eq!(request("wayland:abc-123"), Some("abc-123".to_owned()));
+        assert_eq!(request("x11:5a"), None);
+        assert_eq!(request("wayland:"), None);
+        assert_eq!(request(""), None);
+    }
+
+    /// Modal unless the caller says otherwise, as the specification has it
+    #[test]
+    fn a_chooser_is_modal_unless_asked_not_to_be() {
+        fn modal(given: Vec<(&str, Variant<'static>)>) -> bool {
+            Request::from_options(Method::OpenFile, "Open", &options(given)).modal
+        }
+        assert!(modal(vec![]));
+        assert!(modal(vec![("modal", Variant::from(true))]));
+        assert!(!modal(vec![("modal", Variant::from(false))]));
     }
 }

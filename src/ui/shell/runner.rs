@@ -174,6 +174,8 @@ fn split_settings<App: Application>(
         )),
         client_side_decorations: settings.client_decorations,
         app_id: None,
+        blur_option: iced_exwlshell::reexport::BlurOption::default(),
+        foreign_parent: None,
     };
 
     (iced_settings, exwl, core, window_settings, settings.theme)

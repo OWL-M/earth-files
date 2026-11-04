@@ -67,11 +67,13 @@ impl FileChooser {
     async fn run(
         &self,
         handle: OwnedObjectPath,
+        parent_window: &str,
         title: &str,
         options: HashMap<String, OwnedVariant>,
         method: Method,
     ) -> (u32, HashMap<String, OwnedVariant>) {
-        let request = Request::from_options(method, title, &options);
+        let request =
+            Request::from_options(method, title, &options).with_parent_window(parent_window);
         let (reply, answer) = oneshot::channel();
         let incoming = Incoming {
             handle,
@@ -100,7 +102,8 @@ impl FileChooser {
         options: HashMap<String, OwnedVariant>,
     ) -> (u32, HashMap<String, OwnedVariant>) {
         log::debug!("OpenFile from {app_id:?} (parent {parent_window:?})");
-        self.run(handle, title, options, Method::OpenFile).await
+        self.run(handle, parent_window, title, options, Method::OpenFile)
+            .await
     }
 
     async fn save_file(
@@ -112,7 +115,8 @@ impl FileChooser {
         options: HashMap<String, OwnedVariant>,
     ) -> (u32, HashMap<String, OwnedVariant>) {
         log::debug!("SaveFile from {app_id:?} (parent {parent_window:?})");
-        self.run(handle, title, options, Method::SaveFile).await
+        self.run(handle, parent_window, title, options, Method::SaveFile)
+            .await
     }
 
     async fn save_files(
@@ -124,7 +128,8 @@ impl FileChooser {
         options: HashMap<String, OwnedVariant>,
     ) -> (u32, HashMap<String, OwnedVariant>) {
         log::debug!("SaveFiles from {app_id:?} (parent {parent_window:?})");
-        self.run(handle, title, options, Method::SaveFiles).await
+        self.run(handle, parent_window, title, options, Method::SaveFiles)
+            .await
     }
 }
 

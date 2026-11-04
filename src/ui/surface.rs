@@ -200,6 +200,7 @@ impl PopupSettings {
         let rect = self.positioner.anchor_rect;
 
         IcedNewPopupSettings {
+            blur_option: iced_exwlshell::reexport::BlurOption::default(),
             size: pixel_size(width as i32, height as i32),
             parent: Some(self.parent),
             placement: PopupPlacement::Anchored {

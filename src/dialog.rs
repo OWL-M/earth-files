@@ -246,6 +246,9 @@ pub fn window_title<'a, S: std::hash::BuildHasher>(
 pub struct DialogSettings {
     kind: DialogKind,
     path_opt: Option<PathBuf>,
+    /// Another program's window the chooser is for, by its xdg-foreign
+    /// handle: the chooser opens as that window's child, stacked above it.
+    parent: Option<iced_exwlshell::reexport::ForeignToplevelHandle>,
 }
 
 impl DialogSettings {
@@ -262,6 +265,11 @@ impl DialogSettings {
         self.path_opt = Some(path);
         self
     }
+
+    pub fn parent(mut self, parent: iced_exwlshell::reexport::ForeignToplevelHandle) -> Self {
+        self.parent = Some(parent);
+        self
+    }
 }
 
 impl Default for DialogSettings {
@@ -269,6 +277,7 @@ impl Default for DialogSettings {
         Self {
             kind: DialogKind::OpenFile,
             path_opt: None,
+            parent: None,
         }
     }
 }
@@ -316,6 +325,10 @@ impl<M: Send + 'static> Dialog<M> {
                 // decorations.
                 client_side_decorations: true,
                 app_id: None,
+                blur_option: iced_exwlshell::reexport::BlurOption::default(),
+                // Set before the window first shows, so it maps above its
+                // parent rather than moving there afterwards
+                foreign_parent: dialog_settings.parent.clone(),
             },
         ));
 
