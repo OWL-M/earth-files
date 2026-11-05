@@ -919,7 +919,14 @@ impl<App: Application> Shell<App> {
                 self.app.core_mut().focused_window = vec![id];
             }
 
-            Action::Deactivated(id) => return self.close_chains_in(id),
+            Action::WindowActivated(id, activated) => {
+                if self.app.core().main_window_is(id) {
+                    self.app.core_mut().window_activated = activated;
+                }
+                if !activated {
+                    return self.close_chains_in(id);
+                }
+            }
 
             Action::Unfocus(id) => {
                 let core = self.app.core_mut();
@@ -975,7 +982,9 @@ impl<App: Application> Shell<App> {
             );
         }
 
-        // A window the compositor deactivates closes its menus. Hyprland
+        // The compositor's word on whether the window is active, which the
+        // header shows; keyboard focus cannot tell, as KWin moves it to each
+        // menu and back. A window it deactivates also closes its menus. Hyprland
         // does not draw a tiled window's popups while another window is
         // focused, and it takes no keyboard from a menu holding its grab, so
         // there is no `Unfocused` either: without this, the menu would only
@@ -987,8 +996,8 @@ impl<App: Application> Shell<App> {
                     .filter_map(|event| match event {
                         iced_wayland_subscriber::shell::ShellEvent::WindowActivationChanged {
                             window,
-                            activated: false,
-                        } => Some(Action::Deactivated(window)),
+                            activated,
+                        } => Some(Action::WindowActivated(window, activated)),
                         _ => None,
                     })
                     .map(crate::ui::Action::Cosmic),

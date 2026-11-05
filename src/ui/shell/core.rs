@@ -75,8 +75,12 @@ pub struct Core {
     /// Scaling factor used by the application.
     scale_factor: f32,
 
-    /// Window focus state.
+    /// Window focus state: which surface has the keyboard, a menu included.
     pub(crate) focused_window: Vec<window::Id>,
+
+    /// Whether the compositor has the main window activated. Taken for true
+    /// until it says otherwise.
+    pub(crate) window_activated: bool,
 
     pub(crate) title: HashMap<window::Id, String>,
 
@@ -117,6 +121,7 @@ impl Default for Core {
             },
             scale_factor: 1.0,
             focused_window: Vec::new(),
+            window_activated: true,
             title: HashMap::new(),
             window: Window {
                 header_title: String::new(),
@@ -430,13 +435,6 @@ impl Core {
     #[inline]
     pub fn focused_window(&self) -> Option<window::Id> {
         self.focused_window.last().copied()
-    }
-
-    /// Get the current focus chain of windows.
-    #[must_use]
-    #[inline]
-    pub fn focus_chain(&self) -> &[window::Id] {
-        &self.focused_window
     }
 
     /// The [`window::Id`] of the main window.

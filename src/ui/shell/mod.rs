@@ -220,10 +220,8 @@ where
         let content_container = core.window.content_container;
         let show_context = core.window.show_context;
         let nav_bar_active = core.nav_bar_active();
-        let focused = core
-            .focus_chain()
-            .iter()
-            .any(|i| Some(*i) == core.main_window_id());
+        // Not who has the keyboard: a menu taking it leaves the window active.
+        let focused = core.window_activated;
 
         let border_padding = core.border_padding();
 
