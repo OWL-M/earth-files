@@ -11,6 +11,10 @@ use std::path::{Component, Path, PathBuf};
 use std::time::SystemTime;
 use zip::result::{ZipError, ZipResult};
 
+// Used by the browsing that follows
+#[allow(dead_code)]
+pub mod index;
+
 pub const SUPPORTED_ARCHIVE_TYPES: &[&str] = &[
     "application/gzip",
     "application/x-compressed-tar",
