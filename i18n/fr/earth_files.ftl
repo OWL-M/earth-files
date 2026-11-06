@@ -114,6 +114,15 @@ extract-password-required = Mot de passe requis
 extract-as-folder = Extraire dans un dossier
 extract-to = Extraire vers...
 extract-to-title = Extraire vers le dossier
+browse-archive = Parcourir
+task-reading-archive = Lecture de {$name}
+archive-unreadable = « {$name} » n’a pas pu être lu comme une archive
+archive-damaged-listing = « {$name} » est endommagé : tout n’a pas pu être listé
+archive-listing-incomplete = « {$name} » contient trop d’éléments : tout n’est pas affiché
+archive-names-left-out = Ignorés, car leurs noms ne peuvent pas être extraits en toute sécurité : {$count}
+archive-gone = L’archive a été supprimée ou ne peut plus être lue
+size-unknown = Taille inconnue
+size-at-least = Au moins {$size}
 
 ## Empty Trash Dialog
 

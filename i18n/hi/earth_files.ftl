@@ -435,6 +435,15 @@ cancelled = रद्द किया गया
 operation-failed-to-start = The file operation could not be started
 progress-failed = { $percent }%, विफल
 extract-to-title = फ़ोल्डर में निकालें
+browse-archive = ब्राउज़ करें
+task-reading-archive = {$name} पढ़ा जा रहा है
+archive-unreadable = "{$name}" को संग्रह के रूप में नहीं पढ़ा जा सका
+archive-damaged-listing = "{$name}" क्षतिग्रस्त है: सब कुछ सूचीबद्ध नहीं हो सका
+archive-listing-incomplete = "{$name}" में बहुत अधिक है: सब कुछ नहीं दिखाया गया
+archive-names-left-out = छोड़े गए, क्योंकि उनके नाम सुरक्षित रूप से निकाले नहीं जा सकते: {$count}
+archive-gone = संग्रह हटा दिया गया या अब पढ़ा नहीं जा सकता
+size-unknown = अज्ञात आकार
+size-at-least = कम से कम {$size}
 open-with = इससे खोलें
 permanently-deleted =
     { $items } { $items ->

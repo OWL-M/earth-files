@@ -115,6 +115,15 @@ extract-password-required = Senha necessária
 extract-as-folder = Extrair para pasta
 extract-to = Extrair para...
 extract-to-title = Extrair para pasta
+browse-archive = Explorar
+task-reading-archive = Lendo {$name}
+archive-unreadable = Não foi possível ler "{$name}" como arquivo compactado
+archive-damaged-listing = "{$name}" está danificado: nem tudo pôde ser listado
+archive-listing-incomplete = "{$name}" contém itens demais: nem tudo é mostrado
+archive-names-left-out = Omitidos porque os nomes não podem ser extraídos com segurança: {$count}
+archive-gone = O arquivo compactado foi removido ou não pode mais ser lido
+size-unknown = Tamanho desconhecido
+size-at-least = Pelo menos {$size}
 
 ## Empty Trash Dialog
 

@@ -114,6 +114,15 @@ extract-password-required = Необходима е парола
 extract-as-folder = Разархивиране в папка
 extract-to = Разархивиране в...
 extract-to-title = Разархивиране в папка
+browse-archive = Преглед
+task-reading-archive = Четене на {$name}
+archive-unreadable = „{$name}“ не може да се прочете като архив
+archive-damaged-listing = „{$name}“ е повреден: не всичко може да се изброи
+archive-listing-incomplete = „{$name}“ съдържа твърде много: не всичко е показано
+archive-names-left-out = Пропуснати, защото имената им не могат да се извлекат безопасно: {$count}
+archive-gone = Архивът е премахнат или вече не може да се чете
+size-unknown = Неизвестен размер
+size-at-least = Поне {$size}
 
 ## Empty Trash Dialog
 

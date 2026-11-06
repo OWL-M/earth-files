@@ -240,6 +240,7 @@ pub enum Action {
     EmptyTrash,
     ExecEntryAction(usize),
     ExtractAsFolder,
+    Browse,
     ExtractHere,
     ExtractTo,
     Gallery,
@@ -323,6 +324,7 @@ impl Action {
             Self::Eject => Message::Eject,
             Self::EmptyTrash => Message::TabMessage(None, tab::Message::EmptyTrash),
             Self::ExtractAsFolder => Message::ExtractAsFolder(entity_opt),
+            Self::Browse => Message::Browse(entity_opt),
             Self::ExtractHere => Message::ExtractHere(entity_opt),
             Self::ExtractTo => Message::ExtractTo(entity_opt),
             Self::ExecEntryAction(action) => {
@@ -477,6 +479,15 @@ pub enum Message {
     DialogUpdate(DialogPage),
     DialogUpdateComplete(DialogPage),
     ExtractAsFolder(Option<Entity>),
+    /// Look inside the selected archive.
+    Browse(Option<Entity>),
+    /// What reading an archive to look inside it came to.
+    BrowseRead(
+        u64,
+        Result<Arc<crate::archive::index::ArchiveIndex>, OperationError>,
+    ),
+    /// Stop reading an archive.
+    BrowseCancel(u64),
     ExtractHere(Option<Entity>),
     ExtractTo(Option<Entity>),
     ExtractToResult(DialogResult),
@@ -806,6 +817,12 @@ pub enum DialogPage {
     Blocked(u64),
     /// Operation `id` has had no progress for [`STALL_LIMIT`].
     Stalled(u64),
+    /// The password for the list of an archive to look inside.
+    BrowsePassword {
+        entity: Entity,
+        archive: PathBuf,
+        password: String,
+    },
     ExtractPassword {
         id: u64,
         password: String,
@@ -1302,6 +1319,8 @@ pub struct App {
     clipboard_epoch: u64,
     /// Numbers the checks that a clicked favorite's path is there; only the
     /// latest is acted on.
+    /// The archives being read to look inside them.
+    archive_reads: browser::ArchiveReads,
     nav_check: u64,
     /// The last number given a question about a taken name.
     replace_ids: u64,
@@ -2533,6 +2552,7 @@ impl App {
                         id,
                         password: String::new(),
                     }));
+                    tasks.push(widget::text_input::focus(self.dialog_text_input.clone()));
                     self.progress
                         .finish(&key, false, Some(failed_text), Instant::now());
                 } else {
@@ -3725,10 +3745,11 @@ impl App {
             let shown = self
                 .tab_model
                 .iter()
-                .filter_map(|entity| self.tabs.get(entity)?.location.path_opt().cloned())
+                .filter_map(|entity| self.tabs.get(entity)?.location.watched_path())
                 .collect();
             watcher.watch_only(shown, Instant::now());
         }
+        self.keep_archive_indexes();
         self.watch_status()
     }
 
@@ -3745,8 +3766,8 @@ impl App {
             if let Some(tab) = self.tabs.get_mut(entity) {
                 let failed = tab
                     .location
-                    .path_opt()
-                    .is_some_and(|path| watcher.is_failing(path));
+                    .watched_path()
+                    .is_some_and(|path| watcher.is_failing(&path));
                 if tab.set_watch_failed(failed) {
                     recovered.push((entity, tab.location.clone()));
                 }
@@ -3765,6 +3786,131 @@ impl App {
             .map(|(entity, location)| self.update_tab(entity, location, None, false))
             .collect();
         tasks.push(timer);
+        Task::batch(tasks)
+    }
+
+    /// Lets go of the indexes of archives no tab is in or can go back to.
+    fn keep_archive_indexes(&self) {
+        let archive = |location: &'_ Location| match location {
+            Location::Archive { archive, .. } => Some(archive.clone()),
+            _ => None,
+        };
+        let mut keep: Vec<PathBuf> = self.archive_reads.archives().cloned().collect();
+        for entity in self.tab_model.iter() {
+            if let Some(tab) = self.tabs.get(entity) {
+                keep.extend(archive(&tab.location));
+                keep.extend(tab.history.iter().filter_map(archive));
+            }
+        }
+        let keep: Vec<&Path> = keep.iter().map(PathBuf::as_path).collect();
+        crate::archive::index::keep_shared(&keep);
+    }
+
+    /// Reads `archive` on a worker, shown if it is slow and with a way to stop
+    /// it. The tab moves only once it is read: until then it stays where it is,
+    /// so stopping or failing leaves nothing to come back from.
+    fn browse_archive(
+        &mut self,
+        entity: Entity,
+        archive: PathBuf,
+        password: Option<String>,
+    ) -> Task<Message> {
+        let steps = self.tabs.get(entity).map_or(0, Tab::steps);
+        let (id, controller) = self.archive_reads.start(entity, steps, archive.clone());
+        let name = archive
+            .file_name()
+            .unwrap_or_else(|| archive.as_os_str())
+            .to_string_lossy()
+            .into_owned();
+        self.progress.start(
+            progress::Key::Browse(id),
+            fl!("task-reading-archive", name = name),
+            progress::SLOW,
+            Instant::now(),
+        );
+        Task::future(async move {
+            let read = tokio::task::spawn_blocking(move || {
+                crate::archive::index::read_shared(&archive, password.as_deref(), &controller)
+            })
+            .await
+            .unwrap_or_else(|err| Err(OperationError::from_err(err)));
+            crate::ui::action::app(Message::BrowseRead(id, read))
+        })
+    }
+
+    /// The tab goes inside `archive` if it was read, saying what the listing
+    /// left out; otherwise it stays where it is.
+    fn browse_read(
+        &mut self,
+        id: u64,
+        read: Result<Arc<crate::archive::index::ArchiveIndex>, OperationError>,
+    ) -> Task<Message> {
+        let key = progress::Key::Browse(id);
+        // Called off, by the user or by the tab going elsewhere: what it found
+        // is for no one
+        let Some(browser::ArchiveRead {
+            archive, entity, ..
+        }) = self.archive_reads.finish(id)
+        else {
+            self.progress.remove(&key);
+            return Task::none();
+        };
+        let name = archive
+            .file_name()
+            .unwrap_or_else(|| archive.as_os_str())
+            .to_string_lossy()
+            .into_owned();
+        let index = match read {
+            Ok(index) => index,
+            Err(err) if matches!(err.kind, OperationErrorType::PasswordRequired) => {
+                self.progress.remove(&key);
+                return Task::batch([
+                    self.dialog_pages.push_back(DialogPage::BrowsePassword {
+                        entity,
+                        archive,
+                        password: String::new(),
+                    }),
+                    widget::text_input::focus(self.dialog_text_input.clone()),
+                ]);
+            }
+            Err(err) => {
+                log::warn!("failed to read archive {}: {err}", archive.display());
+                self.progress.finish(&key, false, None, Instant::now());
+                return self
+                    .toasts
+                    .push(widget::toaster::Toast::new(fl!(
+                        "archive-unreadable",
+                        name = name
+                    )))
+                    .map(crate::ui::action::app);
+            }
+        };
+        self.progress.remove(&key);
+        let mut notes = Vec::new();
+        if index.damaged.is_some() {
+            notes.push(fl!("archive-damaged-listing", name = name.as_str()));
+        }
+        if index.truncated {
+            notes.push(fl!("archive-listing-incomplete", name = name.as_str()));
+        }
+        if index.unsafe_names > 0 {
+            notes.push(fl!("archive-names-left-out", count = index.unsafe_names));
+        }
+        let mut tasks: Vec<Task<Message>> = notes
+            .into_iter()
+            .map(|note| {
+                self.toasts
+                    .push(widget::toaster::Toast::new(note))
+                    .map(crate::ui::action::app)
+            })
+            .collect();
+        tasks.push(self.update(Message::TabMessage(
+            Some(entity),
+            tab::Message::Location(Location::Archive {
+                archive,
+                inside: PathBuf::new(),
+            }),
+        )));
         Task::batch(tasks)
     }
 
@@ -4018,6 +4164,28 @@ impl App {
                 stopped,
                 self.stalled_for(*id),
             );
+        }
+
+        if let (progress::Key::Browse(id), progress::State::Running) = (row.key, row.state) {
+            return widget::Column::with_capacity(2)
+                .push(
+                    widget::Row::with_capacity(3)
+                        .push(widget::text::body(row.label))
+                        .push(widget::space::horizontal())
+                        .push(
+                            widget::button::link(fl!("cancel"))
+                                .on_press(Message::BrowseCancel(*id))
+                                .padding(0),
+                        )
+                        .align_y(Alignment::Center),
+                )
+                .push(
+                    widget::indeterminate_linear()
+                        .width(Length::Fill)
+                        .girth(bar_height),
+                )
+                .spacing(spacing().space_xxs.to_pixels())
+                .into();
         }
 
         if let (progress::Key::Operation(id), progress::State::Failed) = (row.key, row.state)
@@ -4722,6 +4890,7 @@ impl Application for App {
             file_dialog_opt: None,
             clipboard_cache: ClipboardCache::Empty,
             clipboard_epoch: 0,
+            archive_reads: browser::ArchiveReads::default(),
             nav_check: 0,
             replace_ids: 0,
             name_check: None,
@@ -5102,6 +5271,10 @@ impl Application for App {
     /// The action card follows the active tab, which changes tab, location
     /// and listing from many places: re-read after each message.
     fn after_update(&mut self) {
+        // A tab gone elsewhere since it asked to look inside an archive has
+        // stopped waiting for it
+        self.archive_reads
+            .cancel_moved(|tab| self.tabs.get(tab).map(Tab::steps));
         let entity = self.tab_model.active();
         // The network drives connected now, as the sidebar lists them
         let connected = self
@@ -5441,6 +5614,13 @@ impl Application for App {
                                 tasks.push(self.operation(failed.op));
                             }
                         }
+                        DialogPage::BrowsePassword {
+                            entity,
+                            archive,
+                            password,
+                        } => {
+                            tasks.push(self.browse_archive(entity, archive, Some(password)));
+                        }
                         DialogPage::ExtractPassword { id, password } => {
                             let operation = &self.operations.get_failed(id).unwrap().op;
                             let new_op = match operation {
@@ -5683,6 +5863,15 @@ impl Application for App {
             Message::ExtractAsFolder(entity_opt) => {
                 return self.extract_here(entity_opt, ExtractInto::Folder);
             }
+            Message::Browse(entity_opt) => {
+                let entity = entity_opt.unwrap_or_else(|| self.tab_model.active());
+                let Some(archive) = self.selected_paths(entity_opt).next() else {
+                    return Task::none();
+                };
+                return self.browse_archive(entity, archive, None);
+            }
+            Message::BrowseCancel(id) => self.archive_reads.cancel(id),
+            Message::BrowseRead(id, read) => return self.browse_read(id, read),
             Message::ExtractHere(entity_opt) => {
                 return self.extract_here(entity_opt, ExtractInto::FolderIfSeveral);
             }
@@ -7516,6 +7705,22 @@ impl Application for App {
                         tab::Command::OpenInNewTab(path) => {
                             commands.push(self.open_tab(Location::Path(path), false, None));
                         }
+                        tab::Command::ExtractArchive(archive, into) => {
+                            commands.push(match into {
+                                ExtractInto::Destination => {
+                                    self.extract_to(std::slice::from_ref(&archive))
+                                }
+                                into => match archive.parent().map(Path::to_path_buf) {
+                                    Some(to) => self.operation(Operation::Extract {
+                                        paths: vec![archive].into_boxed_slice(),
+                                        to,
+                                        password: None,
+                                        into,
+                                    }),
+                                    None => Task::none(),
+                                },
+                            });
+                        }
                         tab::Command::OpenInNewWindow(path) => match env::current_exe() {
                             Ok(exe) => match process::Command::new(&exe).arg(path).spawn() {
                                 Ok(_child) => {}
@@ -7674,6 +7879,24 @@ impl Application for App {
                 if let Some(tab) = self.tabs.get_mut(entity)
                     && browser::wants_scan(tab, scan, &requested, &location)
                 {
+                    // The archive it was inside is gone, or no longer reads:
+                    // back to the folder that held it, rather than an empty
+                    // listing of nothing
+                    if !read_ok
+                        && let Location::Archive { archive, .. } = &location
+                        && let Some(holder) = archive.parent().map(Path::to_path_buf)
+                    {
+                        self.progress.remove(&progress::Key::Load(entity));
+                        let told = self
+                            .toasts
+                            .push(widget::toaster::Toast::new(fl!("archive-gone")))
+                            .map(crate::ui::action::app);
+                        let moved = self.update(Message::TabMessage(
+                            Some(entity),
+                            tab::Message::Location(Location::Path(holder)),
+                        ));
+                        return Task::batch([told, moved]);
+                    }
                     // Went to as given, without asking the filesystem: it is
                     // known by its canonical name from here on
                     tab.adopt_canonical(&requested, &location);
@@ -7698,6 +7921,10 @@ impl Application for App {
                             })
                     };
                     tab.location_ancestors = ancestors;
+                    tab.archive_total = tab
+                        .archive()
+                        .and_then(crate::archive::index::held)
+                        .map(|index| index.total_size());
                     // An empty search of a folder is sorted as the folder is
                     let location_str = location
                         .empty_search_folder()
@@ -7885,6 +8112,12 @@ impl Application for App {
                         }
                         Some(Location::Network(uri, ..)) => {
                             command.arg(uri);
+                        }
+                        // The folder holding it: a window opens on real folders
+                        Some(Location::Archive { archive, .. }) => {
+                            if let Some(holder) = archive.parent() {
+                                command.arg(holder);
+                            }
                         }
                         Some(Location::Recents | Location::Search(SearchLocation::Recents, ..)) => {
                             command.arg("--recents");
@@ -8584,6 +8817,33 @@ impl Application for App {
                         widget::button::standard(fl!("cancel")).on_press(Message::DialogCancel),
                     )
             }
+            DialogPage::BrowsePassword {
+                entity,
+                archive,
+                password,
+            } => widget::dialog()
+                .title(fl!("extract-password-required"))
+                .icon(icon::from_name("dialog-error").size(64))
+                .control(
+                    widget::text_input("", password)
+                        .password()
+                        .on_input(move |password| {
+                            Message::DialogUpdate(DialogPage::BrowsePassword {
+                                entity: *entity,
+                                archive: archive.clone(),
+                                password,
+                            })
+                        })
+                        .on_submit(|_| Message::DialogComplete)
+                        .id(self.dialog_text_input.clone()),
+                )
+                .primary_action(
+                    widget::button::suggested(fl!("browse-archive"))
+                        .on_press(Message::DialogComplete),
+                )
+                .secondary_action(
+                    widget::button::standard(fl!("cancel")).on_press(Message::DialogCancel),
+                ),
             DialogPage::ExtractPassword { id, password } => widget::dialog()
                 .title(fl!("extract-password-required"))
                 .icon(icon::from_name("dialog-error").size(64))

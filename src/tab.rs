@@ -1955,6 +1955,78 @@ pub fn scan_network(uri: &str, sizes: IconSizes) -> Vec<Item> {
 /// can tell a read that failed or timed out from an empty location.
 ///
 /// Blocking: it waits for the mounter, which may wait for a server.
+/// What is in the folder `inside` of `archive`, and whether it could be read.
+fn scan_archive(archive: &Path, inside: &Path, sizes: IconSizes) -> (Vec<Item>, bool) {
+    let index = match crate::archive::index::read_shared(archive, None, &Controller::default()) {
+        Ok(index) => index,
+        Err(err) => {
+            log::warn!("failed to read archive {}: {err}", archive.display());
+            return (Vec::new(), false);
+        }
+    };
+    let Some(listing) = index.listing(inside) else {
+        return (Vec::new(), false);
+    };
+    let items = listing
+        .into_iter()
+        .map(|entry| archive_item(archive, entry, sizes))
+        .collect();
+    (items, true)
+}
+
+/// `entry` of `archive` as the tab lists it: typed by its name, as there are no
+/// contents to read.
+fn archive_item(
+    archive: &Path,
+    entry: &crate::archive::index::IndexEntry,
+    sizes: IconSizes,
+) -> Item {
+    use crate::archive::index::EntryKind;
+    let is_dir = entry.kind == EntryKind::Folder;
+    let mime = if is_dir {
+        Mime::INODE_DIRECTORY
+    } else {
+        mime_for_path(&entry.path, true)
+    };
+    let icon = |size| {
+        if is_dir {
+            widget::icon::from_name("folder").size(size).handle()
+        } else {
+            crate::mime_icon::mime_icon(mime.clone(), size)
+        }
+    };
+    let (icon_handle_grid, icon_handle_list) = (icon(sizes.grid()), icon(sizes.list()));
+    let name = entry.name().to_string_lossy().into_owned();
+    Item {
+        display_name: name.clone(),
+        name,
+        is_mount_point: false,
+        metadata: ItemMetadata::Archive {
+            size: entry.size,
+            modified: entry.modified,
+            is_dir,
+        },
+        hidden: entry.hidden(),
+        location_opt: Some(Location::Archive {
+            archive: archive.to_path_buf(),
+            inside: entry.path.clone(),
+        }),
+        image_dimensions: OnceCell::new(),
+        details: MetadataState::Pending,
+        details_epoch: 0,
+        mime,
+        type_checked: true,
+        icon_handle_grid,
+        icon_handle_list,
+        thumbnail_opt: Some(ItemThumbnail::NotImage),
+        button_id: widget::Id::unique(),
+        pos_opt: Cell::new(None),
+        rect_opt: Cell::new(None),
+        dir_size: DirSize::NotDirectory,
+        checksums: ChecksumState::default(),
+    }
+}
+
 pub fn try_scan_network(uri: &str, sizes: IconSizes) -> Result<Vec<Item>, String> {
     let mut last_err = None;
     for mounter in MOUNTERS.values() {
@@ -2207,6 +2279,12 @@ impl From<Location> for EditLocation {
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum Location {
+    /// Inside an archive, read-only: `inside` is a folder in it, the empty
+    /// path being its root.
+    Archive {
+        archive: PathBuf,
+        inside: PathBuf,
+    },
     Network(String, String, Option<PathBuf>),
     Path(PathBuf),
     Recents,
@@ -2217,6 +2295,9 @@ pub enum Location {
 impl std::fmt::Display for Location {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::Archive { archive, inside } => {
+                write!(f, "{}!/{}", archive.display(), inside.display())
+            }
             Self::Network(uri, ..) => write!(f, "{uri}"),
             Self::Path(path) => write!(f, "{}", path.display()),
             Self::Recents => write!(f, "recents"),
@@ -2388,6 +2469,30 @@ impl Location {
     /// The breadcrumbs up to home or the root, named as [`folder_name`] does
     /// for `look`.
     pub fn ancestors(&self, look: bool) -> Vec<(Self, String)> {
+        if let Self::Archive { archive, inside } = self {
+            // Its folders outwards, the archive itself, then the real folders
+            // holding it
+            let mut ancestors: Vec<(Self, String)> = inside
+                .ancestors()
+                .map(|folder| {
+                    let name = folder
+                        .file_name()
+                        .or_else(|| archive.file_name())
+                        .unwrap_or_else(|| archive.as_os_str());
+                    (
+                        Self::Archive {
+                            archive: archive.clone(),
+                            inside: folder.to_path_buf(),
+                        },
+                        name.to_string_lossy().into_owned(),
+                    )
+                })
+                .collect();
+            if let Some(holder) = archive.parent() {
+                ancestors.extend(Self::Path(holder.to_path_buf()).ancestors(look));
+            }
+            return ancestors;
+        }
         self.path_opt().map_or_else(Default::default, |path| {
             path.ancestors()
                 .scan(false, |found_home, ancestor| {
@@ -2522,6 +2627,7 @@ impl Location {
             },
             Self::Trash => (Trash::scan(sizes), true),
             Self::Recents => (scan_recents(sizes), true),
+            Self::Archive { archive, inside } => scan_archive(archive, inside, sizes),
             Self::Network(uri, _, _) => match try_scan_network(uri, sizes) {
                 Ok(items) => (items, true),
                 Err(_) => (Vec::new(), false),
@@ -2565,6 +2671,21 @@ impl Location {
                 fl!("recents")
             }
             Self::Network(display_name, ..) => display_name.clone(),
+            Self::Archive { archive, inside } => inside
+                .file_name()
+                .or_else(|| archive.file_name())
+                .unwrap_or_else(|| archive.as_os_str())
+                .to_string_lossy()
+                .into_owned(),
+        }
+    }
+
+    /// The folder whose changes matter to this location, if any: for an archive
+    /// the one holding it, as saving one usually replaces the file.
+    pub fn watched_path(&self) -> Option<PathBuf> {
+        match self {
+            Self::Archive { archive, .. } => archive.parent().map(Path::to_path_buf),
+            location => location.path_opt().cloned(),
         }
     }
 
@@ -2624,6 +2745,8 @@ impl fmt::Debug for TaskWrapper {
 #[derive(Debug)]
 pub enum Command {
     Action(Action),
+    /// Extract the whole of the archive this tab is inside.
+    ExtractArchive(PathBuf, crate::operation::ExtractInto),
     /// Resolve these icons on a worker, then send [`Message::IconsReady`].
     /// Scanning and search both leave placeholders rather than waiting on the
     /// icon theme, which costs tens of milliseconds per icon.
@@ -2668,6 +2791,8 @@ pub enum Command {
 
 #[derive(Clone, Debug)]
 pub enum Message {
+    /// Extract the whole of the archive the tab is inside.
+    ExtractArchive(crate::operation::ExtractInto),
     AddNetworkDrive,
     /// What a mounter said a submitted network URI names, or `None` when it
     /// could not say, tagged with the request number it answers.
@@ -2971,6 +3096,12 @@ pub enum ItemMetadata {
     SimpleFile {
         size: u64,
     },
+    /// An entry in an archive: only what the archive states about it.
+    Archive {
+        size: Option<u64>,
+        modified: Option<SystemTime>,
+        is_dir: bool,
+    },
     #[cfg(feature = "gvfs")]
     GvfsPath {
         mtime: u64,
@@ -2990,6 +3121,7 @@ impl ItemMetadata {
             },
             Self::SimpleDir { .. } => true,
             Self::SimpleFile { .. } => false,
+            Self::Archive { is_dir, .. } => *is_dir,
             #[cfg(feature = "gvfs")]
             Self::GvfsPath { is_dir, .. } => *is_dir,
         }
@@ -2998,6 +3130,7 @@ impl ItemMetadata {
     pub fn modified(&self) -> Option<SystemTime> {
         match self {
             Self::Path { metadata, .. } => metadata.modified().ok(),
+            Self::Archive { modified, .. } => *modified,
             #[cfg(feature = "gvfs")]
             Self::GvfsPath { mtime, .. } => {
                 SystemTime::UNIX_EPOCH.checked_add(Duration::from_secs(*mtime))
@@ -3013,6 +3146,7 @@ impl ItemMetadata {
                 TrashItemSize::Bytes(size) => Some(size),
                 TrashItemSize::Entries(_) => None,
             },
+            Self::Archive { size, .. } => *size,
             #[cfg(feature = "gvfs")]
             Self::GvfsPath { size_opt, .. } => *size_opt,
             _ => None,
@@ -4296,6 +4430,9 @@ pub struct Tab {
     /// itself: the footer says so, with a Reload. Set by the app, through
     /// [`Self::set_watch_failed`].
     watch_failed: bool,
+    /// Inside an archive, its expanded size and whether every size in it is
+    /// known. Worked out once per reading: the view asks for it every frame.
+    pub archive_total: Option<(u64, bool)>,
     pub viewport_opt: Option<Rectangle>,
     pub item_view_size_opt: Cell<Option<Size>>,
     pub edit_location: Option<EditLocation>,
@@ -4765,6 +4902,7 @@ impl Tab {
             content_height_opt: Cell::new(None),
             bottom_reserve: Cell::new(0.0),
             watch_failed: false,
+            archive_total: None,
             viewport_opt: None,
             item_view_size_opt: Cell::new(None),
             edit_location: None,
@@ -6778,6 +6916,11 @@ impl Tab {
             Message::LocationContextMenuIndex(index) => {
                 self.location_context_menu_index = index;
             }
+            Message::ExtractArchive(into) => {
+                if let Some(archive) = self.archive() {
+                    commands.push(Command::ExtractArchive(archive.to_path_buf(), into));
+                }
+            }
             Message::LocationMenuAction(action) => {
                 let path_for_index = |ancestor_index| {
                     self.location
@@ -7530,10 +7673,25 @@ impl Tab {
                 // Does nothing if path is root or location is Trash
                 // From where a step still being resolved goes: a second
                 // press before the first is answered goes one further
-                if let Location::Path(path) = self.pending_location()
-                    && let Some(parent) = path.parent()
-                {
-                    cd = Some(Location::Path(parent.to_owned()));
+                match self.pending_location() {
+                    Location::Path(path) => {
+                        if let Some(parent) = path.parent() {
+                            cd = Some(Location::Path(parent.to_owned()));
+                        }
+                    }
+                    Location::Archive { archive, inside } => {
+                        cd = match inside.parent() {
+                            Some(parent) => Some(Location::Archive {
+                                archive: archive.clone(),
+                                inside: parent.to_path_buf(),
+                            }),
+                            // Out of its root, to the folder holding it
+                            None => archive
+                                .parent()
+                                .map(|holder| Location::Path(holder.to_owned())),
+                        };
+                    }
+                    _ => {}
                 }
             }
             Message::Open(path_opt) => {
@@ -7627,8 +7785,8 @@ impl Tab {
                     .filter_map(Location::into_path_opt)
                     .collect();
                 let location = self.location.clone();
-                if let Some(path) = location.path_opt() {
-                    commands.push(Command::Rewatch(path.clone()));
+                if let Some(path) = location.watched_path() {
+                    commands.push(Command::Rewatch(path));
                 }
                 self.change_location(&location, None);
                 commands.push(Command::ChangeLocation(
@@ -8521,6 +8679,9 @@ impl Tab {
                         },
                         ItemMetadata::SimpleDir { entries } => (true, *entries),
                         ItemMetadata::SimpleFile { size } => (false, *size),
+                        ItemMetadata::Archive { size, is_dir, .. } => {
+                            (*is_dir, size.unwrap_or_default())
+                        }
                         #[cfg(feature = "gvfs")]
                         ItemMetadata::GvfsPath {
                             size_opt,
@@ -9102,6 +9263,69 @@ impl Tab {
         };
 
         match &self.location {
+            Location::Archive { archive, .. } => {
+                // From the outermost in: plain ones, a press going there. Each
+                // one's folder is not always a path to offer anything else for
+                let ancestors: Vec<&(Location, String)> =
+                    self.location_ancestors.iter().rev().collect();
+                let holder = archive
+                    .parent()
+                    .map_or_else(|| PathBuf::from("/"), Path::to_path_buf);
+                let handle = folder_icon_symbolic(&holder, 16);
+                let glide = names(
+                    ancestors
+                        .iter()
+                        .map(|(_, name)| widget::path_morph::Name {
+                            label: name.clone(),
+                            path: None,
+                        })
+                        .collect(),
+                    handle.clone(),
+                );
+                let plain = |name: &String, location: &Location, current: bool| {
+                    let text: Element<'_, Message> = if current {
+                        widget::text::heading(name.clone())
+                            .wrapping(text::Wrapping::None)
+                            .into()
+                    } else {
+                        widget::text::body(name.clone())
+                            .wrapping(text::Wrapping::None)
+                            .into()
+                    };
+                    widget::button::custom(text)
+                        .padding(space_xxxs)
+                        .class(Button::Link)
+                        .on_press(Message::Location(location.clone()))
+                        .into()
+                };
+                let last = ancestors.len().saturating_sub(1);
+                let mut crumbs = Vec::with_capacity(ancestors.len());
+                let mut separators = Vec::with_capacity(ancestors.len());
+                let mut more: Vec<Element<'_, Message>> = Vec::with_capacity(ancestors.len());
+                for (position, (location, name)) in ancestors.iter().enumerate() {
+                    if position > 0 {
+                        separators.push(
+                            widget::text::body("›")
+                                .class(theme::Text::Custom(separator_style))
+                                .into(),
+                        );
+                    }
+                    if position != last {
+                        more.push(
+                            widget::button::custom(widget::text::body("…"))
+                                .padding(space_xxxs)
+                                .class(Button::Link)
+                                .on_press(Message::Location(location.clone()))
+                                .into(),
+                        );
+                    }
+                    crumbs.push(plain(name, location, position == last));
+                }
+                Some((
+                    widget::crumbs(icon(handle), crumbs, separators, more),
+                    glide,
+                ))
+            }
             Location::Path(_) | Location::Search(SearchLocation::Path(_), ..) => {
                 // `location_ancestors` runs from this folder outwards; the
                 // pill runs the other way
@@ -9445,7 +9669,25 @@ impl Tab {
     /// Whether the footer under the listing shows: when the settings ask for
     /// it, and always while the folder does not update by itself.
     pub fn shows_footer(&self) -> bool {
-        self.config.show_footer || self.watch_failed
+        self.config.show_footer || self.watch_failed || self.archive().is_some()
+    }
+
+    /// The archive this tab is inside, if it is.
+    pub fn archive(&self) -> Option<&Path> {
+        match &self.location {
+            Location::Archive { archive, .. } => Some(archive),
+            _ => None,
+        }
+    }
+
+    /// What the footer inside an archive says of it as a whole.
+    fn archive_total_text(&self) -> Option<String> {
+        let (size, known) = self.archive_total?;
+        Some(if known {
+            format_size(size)
+        } else {
+            fl!("size-at-least", size = format_size(size))
+        })
     }
 
     /// What the footer says about the listing: how many items it has,
@@ -9482,6 +9724,31 @@ impl Tab {
                 widget::text::caption(self.footer_text())
                     .class(theme::Text::Custom(dim_text_style)),
             );
+        if self.archive().is_some() {
+            if let Some(total) = self.archive_total_text() {
+                row = row
+                    .push(widget::text::caption("·").class(theme::Text::Custom(dim_text_style)))
+                    .push(widget::text::caption(total).class(theme::Text::Custom(dim_text_style)));
+            }
+            // Right after the text, for the card the footer's doc speaks of.
+            // Choosing what to extract comes with extracting a selection.
+            let whole = self.selected_indices().is_empty();
+            row = row
+                .push(
+                    widget::button::link(fl!("extract-here"))
+                        .on_press_maybe(whole.then_some(Message::ExtractArchive(
+                            crate::operation::ExtractInto::FolderIfSeveral,
+                        )))
+                        .padding(0),
+                )
+                .push(
+                    widget::button::link(fl!("extract-to"))
+                        .on_press_maybe(whole.then_some(Message::ExtractArchive(
+                            crate::operation::ExtractInto::Destination,
+                        )))
+                        .padding(0),
+                );
+        }
         if self.watch_failed {
             row = row
                 .push(widget::text::caption("·").class(theme::Text::Custom(dim_text_style)))
@@ -9933,6 +10200,9 @@ impl Tab {
                     )
                     .map(|t| t.to_string())
                     .unwrap_or_default(),
+                    ItemMetadata::Archive { modified, .. } => modified
+                        .map(|time| self.format_time(time).to_string())
+                        .unwrap_or_default(),
                     #[cfg(feature = "gvfs")]
                     ItemMetadata::GvfsPath { .. } => match item.metadata.modified() {
                         Some(mtime) => self.format_time(mtime).to_string(),
@@ -9962,6 +10232,10 @@ impl Tab {
                     },
                     ItemMetadata::SimpleDir { entries } => fl!("item-count", count = entries),
                     ItemMetadata::SimpleFile { size } => format_size(*size),
+                    ItemMetadata::Archive { is_dir: true, .. } => String::new(),
+                    ItemMetadata::Archive { size, .. } => {
+                        size.map_or_else(|| fl!("size-unknown"), format_size)
+                    }
                     #[cfg(feature = "gvfs")]
                     ItemMetadata::GvfsPath {
                         size_opt,
@@ -11317,6 +11591,100 @@ fn text_editor_class(
 
 #[cfg(test)]
 mod tests {
+    /// Inside an archive: the breadcrumbs run from the folder in it, through
+    /// the archive, to the real folders holding it, and Up follows them
+    #[test]
+    fn an_archive_location_has_crumbs_through_the_archive() {
+        let archive = |inside: &str| Location::Archive {
+            archive: PathBuf::from("/data/photos.zip"),
+            inside: PathBuf::from(inside),
+        };
+        let crumbs = archive("2024/raw").ancestors(false);
+        let locations: Vec<&Location> = crumbs.iter().map(|(location, _)| location).collect();
+        assert_eq!(locations[0], &archive("2024/raw"));
+        assert_eq!(locations[1], &archive("2024"));
+        assert_eq!(locations[2], &archive(""));
+        assert_eq!(locations[3], &Location::Path(PathBuf::from("/data")));
+        let names: Vec<&str> = crumbs.iter().map(|(_, name)| name.as_str()).collect();
+        assert_eq!(names[..3], ["raw", "2024", "photos.zip"]);
+
+        assert_eq!(archive("2024/raw").title(false), "raw");
+        assert_eq!(archive("").title(false), "photos.zip");
+        assert_eq!(archive("").path_opt(), None, "no real path to act on");
+        assert!(!archive("").supports_paste());
+    }
+
+    /// Registering a watch, reporting on it and retrying it all ask this, so an
+    /// archive's status follows the folder that is actually watched
+    #[test]
+    fn an_archive_is_watched_through_the_folder_holding_it() {
+        let location = Location::Archive {
+            archive: PathBuf::from("/data/photos.zip"),
+            inside: PathBuf::from("2024"),
+        };
+        assert_eq!(location.watched_path(), Some(PathBuf::from("/data")));
+        assert_eq!(
+            Location::Path(PathBuf::from("/data/x")).watched_path(),
+            Some(PathBuf::from("/data/x"))
+        );
+        assert_eq!(Location::Trash.watched_path(), None);
+
+        let mut tab = Tab::new(
+            location,
+            crate::config::TabConfig::default(),
+            ThumbCfg::default(),
+            None,
+            std::borrow::Cow::Borrowed("test"),
+            None,
+        );
+        let commands = tab.update(Message::Reload, Modifiers::empty());
+        assert!(
+            commands.iter().any(
+                |command| matches!(command, super::Command::Rewatch(path) if path == std::path::Path::new("/data"))
+            ),
+            "Reload retries the folder that is watched"
+        );
+    }
+
+    /// What is in the folder asked for, typed by name, with what the archive
+    /// states; a folder not in it reads as a failure
+    #[test]
+    fn an_archive_lists_a_folder_of_it() {
+        use std::io::Write;
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("t.zip");
+        let mut zip = zip::ZipWriter::new(std::fs::File::create(&path).unwrap());
+        for (name, data) in [("a.txt", &b"12345"[..]), ("d/b.png", &b"1"[..])] {
+            zip.start_file(name, zip::write::SimpleFileOptions::default())
+                .unwrap();
+            zip.write_all(data).unwrap();
+        }
+        zip.finish().unwrap();
+        let at = |inside: &str| Location::Archive {
+            archive: path.clone(),
+            inside: PathBuf::from(inside),
+        };
+
+        let (_, items, read_ok) = at("").try_scan(IconSizes::default(), Typing::NameFirst);
+        assert!(read_ok);
+        let mut items = items;
+        items.sort_by(|a, b| a.name.cmp(&b.name));
+        assert_eq!(items[0].name, "a.txt");
+        assert_eq!(items[0].metadata.file_size(), Some(5));
+        assert!(
+            items[0].path_opt().is_none(),
+            "acting on it cannot reach a real path"
+        );
+        assert!(items[1].metadata.is_dir());
+        assert_eq!(items[1].location_opt, Some(at("d")));
+
+        let (_, inner, _) = at("d").try_scan(IconSizes::default(), Typing::NameFirst);
+        assert_eq!(inner[0].mime.as_ref(), "image/png");
+
+        let (_, none, read_ok) = at("nope").try_scan(IconSizes::default(), Typing::NameFirst);
+        assert!(none.is_empty() && !read_ok);
+        crate::archive::index::keep_shared(&[]);
+    }
 
     /// The footer is off by default, shows whenever the folder is not
     /// watched, and goes again once it is; switched on, it counts the

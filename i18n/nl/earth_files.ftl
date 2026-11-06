@@ -114,6 +114,15 @@ extract-password-required = Wachtwoord vereist
 extract-as-folder = Uitpakken naar map
 extract-to = Uitpakken naar…
 extract-to-title = Uitpakken naar map
+browse-archive = Bladeren
+task-reading-archive = {$name} wordt gelezen
+archive-unreadable = "{$name}" kon niet als archief worden gelezen
+archive-damaged-listing = "{$name}" is beschadigd: niet alles kon worden weergegeven
+archive-listing-incomplete = "{$name}" bevat te veel: niet alles wordt getoond
+archive-names-left-out = Weggelaten omdat hun namen niet veilig kunnen worden uitgepakt: {$count}
+archive-gone = Het archief is verwijderd of kan niet meer worden gelezen
+size-unknown = Onbekende grootte
+size-at-least = Minstens {$size}
 
 ## Empty Trash Dialog
 

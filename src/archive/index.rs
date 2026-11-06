@@ -15,6 +15,7 @@ use std::fs;
 use std::io::{self, Read};
 use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, SystemTime};
 
 /// Past this many entries a listing stops, and says it is incomplete.
@@ -380,6 +381,21 @@ fn go_on(controller: &Controller) -> Result<(), OperationError> {
         .map_err(|err| stopped(controller).unwrap_or_else(|| OperationError::from_err(err)))
 }
 
+/// What a decompressor gives, stopping when the operation does. The file under
+/// it is read too rarely to notice: a highly compressed archive turns one read
+/// of it into gigabytes.
+struct Stoppable<R> {
+    reader: R,
+    controller: Controller,
+}
+
+impl<R: Read> Read for Stoppable<R> {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        check(&self.controller)?;
+        self.reader.read(buf)
+    }
+}
+
 /// A file that compresses a single file has nothing to look inside.
 fn index_compressed(
     path: &Path,
@@ -396,7 +412,10 @@ fn index_compressed(
     }
     let reader = OpReader::new(path, controller.clone()).map_err(OperationError::from_err)?;
     let reader = decoder(codec, reader).map_err(OperationError::from_err)?;
-    let mut archive = tar::Archive::new(reader);
+    let mut archive = tar::Archive::new(Stoppable {
+        reader,
+        controller: controller.clone(),
+    });
     let entries = archive.entries().map_err(OperationError::from_err)?;
     index_tar(entries, controller, out)
 }
@@ -588,9 +607,84 @@ fn index_sevenz(
     Ok(())
 }
 
+/// An index being looked at, and what it was read from.
+struct Shared {
+    stamp: Stamp,
+    index: Arc<ArchiveIndex>,
+    password: Option<String>,
+}
+
+/// The archive as it was when read: its modified time and size.
+type Stamp = (Option<SystemTime>, u64);
+
+/// The indexes of the archives some tab is in or can go back to: a listing is
+/// scanned on a worker, which has no tab to ask, and a compressed tar would
+/// otherwise be decompressed again for each of its folders.
+static SHARED: Mutex<Option<HashMap<PathBuf, Shared>>> = Mutex::new(None);
+
+fn stamp(path: &Path) -> io::Result<Stamp> {
+    let metadata = fs::metadata(path)?;
+    Ok((metadata.modified().ok(), metadata.len()))
+}
+
+/// The index of `path`, read now unless it is held and the archive has not
+/// changed since. A held password is used when none is given.
+pub fn read_shared(
+    path: &Path,
+    password: Option<&str>,
+    controller: &Controller,
+) -> Result<Arc<ArchiveIndex>, OperationError> {
+    let now = stamp(path).map_err(OperationError::from_err)?;
+    let held_password = {
+        let shared = SHARED.lock().unwrap_or_else(PoisonError::into_inner);
+        let held = shared.as_ref().and_then(|shared| shared.get(path));
+        if let Some(held) = held.filter(|held| held.stamp == now) {
+            return Ok(held.index.clone());
+        }
+        held.and_then(|held| held.password.clone())
+    };
+    let password = password.map(str::to_owned).or(held_password);
+    let read = Arc::new(index(path, password.as_deref(), controller)?);
+    SHARED
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .get_or_insert_with(HashMap::new)
+        .insert(
+            path.to_path_buf(),
+            Shared {
+                stamp: now,
+                index: read.clone(),
+                password,
+            },
+        );
+    Ok(read)
+}
+
+/// The index of `path` if it is held, without asking the disk: for what runs
+/// on the event loop.
+pub fn held(path: &Path) -> Option<Arc<ArchiveIndex>> {
+    SHARED
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .as_ref()?
+        .get(path)
+        .map(|held| held.index.clone())
+}
+
+/// Lets go of every index but those of `archives`.
+pub fn keep_shared(archives: &[&Path]) {
+    if let Some(shared) = SHARED
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .as_mut()
+    {
+        shared.retain(|path, _| archives.contains(&path.as_path()));
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{ArchiveIndex, EntryKind, Listed, clean, index};
+    use super::{ArchiveIndex, EntryKind, Listed, clean, index, keep_shared, read_shared};
     use crate::operation::{Controller, OperationErrorType};
     use std::io::Write;
     use std::path::{Path, PathBuf};
@@ -1027,6 +1121,42 @@ mod tests {
         controller.cancel();
         let err = index(&path, None, &controller).expect_err("stopped");
         assert!(err.is_cancelled(), "{err:?}");
+    }
+
+    /// However little the file under it is read, a stop reaches the listing
+    #[test]
+    fn a_decompressed_stream_stops_with_the_operation() {
+        use std::io::Read;
+        let controller = Controller::default();
+        let mut reader = super::Stoppable {
+            reader: std::io::repeat(0),
+            controller: controller.clone(),
+        };
+        let mut buffer = [0; 16];
+        assert!(reader.read(&mut buffer).is_ok());
+        controller.cancel();
+        assert!(reader.read(&mut buffer).is_err());
+    }
+
+    /// Read once and held until the archive changes, or nothing wants it
+    #[test]
+    fn a_shared_index_is_held_until_the_archive_changes() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("shared.zip");
+        write_zip(&path, &[("a", b"1")]);
+        let controller = Controller::default();
+        let first = read_shared(&path, None, &controller).unwrap();
+        let again = read_shared(&path, None, &controller).unwrap();
+        assert!(std::sync::Arc::ptr_eq(&first, &again), "held");
+
+        write_zip(&path, &[("a", b"1"), ("bigger", b"22")]);
+        let changed = read_shared(&path, None, &controller).unwrap();
+        assert_eq!(changed.len(), 2, "read again");
+
+        keep_shared(&[]);
+        let fresh = read_shared(&path, None, &controller).unwrap();
+        assert!(!std::sync::Arc::ptr_eq(&changed, &fresh), "let go of");
+        keep_shared(&[]);
     }
 
     /// A bomb's stated sizes are read, never its contents

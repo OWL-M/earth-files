@@ -3,6 +3,7 @@
 //! for a listing, and reading changed items again. Each window decides what
 //! to do with the answers.
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
@@ -11,7 +12,9 @@ use notify_debouncer_full::{DebouncedEvent, Debouncer, RecommendedCache};
 use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::config::IconSizes;
+use crate::operation::Controller;
 use crate::tab::{self, Item, ItemMetadata, Location, SearchLocation, Tab};
+use crate::ui::widget::segmented_button::Entity;
 
 /// What a [`Watcher`] registers folders with: the debouncer in the app, a
 /// stand-in in tests.
@@ -243,8 +246,93 @@ pub struct Changes {
     pub changed: Vec<PathBuf>,
 }
 
+/// One archive being read to look inside it, for one tab.
+#[derive(Debug)]
+pub struct ArchiveRead {
+    /// The archive.
+    pub archive: PathBuf,
+    /// The tab that goes inside it.
+    pub entity: Entity,
+    /// How far that tab had navigated when asked, to tell that it has since.
+    steps: u64,
+    /// Stops the read.
+    pub controller: Controller,
+}
+
+/// The archives being read. Each read has its own number, so two of one archive
+/// each keep their own row and their own Cancel. A tab waits on one at a time:
+/// asking again, or going anywhere else, calls off what it was waiting on, so
+/// that a slow read cannot take the tab away from where the user has gone since.
+#[derive(Debug, Default)]
+pub struct ArchiveReads {
+    next: u64,
+    reads: HashMap<u64, ArchiveRead>,
+}
+
+impl ArchiveReads {
+    /// A new read of `archive` for `entity`, at its `steps`: its number, and
+    /// what stops it. What the tab was waiting on is called off.
+    pub fn start(&mut self, entity: Entity, steps: u64, archive: PathBuf) -> (u64, Controller) {
+        for read in self.reads.values().filter(|read| read.entity == entity) {
+            read.controller.cancel();
+        }
+        let id = self.next;
+        self.next += 1;
+        let controller = Controller::default();
+        self.reads.insert(
+            id,
+            ArchiveRead {
+                archive,
+                entity,
+                steps,
+                controller: controller.clone(),
+            },
+        );
+        (id, controller)
+    }
+
+    /// Stops read `id`.
+    pub fn cancel(&self, id: u64) {
+        if let Some(read) = self.reads.get(&id) {
+            read.controller.cancel();
+        }
+    }
+
+    /// Calls off the reads whose tab has gone elsewhere or closed: `steps` is
+    /// how far a tab has navigated now, `None` once it is gone.
+    pub fn cancel_moved(&self, steps: impl Fn(Entity) -> Option<u64>) {
+        for read in self.reads.values() {
+            if steps(read.entity) != Some(read.steps) {
+                read.controller.cancel();
+            }
+        }
+    }
+
+    /// Read `id` has answered. `None` if nothing is waiting on it any more,
+    /// its answer to be dropped, even one that came in as it was being stopped.
+    pub fn finish(&mut self, id: u64) -> Option<ArchiveRead> {
+        self.reads
+            .remove(&id)
+            .filter(|read| !read.controller.is_cancelled())
+    }
+
+    /// The archives being read.
+    pub fn archives(&self) -> impl Iterator<Item = &PathBuf> {
+        self.reads.values().map(|read| &read.archive)
+    }
+}
+
 /// What `events` mean for what `tab` lists, if it lists a folder.
 pub fn changes(tab: &Tab, events: &[DebouncedEvent]) -> Option<Changes> {
+    // Inside an archive only the archive itself can change anything
+    if let Some(archive) = tab.archive() {
+        return Some(Changes {
+            reload: events
+                .iter()
+                .any(|event| event.paths.iter().any(|path| path == archive)),
+            ..Changes::default()
+        });
+    }
     let folder = tab.location.path_opt()?;
     let mut changes = Changes::default();
     // A burst -- an archive being unpacked, a program rewriting one file
@@ -469,6 +557,75 @@ pub async fn resolve_network(request: u64, uri: String) -> tab::Message {
 
 #[cfg(test)]
 mod tests {
+    mod archive_reads {
+        use super::super::ArchiveReads;
+        use crate::ui::widget::segmented_button::SingleSelectModel;
+        use std::path::PathBuf;
+
+        fn tabs() -> (
+            crate::ui::widget::segmented_button::Entity,
+            crate::ui::widget::segmented_button::Entity,
+        ) {
+            let mut model = SingleSelectModel::default();
+            (model.insert().id(), model.insert().id())
+        }
+
+        /// Gone elsewhere since asking, the tab is not taken back
+        #[test]
+        fn a_read_is_called_off_when_its_tab_moves() {
+            let (tab, _) = tabs();
+            let mut reads = ArchiveReads::default();
+            let (id, controller) = reads.start(tab, 3, PathBuf::from("/a.zip"));
+            reads.cancel_moved(|_| Some(3));
+            assert!(!controller.is_cancelled(), "still where it asked");
+            reads.cancel_moved(|_| Some(4));
+            assert!(controller.is_cancelled());
+            assert!(reads.finish(id).is_none(), "its answer is dropped");
+        }
+
+        #[test]
+        fn a_read_is_called_off_when_its_tab_closes() {
+            let (tab, _) = tabs();
+            let mut reads = ArchiveReads::default();
+            let (_, controller) = reads.start(tab, 3, PathBuf::from("/a.zip"));
+            reads.cancel_moved(|_| None);
+            assert!(controller.is_cancelled());
+        }
+
+        /// Asking again replaces what the tab was waiting on
+        #[test]
+        fn a_tab_waits_on_its_latest_read() {
+            let (tab, _) = tabs();
+            let mut reads = ArchiveReads::default();
+            let (first, first_stop) = reads.start(tab, 3, PathBuf::from("/a.zip"));
+            let (second, second_stop) = reads.start(tab, 3, PathBuf::from("/b.zip"));
+            assert!(first_stop.is_cancelled());
+            assert!(!second_stop.is_cancelled());
+            assert!(reads.finish(first).is_none());
+            assert_eq!(
+                reads.finish(second).map(|read| read.archive),
+                Some(PathBuf::from("/b.zip"))
+            );
+        }
+
+        /// One archive from two tabs: each finishes and stops on its own
+        #[test]
+        fn two_tabs_can_read_one_archive() {
+            let (one, two) = tabs();
+            let mut reads = ArchiveReads::default();
+            let archive = PathBuf::from("/a.zip");
+            let (first, first_stop) = reads.start(one, 1, archive.clone());
+            let (second, second_stop) = reads.start(two, 1, archive.clone());
+            assert_ne!(first, second);
+            assert!(reads.finish(first).is_some(), "not the other's");
+            assert!(!second_stop.is_cancelled());
+            assert_eq!(reads.archives().count(), 1, "the other is still held");
+            reads.cancel(second);
+            assert!(second_stop.is_cancelled());
+            assert!(!first_stop.is_cancelled());
+        }
+    }
+
     use super::{
         Changes, adopt_refreshed, changes, reread, search_target, search_term, wants_scan,
     };

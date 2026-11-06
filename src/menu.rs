@@ -707,6 +707,14 @@ fn context_menu_items(tab: &Tab, sources: &Sources) -> Vec<menu::Item<TabAction,
 
                 // Archive
                 let mut archive = Vec::new();
+                if selected == 1
+                    && selected_types
+                        .iter()
+                        .all(|t| crate::archive::index::BROWSABLE_TYPES.contains(&t.as_str()))
+                    && !selected_types.is_empty()
+                {
+                    archive.push(plain(fl!("browse-archive"), "open", Action::Browse));
+                }
                 if all_archives {
                     archive.push(split_row(
                         SplitRow::Extract,
@@ -859,6 +867,31 @@ fn context_menu_items(tab: &Tab, sources: &Sources) -> Vec<menu::Item<TabAction,
                     new.push(plain(fl!("select-all"), "select-all", Action::SelectAll));
                 }
                 push_group(&mut children, new);
+                push_group(
+                    &mut children,
+                    vec![
+                        sort_row(tab, sort_keys()),
+                        menu::Item::Entry(
+                            menu::Entry::new(
+                                fl!("show-hidden-files"),
+                                TabAction(Action::ToggleShowHidden),
+                            )
+                            .icon(menu_icon("hidden"))
+                            .checked(tab.config.show_hidden),
+                        ),
+                    ],
+                );
+            }
+        }
+        (_, Location::Archive { .. }) => {
+            if selected > 0 {
+                if selected_dir == 1 && selected == 1 {
+                    children.push(menu_item(fl!("open"), Action::Open));
+                }
+            } else {
+                if tab.mode.multiple() {
+                    children.push(menu_item(fl!("select-all"), Action::SelectAll));
+                }
                 push_group(
                     &mut children,
                     vec![

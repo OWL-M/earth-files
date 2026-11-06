@@ -118,7 +118,15 @@ extract-password-required = Password required
 extract-as-folder = Extract As Folder
 extract-to = Extract To...
 extract-to-title = Extract to folder
-
+browse-archive = Browse
+task-reading-archive = Reading {$name}
+archive-unreadable = "{$name}" could not be read as an archive
+archive-damaged-listing = "{$name}" is damaged: not all of it could be listed
+archive-listing-incomplete = "{$name}" holds too much to list: not all of it is shown
+archive-names-left-out = Left out, as their names could not be extracted safely: {$count}
+archive-gone = The archive was removed or can no longer be read
+size-unknown = Unknown size
+size-at-least = At least {$size}
 ## Empty Trash Dialog
 empty-trash = Empty trash
 empty-trash-title = Empty trash?

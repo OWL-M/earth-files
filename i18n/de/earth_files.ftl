@@ -114,6 +114,15 @@ extract-password-required = Passwort erforderlich
 extract-as-folder = In Ordner entpacken
 extract-to = Entpacken nach ...
 extract-to-title = In Ordner entpacken
+browse-archive = Durchsuchen
+task-reading-archive = {$name} wird gelesen
+archive-unreadable = „{$name}“ konnte nicht als Archiv gelesen werden
+archive-damaged-listing = „{$name}“ ist beschädigt: Es konnte nicht alles aufgelistet werden
+archive-listing-incomplete = „{$name}“ enthält zu viel: Es wird nicht alles angezeigt
+archive-names-left-out = Ausgelassen, da ihre Namen nicht sicher entpackt werden können: {$count}
+archive-gone = Das Archiv wurde entfernt oder kann nicht mehr gelesen werden
+size-unknown = Unbekannte Größe
+size-at-least = Mindestens {$size}
 
 ## Dialog zum Leeren des Papierkorbs
 

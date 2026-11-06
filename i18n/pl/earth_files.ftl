@@ -125,6 +125,15 @@ extract-password-required = Wymagane hasło
 extract-as-folder = Wypakuj do folderu
 extract-to = Wypakuj do…
 extract-to-title = Wypakuj do katalogu
+browse-archive = Przeglądaj
+task-reading-archive = Odczytywanie: {$name}
+archive-unreadable = Nie można odczytać „{$name}” jako archiwum
+archive-damaged-listing = „{$name}” jest uszkodzone: nie udało się wyświetlić wszystkiego
+archive-listing-incomplete = „{$name}” zawiera zbyt wiele: nie wszystko jest pokazane
+archive-names-left-out = Pominięto, ponieważ ich nazw nie można bezpiecznie wypakować: {$count}
+archive-gone = Archiwum zostało usunięte lub nie można go już odczytać
+size-unknown = Nieznany rozmiar
+size-at-least = Co najmniej {$size}
 
 ## Empty Trash Dialog
 

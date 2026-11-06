@@ -111,6 +111,15 @@ extract-password-required = Pasfhocal riachtanach
 extract-as-folder = Asbhain go fillteán
 extract-to = Asbhain go...
 extract-to-title = Asbhain go fillteán
+browse-archive = Brabhsáil
+task-reading-archive = {$name} á léamh
+archive-unreadable = Níorbh fhéidir "{$name}" a léamh mar chartlann
+archive-damaged-listing = Tá "{$name}" damáistithe: níorbh fhéidir gach rud a liostú
+archive-listing-incomplete = Tá an iomarca i "{$name}": níl gach rud á thaispeáint
+archive-names-left-out = Fágadh ar lár iad, mar nach féidir a n-ainmneacha a bhaint go sábháilte: {$count}
+archive-gone = Baineadh an chartlann nó ní féidir í a léamh a thuilleadh
+size-unknown = Méid anaithnid
+size-at-least = {$size} ar a laghad
 
 ## Empty Trash Dialog
 

@@ -124,6 +124,15 @@ extract-password-required = Vyžaduje sa heslo
 extract-as-folder = Extrahovať do priečinka
 extract-to = Extrahovať do...
 extract-to-title = Extrahovať do priečinka
+browse-archive = Prehliadať
+task-reading-archive = Čítanie: {$name}
+archive-unreadable = „{$name}“ sa nepodarilo prečítať ako archív
+archive-damaged-listing = „{$name}“ je poškodené: nepodarilo sa vypísať všetko
+archive-listing-incomplete = „{$name}“ obsahuje príliš veľa: nezobrazuje sa všetko
+archive-names-left-out = Vynechané, pretože ich názvy nemožno bezpečne rozbaliť: {$count}
+archive-gone = Archív bol odstránený alebo ho už nemožno prečítať
+size-unknown = Neznáma veľkosť
+size-at-least = Aspoň {$size}
 
 ## Empty Trash Dialog
 

@@ -390,6 +390,15 @@ failed-operations-title = {$count ->
   }
 extract-password-required = Salasana vaaditaan
 extract-to-title = Pura kansioon
+browse-archive = Selaa
+task-reading-archive = Luetaan {$name}
+archive-unreadable = Kohdetta ”{$name}” ei voitu lukea arkistona
+archive-damaged-listing = ”{$name}” on vahingoittunut: kaikkea ei voitu luetella
+archive-listing-incomplete = ”{$name}” sisältää liikaa: kaikkea ei näytetä
+archive-names-left-out = Jätetty pois, koska nimiä ei voi purkaa turvallisesti: {$count}
+archive-gone = Arkisto poistettiin tai sitä ei voi enää lukea
+size-unknown = Tuntematon koko
+size-at-least = Vähintään {$size}
 empty-trash-title = Tyhjennetäänkö roskakori?
 other-apps = Muut sovellukset
 related-apps = Liittyvät sovellukset

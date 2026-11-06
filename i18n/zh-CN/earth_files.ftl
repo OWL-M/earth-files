@@ -110,6 +110,15 @@ extract-password-required = 需要密码
 extract-as-folder = 解压到文件夹
 extract-to = 提取到…
 extract-to-title = 提取到文件夹
+browse-archive = 浏览
+task-reading-archive = 正在读取 {$name}
+archive-unreadable = 无法将“{$name}”作为压缩包读取
+archive-damaged-listing = “{$name}”已损坏：无法列出全部内容
+archive-listing-incomplete = “{$name}”内容过多：未显示全部内容
+archive-names-left-out = 因名称无法安全提取而被略过：{$count}
+archive-gone = 压缩包已被移除或无法再读取
+size-unknown = 大小未知
+size-at-least = 至少 {$size}
 
 ## Empty Trash Dialog
 

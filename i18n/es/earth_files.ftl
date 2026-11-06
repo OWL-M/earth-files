@@ -116,6 +116,15 @@ extract-password-required = Contraseña requerida
 extract-as-folder = Extraer en carpeta
 extract-to = Extraer en...
 extract-to-title = Extraer a una carpeta
+browse-archive = Explorar
+task-reading-archive = Leyendo {$name}
+archive-unreadable = No se pudo leer «{$name}» como archivo comprimido
+archive-damaged-listing = «{$name}» está dañado: no se pudo listar todo
+archive-listing-incomplete = «{$name}» contiene demasiado: no se muestra todo
+archive-names-left-out = Omitidos porque sus nombres no se pueden extraer con seguridad: {$count}
+archive-gone = El archivo comprimido se eliminó o ya no se puede leer
+size-unknown = Tamaño desconocido
+size-at-least = Al menos {$size}
 
 ## Empty Trash Dialog
 

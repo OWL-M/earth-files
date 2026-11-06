@@ -113,6 +113,15 @@ extract-password-required = Jelszó szükséges
 extract-as-folder = Kibontás mappába
 extract-to = Kibontás ide…
 extract-to-title = Kibontási cél kiválasztása
+browse-archive = Tallózás
+task-reading-archive = {$name} olvasása
+archive-unreadable = A(z) „{$name}” nem olvasható archívumként
+archive-damaged-listing = A(z) „{$name}” sérült: nem listázható minden
+archive-listing-incomplete = A(z) „{$name}” túl sokat tartalmaz: nem látható minden
+archive-names-left-out = Kihagyva, mert a nevük nem bontható ki biztonságosan: {$count}
+archive-gone = Az archívum eltávolításra került, vagy már nem olvasható
+size-unknown = Ismeretlen méret
+size-at-least = Legalább {$size}
 
 ## Empty Trash Dialog
 

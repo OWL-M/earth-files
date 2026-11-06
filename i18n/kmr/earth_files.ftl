@@ -168,6 +168,15 @@ edit-history = Dîrokê biguhêrînê
 show-hidden-files = Pelên veşartî nîşan bide
 progress-failed = { $percent }%, têk çû
 extract-to-title = Derxîne bo peldankê
+browse-archive = Bigere
+task-reading-archive = {$name} tê xwendin
+archive-unreadable = "{$name}" wek arşîv nehat xwendin
+archive-damaged-listing = "{$name}" xera ye: hemû nehat rêzkirin
+archive-listing-incomplete = Di "{$name}" de pir zêde heye: hemû nayê nîşandan
+archive-names-left-out = Hatin dervekirin, ji ber ku nav bi ewlehî nayên derxistin: {$count}
+archive-gone = Arşîv hat rakirin an êdî nayê xwendin
+size-unknown = Mezinahiya nenas
+size-at-least = Herî kêm {$size}
 open-with-title = Tu çawa dixwazî "{ $name }" vekî?
 extracting =
     { $items } { $items ->

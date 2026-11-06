@@ -56,6 +56,9 @@ pub enum Key {
     Mount(String),
     /// A drive being unmounted or ejected, by the mounter item's id.
     Unmount(String),
+    /// An archive being read to look inside it, by its number in
+    /// `App::archive_reads`.
+    Browse(u64),
 }
 
 /// Where a shown task is.

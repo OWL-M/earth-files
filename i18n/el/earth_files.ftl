@@ -348,6 +348,15 @@ show-hidden-files = Εμφάνιση κρυφών αρχείων
 progress-failed = { $percent }%, απέτυχε
 item-accessed = Ημερομηνία πρόσβασης: { $accessed }
 extract-to-title = Αποσυμπίεση σε φάκελο
+browse-archive = Περιήγηση
+task-reading-archive = Ανάγνωση {$name}
+archive-unreadable = Το «{$name}» δεν ήταν δυνατό να διαβαστεί ως αρχείο συμπίεσης
+archive-damaged-listing = Το «{$name}» είναι κατεστραμμένο: δεν ήταν δυνατή η εμφάνιση όλων
+archive-listing-incomplete = Το «{$name}» περιέχει πάρα πολλά: δεν εμφανίζονται όλα
+archive-names-left-out = Παραλείφθηκαν, επειδή τα ονόματά τους δεν εξάγονται με ασφάλεια: {$count}
+archive-gone = Το αρχείο συμπίεσης αφαιρέθηκε ή δεν διαβάζεται πλέον
+size-unknown = Άγνωστο μέγεθος
+size-at-least = Τουλάχιστον {$size}
 extracting =
     Αποσυμπίεση { $items } { $items ->
         [one] στοιχείου

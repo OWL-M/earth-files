@@ -111,6 +111,15 @@ extract-password-required = رمز عبور مورد نیاز است
 extract-as-folder = استخراج در پوشه
 extract-to = استخراج در...
 extract-to-title = استخراج در پوشه
+browse-archive = مرور
+task-reading-archive = در حال خواندن {$name}
+archive-unreadable = «{$name}» به‌عنوان بایگانی خوانده نشد
+archive-damaged-listing = «{$name}» آسیب دیده است: همهٔ آن فهرست نشد
+archive-listing-incomplete = «{$name}» بیش از حد محتوا دارد: همهٔ آن نمایش داده نمی‌شود
+archive-names-left-out = کنار گذاشته شد چون نامشان را نمی‌توان ایمن استخراج کرد: {$count}
+archive-gone = بایگانی حذف شده یا دیگر قابل خواندن نیست
+size-unknown = اندازهٔ نامعلوم
+size-at-least = دست‌کم {$size}
 
 ## Empty Trash Dialog
 

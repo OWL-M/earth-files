@@ -118,6 +118,15 @@ extract-password-required = Parolă necesară
 extract-as-folder = Extrage în dosar
 extract-to = Extrage în...
 extract-to-title = Extrage în dosar
+browse-archive = Răsfoiește
+task-reading-archive = Se citește {$name}
+archive-unreadable = „{$name}” nu a putut fi citit ca arhivă
+archive-damaged-listing = „{$name}” este deteriorat: nu s-a putut lista tot
+archive-listing-incomplete = „{$name}” conține prea multe: nu este afișat tot
+archive-names-left-out = Omise, deoarece numele lor nu pot fi extrase în siguranță: {$count}
+archive-gone = Arhiva a fost eliminată sau nu mai poate fi citită
+size-unknown = Dimensiune necunoscută
+size-at-least = Cel puțin {$size}
 
 ## Empty Trash Dialog
 
