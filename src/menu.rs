@@ -883,7 +883,7 @@ fn context_menu_items(tab: &Tab, sources: &Sources) -> Vec<menu::Item<TabAction,
                 );
             }
         }
-        (_, Location::Archive { .. }) => {
+        (_, Location::Archive { .. } | Location::Search(SearchLocation::Archive { .. }, ..)) => {
             if selected > 0 {
                 if selected_dir == 1 && selected == 1 {
                     children.push(menu_item(fl!("open"), Action::Open));

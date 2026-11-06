@@ -1325,6 +1325,7 @@ pub fn item_from_gvfs_info(path: PathBuf, file_info: gio::FileInfo, sizes: IconS
 
 pub fn item_from_search_item(search_item: SearchItem, sizes: IconSizes) -> Item {
     match search_item {
+        SearchItem::Archive(archive, entry) => archive_item(&archive, &entry, sizes),
         SearchItem::Path(path, name, metadata) => item_from_entry(path, name, metadata, sizes),
         SearchItem::Trash(entry, metadata) => item_from_trash_entry(entry, metadata, sizes),
     }
@@ -1872,6 +1873,41 @@ pub fn scan_search<F: Fn(SearchItem) -> bool + Sync>(
         SearchLocation::Trash => {
             Trash::scan_search(callback, &regex);
         }
+        SearchLocation::Archive { archive, inside } => {
+            // Held since the archive was opened: only its names are looked at
+            let index =
+                match crate::archive::index::read_shared(archive, None, &Controller::default()) {
+                    Ok(index) => index,
+                    Err(err) => {
+                        log::warn!("failed to search archive {}: {err}", archive.display());
+                        return;
+                    }
+                };
+            for entry in index.descendants(inside) {
+                if !wanted() {
+                    break;
+                }
+                // As a folder's search does: what is in a hidden folder is
+                // as hidden as the folder
+                let hidden = || {
+                    entry
+                        .path
+                        .strip_prefix(inside)
+                        .unwrap_or(&entry.path)
+                        .components()
+                        .any(|part| {
+                            std::os::unix::ffi::OsStrExt::as_bytes(part.as_os_str()).first()
+                                == Some(&b'.')
+                        })
+                };
+                if (options.show_hidden || !hidden())
+                    && regex.is_match(&entry.name().to_string_lossy())
+                    && !callback(SearchItem::Archive(archive.clone(), entry.clone()))
+                {
+                    break;
+                }
+            }
+        }
     }
 }
 
@@ -2245,6 +2281,11 @@ pub struct SearchOptions {
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum SearchLocation {
+    /// A folder of an archive and all under it.
+    Archive {
+        archive: PathBuf,
+        inside: PathBuf,
+    },
     Path(PathBuf),
     Recents,
     Trash,
@@ -2253,6 +2294,9 @@ pub enum SearchLocation {
 impl std::fmt::Display for SearchLocation {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::Archive { archive, inside } => {
+                write!(f, "{}!/{}", archive.display(), inside.display())
+            }
             Self::Path(path) => write!(f, "{}", path.display()),
             Self::Recents => write!(f, "recents"),
             Self::Trash => write!(f, "trash"),
@@ -2262,6 +2306,8 @@ impl std::fmt::Display for SearchLocation {
 
 #[derive(Clone, Debug)]
 pub enum SearchItem {
+    /// An entry of an archive, by the archive it is in.
+    Archive(PathBuf, crate::archive::index::IndexEntry),
     Path(PathBuf, String, fs::Metadata),
     Trash(TrashItem, TrashItemMetadata),
 }
@@ -2469,7 +2515,7 @@ impl Location {
     /// The breadcrumbs up to home or the root, named as [`folder_name`] does
     /// for `look`.
     pub fn ancestors(&self, look: bool) -> Vec<(Self, String)> {
-        if let Self::Archive { archive, inside } = self {
+        if let Some((archive, inside)) = self.archive_folder() {
             // Its folders outwards, the archive itself, then the real folders
             // holding it
             let mut ancestors: Vec<(Self, String)> = inside
@@ -2530,12 +2576,22 @@ impl Location {
         }
     }
 
+    /// Whether this is a search that lists a folder as it is, nothing having
+    /// been asked yet: of a real folder with the eye shut, as
+    /// [`Self::empty_search_folder`] says, or of a folder of an archive, whose
+    /// search always reaches all the way down and has only this to show until
+    /// there is a term.
+    pub fn is_folder_search(&self) -> bool {
+        self.empty_search_folder().is_some()
+            || matches!(self, Self::Search(SearchLocation::Archive { .. }, term, ..) if term.is_empty())
+    }
+
     /// Whether reading this location again gives its listing back. A search
     /// is listed as its results come in, so a rescan of it comes back empty
     /// and throws them away; an empty search of a folder, eye shut, lists
     /// the folder and is read again like it.
     pub fn rescans(&self) -> bool {
-        !matches!(self, Self::Search(..)) || self.empty_search_folder().is_some()
+        !matches!(self, Self::Search(..)) || self.is_folder_search()
     }
 
     /// The folder this lists in full: a folder's own, or the one an empty
@@ -2561,6 +2617,15 @@ impl Location {
     /// newest first.
     pub fn sort_key(&self) -> Option<String> {
         match self {
+            Self::Search(SearchLocation::Archive { archive, inside }, ..) => {
+                self.is_folder_search().then(|| {
+                    Self::Archive {
+                        archive: archive.clone(),
+                        inside: inside.clone(),
+                    }
+                    .to_string()
+                })
+            }
             Self::Search(..) => self
                 .empty_search_folder()
                 .map(|path| Self::Path(path.clone()).normalize_lexically().to_string()),
@@ -2620,6 +2685,14 @@ impl Location {
         };
         let (items, read_ok) = match self {
             Self::Path(path) => read_path(path),
+            Self::Search(SearchLocation::Archive { archive, inside }, term, ..) => {
+                if term.is_empty() {
+                    scan_archive(archive, inside, sizes)
+                } else {
+                    // Results come in as a search's do
+                    (Vec::new(), true)
+                }
+            }
             Self::Search(..) => match self.empty_search_folder() {
                 Some(path) => read_path(path),
                 // Search is done incrementally
@@ -2660,6 +2733,12 @@ impl Location {
                     SearchLocation::Path(path) => folder(path),
                     SearchLocation::Trash => fl!("trash"),
                     SearchLocation::Recents => fl!("recents"),
+                    SearchLocation::Archive { archive, inside } => inside
+                        .file_name()
+                        .or_else(|| archive.file_name())
+                        .unwrap_or_else(|| archive.as_os_str())
+                        .to_string_lossy()
+                        .into_owned(),
                 };
 
                 fl!("search-title", term = term.as_str(), name = name)
@@ -2683,9 +2762,20 @@ impl Location {
     /// The folder whose changes matter to this location, if any: for an archive
     /// the one holding it, as saving one usually replaces the file.
     pub fn watched_path(&self) -> Option<PathBuf> {
+        match self.archive_folder() {
+            Some((archive, _)) => archive.parent().map(Path::to_path_buf),
+            None => self.path_opt().cloned(),
+        }
+    }
+
+    /// The archive this looks inside and the folder of it, searching or not.
+    pub fn archive_folder(&self) -> Option<(&PathBuf, &PathBuf)> {
         match self {
-            Self::Archive { archive, .. } => archive.parent().map(Path::to_path_buf),
-            location => location.path_opt().cloned(),
+            Self::Archive { archive, inside }
+            | Self::Search(SearchLocation::Archive { archive, inside }, ..) => {
+                Some((archive, inside))
+            }
+            _ => None,
         }
     }
 
@@ -6010,8 +6100,7 @@ impl Tab {
     /// to the fixed columns rather than shrinking with them). An empty
     /// search that lists its folder is shown as the folder is.
     fn is_search(&self) -> bool {
-        matches!(self.location, Location::Search(..))
-            && self.location.empty_search_folder().is_none()
+        matches!(self.location, Location::Search(..)) && !self.location.is_folder_search()
     }
 
     /// The part of the item view currently on screen, for a view of `size`.
@@ -7937,7 +8026,7 @@ impl Tab {
             }
             // An empty search lists its folder, and nothing it sends is for
             // that listing: its cap on results would cut the folder short
-            Message::SearchReady(_) if self.location.empty_search_folder().is_some() => {
+            Message::SearchReady(_) if self.location.is_folder_search() => {
                 self.search_context = None;
             }
             Message::SearchReady(finished) => {
@@ -7953,7 +8042,10 @@ impl Tab {
                             while let Ok(item) = context.results_rx.try_recv() {
                                 // Newest first, which is the sort order search locations are
                                 // pinned to in `sort_options`
-                                let index = if matches!(item.metadata, ItemMetadata::Path { .. }) {
+                                let index = if matches!(
+                                    item.metadata,
+                                    ItemMetadata::Path { .. } | ItemMetadata::Archive { .. }
+                                ) {
                                     let item_modified = item.metadata.modified();
                                     match items.binary_search_by(|other| {
                                         item_modified.cmp(&other.metadata.modified())
@@ -8573,7 +8665,7 @@ impl Tab {
 
     pub(crate) fn sort_options(&self) -> (HeadingOptions, bool, bool) {
         match self.location {
-            Location::Search(..) if self.location.empty_search_folder().is_none() => {
+            Location::Search(..) if !self.location.is_folder_search() => {
                 (HeadingOptions::Modified, false, false)
             }
             _ => (
@@ -9263,7 +9355,8 @@ impl Tab {
         };
 
         match &self.location {
-            Location::Archive { archive, .. } => {
+            Location::Archive { archive, .. }
+            | Location::Search(SearchLocation::Archive { archive, .. }, ..) => {
                 // From the outermost in: plain ones, a press going there. Each
                 // one's folder is not always a path to offer anything else for
                 let ancestors: Vec<&(Location, String)> =
@@ -9674,10 +9767,9 @@ impl Tab {
 
     /// The archive this tab is inside, if it is.
     pub fn archive(&self) -> Option<&Path> {
-        match &self.location {
-            Location::Archive { archive, .. } => Some(archive),
-            _ => None,
-        }
+        self.location
+            .archive_folder()
+            .map(|(archive, _)| archive.as_path())
     }
 
     /// What the footer inside an archive says of it as a whole.
@@ -10070,6 +10162,23 @@ impl Tab {
                 || fl!("trash-original-unknown"),
                 |parent| parent.display().to_string(),
             );
+        }
+        // In an archive, the folder in it, from where the search started
+        if let (
+            Location::Search(SearchLocation::Archive { archive, inside }, ..),
+            Some(Location::Archive { inside: path, .. }),
+        ) = (&self.location, &item.location_opt)
+        {
+            let folder = path.parent().unwrap_or(path);
+            return match folder.strip_prefix(inside) {
+                Ok(relative) if !relative.as_os_str().is_empty() => relative.display().to_string(),
+                _ => inside
+                    .file_name()
+                    .or_else(|| archive.file_name())
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .into_owned(),
+            };
         }
         let Some(path) = item.path_opt() else {
             return String::new();
@@ -11312,7 +11421,7 @@ impl Tab {
         // Load search items incrementally. An empty search of a folder lists
         // the folder instead, in full.
         if let Location::Search(search_location, term, options, start) = &self.location
-            && self.location.empty_search_folder().is_none()
+            && !self.location.is_folder_search()
         {
             let location = self.location.clone();
             let search_location = search_location.clone();
@@ -11646,6 +11755,113 @@ mod tests {
         );
     }
 
+    fn archive_search(term: &str) -> Location {
+        Location::Search(
+            super::SearchLocation::Archive {
+                archive: PathBuf::from("/data/photos.zip"),
+                inside: PathBuf::from("2024"),
+            },
+            term.to_string(),
+            super::SearchOptions {
+                show_hidden: false,
+                recursive: true,
+            },
+            std::time::Instant::now(),
+        )
+    }
+
+    fn archive_entry(name: &str, age: u64) -> crate::tab::Item {
+        super::archive_item(
+            std::path::Path::new("/data/photos.zip"),
+            &crate::archive::index::IndexEntry {
+                path: PathBuf::from(name),
+                kind: crate::archive::index::EntryKind::File,
+                size: Some(1),
+                modified: Some(
+                    std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(age),
+                ),
+                mode: None,
+                encrypted: false,
+            },
+            IconSizes::default(),
+        )
+    }
+
+    fn archive_tab(location: Location) -> Tab {
+        Tab::new(
+            location,
+            crate::config::TabConfig::default(),
+            ThumbCfg::default(),
+            None,
+            std::borrow::Cow::Borrowed("test"),
+            None,
+        )
+    }
+
+    /// With no term yet an archive's search is its folder: listed in full,
+    /// sorted as the folder is, and a late answer of a search cannot cut it
+    /// down to the cap
+    #[test]
+    fn an_empty_archive_search_is_the_folder() {
+        let empty = archive_search("");
+        assert!(empty.is_folder_search());
+        assert!(empty.rescans());
+        assert!(!archive_search("a").is_folder_search());
+        assert!(!archive_search("a").rescans());
+        let folder = Location::Archive {
+            archive: PathBuf::from("/data/photos.zip"),
+            inside: PathBuf::from("2024"),
+        };
+        assert_eq!(empty.sort_key(), folder.sort_key(), "sorted as the folder");
+        assert_eq!(archive_search("a").sort_key(), None);
+
+        let mut tab = archive_tab(empty);
+        tab.sort_name = HeadingOptions::Size;
+        tab.sort_direction = false;
+        assert_eq!(tab.sort_options().0, HeadingOptions::Size);
+        assert!(!tab.is_search());
+        tab.config.max_search_results = std::num::NonZeroU16::new(1).expect("nonzero");
+        tab.set_items(vec![archive_entry("a", 1), archive_entry("b", 2)]);
+        // A search's last answer, as its subscription would send it
+        let (_results_tx, results_rx) = tokio::sync::mpsc::channel(1);
+        tab.search_context = Some(super::SearchContext {
+            results_rx,
+            ready: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true)),
+            last_modified_opt: std::sync::Arc::new(std::sync::RwLock::new(None)),
+        });
+        tab.update(Message::SearchReady(true), Modifiers::empty());
+        assert_eq!(tab.items_opt().map(Vec::len), Some(2), "not cut to the cap");
+    }
+
+    /// Results are kept newest first, so reaching the cap loses the oldest and
+    /// not whatever the walk came to last
+    #[test]
+    fn archive_results_past_the_cap_keep_the_newest() {
+        let mut tab = archive_tab(archive_search("a"));
+        tab.set_items(Vec::new());
+        tab.config.max_search_results = std::num::NonZeroU16::new(2).expect("nonzero");
+        let (results_tx, results_rx) = tokio::sync::mpsc::channel(8);
+        for (name, age) in [("old", 1), ("older", 0), ("new", 5), ("newest", 9)] {
+            results_tx
+                .try_send(archive_entry(name, age))
+                .expect("the channel holds them all");
+        }
+        drop(results_tx);
+        tab.search_context = Some(super::SearchContext {
+            results_rx,
+            ready: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true)),
+            last_modified_opt: std::sync::Arc::new(std::sync::RwLock::new(None)),
+        });
+        tab.update(Message::SearchReady(true), Modifiers::empty());
+        let names: Vec<&str> = tab
+            .items_opt()
+            .expect("the listing exists")
+            .iter()
+            .map(|item| item.name.as_str())
+            .collect();
+        assert_eq!(names, ["newest", "new"]);
+    }
+
     /// What is in the folder asked for, typed by name, with what the archive
     /// states; a folder not in it reads as a failure
     #[test]
@@ -11654,7 +11870,11 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let path = tmp.path().join("t.zip");
         let mut zip = zip::ZipWriter::new(std::fs::File::create(&path).unwrap());
-        for (name, data) in [("a.txt", &b"12345"[..]), ("d/b.png", &b"1"[..])] {
+        for (name, data) in [
+            ("a.txt", &b"12345"[..]),
+            ("d/b.png", &b"1"[..]),
+            (".git/config-b", &b"1"[..]),
+        ] {
             zip.start_file(name, zip::write::SimpleFileOptions::default())
                 .unwrap();
             zip.write_all(data).unwrap();
@@ -11668,6 +11888,7 @@ mod tests {
         let (_, items, read_ok) = at("").try_scan(IconSizes::default(), Typing::NameFirst);
         assert!(read_ok);
         let mut items = items;
+        items.retain(|item| !item.hidden);
         items.sort_by(|a, b| a.name.cmp(&b.name));
         assert_eq!(items[0].name, "a.txt");
         assert_eq!(items[0].metadata.file_size(), Some(5));
@@ -11683,6 +11904,67 @@ mod tests {
 
         let (_, none, read_ok) = at("nope").try_scan(IconSizes::default(), Typing::NameFirst);
         assert!(none.is_empty() && !read_ok);
+
+        // Search reaches all the way down, by name whatever its case
+        let found = std::sync::Mutex::new(Vec::new());
+        let search_with = |inside: &str, term: &str, show_hidden: bool| {
+            found.lock().unwrap().clear();
+            super::scan_search(
+                &super::SearchLocation::Archive {
+                    archive: path.clone(),
+                    inside: PathBuf::from(inside),
+                },
+                term,
+                super::SearchOptions {
+                    show_hidden,
+                    recursive: true,
+                },
+                &|| true,
+                |item| {
+                    if let super::SearchItem::Archive(_, entry) = item {
+                        found.lock().unwrap().push(entry.path);
+                    }
+                    true
+                },
+            );
+            std::mem::take(&mut *found.lock().unwrap())
+        };
+        let search = |inside: &str, term: &str| search_with(inside, term, false);
+        assert_eq!(search("", "B.PNG"), [PathBuf::from("d/b.png")]);
+        assert!(search("", "config").is_empty(), "in a hidden folder");
+        assert_eq!(
+            search_with("", "config", true),
+            [PathBuf::from(".git/config-b")]
+        );
+        assert_eq!(
+            search(".git", "config"),
+            [PathBuf::from(".git/config-b")],
+            "searching in it"
+        );
+        assert_eq!(search("d", "b"), [PathBuf::from("d/b.png")]);
+        assert!(search("d", "a.txt").is_empty(), "only under the folder");
+        assert!(search("", "nothing").is_empty());
+
+        // An empty search shows the folder as it is, the rest come in as found
+        let empty = Location::Search(
+            super::SearchLocation::Archive {
+                archive: path.clone(),
+                inside: PathBuf::new(),
+            },
+            String::new(),
+            super::SearchOptions {
+                show_hidden: true,
+                recursive: true,
+            },
+            std::time::Instant::now(),
+        );
+        assert_eq!(
+            empty
+                .try_scan(IconSizes::default(), Typing::NameFirst)
+                .1
+                .len(),
+            3
+        );
         crate::archive::index::keep_shared(&[]);
     }
 

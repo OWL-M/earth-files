@@ -3791,9 +3791,10 @@ impl App {
 
     /// Lets go of the indexes of archives no tab is in or can go back to.
     fn keep_archive_indexes(&self) {
-        let archive = |location: &'_ Location| match location {
-            Location::Archive { archive, .. } => Some(archive.clone()),
-            _ => None,
+        let archive = |location: &'_ Location| {
+            location
+                .archive_folder()
+                .map(|(archive, _)| archive.clone())
         };
         let mut keep: Vec<PathBuf> = self.archive_reads.archives().cloned().collect();
         for entity in self.tab_model.iter() {
@@ -7927,8 +7928,9 @@ impl Application for App {
                         .map(|index| index.total_size());
                     // An empty search of a folder is sorted as the folder is
                     let location_str = location
-                        .empty_search_folder()
-                        .map_or_else(|| location.to_string(), |path| path.display().to_string());
+                        .sort_key()
+                        .filter(|_| location.is_folder_search())
+                        .unwrap_or_else(|| location.to_string());
                     let sort = self
                         .state
                         .sort_names
@@ -8114,7 +8116,10 @@ impl Application for App {
                             command.arg(uri);
                         }
                         // The folder holding it: a window opens on real folders
-                        Some(Location::Archive { archive, .. }) => {
+                        Some(
+                            Location::Archive { archive, .. }
+                            | Location::Search(SearchLocation::Archive { archive, .. }, ..),
+                        ) => {
                             if let Some(holder) = archive.parent() {
                                 command.arg(holder);
                             }

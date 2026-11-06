@@ -491,7 +491,12 @@ pub fn search_term(tab: &Tab) -> Option<&str> {
 pub fn search_target(tab: &Tab, term: Option<String>) -> Option<(Location, bool)> {
     match term {
         Some(term) => {
-            let searched = if let Some(path) = tab.location.path_opt() {
+            let searched = if let Some((archive, inside)) = tab.location.archive_folder() {
+                SearchLocation::Archive {
+                    archive: archive.clone(),
+                    inside: inside.clone(),
+                }
+            } else if let Some(path) = tab.location.path_opt() {
                 SearchLocation::Path(path.clone())
             } else if tab.location.is_recents() {
                 SearchLocation::Recents
@@ -512,6 +517,10 @@ pub fn search_target(tab: &Tab, term: Option<String>) -> Option<(Location, bool)
                     SearchLocation::Path(path) => Location::Path(path.clone()),
                     SearchLocation::Recents => Location::Recents,
                     SearchLocation::Trash => Location::Trash,
+                    SearchLocation::Archive { archive, inside } => Location::Archive {
+                        archive: archive.clone(),
+                        inside: inside.clone(),
+                    },
                 },
                 false,
             )),

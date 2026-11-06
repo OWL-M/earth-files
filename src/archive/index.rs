@@ -149,6 +149,25 @@ impl ArchiveIndex {
         })
     }
 
+    /// Everything under the folder `inside`, however deep, each with its own
+    /// path; none when there is no such folder. The root is the empty path.
+    pub fn descendants(&self, inside: &Path) -> Vec<&IndexEntry> {
+        let mut found = Vec::new();
+        let mut stack: Vec<usize> = self.listing_indices(inside);
+        while let Some(index) = stack.pop() {
+            let entry = &self.entries[index];
+            found.push(entry);
+            if let Some(children) = self.children.get(&entry.path) {
+                stack.extend(children);
+            }
+        }
+        found
+    }
+
+    fn listing_indices(&self, inside: &Path) -> Vec<usize> {
+        self.children.get(inside).cloned().unwrap_or_default()
+    }
+
     /// The expanded size of everything, and whether every size was known.
     pub fn total_size(&self) -> (u64, bool) {
         self.sum(self.entries.iter())
@@ -824,6 +843,34 @@ mod tests {
             },
         );
         assert_eq!(out.total_size(), (115, false));
+    }
+
+    /// However deep, from the folder asked for and no further out
+    #[test]
+    fn descendants_reach_all_the_way_down_from_a_folder() {
+        let mut out = ArchiveIndex::default();
+        out.add(b"a/one", false, file(1));
+        out.add(b"a/b/two", false, file(1));
+        out.add(b"c", false, file(1));
+        let paths = |inside: &str| {
+            let mut paths: Vec<PathBuf> = out
+                .descendants(Path::new(inside))
+                .iter()
+                .map(|entry| entry.path.clone())
+                .collect();
+            paths.sort();
+            paths
+        };
+        assert_eq!(
+            paths("a"),
+            [
+                PathBuf::from("a/b"),
+                PathBuf::from("a/b/two"),
+                PathBuf::from("a/one")
+            ]
+        );
+        assert_eq!(paths("").len(), 5);
+        assert!(paths("nope").is_empty());
     }
 
     #[test]
