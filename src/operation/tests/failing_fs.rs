@@ -14,7 +14,7 @@ use std::process::Command;
 
 use test_log::test;
 
-use super::super::{Blocked, BlockedAnswer, Operation};
+use super::super::{Blocked, BlockedAnswer, ExtractInto, Operation};
 use super::perform_blocked;
 
 /// Set in the child that runs a test inside its namespace.
@@ -481,7 +481,7 @@ async fn an_extract_that_fills_the_drive_leaves_no_half_folder() {
             paths: vec![archive].into(),
             to: drive.clone(),
             password: None,
-            as_folder: true,
+            into: ExtractInto::Folder,
         },
         |_, _, _| BlockedAnswer::Cancel,
     )

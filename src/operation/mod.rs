@@ -257,6 +257,78 @@ fn extract_dir(to: &Path, dir_name: &OsStr, fallback: &OsStr) -> Result<PathBuf,
     )))
 }
 
+/// Turn `staging`, which holds an extracted archive, into a new folder in
+/// `to`, named as [`extract_dir`] names it. In one rename, so nothing in it
+/// can meet a file already in `to`.
+fn gather_in_folder(
+    staging: &Path,
+    to: &Path,
+    dir_name: &OsStr,
+    fallback: &OsStr,
+) -> Result<PathBuf, OperationError> {
+    let new_dir = extract_dir(to, dir_name, fallback)?;
+    if let Err(err) = fs::rename(staging, &new_dir) {
+        let _ = fs::remove_dir(&new_dir);
+        return Err(OperationError::from_err(err));
+    }
+    Ok(new_dir)
+}
+
+/// Publish an extracted archive's `staging` as a new folder in `to`, unless
+/// the operation was stopped while it was being flushed or listed: then
+/// nothing shows up at the destination.
+async fn publish_gathered(
+    staging: PathBuf,
+    to: PathBuf,
+    dir_name: OsString,
+    fallback: OsString,
+    controller: &Controller,
+) -> Result<OperationSelection, OperationError> {
+    controller
+        .check()
+        .await
+        .map_err(OperationError::from_state)?;
+    let new_dir = compio::runtime::spawn_blocking(move || {
+        gather_in_folder(&staging, &to, &dir_name, &fallback)
+    })
+    .await
+    .map_err(wrap_compio_spawn_error)??;
+    Ok(OperationSelection {
+        selected: vec![new_dir.clone()],
+        created: vec![new_dir],
+        ..OperationSelection::default()
+    })
+}
+
+/// The last look at an operation whose folder was published: stopped even
+/// as that finished, it does not end as done. Cancelled, the folder goes
+/// again; aborted, it stays, to undo. A folder that cannot be taken away
+/// stays too, to undo, rather than be lost track of.
+async fn settle_published(
+    published: OperationSelection,
+    controller: &Controller,
+) -> Result<OperationSelection, OperationError> {
+    let Err(state) = controller.check().await else {
+        return Ok(published);
+    };
+    let err = OperationError::from_state(state);
+    if controller.is_aborted() {
+        return Err(err.after(published));
+    }
+    let created = published.created.clone();
+    let removed =
+        compio::runtime::spawn_blocking(move || created.iter().try_for_each(fs::remove_dir_all))
+            .await
+            .map_err(wrap_compio_spawn_error)?;
+    match removed {
+        Ok(()) => Err(err),
+        Err(not_removed) => {
+            log::warn!("could not take back a cancelled extraction: {not_removed}");
+            Err(err.after(published))
+        }
+    }
+}
+
 fn staging_dir(to: &Path, dir_name: &OsStr) -> Result<PathBuf, OperationError> {
     for n in 0.. {
         let mut name = OsString::from(".");
@@ -1455,7 +1527,7 @@ impl Operation {
                 paths,
                 to,
                 password,
-                as_folder,
+                into,
             } => Self::Extract {
                 paths: paths
                     .iter()
@@ -1464,7 +1536,7 @@ impl Operation {
                     .collect(),
                 to: to.clone(),
                 password: password.clone(),
-                as_folder: *as_folder,
+                into: *into,
             },
             _ => self.clone(),
         }
@@ -1709,6 +1781,18 @@ impl OperationError {
     }
 }
 
+/// Where an archive's contents go, inside the destination.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum ExtractInto {
+    /// A new folder named after the archive if more than one thing is at its
+    /// root. A single file or folder goes directly into the destination.
+    FolderIfSeveral,
+    /// A new folder named after the archive, whatever it holds.
+    Folder,
+    /// Directly into the destination, whatever it holds.
+    Destination,
+}
+
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum Operation {
     /// Compress files
@@ -1742,9 +1826,7 @@ pub enum Operation {
         paths: Box<[PathBuf]>,
         to: PathBuf,
         password: Option<String>,
-        /// Extract each archive into a new folder named after it instead of
-        /// directly into `to`
-        as_folder: bool,
+        into: ExtractInto,
     },
     /// Move items
     Move {
@@ -2445,7 +2527,7 @@ impl Operation {
                 paths,
                 to,
                 password,
-                as_folder,
+                into,
             } => {
                 let controller_clone = controller.clone();
                 let prompts = prompts.clone();
@@ -2475,7 +2557,7 @@ impl Operation {
                         };
                         let dir_name = get_directory_name(file_name).to_os_string();
 
-                        if as_folder {
+                        if into == ExtractInto::Folder {
                             let new_dir = extract_dir(&to, &dir_name, file_name)
                                 .map_err(|err| err.after(done()))?;
                             let extracted = extract_archive(
@@ -2501,14 +2583,27 @@ impl Operation {
                                 }
                                 return Err(err.after(done));
                             }
-                            op_sel.warnings.extend(extracted.unwrap_or_default());
-                            op_sel.created.push(new_dir.clone());
-                            op_sel.selected.push(new_dir);
+                            // Stopped while it was flushing, it is not done
+                            let published = settle_published(
+                                OperationSelection {
+                                    selected: vec![new_dir.clone()],
+                                    created: vec![new_dir],
+                                    warnings: extracted.unwrap_or_default(),
+                                    ..OperationSelection::default()
+                                },
+                                &controller,
+                            )
+                            .await
+                            .map_err(|err| err.after(done()))?;
+                            op_sel.selected.extend(published.selected);
+                            op_sel.created.extend(published.created);
+                            op_sel.warnings.extend(published.warnings);
                         } else {
                             // Extract into a hidden staging directory beside the destination,
-                            // then move the entries into place. The move goes through the
-                            // same replace dialog as copy/move, so existing files are never
-                            // overwritten silently.
+                            // then bring the entries out. Kept together, they become a folder
+                            // named after the archive; otherwise they move into place through
+                            // the same replace dialog as copy/move, so existing files are
+                            // never overwritten silently.
                             let staging =
                                 staging_dir(&to, &dir_name).map_err(|err| err.after(done()))?;
                             let result = async {
@@ -2533,24 +2628,37 @@ impl Operation {
                                     .await
                                     .map_err(wrap_compio_spawn_error)?
                                     .map_err(OperationError::from_err)?;
-                                let mut moved = copy_or_move(
-                                    entries.clone(),
-                                    to.clone(),
-                                    Method::Move {
-                                        cross_device_copy: false,
-                                    },
-                                    true,
-                                    &prompts,
-                                    controller.clone(),
-                                )
-                                .await?;
+                                let gather =
+                                    into == ExtractInto::FolderIfSeveral && entries.len() > 1;
+                                let mut moved = if gather {
+                                    publish_gathered(
+                                        staging.clone(),
+                                        to.clone(),
+                                        dir_name.clone(),
+                                        file_name.to_os_string(),
+                                        &controller,
+                                    )
+                                    .await?
+                                } else {
+                                    copy_or_move(
+                                        entries.clone(),
+                                        to.clone(),
+                                        Method::Move {
+                                            cross_device_copy: false,
+                                        },
+                                        true,
+                                        &prompts,
+                                        controller.clone(),
+                                    )
+                                    .await?
+                                };
                                 sync_to_disk(Vec::new(), [to.clone()].into_iter().collect())
                                     .await
                                     .map_err(|(path, err)| {
                                         OperationError::at(&path, &err).after(moved.clone())
                                     })?;
                                 // Entries moved by a plain rename are not in the selection
-                                for entry in entries {
+                                for entry in entries.iter().filter(|_| !gather) {
                                     if let Some(name) = entry.file_name() {
                                         let dest = to.join(name);
                                         if dest.exists() && !moved.selected.contains(&dest) {
@@ -2559,6 +2667,9 @@ impl Operation {
                                     }
                                 }
                                 moved.warnings.extend(damaged);
+                                if gather {
+                                    moved = settle_published(moved, &controller).await?;
+                                }
                                 Ok::<_, OperationError>(moved)
                             }
                             .await;
@@ -2982,7 +3093,7 @@ mod tests {
     use test_log::test;
 
     use super::{
-        ArchiveType, Blocked, BlockedAnswer, Controller, Operation, OperationError,
+        ArchiveType, Blocked, BlockedAnswer, Controller, ExtractInto, Operation, OperationError,
         OperationSelection, ReplaceResult,
     };
     use crate::app::test_utils::{
@@ -3910,11 +4021,26 @@ mod tests {
         Ok(())
     }
 
-    /// Run `[Operation::Extract]`, answering every replace dialog with `reply`.
+    /// Run `[Operation::Extract]`, into a folder always or as its contents
+    /// decide, answering every replace dialog with `reply`.
     async fn operation_extract(
         paths: Vec<PathBuf>,
         to: PathBuf,
         as_folder: bool,
+        reply: ReplaceResult,
+    ) -> Result<OperationSelection, OperationError> {
+        let into = if as_folder {
+            ExtractInto::Folder
+        } else {
+            ExtractInto::FolderIfSeveral
+        };
+        operation_extract_into(paths, to, into, reply).await
+    }
+
+    async fn operation_extract_into(
+        paths: Vec<PathBuf>,
+        to: PathBuf,
+        into: ExtractInto,
         reply: ReplaceResult,
     ) -> Result<OperationSelection, OperationError> {
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
@@ -3923,7 +4049,7 @@ mod tests {
                 paths: paths.into_boxed_slice(),
                 to,
                 password: None,
-                as_folder,
+                into,
             }
             .perform(&tx, Controller::default())
             .await
@@ -3957,14 +4083,27 @@ mod tests {
         Ok(())
     }
 
+    /// Write a zip archive with one thing at its root: `sub`, holding `a.txt`
+    /// and `b.txt`.
+    fn write_one_folder_zip(path: &std::path::Path) -> io::Result<()> {
+        write_zip_with(
+            path,
+            &[("sub/a.txt", b"archive a"), ("sub/b.txt", b"archive b")],
+        )
+    }
+
     /// Write a tar.gz archive containing `a.txt` and `sub/b.txt`.
     fn write_test_tar_gz(path: &std::path::Path) -> io::Result<()> {
+        write_tar_gz_with(
+            path,
+            &[("a.txt", b"archive a"), ("sub/b.txt", b"archive b")],
+        )
+    }
+
+    fn write_tar_gz_with(path: &std::path::Path, entries: &[(&str, &[u8])]) -> io::Result<()> {
         let encoder = flate2::write::GzEncoder::new(File::create(path)?, Default::default());
         let mut tar = tar::Builder::new(encoder);
-        for (name, data) in [
-            ("a.txt", &b"archive a"[..]),
-            ("sub/b.txt", &b"archive b"[..]),
-        ] {
+        for &(name, data) in entries {
             let mut header = tar::Header::new_gnu();
             header.set_size(data.len() as u64);
             header.set_mode(0o644);
@@ -5083,7 +5222,7 @@ mod tests {
             paths: vec!["/a/one.zip".into(), "/a/two.zip".into()].into(),
             to: "/a".into(),
             password: None,
-            as_folder: true,
+            into: ExtractInto::Folder,
         };
         let Operation::Extract { paths, .. } = extract.remaining(&done) else {
             panic!("an extract");
@@ -5354,7 +5493,7 @@ mod tests {
             paths: vec![good, cut.clone()].into(),
             to: path.to_owned(),
             password: None,
-            as_folder: true,
+            into: ExtractInto::Folder,
         };
         let Operation::Extract { paths, .. } = extract.remaining(&err.partial) else {
             panic!("an extract");
@@ -5418,9 +5557,9 @@ mod tests {
         Ok(())
     }
 
-    /// Archives whose names are not UTF-8 extract, straight into the
-    /// destination and each into a folder named from its own bytes: none
-    /// is passed over while the operation reports success
+    /// Archives whose names are not UTF-8 extract, each into a folder named
+    /// from its own bytes, asked for or for having several things at its
+    /// root: none is passed over while the operation reports success
     #[test(compio::test)]
     async fn archives_named_in_bytes_that_are_not_utf8_extract() -> io::Result<()> {
         for as_folder in [false, true] {
@@ -5447,17 +5586,11 @@ mod tests {
                     std::slice::from_ref(archive),
                     "not marked done"
                 );
-                let root = if as_folder {
-                    to.join(&folder)
-                } else {
-                    to.clone()
-                };
+                let root = to.join(&folder);
                 assert_eq!(fs::read(root.join("a.txt"))?, b"archive a", "{archive:?}");
                 assert_eq!(fs::read(root.join("sub/b.txt"))?, b"archive b");
-                if as_folder {
-                    assert_eq!(op_sel.created, std::slice::from_ref(&root));
-                    assert_eq!(op_sel.selected, [root]);
-                }
+                assert_eq!(op_sel.created, std::slice::from_ref(&root));
+                assert_eq!(op_sel.selected, [root]);
                 assert_no_staging_dir(&to)?;
             }
         }
@@ -5525,7 +5658,7 @@ mod tests {
             paths: vec![good, cut.clone()].into(),
             to,
             password: None,
-            as_folder: true,
+            into: ExtractInto::Folder,
         };
         let Operation::Extract { paths, .. } = extract.remaining(&err.partial) else {
             panic!("an extract");
@@ -5581,14 +5714,15 @@ mod tests {
         let fs = empty_fs()?;
         let path = fs.path();
         let archive = path.join("test.zip");
-        write_test_zip(&archive)?;
-        fs::write(path.join("a.txt"), b"mine")?;
+        write_one_folder_zip(&archive)?;
+        fs::create_dir(path.join("sub"))?;
+        fs::write(path.join("sub/a.txt"), b"mine")?;
 
         let extract = Operation::Extract {
             paths: vec![archive.clone()].into(),
             to: path.to_owned(),
             password: None,
-            as_folder: false,
+            into: ExtractInto::FolderIfSeveral,
         };
         let result = operation_extract(
             vec![archive],
@@ -5598,12 +5732,12 @@ mod tests {
         )
         .await
         .expect("extracted");
-        assert_eq!(fs::read(path.join("a.txt"))?, b"archive a");
+        assert_eq!(fs::read(path.join("sub/a.txt"))?, b"archive a");
         let undo = extract.undo(&result);
         assert!(
             undo.iter()
                 .any(|op| matches!(op, Operation::Restore { items }
-                if items.iter().any(|item| item.original_path() == Some(path.join("a.txt"))))),
+                if items.iter().any(|item| item.original_path() == Some(path.join("sub/a.txt"))))),
             "{undo:?}"
         );
         Ok(())
@@ -5641,7 +5775,7 @@ mod tests {
         let fs = empty_fs()?;
         let path = fs.path();
         let archive = path.join("test.zip");
-        write_test_zip(&archive)?;
+        write_one_folder_zip(&archive)?;
 
         let op_sel = operation_extract(
             vec![archive.clone()],
@@ -5652,7 +5786,7 @@ mod tests {
         .await
         .expect("Extract operation should have succeeded");
 
-        assert_eq!(fs::read(path.join("a.txt"))?, b"archive a");
+        assert_eq!(fs::read(path.join("sub/a.txt"))?, b"archive a");
         assert_eq!(fs::read(path.join("sub/b.txt"))?, b"archive b");
         assert!(
             !path.join("test").exists(),
@@ -5660,9 +5794,7 @@ mod tests {
         );
         assert_no_staging_dir(path)?;
         assert_eq!(op_sel.ignored, vec![archive]);
-        let mut selected = op_sel.selected;
-        selected.sort();
-        assert_eq!(selected, vec![path.join("a.txt"), path.join("sub")]);
+        assert_eq!(op_sel.selected, vec![path.join("sub")]);
         Ok(())
     }
 
@@ -5671,7 +5803,10 @@ mod tests {
         let fs = empty_fs()?;
         let path = fs.path();
         let archive = path.join("test.tar.gz");
-        write_test_tar_gz(&archive)?;
+        write_tar_gz_with(
+            &archive,
+            &[("sub/a.txt", b"archive a"), ("sub/b.txt", b"archive b")],
+        )?;
 
         operation_extract(
             vec![archive.clone()],
@@ -5682,13 +5817,249 @@ mod tests {
         .await
         .expect("Extract operation should have succeeded");
 
-        assert_eq!(fs::read(path.join("a.txt"))?, b"archive a");
+        assert_eq!(fs::read(path.join("sub/a.txt"))?, b"archive a");
         assert_eq!(fs::read(path.join("sub/b.txt"))?, b"archive b");
         assert!(
             !path.join("test").exists(),
             "No folder named after the archive"
         );
         assert_no_staging_dir(path)?;
+        Ok(())
+    }
+
+    /// Several things at an archive's root stay together in a folder named
+    /// after it, and meet nothing already at the destination
+    #[test(compio::test)]
+    async fn several_things_at_the_root_get_a_folder() -> io::Result<()> {
+        let fs = empty_fs()?;
+        let path = fs.path();
+        let archive = path.join("test.zip");
+        write_test_zip(&archive)?;
+        fs::write(path.join("a.txt"), b"mine")?;
+        fs::create_dir(path.join("test"))?;
+
+        let extract = Operation::Extract {
+            paths: vec![archive.clone()].into(),
+            to: path.to_owned(),
+            password: None,
+            into: ExtractInto::FolderIfSeveral,
+        };
+        // A question would be answered Cancel, and nothing would be extracted
+        let result =
+            operation_extract(vec![archive], path.to_owned(), false, ReplaceResult::Cancel)
+                .await
+                .expect("extracted");
+
+        let folder = path.join(format!("test ({} 1)", fl!("copy_noun")));
+        assert_eq!(fs::read(folder.join("a.txt"))?, b"archive a");
+        assert_eq!(fs::read(folder.join("sub/b.txt"))?, b"archive b");
+        assert_eq!(fs::read(path.join("a.txt"))?, b"mine", "left alone");
+        assert!(!path.join("sub").exists());
+        assert_eq!(result.selected, std::slice::from_ref(&folder));
+        assert_eq!(result.created, std::slice::from_ref(&folder));
+        assert_no_staging_dir(path)?;
+
+        let undo = extract.undo(&result);
+        assert!(
+            matches!(undo.as_slice(), [Operation::Delete { paths }] if paths == &[folder]),
+            "{undo:?}"
+        );
+        Ok(())
+    }
+
+    /// Stopped once the archive is extracted but before its folder is
+    /// published, nothing shows up at the destination
+    #[test(compio::test)]
+    async fn stopped_before_publishing_leaves_no_folder() -> io::Result<()> {
+        for abort in [false, true] {
+            let fs = empty_fs()?;
+            let path = fs.path();
+            let staging = path.join(".test.extracting");
+            fs::create_dir(&staging)?;
+            fs::write(staging.join("a.txt"), b"archive a")?;
+            let controller = Controller::default();
+            if abort {
+                controller.abort();
+            } else {
+                controller.cancel();
+            }
+
+            let err = super::publish_gathered(
+                staging.clone(),
+                path.to_owned(),
+                "test".into(),
+                "test.zip".into(),
+                &controller,
+            )
+            .await
+            .expect_err("stopped");
+
+            assert!(err.is_cancelled(), "{err:?}");
+            assert!(!path.join("test").exists(), "abort: {abort}");
+            assert!(err.partial.created.is_empty(), "abort: {abort}");
+            assert!(staging.exists(), "left for the caller to clean up");
+        }
+        Ok(())
+    }
+
+    /// Cancelled just as its folder was published, the extraction takes it
+    /// back, and ends as cancelled rather than done
+    #[test(compio::test)]
+    async fn cancelled_after_publishing_takes_the_folder_back() -> io::Result<()> {
+        let fs = empty_fs()?;
+        let folder = fs.path().join("test");
+        fs::create_dir(&folder)?;
+        fs::write(folder.join("a.txt"), b"archive a")?;
+        let published = OperationSelection {
+            selected: vec![folder.clone()],
+            created: vec![folder.clone()],
+            ..OperationSelection::default()
+        };
+        let controller = Controller::default();
+        controller.cancel();
+
+        let err = super::settle_published(published, &controller)
+            .await
+            .expect_err("cancelled");
+
+        assert!(err.is_cancelled(), "{err:?}");
+        assert!(!folder.exists());
+        assert!(err.partial.created.is_empty(), "{err:?}");
+        Ok(())
+    }
+
+    /// Aborted just as its folder was published, the folder stays, to undo
+    #[test(compio::test)]
+    async fn aborted_after_publishing_keeps_the_folder() -> io::Result<()> {
+        let fs = empty_fs()?;
+        let folder = fs.path().join("test");
+        fs::create_dir(&folder)?;
+        let published = OperationSelection {
+            selected: vec![folder.clone()],
+            created: vec![folder.clone()],
+            ..OperationSelection::default()
+        };
+        let controller = Controller::default();
+        controller.abort();
+
+        let err = super::settle_published(published, &controller)
+            .await
+            .expect_err("aborted");
+
+        assert!(err.is_cancelled(), "{err:?}");
+        assert!(folder.exists());
+        assert_eq!(err.partial.created, [folder]);
+        Ok(())
+    }
+
+    /// A name that is no name of its own gives way to the archive's, as
+    /// when a folder is asked for
+    #[test(compio::test)]
+    async fn several_things_in_an_archive_named_dot_dot_stay_in_the_destination() -> io::Result<()>
+    {
+        let fs = empty_fs()?;
+        let to = fs.path().join("to");
+        fs::create_dir(&to)?;
+        let archive = fs.path().join("...zip");
+        write_test_zip(&archive)?;
+
+        operation_extract(vec![archive], to.clone(), false, ReplaceResult::Cancel)
+            .await
+            .expect("extracted");
+
+        assert_eq!(fs::read(to.join("...zip/a.txt"))?, b"archive a");
+        assert_no_staging_dir(&to)?;
+        Ok(())
+    }
+
+    /// A single file at an archive's root goes straight into the destination
+    #[test(compio::test)]
+    async fn one_file_at_the_root_gets_no_folder() -> io::Result<()> {
+        let fs = empty_fs()?;
+        let path = fs.path();
+        let archive = path.join("test.zip");
+        write_zip_with(&archive, &[("a.txt", b"archive a")])?;
+
+        let result =
+            operation_extract(vec![archive], path.to_owned(), false, ReplaceResult::Cancel)
+                .await
+                .expect("extracted");
+
+        assert_eq!(fs::read(path.join("a.txt"))?, b"archive a");
+        assert!(!path.join("test").exists());
+        assert_eq!(result.selected, vec![path.join("a.txt")]);
+        assert_no_staging_dir(path)?;
+        Ok(())
+    }
+
+    /// Asked for, the folder is made whatever the archive holds
+    #[test(compio::test)]
+    async fn a_folder_asked_for_is_made_for_one_thing_too() -> io::Result<()> {
+        let fs = empty_fs()?;
+        let path = fs.path();
+        let archive = path.join("test.zip");
+        write_one_folder_zip(&archive)?;
+
+        operation_extract(vec![archive], path.to_owned(), true, ReplaceResult::Cancel)
+            .await
+            .expect("extracted");
+
+        assert_eq!(fs::read(path.join("test/sub/a.txt"))?, b"archive a");
+        assert!(!path.join("sub").exists());
+        Ok(())
+    }
+
+    /// Extracting into a chosen destination puts everything directly in it,
+    /// however many things the archive holds at its root
+    #[test(compio::test)]
+    async fn a_chosen_destination_takes_everything_directly() -> io::Result<()> {
+        let fs = empty_fs()?;
+        let to = fs.path().join("to");
+        fs::create_dir(&to)?;
+        let archive = fs.path().join("test.zip");
+        write_test_zip(&archive)?;
+
+        let result = operation_extract_into(
+            vec![archive],
+            to.clone(),
+            ExtractInto::Destination,
+            ReplaceResult::Cancel,
+        )
+        .await
+        .expect("extracted");
+
+        assert_eq!(fs::read(to.join("a.txt"))?, b"archive a");
+        assert_eq!(fs::read(to.join("sub/b.txt"))?, b"archive b");
+        assert!(!to.join("test").exists(), "no folder named after it");
+        let mut selected = result.selected;
+        selected.sort();
+        assert_eq!(selected, vec![to.join("a.txt"), to.join("sub")]);
+        assert_no_staging_dir(&to)?;
+        Ok(())
+    }
+
+    /// Each archive of several is taken by what it holds itself
+    #[test(compio::test)]
+    async fn each_archive_decides_for_itself() -> io::Result<()> {
+        let fs = empty_fs()?;
+        let path = fs.path();
+        let (one, many) = (path.join("one.zip"), path.join("many.zip"));
+        write_one_folder_zip(&one)?;
+        write_test_zip(&many)?;
+
+        operation_extract(
+            vec![one, many],
+            path.to_owned(),
+            false,
+            ReplaceResult::Cancel,
+        )
+        .await
+        .expect("extracted");
+
+        assert_eq!(fs::read(path.join("sub/a.txt"))?, b"archive a");
+        assert!(!path.join("one").exists());
+        assert_eq!(fs::read(path.join("many/a.txt"))?, b"archive a");
+        assert!(!path.join("a.txt").exists());
         Ok(())
     }
 
@@ -5730,9 +6101,9 @@ mod tests {
         let fs = empty_fs()?;
         let path = fs.path();
         let archive = path.join("test.zip");
-        write_test_zip(&archive)?;
-        fs::write(path.join("a.txt"), b"existing a")?;
+        write_one_folder_zip(&archive)?;
         fs::create_dir(path.join("sub"))?;
+        fs::write(path.join("sub/a.txt"), b"existing a")?;
         fs::write(path.join("sub/b.txt"), b"existing b")?;
         fs::write(path.join("sub/c.txt"), b"existing c")?;
 
@@ -5745,7 +6116,7 @@ mod tests {
         .await
         .expect("Extract operation should have succeeded");
 
-        assert_eq!(fs::read(path.join("a.txt"))?, b"archive a");
+        assert_eq!(fs::read(path.join("sub/a.txt"))?, b"archive a");
         assert_eq!(fs::read(path.join("sub/b.txt"))?, b"archive b");
         assert_eq!(
             fs::read(path.join("sub/c.txt"))?,
@@ -5761,8 +6132,9 @@ mod tests {
         let fs = empty_fs()?;
         let path = fs.path();
         let archive = path.join("test.zip");
-        write_test_zip(&archive)?;
-        fs::write(path.join("a.txt"), b"existing a")?;
+        write_one_folder_zip(&archive)?;
+        fs::create_dir(path.join("sub"))?;
+        fs::write(path.join("sub/a.txt"), b"existing a")?;
 
         operation_extract(
             vec![archive],
@@ -5773,7 +6145,7 @@ mod tests {
         .await
         .expect("Extract operation should have succeeded");
 
-        assert_eq!(fs::read(path.join("a.txt"))?, b"existing a");
+        assert_eq!(fs::read(path.join("sub/a.txt"))?, b"existing a");
         assert_eq!(fs::read(path.join("sub/b.txt"))?, b"archive b");
         assert_no_staging_dir(path)?;
         Ok(())
@@ -5786,17 +6158,18 @@ mod tests {
         let fs = empty_fs()?;
         let path = fs.path();
         let archive = path.join("test.zip");
-        write_test_zip(&archive)?;
-        // `a.txt` is kept by the user, `sub` already exists and is merged into
-        fs::write(path.join("a.txt"), b"my notes")?;
+        write_one_folder_zip(&archive)?;
+        // `sub` already exists and is merged into, `a.txt` in it is kept by
+        // the user
         fs::create_dir(path.join("sub"))?;
+        fs::write(path.join("sub/a.txt"), b"my notes")?;
         fs::write(path.join("sub/c.txt"), b"unrelated")?;
 
         let op = Operation::Extract {
             paths: vec![archive.clone()].into_boxed_slice(),
             to: path.to_owned(),
             password: None,
-            as_folder: false,
+            into: ExtractInto::FolderIfSeveral,
         };
         let result = operation_extract(
             vec![archive],
@@ -5817,7 +6190,7 @@ mod tests {
             .collect();
 
         assert!(
-            !undone.contains(&path.join("a.txt")),
+            !undone.contains(&path.join("sub/a.txt")),
             "undo must not remove the file the user kept: {undone:?}"
         );
         assert!(
@@ -5836,7 +6209,7 @@ mod tests {
         let fs = empty_fs()?;
         let path = fs.path();
         let archive = path.join("test.zip");
-        write_test_zip(&archive)?;
+        write_one_folder_zip(&archive)?;
         fs::create_dir(path.join("sub"))?;
         fs::write(path.join("sub/b.txt"), b"existing b")?;
 
@@ -5849,7 +6222,7 @@ mod tests {
         .await
         .expect("Extract operation should have succeeded");
 
-        assert_eq!(fs::read(path.join("a.txt"))?, b"archive a");
+        assert_eq!(fs::read(path.join("sub/a.txt"))?, b"archive a");
         assert_eq!(fs::read(path.join("sub/b.txt"))?, b"existing b");
         assert_no_staging_dir(path)?;
         Ok(())
@@ -5860,8 +6233,9 @@ mod tests {
         let fs = empty_fs()?;
         let path = fs.path();
         let archive = path.join("test.zip");
-        write_test_zip(&archive)?;
-        fs::write(path.join("a.txt"), b"existing a")?;
+        write_one_folder_zip(&archive)?;
+        fs::create_dir(path.join("sub"))?;
+        fs::write(path.join("sub/a.txt"), b"existing a")?;
 
         operation_extract(
             vec![archive],
@@ -5872,9 +6246,9 @@ mod tests {
         .await
         .expect("Extract operation should have succeeded");
 
-        assert_eq!(fs::read(path.join("a.txt"))?, b"existing a");
+        assert_eq!(fs::read(path.join("sub/a.txt"))?, b"existing a");
         assert_eq!(
-            fs::read(path.join(format!("a ({} 1).txt", fl!("copy_noun"))))?,
+            fs::read(path.join(format!("sub/a ({} 1).txt", fl!("copy_noun"))))?,
             b"archive a"
         );
         assert_no_staging_dir(path)?;

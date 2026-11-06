@@ -61,8 +61,8 @@ use crate::mounter::{
 };
 pub use crate::operation::ArchiveType;
 use crate::operation::{
-    Ask, Blocked, BlockedAnswer, Controller, ControllerState, Operation, OperationError,
-    OperationErrorType, OperationSelection, Prompt, ReplaceResult,
+    Ask, Blocked, BlockedAnswer, Controller, ControllerState, ExtractInto, Operation,
+    OperationError, OperationErrorType, OperationSelection, Prompt, ReplaceResult,
 };
 use crate::progress;
 use crate::service_menu::{self, ServiceEntry, ServiceItem, ServiceMenus};
@@ -1870,9 +1870,8 @@ impl App {
         }
     }
 
-    /// Extract the selected archives next to themselves, either directly or
-    /// each into a new folder named after it.
-    fn extract_here(&mut self, entity_opt: Option<Entity>, as_folder: bool) -> Task<Message> {
+    /// Extract the selected archives next to themselves.
+    fn extract_here(&mut self, entity_opt: Option<Entity>, into: ExtractInto) -> Task<Message> {
         let paths: Box<[_]> = self.selected_paths(entity_opt).collect();
         if let Some(destination) = paths
             .first()
@@ -1883,7 +1882,7 @@ impl App {
                 paths,
                 to: destination,
                 password: None,
-                as_folder,
+                into,
             });
         }
         Task::none()
@@ -5446,15 +5445,12 @@ impl Application for App {
                             let operation = &self.operations.get_failed(id).unwrap().op;
                             let new_op = match operation {
                                 Operation::Extract {
-                                    to,
-                                    paths,
-                                    as_folder,
-                                    ..
+                                    to, paths, into, ..
                                 } => Operation::Extract {
                                     to: to.clone(),
                                     paths: paths.clone(),
                                     password: Some(password),
-                                    as_folder: *as_folder,
+                                    into: *into,
                                 },
                                 _ => unreachable!(),
                             };
@@ -5685,10 +5681,10 @@ impl Application for App {
                 ]);
             }
             Message::ExtractAsFolder(entity_opt) => {
-                return self.extract_here(entity_opt, true);
+                return self.extract_here(entity_opt, ExtractInto::Folder);
             }
             Message::ExtractHere(entity_opt) => {
-                return self.extract_here(entity_opt, false);
+                return self.extract_here(entity_opt, ExtractInto::FolderIfSeveral);
             }
             Message::ExtractTo(entity_opt) => {
                 let selected_paths: Box<[_]> = self.selected_paths(entity_opt).collect();
@@ -5713,7 +5709,7 @@ impl Application for App {
                                 paths: archive_paths,
                                 to: selected_paths[0].clone(),
                                 password: None,
-                                as_folder: false,
+                                into: ExtractInto::Destination,
                             });
                         }
                     }
