@@ -482,6 +482,7 @@ async fn an_extract_that_fills_the_drive_leaves_no_half_folder() {
             to: drive.clone(),
             password: None,
             into: ExtractInto::Folder,
+            only: None,
         },
         |_, _, _| BlockedAnswer::Cancel,
     )

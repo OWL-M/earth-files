@@ -153,12 +153,13 @@ async fn extract_archive(
     path: PathBuf,
     dir: PathBuf,
     password: &Option<String>,
+    only: Option<crate::archive::index::Only>,
     controller: &Controller,
 ) -> Result<Vec<Warning>, OperationError> {
     let password = password.clone();
     let controller_clone = controller.clone();
     let extracted = compio::runtime::spawn_blocking(move || {
-        crate::archive::extract(&path, &dir, &password, &controller_clone)
+        crate::archive::extract_only(&path, &dir, &password, only.as_ref(), &controller_clone)
     })
     .await
     .map_err(wrap_compio_spawn_error)??;
@@ -327,6 +328,23 @@ async fn settle_published(
             Err(err.after(published))
         }
     }
+}
+
+/// Brings each of `tops` out of `staging`, where it sits as deep as it is in its
+/// archive, to the top of `picked`, as a copy would leave it: without the folders
+/// above it. Things of one name from different folders are numbered, as nothing
+/// asked about them: a selection made in a search can hold both. What the
+/// archive would not give up, being damaged, is left out.
+fn pick_out(staging: &Path, picked: &Path, tops: &[PathBuf]) -> Result<(), OperationError> {
+    for top in tops {
+        let from = staging.join(top);
+        if surely_gone(&from) {
+            continue;
+        }
+        let to = copy_unique_path(&from, picked);
+        fs::rename(&from, &to).map_err(OperationError::from_err)?;
+    }
+    Ok(())
 }
 
 fn staging_dir(to: &Path, dir_name: &OsStr) -> Result<PathBuf, OperationError> {
@@ -1528,6 +1546,7 @@ impl Operation {
                 to,
                 password,
                 into,
+                only,
             } => Self::Extract {
                 paths: paths
                     .iter()
@@ -1537,6 +1556,7 @@ impl Operation {
                 to: to.clone(),
                 password: password.clone(),
                 into: *into,
+                only: only.clone(),
             },
             _ => self.clone(),
         }
@@ -1681,7 +1701,9 @@ pub fn copy_unique_path(from: &Path, to: &Path) -> PathBuf {
 
             to.push(&new_name);
 
-            if !matches!(to.try_exists(), Ok(true)) {
+            // Not following a link: one that leads nowhere is still in the way,
+            // and going to its name would replace it
+            if to.symlink_metadata().is_err() {
                 break;
             }
             // Continue if a copy with index exists
@@ -1827,6 +1849,9 @@ pub enum Operation {
         to: PathBuf,
         password: Option<String>,
         into: ExtractInto,
+        /// Only these of it, by their paths in the archive, each coming out
+        /// without the folders above it. For one archive, as `paths` then is.
+        only: Option<Box<[PathBuf]>>,
     },
     /// Move items
     Move {
@@ -2528,7 +2553,9 @@ impl Operation {
                 to,
                 password,
                 into,
+                only,
             } => {
+                let only = only.map(|paths| crate::archive::index::Only::new(&paths));
                 let controller_clone = controller.clone();
                 let prompts = prompts.clone();
                 compio::runtime::spawn(async move {
@@ -2557,13 +2584,14 @@ impl Operation {
                         };
                         let dir_name = get_directory_name(file_name).to_os_string();
 
-                        if into == ExtractInto::Folder {
+                        if into == ExtractInto::Folder && only.is_none() {
                             let new_dir = extract_dir(&to, &dir_name, file_name)
                                 .map_err(|err| err.after(done()))?;
                             let extracted = extract_archive(
                                 path.clone(),
                                 new_dir.clone(),
                                 &password,
+                                None,
                                 &controller,
                             )
                             .await;
@@ -2606,14 +2634,33 @@ impl Operation {
                             // never overwritten silently.
                             let staging =
                                 staging_dir(&to, &dir_name).map_err(|err| err.after(done()))?;
+                            // Only some of it: they come out of where they
+                            // sit in the archive into a staging directory of
+                            // their own, what is left being the same
+                            let mut picked = None;
                             let result = async {
                                 let damaged = extract_archive(
                                     path.clone(),
                                     staging.clone(),
                                     &password,
+                                    only.clone(),
                                     &controller,
                                 )
                                 .await?;
+                                let staging = if let Some(only) = &only {
+                                    let out = staging_dir(&to, &dir_name)?;
+                                    picked = Some(out.clone());
+                                    let (from, into_picked, tops) =
+                                        (staging.clone(), out.clone(), only.tops());
+                                    compio::runtime::spawn_blocking(move || {
+                                        pick_out(&from, &into_picked, &tops)
+                                    })
+                                    .await
+                                    .map_err(wrap_compio_spawn_error)??;
+                                    out
+                                } else {
+                                    staging.clone()
+                                };
                                 // Enumerated off the runtime thread: a staging
                                 // directory holds every entry of the archive,
                                 // and on a slow or remote destination reading
@@ -2628,8 +2675,8 @@ impl Operation {
                                     .await
                                     .map_err(wrap_compio_spawn_error)?
                                     .map_err(OperationError::from_err)?;
-                                let gather =
-                                    into == ExtractInto::FolderIfSeveral && entries.len() > 1;
+                                let gather = into == ExtractInto::Folder
+                                    || (into == ExtractInto::FolderIfSeveral && entries.len() > 1);
                                 let mut moved = if gather {
                                     publish_gathered(
                                         staging.clone(),
@@ -2681,6 +2728,7 @@ impl Operation {
                             // staging directory stays ours until it is gone.
                             let to_clean = staging.clone();
                             let _ = compio::runtime::spawn_blocking(move || {
+                                let _ = picked.map(fs::remove_dir_all);
                                 fs::remove_dir_all(to_clean)
                             })
                             .await;
@@ -4050,6 +4098,7 @@ mod tests {
                 to,
                 password: None,
                 into,
+                only: None,
             }
             .perform(&tx, Controller::default())
             .await
@@ -5223,6 +5272,7 @@ mod tests {
             to: "/a".into(),
             password: None,
             into: ExtractInto::Folder,
+            only: None,
         };
         let Operation::Extract { paths, .. } = extract.remaining(&done) else {
             panic!("an extract");
@@ -5494,6 +5544,7 @@ mod tests {
             to: path.to_owned(),
             password: None,
             into: ExtractInto::Folder,
+            only: None,
         };
         let Operation::Extract { paths, .. } = extract.remaining(&err.partial) else {
             panic!("an extract");
@@ -5659,6 +5710,7 @@ mod tests {
             to,
             password: None,
             into: ExtractInto::Folder,
+            only: None,
         };
         let Operation::Extract { paths, .. } = extract.remaining(&err.partial) else {
             panic!("an extract");
@@ -5723,6 +5775,7 @@ mod tests {
             to: path.to_owned(),
             password: None,
             into: ExtractInto::FolderIfSeveral,
+            only: None,
         };
         let result = operation_extract(
             vec![archive],
@@ -5843,6 +5896,7 @@ mod tests {
             to: path.to_owned(),
             password: None,
             into: ExtractInto::FolderIfSeveral,
+            only: None,
         };
         // A question would be answered Cancel, and nothing would be extracted
         let result =
@@ -6009,6 +6063,214 @@ mod tests {
         Ok(())
     }
 
+    /// Run `[Operation::Extract]` for only `only` of `archive`.
+    async fn extract_some(
+        archive: &std::path::Path,
+        to: &std::path::Path,
+        into: ExtractInto,
+        only: &[&str],
+    ) -> OperationSelection {
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        let extract = Operation::Extract {
+            paths: vec![archive.to_path_buf()].into_boxed_slice(),
+            to: to.to_path_buf(),
+            password: None,
+            into,
+            only: Some(only.iter().map(PathBuf::from).collect()),
+        };
+        let run = async move { extract.perform(&tx, Controller::default()).await };
+        let answer = async move {
+            while let Some(message) = rx.recv().await {
+                if let super::Prompt::Replace { answer, .. } = message {
+                    answer.send(ReplaceResult::KeepBoth).await.unwrap();
+                }
+            }
+        };
+        future::join(answer, run).await.1.expect("extracted")
+    }
+
+    /// What was asked for and nothing else, without the folders above it
+    #[test(compio::test)]
+    async fn some_of_an_archive_comes_out_without_its_folders() -> io::Result<()> {
+        let fs = empty_fs()?;
+        let path = fs.path();
+        let archive = path.join("test.zip");
+        write_zip_with(
+            &archive,
+            &[
+                ("deep/er/a.txt", b"a"),
+                ("deep/er/b.txt", b"b"),
+                ("c.txt", b"c"),
+            ],
+        )?;
+        let to = path.join("to");
+        fs::create_dir(&to)?;
+
+        let done = extract_some(&archive, &to, ExtractInto::Destination, &["deep/er/a.txt"]).await;
+
+        assert_eq!(fs::read(to.join("a.txt"))?, b"a");
+        assert!(!to.join("deep").exists(), "no folders above it");
+        assert!(!to.join("b.txt").exists(), "nothing beside it");
+        assert!(!to.join("c.txt").exists());
+        assert_eq!(done.selected, [to.join("a.txt")]);
+        assert_no_staging_dir(&to)?;
+        Ok(())
+    }
+
+    /// A folder asked for comes with all in it
+    #[test(compio::test)]
+    async fn a_folder_of_an_archive_comes_out_whole() -> io::Result<()> {
+        let fs = empty_fs()?;
+        let path = fs.path();
+        let archive = path.join("test.tar.gz");
+        write_tar_gz_with(
+            &archive,
+            &[
+                ("top/sub/a.txt", b"a"),
+                ("top/sub/in/b.txt", b"b"),
+                ("top/c.txt", b"c"),
+            ],
+        )?;
+        let to = path.join("to");
+        fs::create_dir(&to)?;
+
+        extract_some(&archive, &to, ExtractInto::Destination, &["top/sub"]).await;
+
+        assert_eq!(fs::read(to.join("sub/a.txt"))?, b"a");
+        assert_eq!(fs::read(to.join("sub/in/b.txt"))?, b"b");
+        assert!(!to.join("c.txt").exists());
+        assert!(!to.join("top").exists());
+        assert_no_staging_dir(&to)?;
+        Ok(())
+    }
+
+    /// A link that leads nowhere still has its name: nothing goes over it
+    #[test(compio::test)]
+    async fn a_dangling_link_of_one_name_in_a_selection_is_kept() -> io::Result<()> {
+        let fs = empty_fs()?;
+        let path = fs.path();
+        let (staging, picked) = (path.join("staging"), path.join("picked"));
+        fs::create_dir_all(staging.join("a"))?;
+        fs::create_dir(staging.join("b"))?;
+        fs::create_dir(&picked)?;
+        std::os::unix::fs::symlink("nowhere", staging.join("a/x"))?;
+        fs::write(staging.join("b/x"), b"file")?;
+
+        super::pick_out(
+            &staging,
+            &picked,
+            &[PathBuf::from("a/x"), PathBuf::from("b/x")],
+        )
+        .expect("picked");
+
+        assert!(picked.join("x").symlink_metadata()?.is_symlink());
+        let copy = picked.join(format!("x ({} 1)", fl!("copy_noun")));
+        assert_eq!(fs::read(copy)?, b"file");
+        Ok(())
+    }
+
+    /// Things of one name from different folders are both kept, unasked
+    #[test(compio::test)]
+    async fn things_of_one_name_in_a_selection_are_numbered() -> io::Result<()> {
+        let fs = empty_fs()?;
+        let path = fs.path();
+        let archive = path.join("test.zip");
+        write_zip_with(&archive, &[("a/x.txt", b"one"), ("b/x.txt", b"two")])?;
+        let to = path.join("to");
+        fs::create_dir(&to)?;
+
+        extract_some(
+            &archive,
+            &to,
+            ExtractInto::Destination,
+            &["a/x.txt", "b/x.txt"],
+        )
+        .await;
+
+        let copy = to.join(format!("x ({} 1).txt", fl!("copy_noun")));
+        assert_eq!(fs::read(to.join("x.txt"))?, b"one");
+        assert_eq!(fs::read(copy)?, b"two");
+        assert_no_staging_dir(&to)?;
+        Ok(())
+    }
+
+    /// Next to the archive the rule is the same as for all of it: several
+    /// things stay together in a folder, one goes directly
+    #[test(compio::test)]
+    async fn a_selection_follows_the_folder_rule() -> io::Result<()> {
+        let fs = empty_fs()?;
+        let path = fs.path();
+        let archive = path.join("test.zip");
+        write_zip_with(&archive, &[("d/a.txt", b"a"), ("d/b.txt", b"b")])?;
+        let to = path.join("to");
+        fs::create_dir(&to)?;
+
+        extract_some(&archive, &to, ExtractInto::FolderIfSeveral, &["d/a.txt"]).await;
+        assert_eq!(fs::read(to.join("a.txt"))?, b"a");
+
+        extract_some(
+            &archive,
+            &to,
+            ExtractInto::FolderIfSeveral,
+            &["d/a.txt", "d/b.txt"],
+        )
+        .await;
+        assert_eq!(fs::read(to.join("test/a.txt"))?, b"a");
+        assert_eq!(fs::read(to.join("test/b.txt"))?, b"b");
+        assert_no_staging_dir(&to)?;
+        Ok(())
+    }
+
+    /// A file already at the destination asks, as extracting all of it does
+    #[test(compio::test)]
+    async fn a_selection_meeting_a_file_asks() -> io::Result<()> {
+        let fs = empty_fs()?;
+        let path = fs.path();
+        let archive = path.join("test.zip");
+        write_zip_with(&archive, &[("d/a.txt", b"archive")])?;
+        let to = path.join("to");
+        fs::create_dir(&to)?;
+        fs::write(to.join("a.txt"), b"mine")?;
+
+        extract_some(&archive, &to, ExtractInto::Destination, &["d/a.txt"]).await;
+
+        assert_eq!(fs::read(to.join("a.txt"))?, b"mine", "kept");
+        let copy = to.join(format!("a ({} 1).txt", fl!("copy_noun")));
+        assert_eq!(fs::read(copy)?, b"archive", "answered keep both");
+        Ok(())
+    }
+
+    /// Only the block holding what is wanted of a 7z is decoded, and its
+    /// neighbours in that block do not come along
+    #[test(compio::test)]
+    async fn some_of_a_seven_z_comes_out() -> io::Result<()> {
+        use sevenz_rust2::{ArchiveEntry, ArchiveWriter};
+        let fs = empty_fs()?;
+        let path = fs.path();
+        let archive = path.join("test.7z");
+        let mut writer = ArchiveWriter::create(&archive).expect("7z");
+        for (name, data) in [
+            ("d/a.txt", &b"aaaa"[..]),
+            ("d/b.txt", b"bbbb"),
+            ("c.txt", b"cccc"),
+        ] {
+            writer
+                .push_archive_entry(ArchiveEntry::new_file(name), Some(data))
+                .expect("entry");
+        }
+        writer.finish().expect("7z");
+        let to = path.join("to");
+        fs::create_dir(&to)?;
+
+        extract_some(&archive, &to, ExtractInto::Destination, &["d/b.txt"]).await;
+
+        assert_eq!(fs::read(to.join("b.txt"))?, b"bbbb");
+        assert!(!to.join("a.txt").exists());
+        assert!(!to.join("c.txt").exists());
+        assert_no_staging_dir(&to)?;
+        Ok(())
+    }
+
     /// Extracting into a chosen destination puts everything directly in it,
     /// however many things the archive holds at its root
     #[test(compio::test)]
@@ -6170,6 +6432,7 @@ mod tests {
             to: path.to_owned(),
             password: None,
             into: ExtractInto::FolderIfSeveral,
+            only: None,
         };
         let result = operation_extract(
             vec![archive],

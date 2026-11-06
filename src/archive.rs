@@ -75,29 +75,51 @@ pub struct Extracted {
     pub damaged: Vec<(PathBuf, String)>,
 }
 
+#[cfg(test)]
 pub fn extract(
     path: &Path,
     new_dir: &Path,
     password: &Option<String>,
     controller: &Controller,
 ) -> Result<Extracted, OperationError> {
+    extract_only(path, new_dir, password, None, controller)
+}
+
+/// As [`extract`], of `only` what it names where it names anything. What comes
+/// out is where it is in the archive, folders above it included.
+pub fn extract_only(
+    path: &Path,
+    new_dir: &Path,
+    password: &Option<String>,
+    only: Option<&index::Only>,
+    controller: &Controller,
+) -> Result<Extracted, OperationError> {
     let mime = mime_for_path(path, false);
     let password = password.as_deref();
+    // A tar's hard link needs what it links to, written earlier in the stream
+    // than it can be asked for. Known from the index, usually held already
+    let with_targets = only
+        .filter(|_| mime.as_str().contains("tar"))
+        .and_then(|only| {
+            let index = index::read_shared(path, None, controller).ok()?;
+            Some(only.clone().with_hard_link_targets(&index))
+        });
+    let only = with_targets.as_ref().or(only);
     let mut out = Extracted::default();
     match mime.as_str() {
         "application/zip" => {
-            zip_extract_file(path, new_dir, password, controller, &mut out).map_err(
-                |e| match e {
+            zip_extract_file(path, new_dir, password, only, controller, &mut out).map_err(|e| {
+                match e {
                     ZipError::UnsupportedArchive(ZipError::PASSWORD_REQUIRED)
                     | ZipError::InvalidPassword => {
                         OperationError::from_kind(OperationErrorType::PasswordRequired)
                     }
                     _ => stopped(controller).unwrap_or_else(|| OperationError::from_err(e)),
-                },
-            )?;
+                }
+            })?;
         }
         "application/x-7z-compressed" => {
-            sevenz_extract(path, new_dir, password, controller, &mut out)?;
+            sevenz_extract(path, new_dir, password, only, controller, &mut out)?;
         }
         "application/x-tar" => {
             let reader =
@@ -106,45 +128,109 @@ pub fn extract(
                 tar::Archive::new(reader),
                 new_dir,
                 path,
+                only,
                 controller,
                 &mut out,
             )?;
         }
         "application/x-compressed-tar" => {
-            extract_compressed(path, new_dir, Codec::Gzip, true, controller, &mut out)?;
+            extract_compressed(
+                path,
+                new_dir,
+                (Codec::Gzip, true),
+                only,
+                controller,
+                &mut out,
+            )?;
         }
         "application/gzip" => {
-            extract_compressed(path, new_dir, Codec::Gzip, false, controller, &mut out)?;
+            extract_compressed(
+                path,
+                new_dir,
+                (Codec::Gzip, false),
+                only,
+                controller,
+                &mut out,
+            )?;
         }
         "application/x-zstd-compressed-tar" => {
-            extract_compressed(path, new_dir, Codec::Zstd, true, controller, &mut out)?;
+            extract_compressed(
+                path,
+                new_dir,
+                (Codec::Zstd, true),
+                only,
+                controller,
+                &mut out,
+            )?;
         }
         "application/zstd" => {
-            extract_compressed(path, new_dir, Codec::Zstd, false, controller, &mut out)?;
+            extract_compressed(
+                path,
+                new_dir,
+                (Codec::Zstd, false),
+                only,
+                controller,
+                &mut out,
+            )?;
         }
         #[cfg(feature = "bzip2")]
         "application/x-bzip-compressed-tar" | "application/x-bzip2-compressed-tar" => {
-            extract_compressed(path, new_dir, Codec::Bzip2, true, controller, &mut out)?;
+            extract_compressed(
+                path,
+                new_dir,
+                (Codec::Bzip2, true),
+                only,
+                controller,
+                &mut out,
+            )?;
         }
         #[cfg(feature = "bzip2")]
         "application/x-bzip" | "application/x-bzip2" => {
-            extract_compressed(path, new_dir, Codec::Bzip2, false, controller, &mut out)?;
+            extract_compressed(
+                path,
+                new_dir,
+                (Codec::Bzip2, false),
+                only,
+                controller,
+                &mut out,
+            )?;
         }
         #[cfg(feature = "lzma-rust2")]
         "application/x-xz-compressed-tar" => {
-            extract_compressed(path, new_dir, Codec::Xz, true, controller, &mut out)?;
+            extract_compressed(path, new_dir, (Codec::Xz, true), only, controller, &mut out)?;
         }
         #[cfg(feature = "lzma-rust2")]
         "application/x-xz" => {
-            extract_compressed(path, new_dir, Codec::Xz, false, controller, &mut out)?;
+            extract_compressed(
+                path,
+                new_dir,
+                (Codec::Xz, false),
+                only,
+                controller,
+                &mut out,
+            )?;
         }
         #[cfg(feature = "lzma-rust2")]
         "application/x-lzma-compressed-tar" => {
-            extract_compressed(path, new_dir, Codec::Lzma, true, controller, &mut out)?;
+            extract_compressed(
+                path,
+                new_dir,
+                (Codec::Lzma, true),
+                only,
+                controller,
+                &mut out,
+            )?;
         }
         #[cfg(feature = "lzma-rust2")]
         "application/x-lzma" => {
-            extract_compressed(path, new_dir, Codec::Lzma, false, controller, &mut out)?;
+            extract_compressed(
+                path,
+                new_dir,
+                (Codec::Lzma, false),
+                only,
+                controller,
+                &mut out,
+            )?;
         }
         _ => {
             return Err(OperationError::from_err(format!(
@@ -234,8 +320,8 @@ fn decoder<'a>(codec: Codec, reader: impl Read + 'a) -> io::Result<Box<dyn Read 
 fn extract_compressed(
     path: &Path,
     dst: &Path,
-    codec: Codec,
-    tar: bool,
+    (codec, tar): (Codec, bool),
+    only: Option<&index::Only>,
     controller: &Controller,
     out: &mut Extracted,
 ) -> Result<(), OperationError> {
@@ -243,7 +329,7 @@ fn extract_compressed(
     let reader = OpReader::new(path, controller.clone()).map_err(OperationError::from_err)?;
     let reader = decoder(codec, reader).map_err(OperationError::from_err)?;
     if tar {
-        unpack_tar(tar::Archive::new(reader), dst, path, controller, out)
+        unpack_tar(tar::Archive::new(reader), dst, path, only, controller, out)
     } else {
         write_single(reader, dst, path, controller, out)
     }
@@ -328,6 +414,7 @@ fn unpack_tar<R: Read>(
     mut archive: tar::Archive<R>,
     dst: &Path,
     path: &Path,
+    only: Option<&index::Only>,
     controller: &Controller,
     out: &mut Extracted,
 ) -> Result<(), OperationError> {
@@ -356,6 +443,9 @@ fn unpack_tar<R: Read>(
             }
         };
         any = true;
+        if only.is_some_and(|only| !only.wants(&entry.path_bytes(), false)) {
+            continue;
+        }
         let name = entry
             .path()
             .map_or_else(|_| whole(path), std::borrow::Cow::into_owned);
@@ -490,6 +580,7 @@ fn sevenz_extract(
     path: &Path,
     dst: &Path,
     password: Option<&str>,
+    only: Option<&index::Only>,
     controller: &Controller,
     out: &mut Extracted,
 ) -> Result<(), OperationError> {
@@ -505,6 +596,8 @@ fn sevenz_extract(
     let password = password.map_or_else(Password::empty, Password::from);
     let archive = Archive::read(&mut source, &password)
         .map_err(|err| password_error(&err).unwrap_or_else(|| OperationError::from_err(err)))?;
+    let wanted =
+        |name: &str| only.is_none_or(|only: &index::Only| only.wants(name.as_bytes(), true));
 
     // An entry's unix mode, when the archive was made on unix and keeps it
     let unix_mode = |entry: &ArchiveEntry| {
@@ -529,7 +622,7 @@ fn sevenz_extract(
     };
 
     for entry in &archive.files {
-        if entry.is_anti_item() {
+        if entry.is_anti_item() || !wanted(&entry.name) {
             continue;
         }
         let to = enclosed(dst, &entry.name).map_err(OperationError::from_err)?;
@@ -553,7 +646,12 @@ fn sevenz_extract(
         }
     }
 
-    let total: u64 = archive.files.iter().map(|entry| entry.size).sum();
+    let total: u64 = archive
+        .files
+        .iter()
+        .filter(|entry| wanted(&entry.name))
+        .map(|entry| entry.size)
+        .sum();
     let mut done = 0u64;
     let mut buffer = vec![0; 1024 * 1024];
     for block_index in 0..archive.blocks.len() {
@@ -568,13 +666,17 @@ fn sevenz_extract(
         let with_data: Vec<String> = decoder
             .entries()
             .iter()
-            .filter(|entry| entry.has_stream && entry.size > 0)
+            .filter(|entry| entry.has_stream && entry.size > 0 && wanted(&entry.name))
             .map(|entry| entry.name.clone())
             .collect();
+        // Nothing wanted of this block: it is not decoded at all
+        if with_data.is_empty() {
+            continue;
+        }
         let mut seen = 0;
         let mut ended: Option<OperationError> = None;
         let result = decoder.for_each_entries(&mut |entry, reader| {
-            if !(entry.has_stream && entry.size > 0) {
+            if !(entry.has_stream && entry.size > 0) || !wanted(&entry.name) {
                 return Ok(true);
             }
             seen += 1;
@@ -714,12 +816,13 @@ fn zip_extract_file(
     path: &Path,
     dst: &Path,
     password: Option<&str>,
+    only: Option<&index::Only>,
     controller: &Controller,
     out: &mut Extracted,
 ) -> ZipResult<()> {
     let file = fs::File::open(path)?;
     match zip::ZipArchive::new(io::BufReader::new(file)) {
-        Ok(mut archive) => zip_extract(&mut archive, dst, password, controller.clone(), out),
+        Ok(mut archive) => zip_extract(&mut archive, dst, password, only, controller.clone(), out),
         Err(err @ ZipError::InvalidArchive(_)) if password.is_none() => {
             let mut reader = io::BufReader::new(fs::File::open(path)?);
             let mut entries = ZipEntries::new(dst, out, false);
@@ -727,7 +830,12 @@ fn zip_extract_file(
             loop {
                 match zip::read::read_zipfile_from_stream(&mut reader) {
                     Ok(Some(file)) => {
-                        entries.entry(file, (index, 0), controller)?;
+                        if only.is_none_or(|only| {
+                            file.name()
+                                .is_ok_and(|name| only.wants(name.as_bytes(), true))
+                        }) {
+                            entries.entry(file, (index, 0), controller)?;
+                        }
                         index += 1;
                     }
                     Ok(None) => break,
@@ -932,6 +1040,7 @@ fn zip_extract<R: io::Read + io::Seek>(
     archive: &mut zip::ZipArchive<R>,
     directory: &Path,
     password: Option<&str>,
+    only: Option<&index::Only>,
     controller: Controller,
     out: &mut Extracted,
 ) -> ZipResult<()> {
@@ -946,6 +1055,9 @@ fn zip_extract<R: io::Read + io::Seek>(
             || PathBuf::from(format!("#{i}")),
             |name| PathBuf::from(&*name),
         );
+        if only.is_some_and(|only| !only.wants(name.as_os_str().as_encoded_bytes(), true)) {
+            continue;
+        }
         let file = match password {
             None => archive.by_index(i),
             Some(pwd) => archive.by_index_decrypt(i, pwd.as_bytes()),

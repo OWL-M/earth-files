@@ -9,7 +9,7 @@
 use super::{Codec, S_IFLNK, S_IFMT, check, decoder, holds_a_tar, stopped};
 use crate::mime_icon::mime_for_path;
 use crate::operation::{Controller, OpReader, OperationError, OperationErrorType};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::ffi::OsStr;
 use std::fs;
 use std::io::{self, Read};
@@ -42,6 +42,77 @@ pub const BROWSABLE_TYPES: &[&str] = &[
     #[cfg(feature = "lzma-rust2")]
     "application/x-lzma-compressed-tar",
 ];
+
+/// What to extract of an archive: these paths and all under those of them that
+/// are folders, by the names an [`ArchiveIndex`] gives them.
+#[derive(Clone, Debug, Default)]
+pub struct Only {
+    asked: HashSet<PathBuf>,
+    /// Entries needed only for what was asked to come out: the targets of hard
+    /// links, written to where it is staged and not brought out of it.
+    needed: HashSet<PathBuf>,
+}
+
+impl Only {
+    /// Only `paths`.
+    pub fn new(paths: &[PathBuf]) -> Self {
+        Self {
+            asked: paths.iter().cloned().collect(),
+            needed: HashSet::new(),
+        }
+    }
+
+    /// This, needing as well the entries the hard links it wants in `index` are
+    /// links to, followed as far as they go. A tar's hard link holds no data of
+    /// its own: without its target it comes out as nothing.
+    pub fn with_hard_link_targets(mut self, index: &ArchiveIndex) -> Self {
+        let mut waiting: Vec<&PathBuf> = index
+            .hard_links
+            .iter()
+            .filter(|(link, _)| {
+                link.ancestors()
+                    .any(|ancestor| self.asked.contains(ancestor))
+            })
+            .flat_map(|(_, targets)| targets)
+            .collect();
+        while let Some(path) = waiting.pop() {
+            if self.needed.insert(path.clone())
+                && let Some(targets) = index.hard_links.get(path)
+            {
+                waiting.extend(targets);
+            }
+        }
+        self
+    }
+
+    /// Whether the entry the archive calls `raw` is wanted.
+    pub fn wants(&self, raw: &[u8], backslashes: bool) -> bool {
+        clean(raw, backslashes).is_some_and(|path| {
+            self.needed.contains(&path)
+                || path
+                    .ancestors()
+                    .any(|ancestor| self.asked.contains(ancestor))
+        })
+    }
+
+    /// The paths asked for that are not already in another of them, each of
+    /// which is one thing at the top of what comes out.
+    pub fn tops(&self) -> Vec<PathBuf> {
+        let mut tops: Vec<PathBuf> = self
+            .asked
+            .iter()
+            .filter(|path| {
+                !path
+                    .ancestors()
+                    .skip(1)
+                    .any(|ancestor| self.asked.contains(ancestor))
+            })
+            .cloned()
+            .collect();
+        tops.sort();
+        tops
+    }
+}
 
 /// What an entry is.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -91,6 +162,13 @@ pub struct ArchiveIndex {
     entries: Vec<IndexEntry>,
     by_path: HashMap<PathBuf, usize>,
     children: HashMap<PathBuf, Vec<usize>>,
+    /// Every hard link a tar holds, by its name, to what it links to: all of
+    /// them, not only the entry that wins a name. Extracting replays the stream,
+    /// so a link that a later entry replaces still needs its target on the way.
+    hard_links: HashMap<PathBuf, HashSet<PathBuf>>,
+    /// How many targets `hard_links` holds. A name can link to any number of
+    /// them, so they have a cap of their own beside the entries'.
+    hard_link_targets: usize,
     /// How many entries were left out for names that reach outside the
     /// archive.
     pub unsafe_names: usize,
@@ -109,6 +187,8 @@ impl Default for ArchiveIndex {
             entries: Vec::new(),
             by_path: HashMap::new(),
             children: HashMap::new(),
+            hard_links: HashMap::new(),
+            hard_link_targets: 0,
             unsafe_names: 0,
             truncated: false,
             damaged: None,
@@ -181,7 +261,12 @@ impl ArchiveIndex {
             .filter_map(|path| self.by_path.get(path).copied())
             .collect();
         let mut found = Vec::new();
+        // A search can select a folder and what is in it: counted once
+        let mut seen = HashSet::new();
         while let Some(index) = stack.pop() {
+            if !seen.insert(index) {
+                continue;
+            }
             let entry = &self.entries[index];
             found.push(entry);
             if let Some(children) = self.children.get(&entry.path) {
@@ -223,7 +308,13 @@ impl ArchiveIndex {
             modified,
             mode,
             encrypted,
+            hard_link_to,
         } = entry;
+        if let Some(target) = hard_link_to
+            && !self.add_hard_link(&path, target)
+        {
+            return false;
+        }
         if let Some(&index) = self.by_path.get(&path) {
             let old = &mut self.entries[index];
             // What is in a folder keeps it a folder, whatever came after
@@ -244,6 +335,32 @@ impl ArchiveIndex {
             mode,
             encrypted,
         })
+    }
+
+    /// Notes that the hard link `link` links to `target`, once however often an
+    /// archive repeats it. Returns false, and notes nothing, once full.
+    fn add_hard_link(&mut self, link: &Path, target: PathBuf) -> bool {
+        let targets = self.hard_links.get(link);
+        if targets.is_some_and(|targets| targets.contains(&target)) {
+            return true;
+        }
+        let name_bytes = if targets.is_none() {
+            link.as_os_str().len()
+        } else {
+            0
+        };
+        let path_bytes = self.path_bytes + name_bytes + target.as_os_str().len();
+        if self.hard_link_targets >= self.max_entries || path_bytes > self.max_path_bytes {
+            self.truncated = true;
+            return false;
+        }
+        self.path_bytes = path_bytes;
+        self.hard_link_targets += 1;
+        self.hard_links
+            .entry(link.to_path_buf())
+            .or_default()
+            .insert(target);
+        true
     }
 
     /// Makes sure `path` and the folders above it have entries, as an archive
@@ -302,6 +419,7 @@ struct Listed {
     modified: Option<SystemTime>,
     mode: Option<u32>,
     encrypted: bool,
+    hard_link_to: Option<PathBuf>,
 }
 
 /// `raw` as a path inside the archive: without `.` and empty parts, so `./a`,
@@ -468,7 +586,12 @@ fn index_tar<R: Read>(
             tar::EntryType::Symlink | tar::EntryType::Link => EntryKind::Link,
             _ => EntryKind::File,
         };
+        let hard_link_to = (header.entry_type() == tar::EntryType::Link)
+            .then(|| entry.link_name_bytes())
+            .flatten()
+            .and_then(|target| clean(&target, false));
         let listed = Listed {
+            hard_link_to,
             kind,
             size: (kind == EntryKind::File).then(|| entry.size()),
             modified: header
@@ -562,6 +685,7 @@ fn zip_listed<R: Read>(file: &zip::read::ZipFile<'_, R>, sizes_known: bool) -> L
     };
     let size = file.size();
     Listed {
+        hard_link_to: None,
         kind,
         size: (kind == EntryKind::File && (sizes_known || size > 0)).then_some(size),
         modified: file
@@ -611,6 +735,7 @@ fn index_sevenz(
                 .any(|coder| coder.encoder_method_id() == EncoderMethod::ID_AES256_SHA256)
         });
         let listed = Listed {
+            hard_link_to: None,
             kind,
             size: (kind == EntryKind::File).then_some(entry.size),
             modified: entry
@@ -710,6 +835,7 @@ mod tests {
 
     fn file(size: u64) -> Listed {
         Listed {
+            hard_link_to: None,
             kind: EntryKind::File,
             size: Some(size),
             modified: None,
@@ -1026,6 +1152,61 @@ mod tests {
         assert_eq!(out.len(), 1);
     }
 
+    fn hard_link(target: &str) -> Listed {
+        Listed {
+            hard_link_to: Some(PathBuf::from(target)),
+            kind: EntryKind::Link,
+            size: None,
+            modified: None,
+            mode: None,
+            encrypted: false,
+        }
+    }
+
+    /// A tar repeating one hard link costs nothing more for it
+    #[test]
+    fn a_repeated_hard_link_is_held_once() {
+        let mut out = ArchiveIndex::default();
+        for _ in 0..1000 {
+            assert!(out.add(b"bbbb", false, hard_link("c")));
+        }
+        assert_eq!(out.len(), 1);
+        assert_eq!(out.hard_link_targets, 1);
+        assert_eq!(out.hard_links[Path::new("bbbb")].len(), 1);
+        // The entry's name, then the link's name and its target
+        assert_eq!(out.path_bytes, 4 + 4 + 1);
+        assert!(!out.truncated);
+    }
+
+    /// One name linking to ever more targets adds no entries, and still stops
+    #[test]
+    fn hard_link_targets_stop_at_the_cap() {
+        let mut out = ArchiveIndex {
+            max_entries: 2,
+            ..ArchiveIndex::default()
+        };
+        assert!(out.add(b"a", false, hard_link("x")));
+        assert!(out.add(b"a", false, hard_link("y")));
+        assert!(!out.truncated);
+        assert!(!out.add(b"a", false, hard_link("z")));
+        assert!(out.truncated);
+        assert_eq!(out.len(), 1);
+        assert_eq!(out.hard_link_targets, 2);
+    }
+
+    /// Hard link targets are names held like any other
+    #[test]
+    fn hard_link_targets_count_toward_the_budget_of_names() {
+        let mut out = ArchiveIndex {
+            max_path_bytes: 10,
+            ..ArchiveIndex::default()
+        };
+        assert!(out.add(b"a", false, hard_link("123")));
+        assert!(!out.add(b"a", false, hard_link("456789")));
+        assert!(out.truncated);
+        assert_eq!(out.hard_link_targets, 1);
+    }
+
     /// An encrypted 7z's list needs the password; a wrong or missing one is
     /// asked about, the right one lists it
     #[test]
@@ -1204,6 +1385,256 @@ mod tests {
         let fresh = read_shared(&path, None, &controller).unwrap();
         assert!(!std::sync::Arc::ptr_eq(&changed, &fresh), "let go of");
         keep_shared(&[]);
+    }
+
+    /// A path wanted brings what is under it, by the name it would have in a
+    /// listing however the archive writes it, and nothing beside it
+    #[test]
+    fn only_wants_what_was_asked_for_and_what_is_under_it() {
+        let only = super::Only::new(&[
+            PathBuf::from("a/b"),
+            PathBuf::from("a/b/c"),
+            PathBuf::from("d"),
+        ]);
+        assert!(only.wants(b"./a/b/file", false));
+        assert!(only.wants(b"a/b", false));
+        assert!(only.wants(br"a\b\file", true));
+        assert!(only.wants(b"d", false));
+        assert!(!only.wants(b"a/other", false));
+        assert!(
+            !only.wants(b"a", false),
+            "the folder above is not asked for"
+        );
+        assert!(!only.wants(b"../d", false));
+        assert_eq!(only.tops(), [PathBuf::from("a/b"), PathBuf::from("d")]);
+    }
+
+    /// A folder and what is in it, as a search can select both, count once
+    #[test]
+    fn a_selection_inside_a_selected_folder_counts_once() {
+        let mut out = ArchiveIndex::default();
+        out.add(b"d/ten", false, file(10));
+        assert_eq!(
+            out.size_of(&[PathBuf::from("d"), PathBuf::from("d/ten")]),
+            (10, true)
+        );
+    }
+
+    /// A hard link chosen without what it links to still comes out, with the
+    /// data, and that other entry stays behind what is brought out
+    #[test]
+    fn a_hard_link_chosen_alone_brings_its_target() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("t.tar");
+        let mut tar = tar::Builder::new(Vec::new());
+        let mut header = tar::Header::new_gnu();
+        header.set_size(4);
+        header.set_mode(0o644);
+        tar.append_data(&mut header, "d/original", &b"data"[..])
+            .unwrap();
+        let mut link = tar::Header::new_gnu();
+        link.set_entry_type(tar::EntryType::Link);
+        link.set_size(0);
+        link.set_mode(0o644);
+        tar.append_link(&mut link, "e/alias", "d/original").unwrap();
+        std::fs::write(&path, tar.into_inner().unwrap()).unwrap();
+
+        let listed = index(&path, None, &Controller::default()).unwrap();
+        let only = super::Only::new(&[PathBuf::from("e/alias")]);
+        assert!(!only.wants(b"d/original", false));
+        let only = only.with_hard_link_targets(&listed);
+        assert!(only.wants(b"d/original", false));
+        assert_eq!(only.tops(), [PathBuf::from("e/alias")], "not brought out");
+
+        let dest = tmp.path().join("out");
+        std::fs::create_dir(&dest).unwrap();
+        let done = crate::archive::extract_only(
+            &path,
+            &dest,
+            &None,
+            Some(&super::Only::new(&[PathBuf::from("e/alias")])),
+            &Controller::default(),
+        )
+        .unwrap();
+        assert!(done.damaged.is_empty(), "{:?}", done.damaged);
+        assert_eq!(std::fs::read(dest.join("e/alias")).unwrap(), b"data");
+        keep_shared(&[]);
+    }
+
+    /// Extracting replays the stream, so a link through a name that a later
+    /// entry replaces still needs what it linked to back then
+    #[test]
+    fn a_hard_link_through_a_replaced_name_keeps_its_data() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("t.tar");
+        let mut tar = tar::Builder::new(Vec::new());
+        let plain = |size: u64| {
+            let mut header = tar::Header::new_gnu();
+            header.set_size(size);
+            header.set_mode(0o644);
+            header
+        };
+        let link = || {
+            let mut header = tar::Header::new_gnu();
+            header.set_entry_type(tar::EntryType::Link);
+            header.set_size(0);
+            header.set_mode(0o644);
+            header
+        };
+        tar.append_data(&mut plain(4), "x", &b"data"[..]).unwrap();
+        tar.append_link(&mut link(), "a", "x").unwrap();
+        tar.append_link(&mut link(), "b", "a").unwrap();
+        tar.append_data(&mut plain(3), "a", &b"new"[..]).unwrap();
+        std::fs::write(&path, tar.into_inner().unwrap()).unwrap();
+
+        let dest = tmp.path().join("out");
+        std::fs::create_dir(&dest).unwrap();
+        let done = crate::archive::extract_only(
+            &path,
+            &dest,
+            &None,
+            Some(&super::Only::new(&[PathBuf::from("b")])),
+            &Controller::default(),
+        )
+        .unwrap();
+        assert!(done.damaged.is_empty(), "{:?}", done.damaged);
+        assert_eq!(std::fs::read(dest.join("b")).unwrap(), b"data");
+        keep_shared(&[]);
+    }
+
+    /// What is not chosen is never written, in any format: skipping it only
+    /// afterwards would still cost the room and the time
+    #[test]
+    fn what_is_not_chosen_is_never_written() {
+        let tmp = tempfile::tempdir().unwrap();
+        let entries: [(&str, &[u8]); 3] = [
+            ("d/a.txt", b"aaaa"),
+            ("d/b.txt", b"bbbb"),
+            ("c.txt", b"cccc"),
+        ];
+
+        let zip = tmp.path().join("t.zip");
+        write_zip(&zip, &entries);
+        let tar = tmp.path().join("t.tar");
+        std::fs::write(&tar, tar_bytes(&entries)).unwrap();
+        let gz = tmp.path().join("t.tar.gz");
+        let mut encoder = flate2::write::GzEncoder::new(
+            std::fs::File::create(&gz).unwrap(),
+            flate2::Compression::default(),
+        );
+        encoder.write_all(&tar_bytes(&entries)).unwrap();
+        encoder.finish().unwrap();
+        let seven = tmp.path().join("t.7z");
+        let mut writer = sevenz_rust2::ArchiveWriter::create(&seven).unwrap();
+        for (name, data) in entries {
+            writer
+                .push_archive_entry(sevenz_rust2::ArchiveEntry::new_file(name), Some(data))
+                .unwrap();
+        }
+        writer.finish().unwrap();
+
+        let only = super::Only::new(&[PathBuf::from("d/b.txt")]);
+        for (i, archive) in [zip, tar, gz, seven].iter().enumerate() {
+            let dest = tmp.path().join(format!("out{i}"));
+            std::fs::create_dir(&dest).unwrap();
+            crate::archive::extract_only(
+                archive,
+                &dest,
+                &None,
+                Some(&only),
+                &Controller::default(),
+            )
+            .unwrap();
+            assert_eq!(
+                std::fs::read(dest.join("d/b.txt")).unwrap(),
+                b"bbbb",
+                "{archive:?}"
+            );
+            assert!(!dest.join("d/a.txt").exists(), "{archive:?}");
+            assert!(!dest.join("c.txt").exists(), "{archive:?}");
+        }
+    }
+
+    /// In a solid 7z what is not chosen shares a block with what is: it is read
+    /// past, and the one chosen still comes out right
+    #[test]
+    fn a_solid_seven_z_gives_only_what_is_chosen() {
+        use sevenz_rust2::{ArchiveEntry, ArchiveWriter, SourceReader};
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("t.7z");
+        let mut writer = ArchiveWriter::create(&path).unwrap();
+        let contents: [&[u8]; 3] = [b"aaaa", b"bbbb", b"cccc"];
+        writer
+            .push_archive_entries(
+                vec![
+                    ArchiveEntry::new_file("d/a.txt"),
+                    ArchiveEntry::new_file("d/b.txt"),
+                    ArchiveEntry::new_file("c.txt"),
+                ],
+                contents.into_iter().map(SourceReader::new).collect(),
+            )
+            .unwrap();
+        writer.finish().unwrap();
+
+        let dest = tmp.path().join("out");
+        std::fs::create_dir(&dest).unwrap();
+        crate::archive::extract_only(
+            &path,
+            &dest,
+            &None,
+            Some(&super::Only::new(&[PathBuf::from("d/b.txt")])),
+            &Controller::default(),
+        )
+        .unwrap();
+        assert_eq!(std::fs::read(dest.join("d/b.txt")).unwrap(), b"bbbb");
+        assert!(!dest.join("d/a.txt").exists());
+        assert!(!dest.join("c.txt").exists());
+    }
+
+    /// What a listing calls an old zip's entry is what extraction goes by, or
+    /// choosing it would extract nothing
+    #[test]
+    fn an_entry_chosen_by_its_listed_name_is_extracted() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("t.zip");
+        write_zip(&path, &[("cafX.txt", b"1"), ("other.txt", b"2")]);
+        let bytes = std::fs::read(&path).unwrap();
+        let patched: Vec<u8> = bytes
+            .iter()
+            .enumerate()
+            .map(|(i, byte)| {
+                if bytes[i..].starts_with(b"X.txt") {
+                    0x82 // e acute in CP437
+                } else {
+                    *byte
+                }
+            })
+            .collect();
+        std::fs::write(&path, patched).unwrap();
+
+        let out = index(&path, None, &Controller::default()).unwrap();
+        let listed: Vec<PathBuf> = out
+            .listing(Path::new(""))
+            .unwrap()
+            .iter()
+            .map(|entry| entry.path.clone())
+            .filter(|path| path != Path::new("other.txt"))
+            .collect();
+        let dest = tmp.path().join("out");
+        std::fs::create_dir(&dest).unwrap();
+        crate::archive::extract_only(
+            &path,
+            &dest,
+            &None,
+            Some(&super::Only::new(&listed)),
+            &Controller::default(),
+        )
+        .unwrap();
+        let names: Vec<_> = std::fs::read_dir(&dest)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name())
+            .collect();
+        assert_eq!(names, [std::ffi::OsString::from("caf\u{e9}.txt")]);
     }
 
     /// A bomb's stated sizes are read, never its contents

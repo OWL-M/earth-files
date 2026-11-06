@@ -2835,8 +2835,12 @@ impl fmt::Debug for TaskWrapper {
 #[derive(Debug)]
 pub enum Command {
     Action(Action),
-    /// Extract the whole of the archive this tab is inside.
-    ExtractArchive(PathBuf, crate::operation::ExtractInto),
+    /// Extract of the archive this tab is inside what is selected, or all of it.
+    ExtractArchive(
+        PathBuf,
+        crate::operation::ExtractInto,
+        Option<Box<[PathBuf]>>,
+    ),
     /// Resolve these icons on a worker, then send [`Message::IconsReady`].
     /// Scanning and search both leave placeholders rather than waiting on the
     /// icon theme, which costs tens of milliseconds per icon.
@@ -2881,7 +2885,7 @@ pub enum Command {
 
 #[derive(Clone, Debug)]
 pub enum Message {
-    /// Extract the whole of the archive the tab is inside.
+    /// Extract of the archive the tab is inside what is selected, or all of it.
     ExtractArchive(crate::operation::ExtractInto),
     AddNetworkDrive,
     /// What a mounter said a submitted network URI names, or `None` when it
@@ -4457,6 +4461,10 @@ pub struct SearchContext {
     last_modified_opt: Arc<RwLock<Option<SystemTime>>>,
 }
 
+/// A selection inside an archive and what it adds up to, and whether every
+/// size in it is known.
+type SelectionTotal = (Arc<[usize]>, (u64, bool));
+
 /// Keeps only the items a host is willing to show; see [`Tab::item_filter`].
 pub(crate) type ItemFilter = Box<dyn Fn(&Item) -> bool>;
 
@@ -4523,6 +4531,8 @@ pub struct Tab {
     /// Inside an archive, its expanded size and whether every size in it is
     /// known. Worked out once per reading: the view asks for it every frame.
     pub archive_total: Option<(u64, bool)>,
+    /// The size of the selection inside an archive, and which it is of.
+    archive_selection_total: RefCell<Option<SelectionTotal>>,
     pub viewport_opt: Option<Rectangle>,
     pub item_view_size_opt: Cell<Option<Size>>,
     pub edit_location: Option<EditLocation>,
@@ -4993,6 +5003,7 @@ impl Tab {
             bottom_reserve: Cell::new(0.0),
             watch_failed: false,
             archive_total: None,
+            archive_selection_total: RefCell::new(None),
             viewport_opt: None,
             item_view_size_opt: Cell::new(None),
             edit_location: None,
@@ -7007,7 +7018,11 @@ impl Tab {
             }
             Message::ExtractArchive(into) => {
                 if let Some(archive) = self.archive() {
-                    commands.push(Command::ExtractArchive(archive.to_path_buf(), into));
+                    commands.push(Command::ExtractArchive(
+                        archive.to_path_buf(),
+                        into,
+                        self.selected_archive_entries(),
+                    ));
                 }
             }
             Message::LocationMenuAction(action) => {
@@ -9772,9 +9787,43 @@ impl Tab {
             .map(|(archive, _)| archive.as_path())
     }
 
-    /// What the footer inside an archive says of it as a whole.
+    /// What is selected inside an archive, by its paths there, if anything is.
+    pub fn selected_archive_entries(&self) -> Option<Box<[PathBuf]>> {
+        let items = self.items_opt.as_ref()?;
+        let selected: Box<[PathBuf]> = self
+            .selected_indices()
+            .iter()
+            .filter_map(|&index| match &items.get(index)?.location_opt {
+                Some(Location::Archive { inside, .. }) => Some(inside.clone()),
+                _ => None,
+            })
+            .collect();
+        (!selected.is_empty()).then_some(selected)
+    }
+
+    /// The expanded size of what is selected, or of all of it with nothing
+    /// selected, and whether every size is known. A selection is added up once:
+    /// the view asks every frame, and a folder may hold a great many entries.
+    fn archive_shown_total(&self) -> Option<(u64, bool)> {
+        let selection = self.selected_indices();
+        if selection.is_empty() {
+            return self.archive_total;
+        }
+        let mut held = self.archive_selection_total.borrow_mut();
+        if let Some((total_of, total)) = held.as_ref()
+            && Arc::ptr_eq(total_of, &selection)
+        {
+            return Some(*total);
+        }
+        let paths = self.selected_archive_entries()?;
+        let total = crate::archive::index::held(self.archive()?)?.size_of(&paths);
+        *held = Some((selection, total));
+        Some(total)
+    }
+
+    /// What the footer inside an archive says of its size.
     fn archive_total_text(&self) -> Option<String> {
-        let (size, known) = self.archive_total?;
+        let (size, known) = self.archive_shown_total()?;
         Some(if known {
             format_size(size)
         } else {
@@ -9822,22 +9871,21 @@ impl Tab {
                     .push(widget::text::caption("·").class(theme::Text::Custom(dim_text_style)))
                     .push(widget::text::caption(total).class(theme::Text::Custom(dim_text_style)));
             }
-            // Right after the text, for the card the footer's doc speaks of.
-            // Choosing what to extract comes with extracting a selection.
-            let whole = self.selected_indices().is_empty();
+            // Right after the text, for the card the footer's doc speaks of:
+            // what is selected, or with nothing selected all of it
             row = row
                 .push(
                     widget::button::link(fl!("extract-here"))
-                        .on_press_maybe(whole.then_some(Message::ExtractArchive(
+                        .on_press(Message::ExtractArchive(
                             crate::operation::ExtractInto::FolderIfSeveral,
-                        )))
+                        ))
                         .padding(0),
                 )
                 .push(
                     widget::button::link(fl!("extract-to"))
-                        .on_press_maybe(whole.then_some(Message::ExtractArchive(
+                        .on_press(Message::ExtractArchive(
                             crate::operation::ExtractInto::Destination,
-                        )))
+                        ))
                         .padding(0),
                 );
         }

@@ -888,6 +888,13 @@ fn context_menu_items(tab: &Tab, sources: &Sources) -> Vec<menu::Item<TabAction,
                 if selected_dir == 1 && selected == 1 {
                     children.push(menu_item(fl!("open"), Action::Open));
                 }
+                push_group(
+                    &mut children,
+                    vec![
+                        plain(fl!("extract-here"), "extract", Action::ExtractHere),
+                        plain(fl!("extract-to"), "extract", Action::ExtractTo),
+                    ],
+                );
             } else {
                 if tab.mode.multiple() {
                     children.push(menu_item(fl!("select-all"), Action::SelectAll));

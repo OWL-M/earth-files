@@ -1321,6 +1321,8 @@ pub struct App {
     /// latest is acted on.
     /// The archives being read to look inside them.
     archive_reads: browser::ArchiveReads,
+    /// What is to come of the archive the Extract To chooser is open for.
+    extract_to_only: Option<Box<[PathBuf]>>,
     nav_check: u64,
     /// The last number given a question about a taken name.
     replace_ids: u64,
@@ -1902,9 +1904,48 @@ impl App {
                 to: destination,
                 password: None,
                 into,
+                only: None,
             });
         }
         Task::none()
+    }
+
+    /// Extract of `archive`, one a tab is inside, `only` what is selected
+    /// there, or with nothing selected all of it.
+    fn extract_from_archive(
+        &mut self,
+        archive: PathBuf,
+        into: ExtractInto,
+        only: Option<Box<[PathBuf]>>,
+    ) -> Task<Message> {
+        match into {
+            ExtractInto::Destination => {
+                // Told to the operation when the chooser answers
+                self.extract_to_only = only;
+                self.extract_to(std::slice::from_ref(&archive))
+            }
+            into => match archive.parent().map(Path::to_path_buf) {
+                Some(to) => self.operation(Operation::Extract {
+                    paths: vec![archive].into_boxed_slice(),
+                    to,
+                    password: None,
+                    into,
+                    only,
+                }),
+                None => Task::none(),
+            },
+        }
+    }
+
+    /// What Extract is to do where it is asked inside an archive, if it is.
+    fn extract_inside(
+        &self,
+        entity_opt: Option<Entity>,
+    ) -> Option<(PathBuf, Option<Box<[PathBuf]>>)> {
+        let tab = self
+            .tabs
+            .get(entity_opt.unwrap_or_else(|| self.tab_model.active()))?;
+        Some((tab.archive()?.to_path_buf(), tab.selected_archive_entries()))
     }
 
     fn extract_to(&mut self, paths: &[impl AsRef<Path>]) -> Task<Message> {
@@ -4892,6 +4933,7 @@ impl Application for App {
             clipboard_cache: ClipboardCache::Empty,
             clipboard_epoch: 0,
             archive_reads: browser::ArchiveReads::default(),
+            extract_to_only: None,
             nav_check: 0,
             replace_ids: 0,
             name_check: None,
@@ -5626,12 +5668,17 @@ impl Application for App {
                             let operation = &self.operations.get_failed(id).unwrap().op;
                             let new_op = match operation {
                                 Operation::Extract {
-                                    to, paths, into, ..
+                                    to,
+                                    paths,
+                                    into,
+                                    only,
+                                    ..
                                 } => Operation::Extract {
                                     to: to.clone(),
                                     paths: paths.clone(),
                                     password: Some(password),
                                     into: *into,
+                                    only: only.clone(),
                                 },
                                 _ => unreachable!(),
                             };
@@ -5874,15 +5921,22 @@ impl Application for App {
             Message::BrowseCancel(id) => self.archive_reads.cancel(id),
             Message::BrowseRead(id, read) => return self.browse_read(id, read),
             Message::ExtractHere(entity_opt) => {
+                if let Some((archive, only)) = self.extract_inside(entity_opt) {
+                    return self.extract_from_archive(archive, ExtractInto::FolderIfSeveral, only);
+                }
                 return self.extract_here(entity_opt, ExtractInto::FolderIfSeveral);
             }
             Message::ExtractTo(entity_opt) => {
+                if let Some((archive, only)) = self.extract_inside(entity_opt) {
+                    return self.extract_from_archive(archive, ExtractInto::Destination, only);
+                }
+                self.extract_to_only = None;
                 let selected_paths: Box<[_]> = self.selected_paths(entity_opt).collect();
                 return self.extract_to(&selected_paths);
             }
             Message::ExtractToResult(result) => {
                 match result {
-                    DialogResult::Cancel => {}
+                    DialogResult::Cancel => self.extract_to_only = None,
                     DialogResult::Open(selected_paths) => {
                         let mut archive_paths = None;
                         if let Some(file_dialog) = &self.file_dialog_opt
@@ -5895,11 +5949,13 @@ impl Application for App {
                             && !selected_paths.is_empty()
                         {
                             self.file_dialog_opt = None;
+                            let only = self.extract_to_only.take();
                             return self.operation(Operation::Extract {
                                 paths: archive_paths,
                                 to: selected_paths[0].clone(),
                                 password: None,
                                 into: ExtractInto::Destination,
+                                only,
                             });
                         }
                     }
@@ -7706,21 +7762,8 @@ impl Application for App {
                         tab::Command::OpenInNewTab(path) => {
                             commands.push(self.open_tab(Location::Path(path), false, None));
                         }
-                        tab::Command::ExtractArchive(archive, into) => {
-                            commands.push(match into {
-                                ExtractInto::Destination => {
-                                    self.extract_to(std::slice::from_ref(&archive))
-                                }
-                                into => match archive.parent().map(Path::to_path_buf) {
-                                    Some(to) => self.operation(Operation::Extract {
-                                        paths: vec![archive].into_boxed_slice(),
-                                        to,
-                                        password: None,
-                                        into,
-                                    }),
-                                    None => Task::none(),
-                                },
-                            });
+                        tab::Command::ExtractArchive(archive, into, only) => {
+                            commands.push(self.extract_from_archive(archive, into, only));
                         }
                         tab::Command::OpenInNewWindow(path) => match env::current_exe() {
                             Ok(exe) => match process::Command::new(&exe).arg(path).spawn() {
