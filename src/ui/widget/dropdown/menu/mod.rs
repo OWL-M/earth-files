@@ -152,6 +152,22 @@ where
     pub fn popup(self, position: Point, target_height: f32) -> crate::ui::Element<'a, Message> {
         Overlay::new(self, target_height, position).into()
     }
+
+    /// The height the list takes, up to `max_height`, at rest: without the
+    /// spring, which would report where it is along the way.
+    #[must_use]
+    pub fn natural_height(self, renderer: &crate::ui::Renderer, max_height: f32) -> f32 {
+        let width = self.width;
+        let menu = Self {
+            centered_animated: false,
+            ..self
+        };
+        let mut overlay = Overlay::new(menu, 0.0, Point::ORIGIN);
+        let limits = layout::Limits::new(Size::ZERO, Size::new(width, max_height));
+        iced_core::Widget::layout(&mut overlay, &mut Tree::empty(), renderer, &limits)
+            .size()
+            .height
+    }
 }
 
 /// The local state of a [`Menu`].
@@ -663,6 +679,17 @@ where
                     }
                 }
             }
+            // A list in a popup of its own has the keyboard where the
+            // compositor gives it to the popup: the window never hears this
+            Event::Keyboard(iced_core::keyboard::Event::KeyPressed {
+                key: iced_core::keyboard::Key::Named(iced_core::keyboard::key::Named::Escape),
+                ..
+            }) => {
+                if let Some(close) = self.close_on_selected.as_ref() {
+                    shell.publish(close.clone());
+                    shell.capture_event();
+                }
+            }
             Event::Mouse(mouse::Event::CursorLeft) => {
                 let mut hovered_guard = self.hovered_option.lock().unwrap();
 
@@ -889,6 +916,57 @@ mod tests {
         .text_size(14)
         .centered_animated(true);
         Overlay::new(menu, 36.0, position)
+    }
+
+    /// A list in a popup closes on Escape and keeps it from the window; one
+    /// in the window has no popup to close and leaves Escape to the window
+    #[test]
+    fn escape_closes_a_list_in_a_popup_only() {
+        use iced_core::keyboard::{self, Key, key};
+        let renderer = iced_texture_cache::testing::headless_tiny_skia();
+        let escape = Event::Keyboard(keyboard::Event::KeyPressed {
+            key: Key::Named(key::Named::Escape),
+            modified_key: Key::Named(key::Named::Escape),
+            physical_key: key::Physical::Code(key::Code::Escape),
+            location: keyboard::Location::Standard,
+            modifiers: keyboard::Modifiers::empty(),
+            text: None,
+            repeat: false,
+        });
+        for (close, expected) in [(Some(9_usize), vec![9_usize]), (None, Vec::new())] {
+            let menu = Menu::new(
+                State::new(),
+                Cow::Owned(vec!["One", "Two"]),
+                Cow::Borrowed(&[]),
+                Arc::new(Mutex::new(None)),
+                None,
+                |option| option,
+                None,
+                close,
+            )
+            .width(100.0);
+            let mut overlay = Overlay::new(menu, 0.0, Point::ORIGIN);
+            let node = iced_core::Widget::layout(
+                &mut overlay,
+                &mut Tree::empty(),
+                &renderer,
+                &layout::Limits::new(Size::ZERO, Size::new(100.0, 100.0)),
+            );
+            let mut messages = Vec::new();
+            let mut shell = Shell::new(&mut messages);
+            overlay._update(
+                &escape,
+                Layout::new(&node),
+                mouse::Cursor::Unavailable,
+                &renderer,
+                &mut clipboard::Null,
+                &mut shell,
+            );
+            let captured = shell.is_event_captured();
+            drop(shell);
+            assert_eq!(captured, !expected.is_empty());
+            assert_eq!(messages, expected);
+        }
     }
 
     #[test]

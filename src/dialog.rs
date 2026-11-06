@@ -289,6 +289,19 @@ impl Default for DialogSettings {
 /// message belongs to.
 pub type DialogMapper<M> = Arc<dyn Fn(DialogMessage) -> M + Send + Sync>;
 
+/// How what a chooser's shell returns reaches its host. A message comes back
+/// to the chooser through `mapper`. What is for exwlshell, such as a popup,
+/// stays as it is: the runtime takes it from the top of a task's output
+/// only, and wrapped it would come back to the shell, which has no use for it.
+fn to_host<M>(
+    mapper: DialogMapper<M>,
+) -> impl Fn(crate::ui::Action<Message>) -> crate::ui::Action<M> {
+    move |action| match action {
+        crate::ui::Action::Exwl(exwl) => crate::ui::Action::Exwl(exwl),
+        action => crate::ui::action::app(mapper(DialogMessage(action))),
+    }
+}
+
 pub struct Dialog<M> {
     shell: Shell<App>,
     mapper: DialogMapper<M>,
@@ -368,23 +381,14 @@ impl<M: Send + 'static> Dialog<M> {
                 mapper,
                 on_result: Box::new(on_result),
             },
-            Task::batch([
-                window_command,
-                shell_command
-                    .map(DialogMessage)
-                    .map(move |message| crate::ui::action::app(for_command(message))),
-            ]),
+            Task::batch([window_command, shell_command.map(to_host(for_command))]),
         )
     }
 
     pub fn set_title(&mut self, title: impl Into<String>) -> Task<M> {
         let mapper = Arc::clone(&self.mapper);
         self.shell.app.title = title.into();
-        self.shell
-            .app
-            .update_title()
-            .map(DialogMessage)
-            .map(move |message| crate::ui::action::app(mapper(message)))
+        self.shell.app.update_title().map(to_host(mapper))
     }
 
     pub fn set_accept_label(&mut self, accept_label: impl AsRef<str>) {
@@ -412,11 +416,7 @@ impl<M: Send + 'static> Dialog<M> {
         self.shell.app.filters = filters.into();
         self.shell.app.filter_selected = filter_selected;
         self.shell.app.update_item_filter();
-        self.shell
-            .app
-            .rescan_tab(None)
-            .map(DialogMessage)
-            .map(move |message| crate::ui::action::app(mapper(message)))
+        self.shell.app.rescan_tab(None).map(to_host(mapper))
     }
 
     /// The chooser's own events, for the host to wrap.
@@ -431,11 +431,7 @@ impl<M: Send + 'static> Dialog<M> {
 
     pub fn update(&mut self, message: DialogMessage) -> Task<M> {
         let mapper = Arc::clone(&self.mapper);
-        let command = self
-            .shell
-            .update(message.0)
-            .map(DialogMessage)
-            .map(move |message| crate::ui::action::app(mapper(message)));
+        let command = self.shell.update(message.0).map(to_host(mapper));
         if let Some(result) = self.shell.app.result_opt.take() {
             // Every surface our shell tracks is a Wayland popup, so there is
             // no surface kind to switch on here.
@@ -702,10 +698,13 @@ impl App {
         .align_y(Alignment::Center)
         .spacing(space_xxs.to_pixels());
         if !self.filters.is_empty() {
-            row = row.push(widget::dropdown(
+            row = row.push(widget::dropdown::popup_dropdown(
                 &self.filters,
                 self.filter_selected,
                 Message::Filter,
+                self.flags.window_id,
+                Message::Surface,
+                |message| message,
             ));
         }
         for (choice_i, choice) in self.choices.iter().enumerate() {
@@ -726,9 +725,14 @@ impl App {
                     ..
                 } => {
                     row = row.push(widget::text::heading(label));
-                    row = row.push(widget::dropdown(options, *selected, move |option_i| {
-                        Message::Choice(choice_i, option_i)
-                    }));
+                    row = row.push(widget::dropdown::popup_dropdown(
+                        options,
+                        *selected,
+                        move |option_i| Message::Choice(choice_i, option_i),
+                        self.flags.window_id,
+                        Message::Surface,
+                        |message| message,
+                    ));
                 }
             }
         }
@@ -1216,7 +1220,7 @@ impl Application for App {
             None,
             // The scrollable's name; see `Tab::scrollable_name`.
             std::borrow::Cow::Borrowed("Undefined"),
-            None,
+            Some(flags.window_id),
         );
         tab.mode = tab::Mode::Dialog(flags.kind.clone());
         tab.sort_name = tab::HeadingOptions::Modified;
@@ -1452,8 +1456,15 @@ impl Application for App {
             ContextPage::Preview(..) => self.core.window.show_context,
             _ => false,
         };
-        elements
-            .push(menu::dialog_menu(&self.tab, &self.key_binds, show_details).map(Message::from));
+        elements.push(
+            menu::dialog_menu(
+                &self.tab,
+                &self.key_binds,
+                show_details,
+                self.flags.window_id,
+            )
+            .map(Message::from),
+        );
 
         elements
     }
@@ -1520,6 +1531,18 @@ impl Application for App {
     }
 
     fn on_escape(&mut self) -> Task<Message> {
+        // A popup goes first. Where the compositor leaves the keyboard on the
+        // window while a popup holds its grab, as Hyprland does, Escape comes
+        // here and would cancel the chooser from under it.
+        let popups = crate::ui::surface::chain::rooted_in(self.flags.window_id);
+        if !popups.is_empty() {
+            return Task::batch(popups.into_iter().map(|id| {
+                crate::ui::task::message(crate::ui::Action::Surface(
+                    crate::ui::surface::action::destroy_popup(id),
+                ))
+            }));
+        }
+
         // A dialog in the chooser is on top of everything else, and goes first
         if !self.dialog_pages.is_empty() {
             return self.update(Message::DialogCancel);
@@ -2436,6 +2459,28 @@ impl Application for App {
 
 #[cfg(test)]
 mod tests {
+    /// Popups are asked for through exwlshell's actions: one that comes back
+    /// wrapped as a message never reaches it, and the chooser's menus never
+    /// open
+    #[test]
+    fn what_is_for_exwlshell_reaches_it_unwrapped() {
+        let mapper: super::DialogMapper<super::DialogMessage> =
+            std::sync::Arc::new(|message| message);
+        let to_host = super::to_host(mapper);
+
+        let id = crate::ui::iced::window::Id::unique();
+        assert!(matches!(
+            to_host(crate::ui::action::exwl::remove_window(id)),
+            crate::ui::Action::Exwl(_)
+        ));
+        assert!(matches!(
+            to_host(crate::ui::action::app(super::Message::None)),
+            crate::ui::Action::App(super::DialogMessage(crate::ui::Action::App(
+                super::Message::None
+            )))
+        ));
+    }
+
     use super::*;
 
     #[test]

@@ -503,8 +503,14 @@ where
                 layout.bounds(),
                 self.main_offset as f32,
             );
+            let opening = hovered_root
+                .and_then(|root| layout.children().nth(root))
+                .map_or(Direction::Positive, |root| {
+                    opening_direction(root.bounds(), viewport.width)
+                });
             let (anchor_rect, gravity) = my_state.inner.with_data_mut(|state| {
                 state.popup_id.insert(self.window_id, id);
+                state.horizontal_direction = opening;
                 (
                     state
                         .menu_states
@@ -553,7 +559,10 @@ where
                     popup_size.height.ceil() as u32 + 2,
                 )),
                 anchor_rect,
-                anchor: crate::ui::surface::PopupAnchor::BottomLeft,
+                anchor: match opening {
+                    Direction::Positive => crate::ui::surface::PopupAnchor::BottomLeft,
+                    Direction::Negative => crate::ui::surface::PopupAnchor::BottomRight,
+                },
                 gravity,
                 ..Default::default()
             };
@@ -578,6 +587,17 @@ where
         }
     }
 }
+/// Which way a root's popup opens: a root in the window's right half opens
+/// leftward, its menu's right edge under the root's, so it does not run past
+/// the window. What the genie unfurls from follows from this.
+fn opening_direction(root: Rectangle, window_width: f32) -> Direction {
+    if root.center_x() > window_width * 0.5 {
+        Direction::Negative
+    } else {
+        Direction::Positive
+    }
+}
+
 impl<Message> Widget<Message, crate::ui::Theme, Renderer> for MenuBar<Message>
 where
     Message: Clone + 'static,
@@ -986,6 +1006,25 @@ fn process_root_events<Message>(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_root_on_the_right_opens_leftward() {
+        use crate::ui::widget::menu::Direction;
+        let root = |x| {
+            iced_core::Rectangle::new(
+                iced_core::Point::new(x, 7.0),
+                iced_core::Size::new(32.0, 32.0),
+            )
+        };
+        assert!(matches!(
+            super::opening_direction(root(941.0), 1024.0),
+            Direction::Negative
+        ));
+        assert!(matches!(
+            super::opening_direction(root(60.0), 1024.0),
+            Direction::Positive
+        ));
+    }
+
     use super::*;
     use iced_core::{Event, Size, clipboard};
 

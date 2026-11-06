@@ -938,6 +938,7 @@ pub fn dialog_menu(
     tab: &Tab,
     key_binds: &HashMap<KeyBind, Action>,
     show_details: bool,
+    window_id: crate::ui::iced::window::Id,
 ) -> Element<'static, Message> {
     let (sort_name, sort_direction, _) = tab.sort_options();
     let sort_item = |label, sort, dir| {
@@ -1081,6 +1082,8 @@ pub fn dialog_menu(
     .item_height(ItemHeight::Dynamic(40))
     .item_width(ItemWidth::Uniform(360))
     .spacing(spacing().space_xxxs.into())
+    .on_surface_action(Message::Surface)
+    .window_id(window_id)
     .into()
 }
 

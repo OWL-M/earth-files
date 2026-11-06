@@ -45,12 +45,13 @@ pub fn popup_dropdown<
     selections: impl Into<Cow<'a, [S]>>,
     selected: Option<usize>,
     on_selected: impl Fn(usize) -> Message + Send + Sync + 'static,
-    _parent_id: window::Id,
-    _on_surface_action: impl Fn(surface::Action<AppMessage>) -> Message + Send + Sync + 'static,
-    _map_action: impl Fn(Message) -> AppMessage + Send + Sync + 'static,
+    parent_id: window::Id,
+    on_surface_action: impl Fn(surface::Action<AppMessage>) -> Message + Send + Sync + 'static,
+    map_action: impl Fn(Message) -> AppMessage + Send + Sync + 'static,
 ) -> Dropdown<'a, S, Message, AppMessage> {
-    let dropdown: Dropdown<'_, S, Message, AppMessage> =
-        Dropdown::new(selections.into(), selected, on_selected);
-
-    dropdown
+    Dropdown::new(selections.into(), selected, on_selected).in_popup(
+        parent_id,
+        on_surface_action,
+        map_action,
+    )
 }

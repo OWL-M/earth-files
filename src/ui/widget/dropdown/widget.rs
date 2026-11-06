@@ -108,6 +108,24 @@ where
         self.id = Some(id);
         self
     }
+
+    /// Opens the list as a Wayland popup on `parent` rather than inside the
+    /// window, rising out of the picker's top edge.
+    pub(crate) fn in_popup(
+        mut self,
+        parent: window::Id,
+        on_surface_action: impl Fn(surface::Action<AppMessage>) -> Message + Send + Sync + 'static,
+        map_action: impl Fn(Message) -> AppMessage + Send + Sync + 'static,
+    ) -> Self {
+        self.window_id = Some(parent);
+        self.on_surface_action = Some(Arc::new(on_surface_action));
+        self.action_map = Some(Arc::new(map_action));
+        self
+    }
+
+    fn opens_a_popup(&self) -> bool {
+        self.window_id.is_some() && self.on_surface_action.is_some() && self.action_map.is_some()
+    }
 }
 
 impl<
@@ -203,12 +221,26 @@ where
         event: &Event,
         layout: Layout<'_>,
         cursor: mouse::Cursor,
-        _renderer: &crate::ui::Renderer,
+        renderer: &crate::ui::Renderer,
         _clipboard: &mut dyn Clipboard,
         shell: &mut Shell<'_, Message>,
-        _viewport: &Rectangle,
+        viewport: &Rectangle,
     ) {
+        // The compositor dismissed the popup: a click outside, usually.
+        if self.opens_a_popup() {
+            let state = tree.state.downcast_mut::<State>();
+            if surface::dismissal::claim(state.popup_id)
+                && state.is_open.swap(false, Ordering::Relaxed)
+            {
+                shell.request_redraw();
+            }
+        }
         let previous_popup = tree.state.downcast_ref::<State>().popup_id;
+        let was_open = tree
+            .state
+            .downcast_ref::<State>()
+            .is_open
+            .load(Ordering::Relaxed);
         update::<S, Message, AppMessage>(
             event,
             layout,
@@ -232,6 +264,20 @@ where
         if self.centered_animated && state.popup_id != previous_popup {
             // Each opening starts a fresh spring and scroll position.
             state.menu = menu::State::new();
+        }
+        if self.opens_a_popup() {
+            let opened = state.popup_id != previous_popup;
+            if was_open
+                && (opened || !state.is_open.load(Ordering::Relaxed))
+                && let Some(on_surface_action) = &self.on_surface_action
+            {
+                shell.publish(on_surface_action(surface::action::destroy_popup(
+                    previous_popup,
+                )));
+            }
+            if opened {
+                self.open_popup(state, layout.bounds(), renderer, viewport.height, shell);
+            }
         }
     }
 
@@ -292,6 +338,9 @@ where
         viewport: &Rectangle,
         translation: Vector,
     ) -> Option<overlay::Element<'b, Message, crate::ui::Theme, crate::ui::Renderer>> {
+        if self.opens_a_popup() {
+            return None;
+        }
         let state = tree.state.downcast_mut::<State>();
 
         overlay(
@@ -312,6 +361,158 @@ where
             self.centered_animated,
         )
     }
+}
+
+/// The height of a popup list's surface: the list and room above it for the
+/// spring's overshoot, as the surface cannot grow once it is open and what
+/// passes its edge is cut. No taller than the window has room for on either
+/// side of the picker: a surface taller than the display could be neither
+/// flipped nor slid onto it, and a long list scrolls in what it gets.
+fn popup_height(natural: f32, picker: Rectangle, window_height: f32) -> f32 {
+    let room = picker
+        .y
+        .max(window_height - picker.y - picker.height)
+        .max(1.0);
+    (natural + (natural * 0.1).ceil() + 2.0).min(room)
+}
+
+impl<S, Message, AppMessage> Dropdown<'_, S, Message, AppMessage>
+where
+    S: AsRef<str> + Send + Sync + Clone + 'static,
+    Message: 'static + Clone,
+    AppMessage: 'static + Clone,
+{
+    /// Ask for the list's popup, hanging from the top of `picker` and
+    /// growing upward. No genie: the list rises out of the picker on the
+    /// spring the centred dropdowns use.
+    fn open_popup(
+        &self,
+        state: &mut State,
+        picker: Rectangle,
+        renderer: &crate::ui::Renderer,
+        window_height: f32,
+        shell: &mut Shell<'_, Message>,
+    ) {
+        let (Some(parent), Some(on_surface_action), Some(action_map)) = (
+            self.window_id,
+            self.on_surface_action.clone(),
+            self.action_map.clone(),
+        ) else {
+            return;
+        };
+        let id = state.popup_id;
+        let width = list_width(
+            &self.selections,
+            &state.selections,
+            !self.icons.is_empty(),
+            self.gap,
+            self.padding,
+        );
+        let padding = self.padding;
+        let text_size = self.text_size.unwrap_or(14.0);
+        let selected = self.selected;
+        let selections: Vec<S> = self.selections.to_vec();
+        let icons: Vec<icon::Handle> = self.icons.to_vec();
+        let on_selected = self.on_selected.clone();
+        let (is_open, hovered_option) = (state.is_open.clone(), state.hovered_option.clone());
+        let menu_state = state.menu.clone();
+        let close = action_map(on_surface_action(surface::action::destroy_popup(id)));
+
+        let menu = {
+            let selections = selections.clone();
+            let icons = icons.clone();
+            move |menu_state: menu::State| {
+                let (is_open, on_selected, action_map) =
+                    (is_open.clone(), on_selected.clone(), action_map.clone());
+                spaced_menu(
+                    Menu::new(
+                        menu_state,
+                        Cow::Owned(selections.clone()),
+                        Cow::Owned(icons.clone()),
+                        hovered_option.clone(),
+                        selected,
+                        move |option| {
+                            is_open.store(false, Ordering::Relaxed);
+                            action_map(on_selected(option))
+                        },
+                        None,
+                        Some(close.clone()),
+                    )
+                    .width(width)
+                    .text_size(text_size),
+                    padding,
+                )
+            }
+        };
+        let natural = menu(menu::State::new()).natural_height(renderer, window_height);
+
+        let positioner = surface::Positioner {
+            size: Some((
+                width.ceil() as u32,
+                popup_height(natural, picker, window_height).ceil() as u32,
+            )),
+            anchor_rect: Rectangle {
+                x: picker.x as i32,
+                y: picker.y as i32,
+                width: picker.width as i32,
+                height: picker.height as i32,
+            },
+            anchor: surface::PopupAnchor::TopLeft,
+            gravity: surface::PopupGravity::TopRight,
+            ..Default::default()
+        };
+        shell.publish(on_surface_action(surface::action::simple_popup(
+            move || surface::PopupSettings {
+                parent,
+                id,
+                positioner,
+                animate: false,
+            },
+            Some(move || {
+                Element::from(
+                    crate::ui::widget::container(
+                        menu(menu_state.clone())
+                            .centered_animated(true)
+                            .popup(iced_core::Point::ORIGIN, 0.0),
+                    )
+                    .width(Length::Fill)
+                    .align_bottom(Length::Fill),
+                )
+                .map(crate::ui::action::app)
+            }),
+        )));
+    }
+}
+
+/// The width a list needs for its longest selection.
+fn list_width<S: AsRef<str>>(
+    selections: &[S],
+    paragraphs: &[crate::ui::widget::dropdown::Plain],
+    has_icons: bool,
+    gap: f32,
+    padding: Padding,
+) -> f32 {
+    let longest = selections
+        .iter()
+        .zip(paragraphs)
+        .map(|(_, paragraph)| paragraph.raw().min_width().round())
+        .fold(0.0, f32::max);
+    longest + gap + padding.x().mul_add(2.0, 16.0) + if has_icons { 24.0 } else { 0.0 }
+}
+
+/// The insets and spacing of a centred or popup list.
+fn spaced_menu<'a, S: AsRef<str>, Message: Clone + 'a>(
+    menu: Menu<'a, S, Message>,
+    padding: Padding,
+) -> Menu<'a, S, Message>
+where
+    [S]: std::borrow::ToOwned,
+{
+    menu.menu_padding(6).option_spacing(3.0).padding(Padding {
+        top: (padding.top - 2.0).max(0.0),
+        bottom: (padding.bottom - 2.0).max(0.0),
+        ..padding
+    })
 }
 
 impl<
@@ -626,34 +827,19 @@ where
             None,
             close_on_selected,
         )
-        .width({
-            let measure = |_label: &str,
-                           selection_paragraph: &crate::ui::widget::dropdown::Paragraph|
-             -> f32 { selection_paragraph.min_width().round() };
-
-            let pad_width = padding.x().mul_add(2.0, 16.0);
-
-            let icon_width = if icons.is_empty() { 0.0 } else { 24.0 };
-
-            selections
-                .iter()
-                .zip(state.selections.iter_mut())
-                .map(|(label, selection)| measure(label.as_ref(), selection.raw()))
-                .fold(0.0, |next, current| current.max(next))
-                + gap
-                + pad_width
-                + icon_width
-        })
+        .width(list_width(
+            selections,
+            &state.selections,
+            !icons.is_empty(),
+            gap,
+            padding,
+        ))
         .padding(padding)
         .text_size(text_size)
         .centered_animated(centered_animated);
 
         let menu = if centered_animated {
-            menu.menu_padding(6).option_spacing(3.0).padding(Padding {
-                top: (padding.top - 2.0).max(0.0),
-                bottom: (padding.bottom - 2.0).max(0.0),
-                ..padding
-            })
+            spaced_menu(menu, padding)
         } else {
             menu
         };
@@ -767,6 +953,14 @@ pub fn draw<'a, S>(
 
 #[cfg(test)]
 mod tests {
+    /// However long the list, its surface fits the window beside the picker
+    #[test]
+    fn a_long_list_is_no_taller_than_the_room_it_has() {
+        let picker = Rectangle::new(iced_core::Point::new(19.0, 1000.0), Size::new(80.0, 32.0));
+        assert_eq!(super::popup_height(80.0, picker, 1080.0), 90.0);
+        assert_eq!(super::popup_height(5000.0, picker, 1080.0), 1000.0);
+    }
+
     use super::*;
     use iced_core::{Point, clipboard};
     use iced_runtime::user_interface::{Cache, UserInterface};
