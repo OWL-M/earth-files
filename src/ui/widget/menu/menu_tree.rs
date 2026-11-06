@@ -23,7 +23,8 @@ use crate::ui::widget::icon;
 use crate::ui::widget::menu::action::MenuAction;
 use crate::ui::widget::menu::aim::{ChildOpen, REASON_TIME};
 use crate::ui::widget::menu::key_bind::KeyBind;
-use crate::ui::widget::menu::unfold::{CHIP_RIGHT, CHIP_SLOT, Group};
+use crate::ui::widget::menu::pin;
+use crate::ui::widget::menu::unfold::{CHIP_HEIGHT, CHIP_RIGHT, CHIP_SLOT, Group};
 use iced_core::{Alignment, Length};
 
 /// Nested menu is essentially a tree of items, a menu is a collection of items
@@ -383,6 +384,8 @@ where
 /// group row's count is drawn, so all shortcuts line up: a gap, the count
 /// and the space after it.
 const TRAIL: f32 = 8.0 + CHIP_SLOT + CHIP_RIGHT;
+/// Room between a row's shortcut and its pin.
+const PIN_GAP: f32 = 12.0;
 
 /// Height of the rows of an unfolded group.
 pub const MEMBER_HEIGHT: f32 = 32.0;
@@ -486,7 +489,7 @@ fn pin_button<Message: Clone + 'static>(
 ) -> crate::ui::Element<'static, Message> {
     static PIN: &[u8] = include_bytes!("../../../../res/icons/symbolic/pin-symbolic.svg");
     static PINNED: &[u8] = include_bytes!("../../../../res/icons/symbolic/pin-filled-symbolic.svg");
-    let icon = widget::icon::icon(bundled_icon(if pinned { PINNED } else { PIN })).size(16);
+    let icon = widget::icon::icon(bundled_icon(if pinned { PINNED } else { PIN })).size(pin::ICON);
     let icon = if pinned {
         icon.class(theme::Svg::Custom(Rc::new(|theme| {
             iced::widget::svg::Style {
@@ -503,11 +506,15 @@ fn pin_button<Message: Clone + 'static>(
             }
         })))
     };
-    widget::button::custom(icon)
-        .padding(4)
-        .class(theme::Button::MenuItem)
-        .on_press(message)
-        .into()
+    let inset_x = (pin::WIDTH - f32::from(pin::ICON)) / 2.0;
+    let inset_y = (CHIP_HEIGHT - f32::from(pin::ICON)) / 2.0;
+    pin::pill(
+        widget::button::custom(icon)
+            .padding([inset_y, inset_x])
+            // The pill behind it shows how far it is lit
+            .class(theme::Button::Transparent)
+            .on_press(message),
+    )
 }
 
 /// The popup beside a dimmed row saying why it cannot run.
@@ -551,6 +558,11 @@ fn entry_tree<
     let key = key_for(key_binds, &action);
     let mut items = entry_content(label.into(), icon, checked, key, key_class);
     if let Some((pinned, pin_action)) = pin {
+        items.push(
+            widget::space::horizontal()
+                .width(Length::Fixed(PIN_GAP))
+                .into(),
+        );
         items.push(pin_button(pinned, pin_action.message()));
     }
     let trail = matches!(place, Place::Top { trail: true } | Place::Member);
