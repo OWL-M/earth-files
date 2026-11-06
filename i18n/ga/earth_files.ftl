@@ -118,6 +118,10 @@ archive-damaged-listing = Tá "{$name}" damáistithe: níorbh fhéidir gach rud 
 archive-listing-incomplete = Tá an iomarca i "{$name}": níl gach rud á thaispeáint
 archive-names-left-out = Fágadh ar lár iad, mar nach féidir a n-ainmneacha a bhaint go sábháilte: {$count}
 archive-gone = Baineadh an chartlann nó ní féidir í a léamh a thuilleadh
+archive-open-failed = Níorbh fhéidir "{$name}" a oscailt: {$reason}
+archive-open-damaged = Tá "{$name}" damáistithe agus níor osclaíodh é
+archive-open-not-a-file = Is nasc é "{$name}" agus níor osclaíodh é
+archive-open-program = Is ríomhchlár é "{$name}" agus ní ritheann sé ó thaobh istigh de chartlann. Asbhain ar dtús é.
 size-unknown = Méid anaithnid
 size-at-least = {$size} ar a laghad
 

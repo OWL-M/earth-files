@@ -59,6 +59,9 @@ pub enum Key {
     /// An archive being read to look inside it, by its number in
     /// `App::archive_reads`.
     Browse(u64),
+    /// Files being taken out of an archive to open them, by their number in
+    /// `App::archive_opens`.
+    ArchiveOpen(u64),
 }
 
 /// Where a shown task is.

@@ -120,6 +120,10 @@ archive-damaged-listing = A(z) „{$name}” sérült: nem listázható minden
 archive-listing-incomplete = A(z) „{$name}” túl sokat tartalmaz: nem látható minden
 archive-names-left-out = Kihagyva, mert a nevük nem bontható ki biztonságosan: {$count}
 archive-gone = Az archívum eltávolításra került, vagy már nem olvasható
+archive-open-failed = A(z) „{$name}” nem nyitható meg: {$reason}
+archive-open-damaged = A(z) „{$name}” sérült, ezért nem nyílt meg
+archive-open-not-a-file = A(z) „{$name}” hivatkozás, ezért nem nyílt meg
+archive-open-program = A(z) „{$name}” program, és archívumból nem fut. Előbb bontsa ki.
 size-unknown = Ismeretlen méret
 size-at-least = Legalább {$size}
 

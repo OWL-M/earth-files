@@ -117,6 +117,10 @@ archive-damaged-listing = “{$name}”已损坏：无法列出全部内容
 archive-listing-incomplete = “{$name}”内容过多：未显示全部内容
 archive-names-left-out = 因名称无法安全提取而被略过：{$count}
 archive-gone = 压缩包已被移除或无法再读取
+archive-open-failed = 无法打开“{$name}”：{$reason}
+archive-open-damaged = “{$name}”已损坏，因此未打开
+archive-open-not-a-file = “{$name}”是链接，因此未打开
+archive-open-program = “{$name}”是程序，不能从压缩包内运行。请先解压。
 size-unknown = 大小未知
 size-at-least = 至少 {$size}
 

@@ -118,6 +118,10 @@ archive-damaged-listing = «{$name}» آسیب دیده است: همهٔ آن ف
 archive-listing-incomplete = «{$name}» بیش از حد محتوا دارد: همهٔ آن نمایش داده نمی‌شود
 archive-names-left-out = کنار گذاشته شد چون نامشان را نمی‌توان ایمن استخراج کرد: {$count}
 archive-gone = بایگانی حذف شده یا دیگر قابل خواندن نیست
+archive-open-failed = «{$name}» باز نشد: {$reason}
+archive-open-damaged = «{$name}» آسیب دیده است و باز نشد
+archive-open-not-a-file = «{$name}» یک پیوند است و باز نشد
+archive-open-program = «{$name}» یک برنامه است و از درون بایگانی اجرا نمی‌شود. ابتدا آن را استخراج کنید.
 size-unknown = اندازهٔ نامعلوم
 size-at-least = دست‌کم {$size}
 

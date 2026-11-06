@@ -12,6 +12,7 @@ use std::time::SystemTime;
 use zip::result::{ZipError, ZipResult};
 
 pub mod index;
+pub mod open_copy;
 
 pub const SUPPORTED_ARCHIVE_TYPES: &[&str] = &[
     "application/gzip",

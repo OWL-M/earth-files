@@ -121,6 +121,10 @@ archive-damaged-listing = „{$name}“ е повреден: не всичко �
 archive-listing-incomplete = „{$name}“ съдържа твърде много: не всичко е показано
 archive-names-left-out = Пропуснати, защото имената им не могат да се извлекат безопасно: {$count}
 archive-gone = Архивът е премахнат или вече не може да се чете
+archive-open-failed = „{$name}“ не може да се отвори: {$reason}
+archive-open-damaged = „{$name}“ е повреден и не беше отворен
+archive-open-not-a-file = „{$name}“ е връзка и не беше отворена
+archive-open-program = „{$name}“ е програма и не се изпълнява от архив. Първо го извлечете.
 size-unknown = Неизвестен размер
 size-at-least = Поне {$size}
 

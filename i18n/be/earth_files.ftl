@@ -131,6 +131,10 @@ archive-damaged-listing = «{$name}» пашкоджаны: удалося па�
 archive-listing-incomplete = У «{$name}» занадта шмат даных: паказана не ўсё
 archive-names-left-out = Прапушчана, бо назвы нельга бяспечна распакаваць: {$count}
 archive-gone = Архіў выдалены або больш не чытаецца
+archive-open-failed = Не ўдалося адкрыць «{$name}»: {$reason}
+archive-open-damaged = «{$name}» пашкоджаны і не быў адкрыты
+archive-open-not-a-file = «{$name}» — гэта спасылка, яна не была адкрыта
+archive-open-program = «{$name}» — гэта праграма, яна не запускаецца з архіва. Спачатку выміце яе.
 size-unknown = Невядомы памер
 size-at-least = Не менш за {$size}
 

@@ -122,6 +122,10 @@ archive-damaged-listing = "{$name}" está danificado: nem tudo pôde ser listado
 archive-listing-incomplete = "{$name}" contém itens demais: nem tudo é mostrado
 archive-names-left-out = Omitidos porque os nomes não podem ser extraídos com segurança: {$count}
 archive-gone = O arquivo compactado foi removido ou não pode mais ser lido
+archive-open-failed = Não foi possível abrir "{$name}": {$reason}
+archive-open-damaged = "{$name}" está danificado e não foi aberto
+archive-open-not-a-file = "{$name}" é um link e não foi aberto
+archive-open-program = "{$name}" é um programa e não é executado de dentro de um arquivo compactado. Extraia-o primeiro.
 size-unknown = Tamanho desconhecido
 size-at-least = Pelo menos {$size}
 

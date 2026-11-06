@@ -121,6 +121,10 @@ archive-damaged-listing = „{$name}“ ist beschädigt: Es konnte nicht alles a
 archive-listing-incomplete = „{$name}“ enthält zu viel: Es wird nicht alles angezeigt
 archive-names-left-out = Ausgelassen, da ihre Namen nicht sicher entpackt werden können: {$count}
 archive-gone = Das Archiv wurde entfernt oder kann nicht mehr gelesen werden
+archive-open-failed = „{$name}“ konnte nicht geöffnet werden: {$reason}
+archive-open-damaged = „{$name}“ ist beschädigt und wurde nicht geöffnet
+archive-open-not-a-file = „{$name}“ ist eine Verknüpfung und wurde nicht geöffnet
+archive-open-program = „{$name}“ ist ein Programm und läuft nicht aus einem Archiv heraus. Entpacken Sie es zuerst.
 size-unknown = Unbekannte Größe
 size-at-least = Mindestens {$size}
 

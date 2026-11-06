@@ -488,6 +488,14 @@ pub enum Message {
     ),
     /// Stop reading an archive.
     BrowseCancel(u64),
+    /// Open these entries of an archive from the tab, through temporary copies.
+    ArchiveOpen(Entity, PathBuf, Vec<PathBuf>, Option<String>),
+    /// The copies are ready, or could not be made.
+    ArchiveOpened(
+        u64,
+        Result<crate::archive::open_copy::Copies, OperationError>,
+    ),
+    ArchiveOpenCancel(u64),
     ExtractHere(Option<Entity>),
     ExtractTo(Option<Entity>),
     ExtractToResult(DialogResult),
@@ -821,6 +829,13 @@ pub enum DialogPage {
     BrowsePassword {
         entity: Entity,
         archive: PathBuf,
+        password: String,
+    },
+    /// The password for entries of an archive being opened.
+    ArchiveOpenPassword {
+        entity: Entity,
+        archive: PathBuf,
+        entries: Vec<PathBuf>,
         password: String,
     },
     ExtractPassword {
@@ -1321,6 +1336,11 @@ pub struct App {
     /// latest is acted on.
     /// The archives being read to look inside them.
     archive_reads: browser::ArchiveReads,
+    /// Entries of an archive being taken out to open them, by number.
+    archive_opens: HashMap<u64, ArchiveOpening>,
+    next_archive_open: u64,
+    /// Temporary copies opened from archives, kept while their tab is inside.
+    archive_copies: Vec<ArchiveCopies>,
     /// What is to come of the archive the Extract To chooser is open for.
     extract_to_only: Option<Box<[PathBuf]>>,
     nav_check: u64,
@@ -1586,31 +1606,28 @@ impl App {
     /// Open files whose types are now known: the second half of
     /// [`Self::open_file`], reached once a worker has read them.
     fn open_resolved(&mut self, resolved: Vec<(Mime, PathBuf)>) -> Task<Message> {
+        let supported_archive_types = crate::archive::SUPPORTED_ARCHIVE_TYPES;
+        if resolved
+            .iter()
+            .all(|(mime, _)| supported_archive_types.contains(&mime.as_str()))
+        {
+            // Use extract to dialog if all selected paths are supported archives
+            let all_paths: Vec<PathBuf> = resolved.into_iter().map(|(_, path)| path).collect();
+            return self.extract_to(&all_paths);
+        }
+        self.launch_resolved(resolved)
+    }
+
+    /// Launches the application for each of these files, by the type given.
+    fn launch_resolved(&mut self, resolved: Vec<(Mime, PathBuf)>) -> Task<Message> {
         let mut tasks = Vec::new();
 
         // Associate all paths to its MIME type
         // This allows handling paths as groups if possible, such as launching a single video
         // player that is passed every path.
         let mut groups: FxHashMap<Mime, Vec<PathBuf>> = FxHashMap::default();
-        let mut all_paths = Vec::with_capacity(resolved.len());
-        let mut all_archives = true;
-        let supported_archive_types = crate::archive::SUPPORTED_ARCHIVE_TYPES;
         for (mime, path) in resolved {
-            if all_archives
-                && !supported_archive_types
-                    .iter()
-                    .copied()
-                    .any(|t| mime.as_str() == t)
-            {
-                all_archives = false;
-            }
-            all_paths.push(path.clone());
             groups.entry(mime).or_default().push(path);
-        }
-
-        if all_archives {
-            // Use extract to dialog if all selected paths are supported archives
-            return self.extract_to(&all_paths);
         }
 
         'outer: for (mime, paths) in groups {
@@ -3280,6 +3297,14 @@ impl App {
         if self.core.main_window_id().is_some() {
             return Task::none();
         }
+        // The window is gone, so what it opened from archives goes with it. Not
+        // on a worker: the process may be about to exit.
+        for (_, opening) in self.archive_opens.drain() {
+            opening.controller.cancel();
+        }
+        for copies in self.archive_copies.drain(..) {
+            crate::archive::open_copy::remove(&copies.dir);
+        }
         // With the window gone, a question left on its card goes out as a
         // notification
         let notices = self.sync_question_notices();
@@ -3791,7 +3816,8 @@ impl App {
             watcher.watch_only(shown, Instant::now());
         }
         self.keep_archive_indexes();
-        self.watch_status()
+        let copies = self.drop_archive_copies_left();
+        Task::batch([self.watch_status(), copies])
     }
 
     /// Tells each tab whether its folder is watched, and starts the timer
@@ -3846,6 +3872,194 @@ impl App {
         }
         let keep: Vec<&Path> = keep.iter().map(PathBuf::as_path).collect();
         crate::archive::index::keep_shared(&keep);
+    }
+
+    /// Takes `entries` out of `archive` to open them, on a worker, shown if it
+    /// is slow and with a way to stop it.
+    fn open_from_archive(
+        &mut self,
+        entity: Entity,
+        archive: PathBuf,
+        entries: Vec<PathBuf>,
+        password: Option<String>,
+    ) -> Task<Message> {
+        // Asked for a while ago, if it waited below or on a password: the tab
+        // may have left since, and what it asked for went with it
+        if !self.tab_in_archive(entity, &archive) {
+            return Task::none();
+        }
+        // As `open_file`: which application opens it needs this
+        if !self.mime_app_cache.is_loaded() {
+            self.defer_until_mime_apps(Message::ArchiveOpen(entity, archive, entries, password));
+            return Task::none();
+        }
+        let id = self.next_archive_open;
+        self.next_archive_open = self.next_archive_open.wrapping_add(1);
+        let controller = Controller::default();
+        self.archive_opens.insert(
+            id,
+            ArchiveOpening {
+                entity,
+                archive: archive.clone(),
+                entries: entries.clone(),
+                controller: controller.clone(),
+            },
+        );
+        self.progress.start(
+            progress::Key::ArchiveOpen(id),
+            fl!("opening-files"),
+            progress::SLOW,
+            Instant::now(),
+        );
+        Task::future(async move {
+            let copies = tokio::task::spawn_blocking(move || {
+                let own = crate::archive::open_copy::own_dir().map_err(OperationError::from_err)?;
+                crate::archive::open_copy::copy_out(
+                    &own,
+                    &archive,
+                    &entries,
+                    &password,
+                    &controller,
+                )
+            })
+            .await
+            .unwrap_or_else(|err| Err(OperationError::from_err(err)));
+            crate::ui::action::app(Message::ArchiveOpened(id, copies))
+        })
+    }
+
+    /// Hands the copies to their applications and says what did not come out.
+    /// If the tab has left the archive, or this was stopped, they are for no one.
+    fn archive_opened(
+        &mut self,
+        id: u64,
+        copies: Result<crate::archive::open_copy::Copies, OperationError>,
+    ) -> Task<Message> {
+        use crate::archive::open_copy::{self, Refused};
+        let key = progress::Key::ArchiveOpen(id);
+        self.progress.remove(&key);
+        let Some(opening) = self.archive_opens.remove(&id) else {
+            return match copies {
+                Ok(copies) => Self::remove_archive_copies(vec![copies.dir]),
+                Err(_) => Task::none(),
+            };
+        };
+        let ArchiveOpening {
+            entity,
+            archive,
+            entries,
+            ..
+        } = opening;
+        if !self.tab_in_archive(entity, &archive) {
+            return match copies {
+                Ok(copies) => Self::remove_archive_copies(vec![copies.dir]),
+                Err(_) => Task::none(),
+            };
+        }
+        let name_of = |path: &Path| {
+            path.file_name()
+                .unwrap_or(path.as_os_str())
+                .to_string_lossy()
+                .into_owned()
+        };
+        let toast = |toasts: &mut widget::toaster::Toasts<Message>, text: String| {
+            toasts
+                .push(widget::toaster::Toast::new(text))
+                .map(crate::ui::action::app)
+        };
+        let copies = match copies {
+            Ok(copies) => copies,
+            Err(err) if matches!(err.kind, OperationErrorType::PasswordRequired) => {
+                return Task::batch([
+                    self.dialog_pages
+                        .push_back(DialogPage::ArchiveOpenPassword {
+                            entity,
+                            archive,
+                            entries,
+                            password: String::new(),
+                        }),
+                    widget::text_input::focus(self.dialog_text_input.clone()),
+                ]);
+            }
+            Err(err) => {
+                log::warn!("failed to open from {}: {err}", archive.display());
+                let name = entries
+                    .first()
+                    .map_or_else(|| name_of(&archive), |entry| name_of(entry));
+                let text = fl!("archive-open-failed", name = name, reason = err.to_string());
+                return toast(&mut self.toasts, text);
+            }
+        };
+        let mut tasks: Vec<Task<Message>> = Vec::new();
+        for (entry, why) in &copies.refused {
+            let name = name_of(entry);
+            let text = match why {
+                Refused::Damaged => fl!("archive-open-damaged", name = name),
+                Refused::NotAFile => fl!("archive-open-not-a-file", name = name),
+                Refused::Program => fl!("archive-open-program", name = name),
+            };
+            tasks.push(toast(&mut self.toasts, text));
+        }
+        if !copies.copies.is_empty() {
+            let open_copy::Copies { dir, copies, .. } = copies;
+            self.archive_copies.push(ArchiveCopies {
+                entity,
+                archive,
+                dir,
+            });
+            tasks.push(self.launch_resolved(copies));
+        }
+        Task::batch(tasks)
+    }
+
+    /// Whether `entity` is still a tab inside `archive`.
+    fn tab_in_archive(&self, entity: Entity, archive: &Path) -> bool {
+        self.tab_model.contains_item(entity)
+            && self
+                .tabs
+                .get(entity)
+                .and_then(|tab| tab.location.archive_folder())
+                .is_some_and(|(inside, _)| inside == archive)
+    }
+
+    /// Stops what is being opened for a tab that has left its archive, or is
+    /// gone, and removes the copies it had open.
+    fn drop_archive_copies_left(&mut self) -> Task<Message> {
+        let stopped: Vec<u64> = self
+            .archive_opens
+            .iter()
+            .filter(|(_, opening)| !self.tab_in_archive(opening.entity, &opening.archive))
+            .map(|(id, _)| *id)
+            .collect();
+        for id in stopped {
+            if let Some(opening) = self.archive_opens.remove(&id) {
+                opening.controller.cancel();
+            }
+            self.progress.remove(&progress::Key::ArchiveOpen(id));
+        }
+        let (kept, left): (Vec<_>, Vec<_>) = std::mem::take(&mut self.archive_copies)
+            .into_iter()
+            .partition(|copies| self.tab_in_archive(copies.entity, &copies.archive));
+        self.archive_copies = kept;
+        if left.is_empty() {
+            return Task::none();
+        }
+        Self::remove_archive_copies(left.into_iter().map(|copies| copies.dir).collect())
+    }
+
+    fn remove_archive_copies(dirs: Vec<PathBuf>) -> Task<Message> {
+        Task::future(async move {
+            let removed = tokio::task::spawn_blocking(move || {
+                for dir in dirs {
+                    crate::archive::open_copy::remove(&dir);
+                }
+            })
+            .await;
+            if let Err(err) = removed {
+                log::warn!("failed to remove copies opened from an archive: {err}");
+            }
+            crate::ui::action::none()
+        })
     }
 
     /// Reads `archive` on a worker, shown if it is slow and with a way to stop
@@ -4208,7 +4422,16 @@ impl App {
             );
         }
 
-        if let (progress::Key::Browse(id), progress::State::Running) = (row.key, row.state) {
+        let stop_reading = match (row.key, row.state) {
+            (progress::Key::Browse(id), progress::State::Running) => {
+                Some(Message::BrowseCancel(*id))
+            }
+            (progress::Key::ArchiveOpen(id), progress::State::Running) => {
+                Some(Message::ArchiveOpenCancel(*id))
+            }
+            _ => None,
+        };
+        if let Some(stop) = stop_reading {
             return widget::Column::with_capacity(2)
                 .push(
                     widget::Row::with_capacity(3)
@@ -4216,7 +4439,7 @@ impl App {
                         .push(widget::space::horizontal())
                         .push(
                             widget::button::link(fl!("cancel"))
-                                .on_press(Message::BrowseCancel(*id))
+                                .on_press(stop)
                                 .padding(0),
                         )
                         .align_y(Alignment::Center),
@@ -4933,6 +5156,9 @@ impl Application for App {
             clipboard_cache: ClipboardCache::Empty,
             clipboard_epoch: 0,
             archive_reads: browser::ArchiveReads::default(),
+            archive_opens: HashMap::new(),
+            next_archive_open: 0,
+            archive_copies: Vec::new(),
             extract_to_only: None,
             nav_check: 0,
             replace_ids: 0,
@@ -4986,6 +5212,16 @@ impl Application for App {
                 commands.push(app.open_tab(Location::Network(uri.clone(), uri, None), true, None));
             }
         }
+
+        // What a process that is gone left behind
+        commands.push(Task::future(async {
+            let removed =
+                tokio::task::spawn_blocking(crate::archive::open_copy::remove_leftovers).await;
+            if let Err(err) = removed {
+                log::warn!("failed to remove old copies opened from archives: {err}");
+            }
+            crate::ui::action::none()
+        }));
 
         if app.tab_model.entity_at(0).is_none() {
             if let Ok(current_dir) = env::current_dir() {
@@ -5664,6 +5900,19 @@ impl Application for App {
                         } => {
                             tasks.push(self.browse_archive(entity, archive, Some(password)));
                         }
+                        DialogPage::ArchiveOpenPassword {
+                            entity,
+                            archive,
+                            entries,
+                            password,
+                        } => {
+                            tasks.push(self.open_from_archive(
+                                entity,
+                                archive,
+                                entries,
+                                Some(password),
+                            ));
+                        }
                         DialogPage::ExtractPassword { id, password } => {
                             let operation = &self.operations.get_failed(id).unwrap().op;
                             let new_op = match operation {
@@ -5919,6 +6168,16 @@ impl Application for App {
                 return self.browse_archive(entity, archive, None);
             }
             Message::BrowseCancel(id) => self.archive_reads.cancel(id),
+            Message::ArchiveOpen(entity, archive, entries, password) => {
+                return self.open_from_archive(entity, archive, entries, password);
+            }
+            Message::ArchiveOpened(id, copies) => return self.archive_opened(id, copies),
+            Message::ArchiveOpenCancel(id) => {
+                if let Some(opening) = self.archive_opens.remove(&id) {
+                    opening.controller.cancel();
+                }
+                self.progress.remove(&progress::Key::ArchiveOpen(id));
+            }
             Message::BrowseRead(id, read) => return self.browse_read(id, read),
             Message::ExtractHere(entity_opt) => {
                 if let Some((archive, only)) = self.extract_inside(entity_opt) {
@@ -7759,6 +8018,9 @@ impl Application for App {
                             }));
                         }
                         tab::Command::OpenFile(paths) => commands.push(self.open_file(&paths)),
+                        tab::Command::OpenArchiveEntries(archive, entries) => {
+                            commands.push(self.open_from_archive(entity, archive, entries, None));
+                        }
                         tab::Command::OpenInNewTab(path) => {
                             commands.push(self.open_tab(Location::Path(path), false, None));
                         }
@@ -8888,6 +9150,34 @@ impl Application for App {
                 .primary_action(
                     widget::button::suggested(fl!("browse-archive"))
                         .on_press(Message::DialogComplete),
+                )
+                .secondary_action(
+                    widget::button::standard(fl!("cancel")).on_press(Message::DialogCancel),
+                ),
+            DialogPage::ArchiveOpenPassword {
+                entity,
+                archive,
+                entries,
+                password,
+            } => widget::dialog()
+                .title(fl!("extract-password-required"))
+                .icon(icon::from_name("dialog-error").size(64))
+                .control(
+                    widget::text_input("", password)
+                        .password()
+                        .on_input(move |password| {
+                            Message::DialogUpdate(DialogPage::ArchiveOpenPassword {
+                                entity: *entity,
+                                archive: archive.clone(),
+                                entries: entries.clone(),
+                                password,
+                            })
+                        })
+                        .on_submit(|_| Message::DialogComplete)
+                        .id(self.dialog_text_input.clone()),
+                )
+                .primary_action(
+                    widget::button::suggested(fl!("open")).on_press(Message::DialogComplete),
                 )
                 .secondary_action(
                     widget::button::standard(fl!("cancel")).on_press(Message::DialogCancel),
@@ -10564,6 +10854,21 @@ fn uri_for_display(uri: &str) -> String {
         Some(at) => format!("{scheme}://{}", &rest[at + 1..]),
         None => uri.to_owned(),
     }
+}
+
+/// Entries of an archive on their way out to be opened.
+struct ArchiveOpening {
+    entity: Entity,
+    archive: PathBuf,
+    entries: Vec<PathBuf>,
+    controller: Controller,
+}
+
+/// A folder of temporary copies, kept while `entity` is inside `archive`.
+struct ArchiveCopies {
+    entity: Entity,
+    archive: PathBuf,
+    dir: PathBuf,
 }
 
 /// Lets go of the main window when the compositor closed `id` and it was the

@@ -121,6 +121,10 @@ archive-damaged-listing = « {$name} » est endommagé : tout n’a pas pu être
 archive-listing-incomplete = « {$name} » contient trop d’éléments : tout n’est pas affiché
 archive-names-left-out = Ignorés, car leurs noms ne peuvent pas être extraits en toute sécurité : {$count}
 archive-gone = L’archive a été supprimée ou ne peut plus être lue
+archive-open-failed = « {$name} » n’a pas pu être ouvert : {$reason}
+archive-open-damaged = « {$name} » est endommagé et n’a pas été ouvert
+archive-open-not-a-file = « {$name} » est un lien et n’a pas été ouvert
+archive-open-program = « {$name} » est un programme et ne s’exécute pas depuis une archive. Extrayez-le d’abord.
 size-unknown = Taille inconnue
 size-at-least = Au moins {$size}
 

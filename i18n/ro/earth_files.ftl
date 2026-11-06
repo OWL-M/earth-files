@@ -125,6 +125,10 @@ archive-damaged-listing = „{$name}” este deteriorat: nu s-a putut lista tot
 archive-listing-incomplete = „{$name}” conține prea multe: nu este afișat tot
 archive-names-left-out = Omise, deoarece numele lor nu pot fi extrase în siguranță: {$count}
 archive-gone = Arhiva a fost eliminată sau nu mai poate fi citită
+archive-open-failed = „{$name}” nu a putut fi deschis: {$reason}
+archive-open-damaged = „{$name}” este deteriorat și nu a fost deschis
+archive-open-not-a-file = „{$name}” este o legătură și nu a fost deschis
+archive-open-program = „{$name}” este un program și nu rulează dintr-o arhivă. Extrageți-l mai întâi.
 size-unknown = Dimensiune necunoscută
 size-at-least = Cel puțin {$size}
 

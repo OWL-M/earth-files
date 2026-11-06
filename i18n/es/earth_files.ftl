@@ -123,6 +123,10 @@ archive-damaged-listing = «{$name}» está dañado: no se pudo listar todo
 archive-listing-incomplete = «{$name}» contiene demasiado: no se muestra todo
 archive-names-left-out = Omitidos porque sus nombres no se pueden extraer con seguridad: {$count}
 archive-gone = El archivo comprimido se eliminó o ya no se puede leer
+archive-open-failed = No se pudo abrir «{$name}»: {$reason}
+archive-open-damaged = «{$name}» está dañado y no se abrió
+archive-open-not-a-file = «{$name}» es un enlace y no se abrió
+archive-open-program = «{$name}» es un programa y no se ejecuta desde un archivo comprimido. Extráigalo primero.
 size-unknown = Tamaño desconocido
 size-at-least = Al menos {$size}
 

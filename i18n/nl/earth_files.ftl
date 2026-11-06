@@ -121,6 +121,10 @@ archive-damaged-listing = "{$name}" is beschadigd: niet alles kon worden weergeg
 archive-listing-incomplete = "{$name}" bevat te veel: niet alles wordt getoond
 archive-names-left-out = Weggelaten omdat hun namen niet veilig kunnen worden uitgepakt: {$count}
 archive-gone = Het archief is verwijderd of kan niet meer worden gelezen
+archive-open-failed = "{$name}" kon niet worden geopend: {$reason}
+archive-open-damaged = "{$name}" is beschadigd en is niet geopend
+archive-open-not-a-file = "{$name}" is een koppeling en is niet geopend
+archive-open-program = "{$name}" is een programma en wordt niet vanuit een archief uitgevoerd. Pak het eerst uit.
 size-unknown = Onbekende grootte
 size-at-least = Minstens {$size}
 

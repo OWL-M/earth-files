@@ -125,6 +125,10 @@ archive-damaged-listing = "{$name}" is damaged: not all of it could be listed
 archive-listing-incomplete = "{$name}" holds too much to list: not all of it is shown
 archive-names-left-out = Left out, as their names could not be extracted safely: {$count}
 archive-gone = The archive was removed or can no longer be read
+archive-open-failed = "{$name}" could not be opened: {$reason}
+archive-open-damaged = "{$name}" is damaged, so it was not opened
+archive-open-not-a-file = "{$name}" is a link, so it was not opened
+archive-open-program = "{$name}" is a program and does not run from inside an archive. Extract it first.
 size-unknown = Unknown size
 size-at-least = At least {$size}
 ## Empty Trash Dialog

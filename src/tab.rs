@@ -2869,6 +2869,8 @@ pub enum Command {
     ExecEntryAction(crate::desktop_entry::DesktopEntryData, usize),
     Iced(TaskWrapper),
     OpenFile(Vec<PathBuf>),
+    /// Open these entries of an archive, through temporary copies.
+    OpenArchiveEntries(PathBuf, Vec<PathBuf>),
     OpenInNewTab(PathBuf),
     OpenInNewWindow(PathBuf),
     Preview(PreviewKind),
@@ -6733,6 +6735,13 @@ impl Tab {
                                             cd = Some(location.clone());
                                         } else if let Some(path) = location.path_opt() {
                                             paths_to_open.push(path.clone());
+                                        } else if let Some((archive, inside)) =
+                                            location.archive_folder()
+                                        {
+                                            commands.push(Command::OpenArchiveEntries(
+                                                archive.clone(),
+                                                vec![inside.clone()],
+                                            ));
                                         } else {
                                             log::warn!("no path for item {item:?}");
                                         }
@@ -6838,6 +6847,11 @@ impl Tab {
                             cd = Some(location.clone());
                         } else if let Some(path) = location.path_opt() {
                             commands.push(Command::OpenFile(vec![path.clone()]));
+                        } else if let Some((archive, inside)) = location.archive_folder() {
+                            commands.push(Command::OpenArchiveEntries(
+                                archive.clone(),
+                                vec![inside.clone()],
+                            ));
                         } else {
                             log::warn!("no path for item {clicked_item:?}");
                         }
@@ -7809,6 +7823,7 @@ impl Tab {
                     None => {
                         enum ResolveResult {
                             Open(Option<PathBuf>),
+                            OpenFromArchive(PathBuf, PathBuf),
                             OpenInTab(Option<PathBuf>),
                             OpenProperties,
                             Cd(Location),
@@ -7848,11 +7863,14 @@ impl Tab {
                                         }
                                     }
                                 }
+                            } else if let Some((archive, inside)) = location.archive_folder() {
+                                ResolveResult::OpenFromArchive(archive.clone(), inside.clone())
                             } else {
                                 ResolveResult::Open(path_opt.cloned())
                             }
                         }
                         let mut open_files = Vec::new();
+                        let mut open_entries: Option<(PathBuf, Vec<PathBuf>)> = None;
                         if let Some(items) = self.items_opt.as_ref() {
                             let selected_count = items
                                 .iter()
@@ -7867,6 +7885,12 @@ impl Tab {
                                     selected_count == 1,
                                 ) {
                                     ResolveResult::Open(Some(p)) => open_files.push(p),
+                                    ResolveResult::OpenFromArchive(archive, inside) => {
+                                        open_entries
+                                            .get_or_insert_with(|| (archive, Vec::new()))
+                                            .1
+                                            .push(inside);
+                                    }
                                     ResolveResult::OpenInTab(Some(p)) => {
                                         commands.push(Command::OpenInNewTab(p))
                                     }
@@ -7878,6 +7902,9 @@ impl Tab {
                         }
                         if !open_files.is_empty() {
                             commands.push(Command::OpenFile(open_files));
+                        }
+                        if let Some((archive, entries)) = open_entries {
+                            commands.push(Command::OpenArchiveEntries(archive, entries));
                         }
                     }
                 }
@@ -11844,6 +11871,57 @@ mod tests {
             std::borrow::Cow::Borrowed("test"),
             None,
         )
+    }
+
+    /// A file in an archive has no path: opening it goes through a copy, from
+    /// a double click and from Open alike, for all that is selected
+    #[test]
+    fn opening_a_file_in_an_archive_asks_for_its_entries() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("a.zip");
+        let mut zip = zip::ZipWriter::new(std::fs::File::create(&path).unwrap());
+        for name in ["one.txt", "two.txt"] {
+            zip.start_file(name, zip::write::SimpleFileOptions::default())
+                .unwrap();
+            std::io::Write::write_all(&mut zip, b"x").unwrap();
+        }
+        zip.finish().unwrap();
+        let location = Location::Archive {
+            archive: path.clone(),
+            inside: PathBuf::new(),
+        };
+        let mut tab = archive_tab(location.clone());
+        let (_, items) = location.scan(IconSizes::default());
+        tab.set_items(items);
+
+        let commands = tab.update(Message::DoubleClick(Some(0)), Modifiers::empty());
+        let Some(super::Command::OpenArchiveEntries(archive, entries)) = commands
+            .iter()
+            .find(|command| matches!(command, super::Command::OpenArchiveEntries(..)))
+        else {
+            panic!("no entries asked for");
+        };
+        assert_eq!(archive, &path);
+        assert_eq!(entries.len(), 1);
+
+        let items = tab.items_opt.clone().unwrap();
+        for item in &items {
+            tab.selection.select(item, true);
+        }
+        let commands = tab.update(Message::Open(None), Modifiers::empty());
+        let Some(super::Command::OpenArchiveEntries(_, entries)) = commands
+            .iter()
+            .find(|command| matches!(command, super::Command::OpenArchiveEntries(..)))
+        else {
+            panic!("no entries asked for");
+        };
+        let mut entries = entries.clone();
+        entries.sort();
+        assert_eq!(
+            entries,
+            [PathBuf::from("one.txt"), PathBuf::from("two.txt")]
+        );
+        crate::archive::index::keep_shared(&[]);
     }
 
     /// With no term yet an archive's search is its folder: listed in full,

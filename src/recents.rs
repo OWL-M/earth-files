@@ -218,6 +218,10 @@ fn submit(job: Job) {
 
 /// Records that `path` was opened, without waiting for the write.
 pub fn record(path: PathBuf, id: String, exec: String) {
+    // Gone before long: nothing to come back to
+    if crate::archive::open_copy::holds(&path) {
+        return;
+    }
     submit(Job::Record { path, id, exec });
 }
 

@@ -427,7 +427,7 @@ struct Listed {
 /// or names nothing, or is longer than a path can be, which no folder could
 /// take. `backslashes`: zip and 7z may separate with them, where in a tar it is
 /// part of a name.
-fn clean(raw: &[u8], backslashes: bool) -> Option<PathBuf> {
+pub(super) fn clean(raw: &[u8], backslashes: bool) -> Option<PathBuf> {
     if raw.len() > libc::PATH_MAX as usize {
         return None;
     }

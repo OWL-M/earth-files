@@ -131,6 +131,10 @@ archive-damaged-listing = „{$name}“ je poškodené: nepodarilo sa vypísať 
 archive-listing-incomplete = „{$name}“ obsahuje príliš veľa: nezobrazuje sa všetko
 archive-names-left-out = Vynechané, pretože ich názvy nemožno bezpečne rozbaliť: {$count}
 archive-gone = Archív bol odstránený alebo ho už nemožno prečítať
+archive-open-failed = „{$name}“ sa nepodarilo otvoriť: {$reason}
+archive-open-damaged = „{$name}“ je poškodené, a preto nebolo otvorené
+archive-open-not-a-file = „{$name}“ je odkaz, a preto nebol otvorený
+archive-open-program = „{$name}“ je program a nespúšťa sa z archívu. Najprv ho rozbaľte.
 size-unknown = Neznáma veľkosť
 size-at-least = Aspoň {$size}
 
