@@ -122,6 +122,10 @@ archive-open-failed = Níorbh fhéidir "{$name}" a oscailt: {$reason}
 archive-open-damaged = Tá "{$name}" damáistithe agus níor osclaíodh é
 archive-open-not-a-file = Is nasc é "{$name}" agus níor osclaíodh é
 archive-open-program = Is ríomhchlár é "{$name}" agus ní ritheann sé ó thaobh istigh de chartlann. Asbhain ar dtús é.
+archive-suspicious = D’fhásfadh "{$name}" ó {$size} go {$expanded}. Seans go ndearnadh cartlanna a fhásann an méid seo chun tiomántán a líonadh.
+archive-suspicious-so-far = Tá "{$name}" fásta ó {$size} go {$expanded} go dtí seo. Seans go ndearnadh cartlanna a fhásann an méid seo chun tiomántán a líonadh.
+extract-anyway = Asbhain mar sin féin
+extract-drive-nearly-full = Stopadh an asbhaint: níl ach {$free} fágtha ar an tiomántán
 size-unknown = Méid anaithnid
 size-at-least = {$size} ar a laghad
 

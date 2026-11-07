@@ -452,6 +452,60 @@ async fn a_drive_pulled_out_mid_copy_is_asked_about_as_gone() {
     );
 }
 
+/// An archive stating more than the drive holds is refused before a byte is
+/// written, whatever it really holds, and so is opening it through a copy
+#[compio::test]
+async fn an_archive_too_big_for_the_drive_is_refused_up_front() {
+    if !in_namespace(
+        "operation::tests::failing_fs::an_archive_too_big_for_the_drive_is_refused_up_front",
+    ) {
+        return;
+    }
+    use std::io::Write;
+    let dir = tempfile::tempdir().expect("tempdir");
+    let drive = dir.path().join("drive");
+    fs::create_dir(&drive).expect("mkdir");
+    mount_tmpfs(&drive, 64 << 10, false);
+    let archive = dir.path().join("big.zip");
+    let mut zip = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+    zip.start_file("big", zip::write::SimpleFileOptions::default())
+        .expect("entry");
+    zip.write_all(b"small").expect("write");
+    let mut bytes = zip.finish().expect("finish").into_inner();
+    let at = bytes
+        .windows(4)
+        .position(|window| window == b"PK\x01\x02")
+        .expect("a central directory");
+    bytes[at + 24..at + 28].copy_from_slice(&(1_u32 << 20).to_le_bytes());
+    fs::write(&archive, bytes).expect("write");
+
+    let (result, asked) = perform_blocked(
+        Operation::Extract {
+            paths: vec![archive.clone()].into(),
+            to: drive.clone(),
+            password: None,
+            into: ExtractInto::Folder,
+            only: None,
+        },
+        |_, _, _| BlockedAnswer::Cancel,
+    )
+    .await;
+    assert!(asked.is_empty(), "asked {asked:?}");
+    result.expect_err("refused");
+    assert!(names(&drive).is_empty(), "written: {:?}", names(&drive));
+
+    let opened = crate::archive::open_copy::copy_out(
+        &drive,
+        &archive,
+        &[PathBuf::from("big")],
+        &None,
+        &crate::operation::Controller::default(),
+    );
+    assert!(opened.is_err(), "{opened:?}");
+    assert!(names(&drive).is_empty(), "written: {:?}", names(&drive));
+    detach(&drive);
+}
+
 /// An archive that fills the drive while it is extracted into a folder of
 /// its own fails, and takes the half-made folder with it
 #[test(compio::test)]

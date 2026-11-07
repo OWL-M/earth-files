@@ -125,6 +125,10 @@ archive-open-failed = „{$name}“ не може да се отвори: {$reas
 archive-open-damaged = „{$name}“ е повреден и не беше отворен
 archive-open-not-a-file = „{$name}“ е връзка и не беше отворена
 archive-open-program = „{$name}“ е програма и не се изпълнява от архив. Първо го извлечете.
+archive-suspicious = „{$name}“ би нараснал от {$size} до {$expanded}. Архивите, които растат толкова, може да са направени да запълнят диск.
+archive-suspicious-so-far = „{$name}“ вече нарасна от {$size} до {$expanded}. Архивите, които растат толкова, може да са направени да запълнят диск.
+extract-anyway = Извличане въпреки това
+extract-drive-nearly-full = Извличането е спряно: на диска са останали само {$free}
 size-unknown = Неизвестен размер
 size-at-least = Поне {$size}
 

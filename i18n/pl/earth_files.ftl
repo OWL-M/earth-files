@@ -136,6 +136,10 @@ archive-open-failed = Nie można otworzyć „{$name}”: {$reason}
 archive-open-damaged = „{$name}” jest uszkodzone i nie zostało otwarte
 archive-open-not-a-file = „{$name}” jest dowiązaniem i nie zostało otwarte
 archive-open-program = „{$name}” jest programem i nie uruchamia się z wnętrza archiwum. Najpierw je wypakuj.
+archive-suspicious = „{$name}” urosłoby z {$size} do {$expanded}. Archiwa rosnące aż tak mogą być stworzone, by zapełnić dysk.
+archive-suspicious-so-far = „{$name}” urosło już z {$size} do {$expanded}. Archiwa rosnące aż tak mogą być stworzone, by zapełnić dysk.
+extract-anyway = Wypakuj mimo to
+extract-drive-nearly-full = Wypakowywanie zatrzymane: na dysku pozostało tylko {$free}
 size-unknown = Nieznany rozmiar
 size-at-least = Co najmniej {$size}
 

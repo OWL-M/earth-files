@@ -88,11 +88,177 @@ pub fn extract(
 
 /// As [`extract`], of `only` what it names where it names anything. What comes
 /// out is where it is in the archive, folders above it included.
+#[cfg(test)]
 pub fn extract_only(
     path: &Path,
     new_dir: &Path,
     password: &Option<String>,
     only: Option<&index::Only>,
+    controller: &Controller,
+) -> Result<Extracted, OperationError> {
+    extract_watched(path, new_dir, password, only, None, controller)
+}
+
+/// How much an archive grows, past which it is asked about: a real one rarely
+/// gets here, and one built to fill a drive always does.
+const SUSPICIOUS_RATIO: u64 = 100;
+const SUSPICIOUS_SIZE: u64 = 1_000_000_000;
+/// What an extraction of unknown size leaves free at most, in bytes. It is less
+/// on a smaller drive, see [`Watch::new`].
+const DRIVE_MARGIN: u64 = 256 * 1024 * 1024;
+/// How much is written between looks at the room left on the drive.
+const LOOK_EVERY: u64 = 16 * 1024 * 1024;
+
+/// Whether an archive of `archive` bytes growing to `expanded` is worth asking
+/// about.
+pub fn suspicious(expanded: u64, archive: u64) -> bool {
+    expanded > SUSPICIOUS_SIZE && expanded > archive.saturating_mul(SUSPICIOUS_RATIO)
+}
+
+/// How much an archive says it expands to.
+#[derive(Clone, Copy, Debug)]
+pub struct Expected {
+    pub size: u64,
+    /// Whether that is all that gets written: not when only part of it could be
+    /// listed, nor when a name comes twice, as the earlier one is written too.
+    pub complete: bool,
+}
+
+/// What `path`, or `only` what it names, expands to, where that can be known
+/// without decompressing it: a compressed tar has to be read through, and is
+/// known only if it was for browsing.
+pub fn expected_size(
+    path: &Path,
+    password: Option<&str>,
+    only: Option<&index::Only>,
+    controller: &Controller,
+) -> Option<Expected> {
+    let cheap = matches!(
+        mime_for_path(path, false).as_str(),
+        "application/zip" | "application/x-7z-compressed" | "application/x-tar"
+    );
+    if !cheap && only.is_none() && index::held(path).is_none() {
+        return None;
+    }
+    let index = index::read_shared(path, password, controller).ok()?;
+    let (size, known) = match only {
+        // What a chosen hard link shares its data with comes out on the way
+        Some(only) => {
+            let only = only.clone().with_hard_link_targets(&index);
+            index.size_of(&only.chosen_and_needed())
+        }
+        None => index.total_size(),
+    };
+    Some(Expected {
+        size,
+        complete: known && !index.truncated && index.damaged.is_none() && !index.replaced,
+    })
+}
+
+/// Refuses what cannot fit in the room left where `dir` is.
+pub fn check_room(size: u64, dir: &Path) -> Result<(), OperationError> {
+    match crate::operation::free_space(dir) {
+        Some(free) if size > free => Err(OperationError::from_err(crate::fl!(
+            "not-enough-space",
+            needed = crate::tab::format_size(size),
+            free = crate::tab::format_size(free)
+        ))),
+        _ => Ok(()),
+    }
+}
+
+/// Keeps an eye on an extraction whose size could not be known first, as it
+/// writes: it stops short of filling the drive, and asks once when the archive
+/// has grown suspiciously.
+pub struct Watch {
+    dir: PathBuf,
+    archive_size: u64,
+    margin: u64,
+    suspicious_from: u64,
+    /// Told how far it has grown; whether to go on.
+    ask: Box<dyn Fn(u64) -> bool + Send>,
+    written: std::cell::Cell<u64>,
+    looked_at: std::cell::Cell<u64>,
+    asked: std::cell::Cell<bool>,
+}
+
+impl Watch {
+    /// The margin is a tenth of what is free now where that is less than
+    /// [`DRIVE_MARGIN`]: a nearly full drive can still take a small archive.
+    pub fn new(dir: &Path, archive_size: u64, ask: Box<dyn Fn(u64) -> bool + Send>) -> Self {
+        let free = crate::operation::free_space(dir).unwrap_or(u64::MAX);
+        Self {
+            dir: dir.to_path_buf(),
+            archive_size,
+            margin: DRIVE_MARGIN.min(free / 10),
+            suspicious_from: SUSPICIOUS_SIZE,
+            ask,
+            written: std::cell::Cell::new(0),
+            looked_at: std::cell::Cell::new(0),
+            asked: std::cell::Cell::new(false),
+        }
+    }
+
+    /// Whether the question was put already: it is not put again, and the room
+    /// is still kept.
+    pub fn asked_already(self, asked: bool) -> Self {
+        self.asked.set(asked);
+        self
+    }
+
+    /// `count` more bytes are about to be written. An error ends the extraction:
+    /// they would leave the drive nearly full, or the answer was to stop.
+    fn about_to_write(&self, count: u64) -> io::Result<()> {
+        let written = self.written.get().saturating_add(count);
+        self.written.set(written);
+        if written.saturating_sub(self.looked_at.get()) >= LOOK_EVERY.min(self.margin.max(1)) {
+            self.looked_at.set(written);
+            if let Some(free) = crate::operation::free_space(&self.dir)
+                && free < self.margin.saturating_add(count)
+            {
+                return Err(io::Error::new(
+                    io::ErrorKind::StorageFull,
+                    crate::fl!(
+                        "extract-drive-nearly-full",
+                        free = crate::tab::format_size(free)
+                    ),
+                ));
+            }
+        }
+        if !self.asked.get()
+            && written > self.suspicious_from
+            && written > self.archive_size.saturating_mul(SUSPICIOUS_RATIO)
+        {
+            self.asked.set(true);
+            if !(self.ask)(written) {
+                return Err(io::Error::other("stopped"));
+            }
+        }
+        Ok(())
+    }
+}
+
+/// What a decoder gives, told to a [`Watch`].
+struct Watched<'a, R> {
+    inner: R,
+    watch: &'a Watch,
+}
+
+impl<R: Read> Read for Watched<'_, R> {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        let count = self.inner.read(buf)?;
+        self.watch.about_to_write(count as u64)?;
+        Ok(count)
+    }
+}
+
+/// As [`extract_only`], with what it writes watched if a [`Watch`] is given.
+pub fn extract_watched(
+    path: &Path,
+    new_dir: &Path,
+    password: &Option<String>,
+    only: Option<&index::Only>,
+    watch: Option<&Watch>,
     controller: &Controller,
 ) -> Result<Extracted, OperationError> {
     let mime = mime_for_path(path, false);
@@ -109,18 +275,18 @@ pub fn extract_only(
     let mut out = Extracted::default();
     match mime.as_str() {
         "application/zip" => {
-            zip_extract_file(path, new_dir, password, only, controller, &mut out).map_err(|e| {
-                match e {
+            zip_extract_file(path, new_dir, password, only, watch, controller, &mut out).map_err(
+                |e| match e {
                     ZipError::UnsupportedArchive(ZipError::PASSWORD_REQUIRED)
                     | ZipError::InvalidPassword => {
                         OperationError::from_kind(OperationErrorType::PasswordRequired)
                     }
                     _ => stopped(controller).unwrap_or_else(|| OperationError::from_err(e)),
-                }
-            })?;
+                },
+            )?;
         }
         "application/x-7z-compressed" => {
-            sevenz_extract(path, new_dir, password, only, controller, &mut out)?;
+            sevenz_extract(path, new_dir, password, only, watch, controller, &mut out)?;
         }
         "application/x-tar" => {
             let reader =
@@ -130,6 +296,7 @@ pub fn extract_only(
                 new_dir,
                 path,
                 only,
+                watch,
                 controller,
                 &mut out,
             )?;
@@ -140,6 +307,7 @@ pub fn extract_only(
                 new_dir,
                 (Codec::Gzip, true),
                 only,
+                watch,
                 controller,
                 &mut out,
             )?;
@@ -150,6 +318,7 @@ pub fn extract_only(
                 new_dir,
                 (Codec::Gzip, false),
                 only,
+                watch,
                 controller,
                 &mut out,
             )?;
@@ -160,6 +329,7 @@ pub fn extract_only(
                 new_dir,
                 (Codec::Zstd, true),
                 only,
+                watch,
                 controller,
                 &mut out,
             )?;
@@ -170,6 +340,7 @@ pub fn extract_only(
                 new_dir,
                 (Codec::Zstd, false),
                 only,
+                watch,
                 controller,
                 &mut out,
             )?;
@@ -181,6 +352,7 @@ pub fn extract_only(
                 new_dir,
                 (Codec::Bzip2, true),
                 only,
+                watch,
                 controller,
                 &mut out,
             )?;
@@ -192,13 +364,22 @@ pub fn extract_only(
                 new_dir,
                 (Codec::Bzip2, false),
                 only,
+                watch,
                 controller,
                 &mut out,
             )?;
         }
         #[cfg(feature = "lzma-rust2")]
         "application/x-xz-compressed-tar" => {
-            extract_compressed(path, new_dir, (Codec::Xz, true), only, controller, &mut out)?;
+            extract_compressed(
+                path,
+                new_dir,
+                (Codec::Xz, true),
+                only,
+                watch,
+                controller,
+                &mut out,
+            )?;
         }
         #[cfg(feature = "lzma-rust2")]
         "application/x-xz" => {
@@ -207,6 +388,7 @@ pub fn extract_only(
                 new_dir,
                 (Codec::Xz, false),
                 only,
+                watch,
                 controller,
                 &mut out,
             )?;
@@ -218,6 +400,7 @@ pub fn extract_only(
                 new_dir,
                 (Codec::Lzma, true),
                 only,
+                watch,
                 controller,
                 &mut out,
             )?;
@@ -229,6 +412,7 @@ pub fn extract_only(
                 new_dir,
                 (Codec::Lzma, false),
                 only,
+                watch,
                 controller,
                 &mut out,
             )?;
@@ -323,6 +507,7 @@ fn extract_compressed(
     dst: &Path,
     (codec, tar): (Codec, bool),
     only: Option<&index::Only>,
+    watch: Option<&Watch>,
     controller: &Controller,
     out: &mut Extracted,
 ) -> Result<(), OperationError> {
@@ -330,8 +515,23 @@ fn extract_compressed(
     let reader = OpReader::new(path, controller.clone()).map_err(OperationError::from_err)?;
     let reader = decoder(codec, reader).map_err(OperationError::from_err)?;
     if tar {
-        unpack_tar(tar::Archive::new(reader), dst, path, only, controller, out)
+        unpack_tar(
+            tar::Archive::new(reader),
+            dst,
+            path,
+            only,
+            watch,
+            controller,
+            out,
+        )
     } else {
+        let reader: Box<dyn Read + '_> = match watch {
+            Some(watch) => Box::new(Watched {
+                inner: reader,
+                watch,
+            }),
+            None => reader,
+        };
         write_single(reader, dst, path, controller, out)
     }
 }
@@ -416,6 +616,7 @@ fn unpack_tar<R: Read>(
     dst: &Path,
     path: &Path,
     only: Option<&index::Only>,
+    watch: Option<&Watch>,
     controller: &Controller,
     out: &mut Extracted,
 ) -> Result<(), OperationError> {
@@ -452,6 +653,13 @@ fn unpack_tar<R: Read>(
             .map_or_else(|_| whole(path), std::borrow::Cow::into_owned);
         if entry.header().entry_type() == tar::EntryType::Directory {
             directories.push((name, entry));
+            continue;
+        }
+        // By what it states, which a tar cannot write past: before a byte of
+        // it, and not for what a selection passes over
+        let size = entry.size();
+        if let Some(Err(err)) = watch.map(|watch| watch.about_to_write(size)) {
+            fail(err, name, out)?;
             continue;
         }
         if let Err(err) = entry.unpack_in(dst) {
@@ -582,6 +790,7 @@ fn sevenz_extract(
     dst: &Path,
     password: Option<&str>,
     only: Option<&index::Only>,
+    watch: Option<&Watch>,
     controller: &Controller,
     out: &mut Extracted,
 ) -> Result<(), OperationError> {
@@ -742,6 +951,12 @@ fn sevenz_extract(
                         if count == 0 {
                             break;
                         }
+                        if let Some(Err(err)) =
+                            watch.map(|watch| watch.about_to_write(count as u64))
+                        {
+                            out.written.push(to.clone());
+                            return damaged(err, out);
+                        }
                         file.write_all(&buffer[..count])
                             .map_err(OperationError::from_err)?;
                         done += count as u64;
@@ -818,15 +1033,25 @@ fn zip_extract_file(
     dst: &Path,
     password: Option<&str>,
     only: Option<&index::Only>,
+    watch: Option<&Watch>,
     controller: &Controller,
     out: &mut Extracted,
 ) -> ZipResult<()> {
     let file = fs::File::open(path)?;
     match zip::ZipArchive::new(io::BufReader::new(file)) {
-        Ok(mut archive) => zip_extract(&mut archive, dst, password, only, controller.clone(), out),
+        Ok(mut archive) => zip_extract(
+            &mut archive,
+            dst,
+            password,
+            only,
+            watch,
+            controller.clone(),
+            out,
+        ),
         Err(err @ ZipError::InvalidArchive(_)) if password.is_none() => {
             let mut reader = io::BufReader::new(fs::File::open(path)?);
             let mut entries = ZipEntries::new(dst, out, false);
+            entries.watch = watch;
             let mut index = 0;
             loop {
                 match zip::read::read_zipfile_from_stream(&mut reader) {
@@ -865,6 +1090,7 @@ struct ZipEntries<'a> {
     /// A password was given: an encrypted entry that fails to read most
     /// likely fails for a wrong one, not for damage
     password: bool,
+    watch: Option<&'a Watch>,
 }
 
 impl<'a> ZipEntries<'a> {
@@ -876,6 +1102,7 @@ impl<'a> ZipEntries<'a> {
             by_unix_mode: Vec::new(),
             by_last_modified: Vec::new(),
             password,
+            watch: None,
         }
     }
 
@@ -982,6 +1209,13 @@ impl<'a> ZipEntries<'a> {
             if count == 0 {
                 break;
             }
+            if let Some(Err(err)) = self.watch.map(|watch| watch.about_to_write(count as u64)) {
+                self.out.written.push(outpath.clone());
+                if let Some(mode) = mode {
+                    self.by_unix_mode.push((outpath, mode));
+                }
+                return damaged(err, self.out);
+            }
             outfile.write_all(&self.buffer[..count])?;
             current += count as u64;
 
@@ -1042,11 +1276,13 @@ fn zip_extract<R: io::Read + io::Seek>(
     directory: &Path,
     password: Option<&str>,
     only: Option<&index::Only>,
+    watch: Option<&Watch>,
     controller: Controller,
     out: &mut Extracted,
 ) -> ZipResult<()> {
     let total_files = archive.len();
     let mut entries = ZipEntries::new(directory, out, password.is_some());
+    entries.watch = watch;
     for i in 0..total_files {
         check(&controller)?;
         controller.set_progress(i as f32 / total_files as f32);
@@ -1587,5 +1823,398 @@ mod tests {
         assert_eq!(damaged(&out), [PathBuf::from("link")]);
         assert!(fs::symlink_metadata(dest.join("link")).is_err());
         assert_eq!(fs::read(dest.join("b.txt")).unwrap(), b"healthy");
+    }
+
+    fn gz_of(path: &Path, bytes: usize) {
+        use std::io::Write;
+        let mut gz = flate2::write::GzEncoder::new(
+            fs::File::create(path).unwrap(),
+            flate2::Compression::fast(),
+        );
+        gz.write_all(&vec![0; bytes]).unwrap();
+        gz.finish().unwrap();
+    }
+
+    fn watch_on(
+        dir: &Path,
+        asks: std::sync::Arc<std::sync::atomic::AtomicU32>,
+        go_on: bool,
+    ) -> Watch {
+        let mut watch = Watch::new(
+            dir,
+            1,
+            Box::new(move |_| {
+                asks.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                go_on
+            }),
+        );
+        watch.suspicious_from = 1000;
+        watch
+    }
+
+    #[test]
+    fn growth_is_suspicious_past_both_limits() {
+        assert!(suspicious(2_000_000_000, 1_000_000));
+        // Much, but not for its size
+        assert!(!suspicious(2_000_000_000, 100_000_000));
+        // A lot for its size, but not much
+        assert!(!suspicious(1_000_000, 1));
+    }
+
+    /// Asked about once as it grows, and going on takes it to the end
+    #[test]
+    fn a_stream_is_asked_about_once_and_goes_on() {
+        let tmp = tempfile::tempdir().unwrap();
+        let archive = tmp.path().join("a.gz");
+        gz_of(&archive, 4 << 20);
+        let out = tmp.path().join("out");
+        fs::create_dir(&out).unwrap();
+        let asks = std::sync::Arc::new(std::sync::atomic::AtomicU32::new(0));
+        let watch = watch_on(&out, std::sync::Arc::clone(&asks), true);
+        extract_watched(
+            &archive,
+            &out,
+            &None,
+            None,
+            Some(&watch),
+            &Controller::default(),
+        )
+        .unwrap();
+        assert_eq!(asks.load(std::sync::atomic::Ordering::Relaxed), 1);
+        assert_eq!(fs::metadata(out.join("a")).unwrap().len(), 4 << 20);
+    }
+
+    /// The answer to stop ends it, in a tar as in a single file
+    #[test]
+    fn a_compressed_tar_stops_at_the_answer() {
+        use std::io::Write;
+        let tmp = tempfile::tempdir().unwrap();
+        let archive = tmp.path().join("a.tar.gz");
+        let mut tar = tar::Builder::new(flate2::write::GzEncoder::new(
+            fs::File::create(&archive).unwrap(),
+            flate2::Compression::fast(),
+        ));
+        let mut header = tar::Header::new_gnu();
+        header.set_size(4 << 20);
+        header.set_mode(0o644);
+        tar.append_data(&mut header, "big", &vec![0; 4 << 20][..])
+            .unwrap();
+        tar.into_inner().unwrap().finish().unwrap().flush().unwrap();
+        let out = tmp.path().join("out");
+        fs::create_dir(&out).unwrap();
+        let controller = Controller::default();
+        let asks = std::sync::Arc::new(std::sync::atomic::AtomicU32::new(0));
+        let stopping = controller.clone();
+        let counted = std::sync::Arc::clone(&asks);
+        let mut watch = Watch::new(
+            &out,
+            1,
+            Box::new(move |_| {
+                counted.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                stopping.cancel();
+                false
+            }),
+        );
+        watch.suspicious_from = 1000;
+        let done = extract_watched(&archive, &out, &None, None, Some(&watch), &controller);
+        assert!(done.is_err_and(|err| err.is_cancelled()));
+        assert_eq!(asks.load(std::sync::atomic::Ordering::Relaxed), 1);
+    }
+
+    /// Short of filling the drive, it stops by itself, and says so
+    #[test]
+    fn a_stream_stops_short_of_the_margin() {
+        let tmp = tempfile::tempdir().unwrap();
+        let archive = tmp.path().join("a.gz");
+        gz_of(&archive, 32 << 20);
+        let out = tmp.path().join("out");
+        fs::create_dir(&out).unwrap();
+        let asks = std::sync::Arc::new(std::sync::atomic::AtomicU32::new(0));
+        let mut watch = watch_on(&out, std::sync::Arc::clone(&asks), true);
+        watch.suspicious_from = u64::MAX;
+        watch.margin = u64::MAX;
+        let err = extract_watched(
+            &archive,
+            &out,
+            &None,
+            None,
+            Some(&watch),
+            &Controller::default(),
+        )
+        .unwrap_err();
+        assert!(!err.is_cancelled());
+        assert!(fs::metadata(out.join("a")).unwrap().len() < 32 << 20);
+        assert_eq!(asks.load(std::sync::atomic::Ordering::Relaxed), 0);
+    }
+
+    /// A small margin is looked at as often as it needs
+    #[test]
+    fn a_small_margin_leaves_a_small_archive_alone() {
+        let tmp = tempfile::tempdir().unwrap();
+        let watch = Watch::new(tmp.path(), 1 << 40, Box::new(|_| true));
+        assert!(watch.margin <= DRIVE_MARGIN);
+        assert!(watch.about_to_write(1 << 20).is_ok());
+    }
+
+    /// An entry that holds more than the list says is cut off there, and named.
+    /// The zip crate's reader does the holding: a 7z entry's reader is bounded
+    /// too, and a tar's is by its format
+    #[test]
+    fn a_zip_entry_past_its_stated_size_is_damaged() {
+        use std::io::Write;
+        let tmp = tempfile::tempdir().unwrap();
+        let archive = tmp.path().join("a.zip");
+        let mut zip = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+        let options = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Deflated);
+        zip.start_file("bomb", options).unwrap();
+        zip.write_all(&vec![0; 1 << 20]).unwrap();
+        zip.start_file("after", options).unwrap();
+        zip.write_all(b"after").unwrap();
+        let mut bytes = zip.finish().unwrap().into_inner();
+        let at = bytes
+            .windows(4)
+            .position(|window| window == b"PK\x01\x02")
+            .unwrap();
+        bytes[at + 24..at + 28].copy_from_slice(&16_u32.to_le_bytes());
+        fs::write(&archive, bytes).unwrap();
+        let out = tmp.path().join("out");
+        fs::create_dir(&out).unwrap();
+        let done = extract_only(&archive, &out, &None, None, &Controller::default()).unwrap();
+        let damaged: Vec<_> = done.damaged.iter().map(|(name, _)| name.clone()).collect();
+        assert_eq!(damaged, [PathBuf::from("bomb")]);
+        assert!(fs::metadata(out.join("bomb")).unwrap().len() <= 16);
+        assert_eq!(fs::read(out.join("after")).unwrap(), b"after");
+    }
+
+    #[test]
+    fn what_does_not_fit_is_refused() {
+        let tmp = tempfile::tempdir().unwrap();
+        assert!(check_room(u64::MAX, tmp.path()).is_err());
+        assert!(check_room(1, tmp.path()).is_ok());
+    }
+
+    /// Known only where listing costs little, or was done already to browse
+    #[test]
+    fn a_compressed_tar_is_known_only_once_read() {
+        let tmp = tempfile::tempdir().unwrap();
+        let archive = tmp.path().join("a.tar.gz");
+        let mut tar = tar::Builder::new(flate2::write::GzEncoder::new(
+            fs::File::create(&archive).unwrap(),
+            flate2::Compression::fast(),
+        ));
+        let mut header = tar::Header::new_gnu();
+        header.set_size(3);
+        header.set_mode(0o644);
+        tar.append_data(&mut header, "x", &b"abc"[..]).unwrap();
+        tar.into_inner().unwrap().finish().unwrap();
+        let controller = Controller::default();
+        assert!(expected_size(&archive, None, None, &controller).is_none());
+        index::read_shared(&archive, None, &controller).unwrap();
+        let expected = expected_size(&archive, None, None, &controller).unwrap();
+        assert_eq!(expected.size, 3);
+        assert!(expected.complete);
+    }
+
+    fn asks() -> std::sync::Arc<std::sync::atomic::AtomicU32> {
+        std::sync::Arc::new(std::sync::atomic::AtomicU32::new(0))
+    }
+
+    fn tar_sized(entries: &[(&str, usize)]) -> Vec<u8> {
+        let mut tar = tar::Builder::new(Vec::new());
+        for (name, size) in entries {
+            let mut header = tar::Header::new_gnu();
+            header.set_size(*size as u64);
+            header.set_mode(0o644);
+            tar.append_data(&mut header, *name, &vec![0; *size][..])
+                .unwrap();
+        }
+        tar.into_inner().unwrap()
+    }
+
+    /// Every way an archive is written tells the watch, not only a decoder's
+    #[test]
+    fn every_format_is_watched() {
+        use std::io::Write;
+        let tmp = tempfile::tempdir().unwrap();
+        let zip_path = tmp.path().join("a.zip");
+        let mut zip = zip::ZipWriter::new(fs::File::create(&zip_path).unwrap());
+        zip.start_file("big", zip::write::SimpleFileOptions::default())
+            .unwrap();
+        zip.write_all(&vec![0; 1 << 20]).unwrap();
+        zip.finish().unwrap();
+        let sevenz_path = tmp.path().join("a.7z");
+        write_7z(&sevenz_path, &[("big", &vec![0; 1 << 20])]);
+        let tar_path = tmp.path().join("a.tar");
+        fs::write(&tar_path, tar_sized(&[("big", 1 << 20)])).unwrap();
+
+        for archive in [zip_path, sevenz_path, tar_path] {
+            let out = tmp.path().join(format!(
+                "out-{}",
+                archive.extension().unwrap().to_string_lossy()
+            ));
+            fs::create_dir(&out).unwrap();
+            let asked = asks();
+            let watch = watch_on(&out, std::sync::Arc::clone(&asked), true);
+            extract_watched(
+                &archive,
+                &out,
+                &None,
+                None,
+                Some(&watch),
+                &Controller::default(),
+            )
+            .unwrap();
+            assert_eq!(
+                asked.load(std::sync::atomic::Ordering::Relaxed),
+                1,
+                "{archive:?}"
+            );
+            assert_eq!(fs::metadata(out.join("big")).unwrap().len(), 1 << 20);
+        }
+    }
+
+    /// What a selection passes over in the stream is not what it grows by
+    #[test]
+    fn a_selection_is_watched_only_for_what_it_writes() {
+        let tmp = tempfile::tempdir().unwrap();
+        let archive = tmp.path().join("a.tar");
+        fs::write(&archive, tar_sized(&[("unwanted", 1 << 20), ("small", 10)])).unwrap();
+        let out = tmp.path().join("out");
+        fs::create_dir(&out).unwrap();
+        let asked = asks();
+        let watch = watch_on(&out, std::sync::Arc::clone(&asked), true);
+        let only = index::Only::new(&[PathBuf::from("small")]);
+        extract_watched(
+            &archive,
+            &out,
+            &None,
+            Some(&only),
+            Some(&watch),
+            &Controller::default(),
+        )
+        .unwrap();
+        assert_eq!(asked.load(std::sync::atomic::Ordering::Relaxed), 0);
+        assert!(out.join("small").exists());
+    }
+
+    /// One entry bigger than the room stops before a byte of it
+    #[test]
+    fn a_tar_entry_too_big_for_the_margin_is_not_begun() {
+        let tmp = tempfile::tempdir().unwrap();
+        let archive = tmp.path().join("a.tar");
+        fs::write(&archive, tar_sized(&[("big", 32 << 20)])).unwrap();
+        let out = tmp.path().join("out");
+        fs::create_dir(&out).unwrap();
+        let mut watch = watch_on(&out, asks(), true);
+        watch.suspicious_from = u64::MAX;
+        watch.margin = crate::operation::free_space(&out).unwrap();
+        extract_watched(
+            &archive,
+            &out,
+            &None,
+            None,
+            Some(&watch),
+            &Controller::default(),
+        )
+        .unwrap_err();
+        assert!(!out.join("big").exists());
+    }
+
+    /// An earlier version of a name is written too, so the last one's size is
+    /// no bound on what comes out
+    #[test]
+    fn a_replaced_name_leaves_the_size_incomplete() {
+        let tmp = tempfile::tempdir().unwrap();
+        let archive = tmp.path().join("a.tar");
+        fs::write(&archive, tar_sized(&[("a", 1 << 20), ("a", 1)])).unwrap();
+        let controller = Controller::default();
+        let expected = expected_size(&archive, None, None, &controller).unwrap();
+        assert_eq!(expected.size, 1);
+        assert!(!expected.complete);
+        let only = index::Only::new(&[PathBuf::from("a")]);
+        assert!(
+            !expected_size(&archive, None, Some(&only), &controller)
+                .unwrap()
+                .complete
+        );
+    }
+
+    /// A name that only repeats an empty file holds nothing back
+    #[test]
+    fn repeating_an_empty_name_leaves_the_size_complete() {
+        let tmp = tempfile::tempdir().unwrap();
+        let archive = tmp.path().join("a.tar");
+        fs::write(&archive, tar_sized(&[("a", 0), ("a", 5)])).unwrap();
+        let expected = expected_size(&archive, None, None, &Controller::default()).unwrap();
+        assert_eq!(expected.size, 5);
+        assert!(expected.complete);
+    }
+
+    /// A hard link holds nothing, but what it links to comes out for it
+    #[test]
+    fn a_chosen_hard_link_counts_its_target() {
+        let tmp = tempfile::tempdir().unwrap();
+        let archive = tmp.path().join("a.tar");
+        let mut tar = tar::Builder::new(Vec::new());
+        let mut header = tar::Header::new_gnu();
+        header.set_size(1 << 20);
+        header.set_mode(0o644);
+        tar.append_data(&mut header, "target", &vec![0; 1 << 20][..])
+            .unwrap();
+        let mut link = tar::Header::new_gnu();
+        link.set_entry_type(tar::EntryType::Link);
+        link.set_size(0);
+        link.set_mode(0o644);
+        tar.append_link(&mut link, "link", "target").unwrap();
+        fs::write(&archive, tar.into_inner().unwrap()).unwrap();
+        let only = index::Only::new(&[PathBuf::from("link")]);
+        let expected = expected_size(&archive, None, Some(&only), &Controller::default()).unwrap();
+        assert_eq!(expected.size, 1 << 20);
+    }
+
+    /// A file that a later name makes a folder of was written all the same
+    #[test]
+    fn a_file_made_a_folder_leaves_the_size_incomplete() {
+        let tmp = tempfile::tempdir().unwrap();
+        let archive = tmp.path().join("a.tar");
+        fs::write(&archive, tar_sized(&[("a", 1 << 20), ("a/b", 1)])).unwrap();
+        let expected = expected_size(&archive, None, None, &Controller::default()).unwrap();
+        assert_eq!(expected.size, 1);
+        assert!(!expected.complete);
+    }
+
+    /// As is a file coming after what is already a folder by its name
+    #[test]
+    fn a_file_over_a_folder_leaves_the_size_incomplete() {
+        let tmp = tempfile::tempdir().unwrap();
+        let archive = tmp.path().join("a.tar");
+        fs::write(&archive, tar_sized(&[("a/b", 1), ("a", 1 << 20)])).unwrap();
+        let expected = expected_size(&archive, None, None, &Controller::default()).unwrap();
+        assert_eq!(expected.size, 1);
+        assert!(!expected.complete);
+    }
+
+    /// An empty file costs nothing to lose
+    #[test]
+    fn an_empty_file_made_a_folder_leaves_the_size_complete() {
+        let tmp = tempfile::tempdir().unwrap();
+        let archive = tmp.path().join("a.tar");
+        fs::write(&archive, tar_sized(&[("a", 0), ("a/b", 1)])).unwrap();
+        let expected = expected_size(&archive, None, None, &Controller::default()).unwrap();
+        assert!(expected.complete);
+    }
+
+    /// Asked already, it does not ask again, and still keeps the room
+    #[test]
+    fn asked_already_keeps_only_the_room() {
+        let tmp = tempfile::tempdir().unwrap();
+        let asked = asks();
+        let mut watch =
+            watch_on(tmp.path(), std::sync::Arc::clone(&asked), true).asked_already(true);
+        assert!(watch.about_to_write(1 << 20).is_ok());
+        assert_eq!(asked.load(std::sync::atomic::Ordering::Relaxed), 0);
+        watch.margin = u64::MAX;
+        assert!(watch.about_to_write(32 << 20).is_err());
     }
 }

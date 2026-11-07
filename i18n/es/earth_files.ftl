@@ -127,6 +127,10 @@ archive-open-failed = No se pudo abrir «{$name}»: {$reason}
 archive-open-damaged = «{$name}» está dañado y no se abrió
 archive-open-not-a-file = «{$name}» es un enlace y no se abrió
 archive-open-program = «{$name}» es un programa y no se ejecuta desde un archivo comprimido. Extráigalo primero.
+archive-suspicious = «{$name}» crecería de {$size} a {$expanded}. Los archivos que crecen tanto pueden estar hechos para llenar una unidad.
+archive-suspicious-so-far = «{$name}» ya ha crecido de {$size} a {$expanded}. Los archivos que crecen tanto pueden estar hechos para llenar una unidad.
+extract-anyway = Extraer de todos modos
+extract-drive-nearly-full = Extracción detenida: solo quedan {$free} en la unidad
 size-unknown = Tamaño desconocido
 size-at-least = Al menos {$size}
 

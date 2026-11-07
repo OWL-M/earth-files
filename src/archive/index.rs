@@ -95,6 +95,15 @@ impl Only {
         })
     }
 
+    /// What gets written of those asked for: the tops, and what hard links among
+    /// them need.
+    pub fn chosen_and_needed(&self) -> Vec<PathBuf> {
+        self.tops()
+            .into_iter()
+            .chain(self.needed.iter().cloned())
+            .collect()
+    }
+
     /// The paths asked for that are not already in another of them, each of
     /// which is one thing at the top of what comes out.
     pub fn tops(&self) -> Vec<PathBuf> {
@@ -172,6 +181,10 @@ pub struct ArchiveIndex {
     /// How many entries were left out for names that reach outside the
     /// archive.
     pub unsafe_names: usize,
+    /// Data was listed under a name and then lost to what else came by that
+    /// name, or to a folder of it: extracting writes it all the same, and it
+    /// is in no entry's size.
+    pub replaced: bool,
     /// The listing stopped, at [`MAX_ENTRIES`] or [`MAX_PATH_BYTES`].
     pub truncated: bool,
     /// The listing ended early on damage, and why.
@@ -190,6 +203,7 @@ impl Default for ArchiveIndex {
             hard_links: HashMap::new(),
             hard_link_targets: 0,
             unsafe_names: 0,
+            replaced: false,
             truncated: false,
             damaged: None,
             max_entries: MAX_ENTRIES,
@@ -317,10 +331,13 @@ impl ArchiveIndex {
         }
         if let Some(&index) = self.by_path.get(&path) {
             let old = &mut self.entries[index];
+            self.replaced |= old.kind == EntryKind::File && old.size != Some(0);
             // What is in a folder keeps it a folder, whatever came after
             if !(self.children.contains_key(&path) && kind != EntryKind::Folder) {
                 old.kind = kind;
                 old.size = size;
+            } else {
+                self.replaced |= kind == EntryKind::File && size != Some(0);
             }
             old.modified = modified;
             old.mode = mode;
@@ -376,6 +393,7 @@ impl ArchiveIndex {
             if let Some(&index) = self.by_path.get(ancestor) {
                 let entry = &mut self.entries[index];
                 if entry.kind != EntryKind::Folder {
+                    self.replaced |= entry.kind == EntryKind::File && entry.size != Some(0);
                     entry.kind = EntryKind::Folder;
                     entry.size = None;
                 }

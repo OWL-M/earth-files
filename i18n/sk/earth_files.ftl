@@ -135,6 +135,10 @@ archive-open-failed = „{$name}“ sa nepodarilo otvoriť: {$reason}
 archive-open-damaged = „{$name}“ je poškodené, a preto nebolo otvorené
 archive-open-not-a-file = „{$name}“ je odkaz, a preto nebol otvorený
 archive-open-program = „{$name}“ je program a nespúšťa sa z archívu. Najprv ho rozbaľte.
+archive-suspicious = „{$name}“ by narástlo z {$size} na {$expanded}. Archívy, ktoré toľko rastú, môžu byť vytvorené na zaplnenie disku.
+archive-suspicious-so-far = „{$name}“ už narástlo z {$size} na {$expanded}. Archívy, ktoré toľko rastú, môžu byť vytvorené na zaplnenie disku.
+extract-anyway = Aj tak rozbaliť
+extract-drive-nearly-full = Rozbaľovanie zastavené: na disku zostáva len {$free}
 size-unknown = Neznáma veľkosť
 size-at-least = Aspoň {$size}
 

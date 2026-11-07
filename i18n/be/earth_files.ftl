@@ -135,6 +135,10 @@ archive-open-failed = Не ўдалося адкрыць «{$name}»: {$reason}
 archive-open-damaged = «{$name}» пашкоджаны і не быў адкрыты
 archive-open-not-a-file = «{$name}» — гэта спасылка, яна не была адкрыта
 archive-open-program = «{$name}» — гэта праграма, яна не запускаецца з архіва. Спачатку выміце яе.
+archive-suspicious = «{$name}» вырасце з {$size} да {$expanded}. Архівы, якія так моцна растуць, могуць быць створаны, каб запоўніць дыск.
+archive-suspicious-so-far = «{$name}» ужо вырас з {$size} да {$expanded}. Архівы, якія так моцна растуць, могуць быць створаны, каб запоўніць дыск.
+extract-anyway = Усё роўна выняць
+extract-drive-nearly-full = Выманне спынена: на дыску засталося толькі {$free}
 size-unknown = Невядомы памер
 size-at-least = Не менш за {$size}
 

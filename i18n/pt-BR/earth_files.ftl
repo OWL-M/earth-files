@@ -126,6 +126,10 @@ archive-open-failed = Não foi possível abrir "{$name}": {$reason}
 archive-open-damaged = "{$name}" está danificado e não foi aberto
 archive-open-not-a-file = "{$name}" é um link e não foi aberto
 archive-open-program = "{$name}" é um programa e não é executado de dentro de um arquivo compactado. Extraia-o primeiro.
+archive-suspicious = "{$name}" cresceria de {$size} para {$expanded}. Arquivos compactados que crescem tanto podem ser feitos para encher uma unidade.
+archive-suspicious-so-far = "{$name}" já cresceu de {$size} para {$expanded}. Arquivos compactados que crescem tanto podem ser feitos para encher uma unidade.
+extract-anyway = Extrair mesmo assim
+extract-drive-nearly-full = Extração interrompida: restam apenas {$free} na unidade
 size-unknown = Tamanho desconhecido
 size-at-least = Pelo menos {$size}
 

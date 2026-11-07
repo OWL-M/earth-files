@@ -141,7 +141,21 @@ fn copy_into(
     let staging = dir.join("extracting");
     private_dir(&staging).map_err(OperationError::from_err)?;
     let only = Only::new(entries);
-    let done = super::extract_only(archive, &staging, password, Some(&only), controller)?;
+    let expected = super::expected_size(archive, password.as_deref(), Some(&only), controller);
+    if let Some(expected) = expected {
+        super::check_room(expected.size, &staging)?;
+    }
+    // Nobody to ask here, only room to keep: this is often memory
+    let watch = (!expected.is_some_and(|expected| expected.complete))
+        .then(|| super::Watch::new(&staging, 0, Box::new(|_| true)));
+    let done = super::extract_watched(
+        archive,
+        &staging,
+        password,
+        Some(&only),
+        watch.as_ref(),
+        controller,
+    )?;
     open_up(&staging).map_err(OperationError::from_err)?;
 
     // Damage named by nothing chosen is in what a chosen hard link shares its

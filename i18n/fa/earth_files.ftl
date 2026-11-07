@@ -122,6 +122,10 @@ archive-open-failed = «{$name}» باز نشد: {$reason}
 archive-open-damaged = «{$name}» آسیب دیده است و باز نشد
 archive-open-not-a-file = «{$name}» یک پیوند است و باز نشد
 archive-open-program = «{$name}» یک برنامه است و از درون بایگانی اجرا نمی‌شود. ابتدا آن را استخراج کنید.
+archive-suspicious = «{$name}» از {$size} به {$expanded} می‌رسد. بایگانی‌هایی که این‌قدر بزرگ می‌شوند شاید برای پر کردن دیسک ساخته شده باشند.
+archive-suspicious-so-far = «{$name}» تاکنون از {$size} به {$expanded} رسیده است. بایگانی‌هایی که این‌قدر بزرگ می‌شوند شاید برای پر کردن دیسک ساخته شده باشند.
+extract-anyway = با این حال استخراج شود
+extract-drive-nearly-full = استخراج متوقف شد: فقط {$free} روی دیسک باقی مانده است
 size-unknown = اندازهٔ نامعلوم
 size-at-least = دست‌کم {$size}
 

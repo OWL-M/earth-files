@@ -132,6 +132,43 @@ async fn handle_blocked(
     rx.recv().await.unwrap_or(BlockedAnswer::Cancel)
 }
 
+/// Asks whether to go on with an archive growing suspiciously, from a worker,
+/// and waits. Any answer but going on cancels the operation.
+fn ask_on_growth(
+    prompts: &Prompts,
+    controller: &Controller,
+    path: &Path,
+    expanded: u64,
+    archive_size: u64,
+    so_far: bool,
+) -> bool {
+    let (tx, mut rx) = mpsc::channel(1);
+    let _ = prompts.send(Prompt::Blocked {
+        controller: controller.clone(),
+        blocked: Blocked::Suspicious {
+            path: path.to_path_buf(),
+            expanded,
+            archive_size,
+            so_far,
+        },
+        ask: Ask {
+            count: 1,
+            retry: false,
+            root: None,
+            not_granted: false,
+            skip: true,
+            abort: false,
+            permanently: false,
+        },
+        answer: tx,
+    });
+    if matches!(rx.blocking_recv(), Some(BlockedAnswer::Skip(_))) {
+        return true;
+    }
+    controller.cancel();
+    false
+}
+
 /// The name of the folder an archive named `file_name` extracts into: its
 /// name without the archive extension. Taken on the name's bytes, so a name
 /// that is not UTF-8 keeps them as they are.
@@ -155,11 +192,45 @@ async fn extract_archive(
     password: &Option<String>,
     only: Option<crate::archive::index::Only>,
     controller: &Controller,
+    prompts: &Prompts,
 ) -> Result<Vec<Warning>, OperationError> {
+    use crate::archive::{Expected, Watch, check_room, expected_size, extract_watched, suspicious};
     let password = password.clone();
-    let controller_clone = controller.clone();
+    let controller = controller.clone();
+    let prompts = prompts.clone();
     let extracted = compio::runtime::spawn_blocking(move || {
-        crate::archive::extract_only(&path, &dir, &password, only.as_ref(), &controller_clone)
+        let archive_size = fs::metadata(&path).map_or(0, |metadata| metadata.len());
+        let expected = expected_size(&path, password.as_deref(), only.as_ref(), &controller);
+        // Asked once for an archive: the watch below only keeps the room then
+        let mut asked = false;
+        if let Some(Expected { size, .. }) = expected {
+            check_room(size, &dir)?;
+            if suspicious(size, archive_size) {
+                if !ask_on_growth(&prompts, &controller, &path, size, archive_size, false) {
+                    return Err(OperationError::from_state(ControllerState::Cancelled));
+                }
+                asked = true;
+            }
+        }
+        let watch = (!expected.is_some_and(|expected| expected.complete)).then(|| {
+            let (prompts, controller, path) = (prompts.clone(), controller.clone(), path.clone());
+            Watch::new(
+                &dir,
+                archive_size,
+                Box::new(move |written| {
+                    ask_on_growth(&prompts, &controller, &path, written, archive_size, true)
+                }),
+            )
+            .asked_already(asked)
+        });
+        extract_watched(
+            &path,
+            &dir,
+            &password,
+            only.as_ref(),
+            watch.as_ref(),
+            &controller,
+        )
     })
     .await
     .map_err(wrap_compio_spawn_error)??;
@@ -407,6 +478,15 @@ pub enum Blocked {
     /// An item to trash on a drive with no trash of its own that can be used
     /// or made: nothing is ever copied into another drive's trash.
     NoTrash(PathBuf),
+    /// An archive that expands to `expanded` from `archive_size`, far more
+    /// than archives do unless they were made to fill a drive; `so_far`: it is
+    /// being written, and has come this far.
+    Suspicious {
+        path: PathBuf,
+        expanded: u64,
+        archive_size: u64,
+        so_far: bool,
+    },
 }
 
 impl Blocked {
@@ -423,7 +503,8 @@ impl Blocked {
             | Self::Failed { path, .. }
             | Self::TooBig { path, .. }
             | Self::BadName { path, .. }
-            | Self::Move { path, .. } => path,
+            | Self::Move { path, .. }
+            | Self::Suspicious { path, .. } => path,
         }
     }
 
@@ -441,7 +522,8 @@ impl Blocked {
             | Self::TooBig { .. }
             | Self::BadName { .. }
             | Self::Failed { .. }
-            | Self::NoTrash(_) => false,
+            | Self::NoTrash(_)
+            | Self::Suspicious { .. } => false,
         }
     }
 
@@ -457,6 +539,7 @@ impl Blocked {
                 | Self::Destination(_)
                 | Self::Delete(_)
                 | Self::NoTrash(_)
+                | Self::Suspicious { .. }
         )
     }
 }
@@ -2593,6 +2676,7 @@ impl Operation {
                                 &password,
                                 None,
                                 &controller,
+                                &prompts,
                             )
                             .await;
                             if let Err(err) = &extracted {
@@ -2645,6 +2729,7 @@ impl Operation {
                                     &password,
                                     only.clone(),
                                     &controller,
+                                    &prompts,
                                 )
                                 .await?;
                                 let staging = if let Some(only) = &only {
@@ -4116,6 +4201,110 @@ mod tests {
             }
         };
         future::join(handle_messages, handle_extract).await.1
+    }
+
+    /// A zip whose list says its one entry expands to `stated`, whatever it holds.
+    fn zip_stating(path: &std::path::Path, stated: u32) {
+        use std::io::Write;
+        let mut zip = zip::ZipWriter::new(io::Cursor::new(Vec::new()));
+        zip.start_file("big", zip::write::SimpleFileOptions::default())
+            .unwrap();
+        zip.write_all(b"small").unwrap();
+        let mut bytes = zip.finish().unwrap().into_inner();
+        let at = bytes
+            .windows(4)
+            .position(|window| window == b"PK\x01\x02")
+            .unwrap();
+        bytes[at + 24..at + 28].copy_from_slice(&stated.to_le_bytes());
+        fs::write(path, bytes).unwrap();
+    }
+
+    /// Asked about once, before anything is written: Cancel leaves nothing,
+    /// the other answer goes on
+    #[compio::test]
+    async fn an_archive_growing_too_much_is_asked_about() {
+        let tmp = tempfile::tempdir().unwrap();
+        // More than the question's threshold has to fit, or room is what stops it
+        if super::free_space(tmp.path()).is_none_or(|free| free < 3_000_000_000) {
+            eprintln!("too little room here to test");
+            return;
+        }
+        let archive = tmp.path().join("big.zip");
+        zip_stating(&archive, 2_000_000_000);
+        let to = tmp.path().join("to");
+        fs::create_dir(&to).unwrap();
+        let operation = || Operation::Extract {
+            paths: vec![archive.clone()].into(),
+            to: to.clone(),
+            password: None,
+            into: ExtractInto::Folder,
+            only: None,
+        };
+
+        let (result, asked) = perform_blocked(operation(), |_, _, _| BlockedAnswer::Cancel).await;
+        assert!(result.is_err_and(|err| err.is_cancelled()));
+        assert!(matches!(
+            asked.as_slice(),
+            [Blocked::Suspicious {
+                expanded: 2_000_000_000,
+                so_far: false,
+                ..
+            }]
+        ));
+        assert_eq!(fs::read_dir(&to).unwrap().count(), 0);
+
+        let (_, asked) = perform_blocked(operation(), |_, _, _| BlockedAnswer::Skip(false)).await;
+        assert_eq!(asked.len(), 1);
+        assert!(to.join("big").exists());
+    }
+
+    /// Asked up front, with a size not known to be all of it, the watch that
+    /// follows does not ask again
+    #[compio::test]
+    async fn an_archive_is_asked_about_only_once() {
+        let tmp = tempfile::tempdir().unwrap();
+        if super::free_space(tmp.path()).is_none_or(|free| free < 3_000_000_000) {
+            eprintln!("too little room here to test");
+            return;
+        }
+        // A name that comes twice leaves the size incomplete. The last entry
+        // states far more than the tar holds, so nothing that big gets written
+        let mut tar = tar::Builder::new(Vec::new());
+        for _ in 0..2 {
+            let mut header = tar::Header::new_gnu();
+            header.set_size(1);
+            header.set_mode(0o644);
+            tar.append_data(&mut header, "again", &b"x"[..]).unwrap();
+        }
+        let mut bytes = tar.into_inner().unwrap();
+        bytes.truncate(2 * 1024);
+        let mut header = tar::Header::new_gnu();
+        header.set_path("big").unwrap();
+        header.set_size(2_000_000_000);
+        header.set_mode(0o644);
+        header.set_cksum();
+        bytes.extend_from_slice(header.as_bytes());
+        let archive = tmp.path().join("big.tar");
+        fs::write(&archive, bytes).unwrap();
+        let to = tmp.path().join("to");
+        fs::create_dir(&to).unwrap();
+
+        let (_, asked) = perform_blocked(
+            Operation::Extract {
+                paths: vec![archive].into(),
+                to,
+                password: None,
+                into: ExtractInto::Folder,
+                only: None,
+            },
+            |_, _, _| BlockedAnswer::Skip(false),
+        )
+        .await;
+        assert_eq!(asked.len(), 1, "{asked:?}");
+        assert!(matches!(
+            asked[0],
+            Blocked::Suspicious { so_far: false, .. }
+        ));
     }
 
     /// Write a zip archive containing `a.txt` and `sub/b.txt`.

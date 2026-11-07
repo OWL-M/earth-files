@@ -125,6 +125,10 @@ archive-open-failed = "{$name}" kon niet worden geopend: {$reason}
 archive-open-damaged = "{$name}" is beschadigd en is niet geopend
 archive-open-not-a-file = "{$name}" is een koppeling en is niet geopend
 archive-open-program = "{$name}" is een programma en wordt niet vanuit een archief uitgevoerd. Pak het eerst uit.
+archive-suspicious = "{$name}" zou groeien van {$size} naar {$expanded}. Archieven die zo sterk groeien kunnen gemaakt zijn om een schijf te vullen.
+archive-suspicious-so-far = "{$name}" is al gegroeid van {$size} naar {$expanded}. Archieven die zo sterk groeien kunnen gemaakt zijn om een schijf te vullen.
+extract-anyway = Toch uitpakken
+extract-drive-nearly-full = Uitpakken gestopt: er is nog maar {$free} over op de schijf
 size-unknown = Onbekende grootte
 size-at-least = Minstens {$size}
 

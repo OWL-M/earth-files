@@ -125,6 +125,10 @@ archive-open-failed = „{$name}“ konnte nicht geöffnet werden: {$reason}
 archive-open-damaged = „{$name}“ ist beschädigt und wurde nicht geöffnet
 archive-open-not-a-file = „{$name}“ ist eine Verknüpfung und wurde nicht geöffnet
 archive-open-program = „{$name}“ ist ein Programm und läuft nicht aus einem Archiv heraus. Entpacken Sie es zuerst.
+archive-suspicious = „{$name}“ würde von {$size} auf {$expanded} anwachsen. So stark wachsende Archive können dazu gebaut sein, ein Laufwerk zu füllen.
+archive-suspicious-so-far = „{$name}“ ist bisher von {$size} auf {$expanded} angewachsen. So stark wachsende Archive können dazu gebaut sein, ein Laufwerk zu füllen.
+extract-anyway = Trotzdem entpacken
+extract-drive-nearly-full = Entpacken angehalten: Auf dem Laufwerk sind nur noch {$free} frei
 size-unknown = Unbekannte Größe
 size-at-least = Mindestens {$size}
 

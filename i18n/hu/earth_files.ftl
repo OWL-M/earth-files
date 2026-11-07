@@ -124,6 +124,10 @@ archive-open-failed = A(z) „{$name}” nem nyitható meg: {$reason}
 archive-open-damaged = A(z) „{$name}” sérült, ezért nem nyílt meg
 archive-open-not-a-file = A(z) „{$name}” hivatkozás, ezért nem nyílt meg
 archive-open-program = A(z) „{$name}” program, és archívumból nem fut. Előbb bontsa ki.
+archive-suspicious = A(z) „{$name}” {$size} méretről {$expanded} méretre nőne. Az ennyire növekvő archívumok készülhettek a meghajtó megtöltésére.
+archive-suspicious-so-far = A(z) „{$name}” eddig {$size} méretről {$expanded} méretre nőtt. Az ennyire növekvő archívumok készülhettek a meghajtó megtöltésére.
+extract-anyway = Kibontás mégis
+extract-drive-nearly-full = A kibontás leállt: már csak {$free} maradt a meghajtón
 size-unknown = Ismeretlen méret
 size-at-least = Legalább {$size}
 

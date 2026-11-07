@@ -4546,12 +4546,19 @@ impl App {
         } else {
             widget::button::suggested(fl!("try-again")).on_press_maybe(answer(BlockedAnswer::Retry))
         };
-        dialog = dialog
-            .primary_action(primary.id(BLOCKED_BUTTON_ID.clone()))
-            .tertiary_action(
-                widget::button::standard(fl!("cancel"))
-                    .on_press_maybe(answer(BlockedAnswer::Cancel)),
-            );
+        let cancel =
+            widget::button::standard(fl!("cancel")).on_press_maybe(answer(BlockedAnswer::Cancel));
+        // What takes the keyboard: going on with an archive that may fill the
+        // drive is not for a stray Enter
+        dialog = if matches!(question.blocked, Blocked::Suspicious { .. }) {
+            dialog
+                .primary_action(primary)
+                .tertiary_action(cancel.id(BLOCKED_BUTTON_ID.clone()))
+        } else {
+            dialog
+                .primary_action(primary.id(BLOCKED_BUTTON_ID.clone()))
+                .tertiary_action(cancel)
+        };
         // Beside it: root, Retry when Skip is the default, Abort
         let mut others: Vec<Element<'_, Message>> = Vec::new();
         if question.ask.permanently {
@@ -10623,6 +10630,31 @@ fn question_text(blocked: &Blocked) -> (String, String) {
         ),
         Blocked::Delete(_) => (fl!("blocked-delete", name = name), fl!("skip")),
         Blocked::NoTrash(_) => (fl!("blocked-no-trash", name = name), fl!("skip")),
+        Blocked::Suspicious {
+            expanded,
+            archive_size,
+            so_far,
+            ..
+        } => {
+            let size = tab::format_size(*archive_size);
+            let expanded = tab::format_size(*expanded);
+            let text = if *so_far {
+                fl!(
+                    "archive-suspicious-so-far",
+                    name = name,
+                    size = size,
+                    expanded = expanded
+                )
+            } else {
+                fl!(
+                    "archive-suspicious",
+                    name = name,
+                    size = size,
+                    expanded = expanded
+                )
+            };
+            (text, fl!("extract-anyway"))
+        }
     }
 }
 

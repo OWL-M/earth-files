@@ -121,6 +121,10 @@ archive-open-failed = 无法打开“{$name}”：{$reason}
 archive-open-damaged = “{$name}”已损坏，因此未打开
 archive-open-not-a-file = “{$name}”是链接，因此未打开
 archive-open-program = “{$name}”是程序，不能从压缩包内运行。请先解压。
+archive-suspicious = “{$name}”将从 {$size} 增长到 {$expanded}。增长如此之大的压缩包可能是为了填满磁盘而制作的。
+archive-suspicious-so-far = “{$name}”目前已从 {$size} 增长到 {$expanded}。增长如此之大的压缩包可能是为了填满磁盘而制作的。
+extract-anyway = 仍然解压
+extract-drive-nearly-full = 解压已停止：磁盘上仅剩 {$free}
 size-unknown = 大小未知
 size-at-least = 至少 {$size}
 

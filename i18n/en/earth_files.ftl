@@ -129,6 +129,10 @@ archive-open-failed = "{$name}" could not be opened: {$reason}
 archive-open-damaged = "{$name}" is damaged, so it was not opened
 archive-open-not-a-file = "{$name}" is a link, so it was not opened
 archive-open-program = "{$name}" is a program and does not run from inside an archive. Extract it first.
+archive-suspicious = "{$name}" would grow from {$size} to {$expanded}. Archives that grow this much may be made to fill a drive.
+archive-suspicious-so-far = "{$name}" has grown from {$size} to {$expanded} so far. Archives that grow this much may be made to fill a drive.
+extract-anyway = Extract anyway
+extract-drive-nearly-full = Extracting stopped: only {$free} is left on the drive
 size-unknown = Unknown size
 size-at-least = At least {$size}
 ## Empty Trash Dialog

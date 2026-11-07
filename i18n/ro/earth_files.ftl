@@ -129,6 +129,10 @@ archive-open-failed = „{$name}” nu a putut fi deschis: {$reason}
 archive-open-damaged = „{$name}” este deteriorat și nu a fost deschis
 archive-open-not-a-file = „{$name}” este o legătură și nu a fost deschis
 archive-open-program = „{$name}” este un program și nu rulează dintr-o arhivă. Extrageți-l mai întâi.
+archive-suspicious = „{$name}” ar crește de la {$size} la {$expanded}. Arhivele care cresc atât pot fi făcute să umple o unitate.
+archive-suspicious-so-far = „{$name}” a crescut deja de la {$size} la {$expanded}. Arhivele care cresc atât pot fi făcute să umple o unitate.
+extract-anyway = Extrage oricum
+extract-drive-nearly-full = Extragere oprită: au mai rămas doar {$free} pe unitate
 size-unknown = Dimensiune necunoscută
 size-at-least = Cel puțin {$size}
 

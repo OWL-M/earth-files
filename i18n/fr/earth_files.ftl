@@ -125,6 +125,10 @@ archive-open-failed = « {$name} » n’a pas pu être ouvert : {$reason}
 archive-open-damaged = « {$name} » est endommagé et n’a pas été ouvert
 archive-open-not-a-file = « {$name} » est un lien et n’a pas été ouvert
 archive-open-program = « {$name} » est un programme et ne s’exécute pas depuis une archive. Extrayez-le d’abord.
+archive-suspicious = « {$name} » passerait de {$size} à {$expanded}. Les archives qui grossissent autant peuvent être conçues pour remplir un disque.
+archive-suspicious-so-far = « {$name} » est déjà passé de {$size} à {$expanded}. Les archives qui grossissent autant peuvent être conçues pour remplir un disque.
+extract-anyway = Extraire quand même
+extract-drive-nearly-full = Extraction arrêtée : il ne reste que {$free} sur le disque
 size-unknown = Taille inconnue
 size-at-least = Au moins {$size}
 
