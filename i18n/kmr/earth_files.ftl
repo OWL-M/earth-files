@@ -284,6 +284,8 @@ blocked-too-big = "{$name}" ji bo vî ajokerî ({$fs}) pir mezin e
 blocked-bad-name = Di "{$name}" de tîpên ku ev ajoker ({$fs}) nikare bihewîne hene
 blocked-delete = Mafê te yê jêbirina "{$name}" tune
 blocked-no-trash = "{$name}" li ser ajokerekî bê jêbirdank e
+blocked-replace-no-trash = "{$name}" li ser vê ajokarê naçe çopê: guhertin wê bi temamî jê dibe
+delete-permanently-and-replace = Bi temamî jê bibe û biguherîne
 delete-permanently-as-root = Wekî rêveber bi mayînde jê bibe
 deleted-for-good = {$more ->
     [0] Têkbirî, lê "{$name}" berê bi mayînde hat jêbirin
@@ -296,6 +298,7 @@ reason-drive-full = ajoker tije ye
 reason-read-only = ajoker tenê xwendin e
 reason-gone = êdî tune ye
 reason-too-big = ji bo vî ajokerî pir mezin e
+reason-not-kept-there = ajokar wan naparêze
 reason-damaged = dane xera bûne
 permissions-not-kept-one = Destûrên "{$name}" nehatin parastin: {$reason}
 permissions-not-kept-many = Destûrên {$count} hêmanan nehatin parastin: {$reason}

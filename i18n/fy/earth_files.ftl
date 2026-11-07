@@ -39,6 +39,8 @@ blocked-too-big = “{$name}” is te grut foar dit stasjon ({$fs})
 blocked-bad-name = “{$name}” befettet tekens dy't dit stasjon ({$fs}) net bewarje kin
 blocked-delete = Jo hawwe gjin tastimming om “{$name}” fuort te smiten
 blocked-no-trash = “{$name}” stiet op in skiif sûnder jiskefet
+blocked-replace-no-trash = "{$name}" kin op dizze skiif net nei it jiskefet: ferfange smyt it foargoed fuort
+delete-permanently-and-replace = Foargoed fuortsmite en ferfange
 delete-permanently-as-root = Foar altyd fuortsmite as behearder
 deleted-for-good = {$more ->
     [0] Annulearre, mar “{$name}” wie al foar altyd fuortsmiten
@@ -51,6 +53,7 @@ reason-drive-full = it stasjon is fol
 reason-read-only = it stasjon is allinnich-lêze
 reason-gone = it bestiet net mear
 reason-too-big = it is te grut foar dit stasjon
+reason-not-kept-there = de skiif bewarret se net
 reason-damaged = de gegevens binne skansearre
 permissions-not-kept-one = De tagongsrjochten fan “{$name}” koene net bewarre wurde: {$reason}
 permissions-not-kept-many = De tagongsrjochten fan {$count} items koene net bewarre wurde: {$reason}

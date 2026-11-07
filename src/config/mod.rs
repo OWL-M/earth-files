@@ -228,6 +228,9 @@ pub struct Config {
     /// A mouse wheel spun fast coasts on after its last notch, slowing as a
     /// touchpad flick does. Off, every notch moves one step and stops.
     pub kinetic_wheel: bool,
+    /// Changing permissions on a drive that keeps none, as a phone or a
+    /// network share, says so in a note. Off, nothing is said.
+    pub warn_unkept_permissions: bool,
 }
 
 impl Config {
@@ -284,6 +287,7 @@ impl Default for Config {
             delete_i_am_stupid: false,
             empty_unmount: true,
             kinetic_wheel: false,
+            warn_unkept_permissions: false,
         }
     }
 }
@@ -415,6 +419,16 @@ mod tests {
         assert!(config.empty_unmount);
         let config: Config = ron::from_str("(empty_unmount: false)").expect("parse");
         assert!(!config.empty_unmount);
+    }
+
+    /// Off unless the config file turns it on
+    #[test]
+    fn the_unkept_permissions_note_is_off_by_default() {
+        assert!(!Config::default().warn_unkept_permissions);
+        let config: Config = ron::from_str("()").expect("parse");
+        assert!(!config.warn_unkept_permissions);
+        let config: Config = ron::from_str("(warn_unkept_permissions: true)").expect("parse");
+        assert!(config.warn_unkept_permissions);
     }
 
     /// Off unless the config file turns it on

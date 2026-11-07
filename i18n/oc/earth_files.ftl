@@ -61,6 +61,8 @@ blocked-too-big = « {$name} » es tròp grand per aqueste disc ({$fs})
 blocked-bad-name = « {$name} » conten de caractèrs qu'aqueste disc ({$fs}) pòt pas conténer
 blocked-delete = Avètz pas l'autorizacion de suprimir « {$name} »
 blocked-no-trash = « {$name} » es sus un disc sens escobilha
+blocked-replace-no-trash = « {$name} » pòt pas anar a l’escobilhièr sus aqueste disc : lo remplaçar lo suprimís definitivament
+delete-permanently-and-replace = Suprimir definitivament e remplaçar
 delete-permanently-as-root = Suprimir definitivament coma administrator
 deleted-for-good = {$more ->
     [0] Anullat, mas « {$name} » èra ja estat suprimit definitivament
@@ -73,6 +75,7 @@ reason-drive-full = lo disc es plen
 reason-read-only = lo disc es en lectura sola
 reason-gone = existís pas pus
 reason-too-big = es tròp gròs per aqueste disc
+reason-not-kept-there = lo disc los garda pas
 reason-damaged = las donadas son damatjadas
 permissions-not-kept-one = Impossible de gardar las autorizacions de « {$name} »: {$reason}
 permissions-not-kept-many = Impossible de gardar las autorizacions de {$count} elements: {$reason}

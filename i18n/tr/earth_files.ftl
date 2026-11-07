@@ -64,6 +64,8 @@ blocked-too-big = "{$name}" bu sürücü ({$fs}) için çok büyük
 blocked-bad-name = "{$name}" bu sürücünün ({$fs}) tutamadığı karakterler içeriyor
 blocked-delete = "{$name}" öğesini silme izniniz yok
 blocked-no-trash = "{$name}", çöp kutusu olmayan bir sürücüde
+blocked-replace-no-trash = "{$name}" bu sürücüde çöpe gidemez: değiştirmek onu kalıcı olarak siler
+delete-permanently-and-replace = Kalıcı olarak sil ve değiştir
 delete-permanently-as-root = Yönetici olarak kalıcı olarak sil
 deleted-for-good = {$more ->
     [0] İptal edildi, ancak "{$name}" zaten kalıcı olarak silindi
@@ -76,6 +78,7 @@ reason-drive-full = sürücü dolu
 reason-read-only = sürücü salt okunur
 reason-gone = artık mevcut değil
 reason-too-big = bu sürücü için çok büyük
+reason-not-kept-there = sürücü bunları saklamıyor
 reason-damaged = veriler bozuk
 permissions-not-kept-one = "{$name}" izinleri korunamadı: {$reason}
 permissions-not-kept-many = {$count} öğenin izinleri korunamadı: {$reason}

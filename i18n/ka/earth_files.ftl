@@ -28,6 +28,8 @@ blocked-too-big = „{$name}“ ძალიან დიდია ამ დი
 blocked-bad-name = „{$name}“ შეიცავს სიმბოლოებს, რომელთა შენახვაც ამ დისკს ({$fs}) არ შეუძლია
 blocked-delete = „{$name}“-ის წასაშლელად ნებართვა არ გაქვთ
 blocked-no-trash = „{$name}“ იმყოფება დისკზე, რომელსაც ნაგავი არ აქვს
+blocked-replace-no-trash = "{$name}" ამ დისკზე სანაგვეში ვერ გადავა: ჩანაცვლება სამუდამოდ წაშლის მას
+delete-permanently-and-replace = სამუდამოდ წაშლა და ჩანაცვლება
 delete-permanently-as-root = სამუდამოდ წაშლა ადმინისტრატორად
 deleted-for-good = {$more ->
     [0] გაუქმდა, მაგრამ „{$name}“ უკვე სამუდამოდ წაიშალა
@@ -40,6 +42,7 @@ reason-drive-full = დისკი სავსეა
 reason-read-only = დისკი მხოლოდ წასაკითხია
 reason-gone = აღარ არსებობს
 reason-too-big = ამ დისკისთვის ზედმეტად დიდია
+reason-not-kept-there = დისკი მათ არ ინახავს
 reason-damaged = მონაცემები დაზიანებულია
 permissions-not-kept-one = „{$name}“-ის უფლებების შენარჩუნება ვერ მოხერხდა: {$reason}
 permissions-not-kept-many = {$count} ელემენტის უფლებების შენარჩუნება ვერ მოხერხდა: {$reason}

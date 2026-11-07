@@ -28,6 +28,8 @@ blocked-too-big = “{$name}” bu disk ({$fs}) uchun juda katta
 blocked-bad-name = “{$name}” nomida bu disk ({$fs}) saqlay olmaydigan belgilar bor
 blocked-delete = “{$name}”ni o‘chirishga ruxsatingiz yo‘q
 blocked-no-trash = “{$name}” axlat qutisi bo‘lmagan diskda joylashgan
+blocked-replace-no-trash = "{$name}" bu diskda savatga tushishi mumkin emas: almashtirish uni butunlay o‘chiradi
+delete-permanently-and-replace = Butunlay o‘chirish va almashtirish
 delete-permanently-as-root = Administrator sifatida butunlay o‘chirish
 deleted-for-good = {$more ->
     [0] Bekor qilindi, lekin “{$name}” allaqachon butunlay o‘chirilgan
@@ -40,6 +42,7 @@ reason-drive-full = disk to‘la
 reason-read-only = disk faqat o‘qish uchun
 reason-gone = u endi mavjud emas
 reason-too-big = u bu disk uchun juda katta
+reason-not-kept-there = disk ularni saqlamaydi
 reason-damaged = maʼlumotlar shikastlangan
 permissions-not-kept-one = “{$name}” ruxsatlarini saqlab bo‘lmadi: {$reason}
 permissions-not-kept-many = {$count} ta element ruxsatlarini saqlab bo‘lmadi: {$reason}

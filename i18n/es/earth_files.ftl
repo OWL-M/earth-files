@@ -69,6 +69,8 @@ blocked-too-big = "{$name}" es demasiado grande para esta unidad ({$fs})
 blocked-bad-name = "{$name}" tiene caracteres que esta unidad ({$fs}) no puede contener
 blocked-delete = No tienes permiso para eliminar "{$name}"
 blocked-no-trash = "{$name}" está en una unidad sin papelera
+blocked-replace-no-trash = «{$name}» no puede ir a la papelera en esta unidad: al reemplazarlo se elimina para siempre
+delete-permanently-and-replace = Eliminar definitivamente y reemplazar
 delete-permanently-as-root = Eliminar permanentemente como administrador
 deleted-for-good = {$more ->
     [0] Se canceló, pero "{$name}" ya se había eliminado de forma permanente
@@ -81,6 +83,7 @@ reason-drive-full = la unidad está llena
 reason-read-only = la unidad es de solo lectura
 reason-gone = ya no existe
 reason-too-big = es demasiado grande para esta unidad
+reason-not-kept-there = la unidad no los conserva
 reason-damaged = los datos están dañados
 permissions-not-kept-one = No se pudieron conservar los permisos de "{$name}": {$reason}
 permissions-not-kept-many = No se pudieron conservar los permisos de {$count} elementos: {$reason}

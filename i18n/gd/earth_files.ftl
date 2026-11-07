@@ -28,6 +28,8 @@ blocked-too-big = Tha “{$name}” ro mhòr dhan draibh seo ({$fs})
 blocked-bad-name = Tha caractaran ann an “{$name}” nach urrainn dhan draibh seo ({$fs}) a chumail
 blocked-delete = Chan eil cead agad “{$name}” a sguabadh às
 blocked-no-trash = Tha “{$name}” air draibh às aonais sgudail
+blocked-replace-no-trash = Chan urrainn dha "{$name}" a dhol dhan sgudal air an draibh seo: sguabaidh a chur na àite às e gu buan
+delete-permanently-and-replace = Sguab às gu buan is cuir na àite
 delete-permanently-as-root = Sguab às gu buan mar rianaire
 deleted-for-good = {$more ->
     [0] Air a sgur dheth, ach chaidh “{$name}” a sguabadh às gu buan mar-thà
@@ -43,6 +45,7 @@ reason-drive-full = tha an draibh làn
 reason-read-only = tha an draibh ri leughadh a-mhàin
 reason-gone = chan eil e ann tuilleadh
 reason-too-big = tha e ro mhòr airson na draibh seo
+reason-not-kept-there = cha ghlèidh an draibh iad
 reason-damaged = tha an dàta millte
 permissions-not-kept-one = Cha b’ urrainn dhuinn ceadan “{$name}” a chumail: {$reason}
 permissions-not-kept-many = Cha b’ urrainn dhuinn ceadan nithean a chumail (àireamh: {$count}): {$reason}

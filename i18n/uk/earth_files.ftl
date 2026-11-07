@@ -260,6 +260,8 @@ blocked-too-big = «{$name}» завеликий для цього диска ({
 blocked-bad-name = «{$name}» містить символи, які цей диск ({$fs}) не підтримує
 blocked-delete = У вас немає дозволу видалити об’єкт «{$name}»
 blocked-no-trash = Об’єкт «{$name}» розташований на диску без смітника
+blocked-replace-no-trash = «{$name}» не можна відправити до смітника на цьому диску: заміна видалить його назавжди
+delete-permanently-and-replace = Видалити назавжди й замінити
 delete-permanently-as-root = Видалити остаточно від імені адміністратора
 deleted-for-good = {$more ->
     [0] Скасовано, але об’єкт «{$name}» уже остаточно видалено
@@ -275,6 +277,7 @@ reason-drive-full = диск заповнений
 reason-read-only = диск доступний тільки для читання
 reason-gone = більше не існує
 reason-too-big = розмір завеликий для цього диска
+reason-not-kept-there = диск їх не зберігає
 reason-damaged = дані пошкоджено
 permissions-not-kept-one = Не вдалося зберегти права доступу «{$name}»: {$reason}
 permissions-not-kept-many = Не вдалося зберегти права доступу елементів (кількість: {$count}): {$reason}

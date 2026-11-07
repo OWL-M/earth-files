@@ -28,6 +28,8 @@ blocked-too-big = "{$name}" આ ડ્રાઇવ ({$fs}) માટે ખૂ�
 blocked-bad-name = "{$name}" માં એવા અક્ષરો છે જે આ ડ્રાઇવ ({$fs}) રાખી શકતી નથી
 blocked-delete = "{$name}" કાઢી નાખવાની તમારી પાસે પરવાનગી નથી
 blocked-no-trash = "{$name}" કચરાપેટી વગરની ડ્રાઇવ પર છે
+blocked-replace-no-trash = "{$name}" આ ડ્રાઇવ પર ટ્રેશમાં જઈ શકતું નથી, બદલવાથી તે કાયમ માટે કાઢી નંખાશે
+delete-permanently-and-replace = કાયમ માટે કાઢો અને બદલો
 delete-permanently-as-root = વ્યવસ્થાપક તરીકે કાયમ માટે કાઢી નાખો
 deleted-for-good = {$more ->
     [0] રદ કરવામાં આવ્યું, પણ "{$name}" પહેલેથી કાયમ માટે કાઢી નખાયું છે
@@ -40,6 +42,7 @@ reason-drive-full = ડ્રાઇવ ભરાઈ ગઈ છે
 reason-read-only = ડ્રાઇવ ફક્ત વાંચવા માટે છે
 reason-gone = તે હવે અસ્તિત્વમાં નથી
 reason-too-big = તે આ ડ્રાઇવ માટે ખૂબ મોટું છે
+reason-not-kept-there = ડ્રાઇવ તેને સાચવતું નથી
 reason-damaged = ડેટા નુકસાન પામેલો છે
 permissions-not-kept-one = "{$name}" ની પરવાનગીઓ જાળવી શકાઈ નહીં: {$reason}
 permissions-not-kept-many = {$count} આઇટમની પરવાનગીઓ જાળવી શકાઈ નહીં: {$reason}

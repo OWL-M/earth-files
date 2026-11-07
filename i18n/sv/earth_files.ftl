@@ -162,6 +162,8 @@ blocked-too-big = "{$name}" är för stor för den här enheten ({$fs})
 blocked-bad-name = "{$name}" innehåller tecken som den här enheten ({$fs}) inte kan lagra
 blocked-delete = Du har inte behörighet att ta bort "{$name}"
 blocked-no-trash = "{$name}" finns på en enhet utan papperskorg
+blocked-replace-no-trash = "{$name}" kan inte läggas i papperskorgen på den här enheten: att ersätta den tar bort den för gott
+delete-permanently-and-replace = Ta bort permanent och ersätt
 delete-permanently-as-root = Ta bort permanent som administratör
 deleted-for-good = {$more ->
     [0] Avbruten, men "{$name}" hade redan tagits bort permanent
@@ -174,6 +176,7 @@ reason-drive-full = enheten är full
 reason-read-only = enheten är skrivskyddad
 reason-gone = den finns inte längre
 reason-too-big = den är för stor för den här enheten
+reason-not-kept-there = enheten sparar dem inte
 reason-damaged = datan är skadad
 permissions-not-kept-one = Behörigheterna för "{$name}" kunde inte behållas: {$reason}
 permissions-not-kept-many = Behörigheterna för {$count} objekt kunde inte behållas: {$reason}

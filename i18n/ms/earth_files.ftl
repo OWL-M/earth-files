@@ -28,6 +28,8 @@ blocked-too-big = "{$name}" terlalu besar untuk pemacu ini ({$fs})
 blocked-bad-name = "{$name}" mempunyai aksara yang tidak dapat disimpan oleh pemacu ini ({$fs})
 blocked-delete = Anda tiada kebenaran untuk memadam "{$name}"
 blocked-no-trash = "{$name}" berada pada pemacu tanpa tong sampah
+blocked-replace-no-trash = "{$name}" tidak boleh masuk ke tong sampah pada pemacu ini: menggantikannya akan memadamnya secara kekal
+delete-permanently-and-replace = Padam secara kekal dan ganti
 delete-permanently-as-root = Padam secara kekal sebagai pentadbir
 deleted-for-good = {$more ->
     [0] Dibatalkan, tetapi "{$name}" sudah dipadam secara kekal
@@ -40,6 +42,7 @@ reason-drive-full = pemacu penuh
 reason-read-only = pemacu baca sahaja
 reason-gone = ia tidak wujud lagi
 reason-too-big = ia terlalu besar untuk pemacu ini
+reason-not-kept-there = pemacu tidak menyimpannya
 reason-damaged = data rosak
 permissions-not-kept-one = Kebenaran "{$name}" tidak dapat dikekalkan: {$reason}
 permissions-not-kept-many = Kebenaran {$count} item tidak dapat dikekalkan: {$reason}

@@ -73,6 +73,8 @@ blocked-too-big = "{$name}" is te groot vir hierdie skyf ({$fs})
 blocked-bad-name = "{$name}" het karakters wat hierdie skyf ({$fs}) nie kan hou nie
 blocked-delete = Jy het nie toestemming om "{$name}" uit te vee nie
 blocked-no-trash = "{$name}" is op 'n stasie sonder 'n asblik
+blocked-replace-no-trash = "{$name}" kan nie op hierdie skyf na die asblik gaan nie: om dit te vervang, skrap dit permanent
+delete-permanently-and-replace = Skrap permanent en vervang
 delete-permanently-as-root = Vee permanent uit as administrateur
 deleted-for-good = {$more ->
     [0] Gekanselleer, maar "{$name}" is reeds vir goed uitgevee
@@ -85,6 +87,7 @@ reason-drive-full = die skyf is vol
 reason-read-only = die skyf is leesalleen
 reason-gone = dit bestaan nie meer nie
 reason-too-big = dit is te groot vir hierdie skyf
+reason-not-kept-there = die skyf hou dit nie
 reason-damaged = die data is beskadig
 permissions-not-kept-one = Die toestemmings van "{$name}" kon nie behou word nie: {$reason}
 permissions-not-kept-many = Die toestemmings van {$count} items kon nie behou word nie: {$reason}

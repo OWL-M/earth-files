@@ -42,7 +42,7 @@ impl std::fmt::Display for GioCopyError {
         match self {
             Self::Controller(_) => f.write_str("controller state"),
             #[cfg(feature = "gvfs")]
-            Self::GLib(_) => f.write_str("gio copy failed"),
+            Self::GLib(err) => f.write_str(err.message()),
         }
     }
 }
@@ -215,6 +215,39 @@ pub enum Method {
 mod check;
 mod delete;
 
+/// What became of something in the way of a replacement.
+enum Cleared {
+    Trashed,
+    /// The user agreed to delete it for good; it is still there.
+    ForGood,
+    /// The user would rather keep it.
+    LeftOut,
+}
+
+/// Sets the modes of `made`, deepest first, with `set`. As with a file's mode,
+/// none of this fails the copy, whose data is all there by now: a drive that
+/// keeps no modes, as MTP, says nothing, and one refusing for another reason
+/// is told when the copy ends.
+fn give_modes(
+    mut made: Vec<(PathBuf, u32)>,
+    set: impl Fn(&Path, u32) -> std::io::Result<()>,
+) -> Vec<super::Warning> {
+    made.sort_by_key(|(path, _)| std::cmp::Reverse(path.components().count()));
+    made.into_iter()
+        .filter_map(|(path, mode)| match set(&path, mode) {
+            Err(why) if why.kind() != std::io::ErrorKind::Unsupported => {
+                tracing::warn!(?why, "failed to set permissions for {}", path.display());
+                Some(super::Warning {
+                    cause: super::Cause::of(&why),
+                    path,
+                    unkept: super::Unkept::Permissions,
+                })
+            }
+            _ => None,
+        })
+        .collect()
+}
+
 /// What a copy or move does with the trash, for what it replaces: the real
 /// one, or in tests a stand-in that leaves the user's own alone.
 #[derive(Clone, Copy)]
@@ -319,6 +352,9 @@ pub struct Context {
     remaining_conflicts: usize,
     /// The user chose to skip every blocked path from here on.
     skip_blocked: bool,
+    /// The user agreed to delete for good whatever replacing finds that
+    /// cannot go to the trash.
+    replace_for_good: bool,
     /// The files copied since the last flush to disk.
     written: Vec<PathBuf>,
     /// The folders made, with the mode of the one each copies: made open to
@@ -582,6 +618,7 @@ impl Context {
             replace_result_opt: None,
             remaining_conflicts: 0,
             skip_blocked: false,
+            replace_for_good: false,
             written: Vec::new(),
             made_dirs: Vec::new(),
             decided: std::collections::HashMap::new(),
@@ -830,7 +867,7 @@ impl Context {
     /// Sends what is at `path` to the trash, to be replaced. Where there is
     /// no trash to send it to, a file is removed instead when `or_remove`,
     /// and undo cannot bring it back.
-    async fn trash_replaced(&mut self, path: &Path, or_remove: bool) -> Result<(), Box<dyn Error>> {
+    async fn trash_replaced(&mut self, path: &Path) -> Result<(), Box<dyn Error>> {
         let (target, delete) = (path.to_path_buf(), self.trash.delete);
         let trashed = compio::runtime::spawn_blocking(move || {
             // The trash names an entry by its folder's real path
@@ -849,16 +886,54 @@ impl Context {
                 self.replaced_now = true;
                 Ok(())
             }
-            Err(err) if or_remove => {
-                log::warn!(
-                    "failed to trash {}, removing it instead: {err}",
-                    path.display()
-                );
-                compio::fs::remove_file(path).await?;
-                Ok(())
-            }
             Err(err) => Err(err as Box<dyn Error>),
         }
+    }
+
+    /// Sends `path` to the trash to replace it. Where that cannot be, the user
+    /// says whether to delete it for good instead, or leave it out: nothing is
+    /// erased without asking.
+    async fn clear_for_replacing(&mut self, path: &Path) -> Result<Cleared, Box<dyn Error>> {
+        let Err(err) = self.trash_replaced(path).await else {
+            return Ok(Cleared::Trashed);
+        };
+        log::info!("{} cannot go to the trash: {err}", path.display());
+        let answer = if self.replace_for_good {
+            BlockedAnswer::Permanently(false)
+        } else {
+            let ask = Ask {
+                count: self.remaining_conflicts.max(1),
+                skip: true,
+                permanently: true,
+                ..Ask::default()
+            };
+            self.blocked(Blocked::ReplaceNoTrash(path.to_path_buf()), ask)
+                .await
+        };
+        match answer {
+            BlockedAnswer::Permanently(all) => {
+                self.replace_for_good |= all;
+                Ok(Cleared::ForGood)
+            }
+            BlockedAnswer::Skip(_) => Ok(Cleared::LeftOut),
+            _ => Err(self.cancel_here().into()),
+        }
+    }
+
+    /// Takes away for good what the user agreed to.
+    async fn remove_for_good(&mut self, path: &Path) -> Result<(), Box<dyn Error>> {
+        let target = path.to_path_buf();
+        compio::runtime::spawn_blocking(move || {
+            if target.symlink_metadata()?.is_dir() {
+                fs::remove_dir_all(&target)
+            } else {
+                fs::remove_file(&target)
+            }
+        })
+        .await
+        .map_err(|_| std::io::Error::other("the worker stopped"))??;
+        self.replaced_now = true;
+        Ok(())
     }
 
     /// Brings back from the trash what was replaced. Returns the paths that
@@ -1622,12 +1697,34 @@ impl Context {
         }
 
         // The folders to replace go to the trash, before anything is copied.
-        // A folder that cannot go there is not removed for good: the
-        // operation stops, and what went already comes back.
-        for item in items.iter().filter(|item| item.replace && !item.skipped) {
-            if let Err(err) = self.trash_replaced(&item.to_parent, false).await {
+        // A folder that cannot go there is removed for good only if the user
+        // agrees. Stopped, what went already comes back.
+        for item in items
+            .iter_mut()
+            .filter(|item| item.replace && !item.skipped)
+        {
+            let cleared = match self.clear_for_replacing(&item.to_parent).await {
+                Ok(Cleared::Trashed) => Ok(()),
+                Ok(Cleared::LeftOut) => {
+                    item.skipped = true;
+                    self.op_sel.skipped.push(item.from_parent.clone());
+                    Ok(())
+                }
+                Ok(Cleared::ForGood) => self.remove_for_good(&item.to_parent).await,
+                Err(err) => Err(err),
+            };
+            if let Err(err) = cleared {
                 let reason = super::failure_text(&item.to_parent, &*err);
                 self.untrash().await;
+                if self.controller.is_cancelled() {
+                    return Err(OperationError {
+                        partial: Box::new(OperationSelection {
+                            trash_items: self.trashed().cloned().collect(),
+                            ..OperationSelection::default()
+                        }),
+                        ..OperationError::from_state(super::ControllerState::Cancelled)
+                    });
+                }
                 // What stayed in the trash goes with it, to bring back on undo
                 return Err(OperationError {
                     partial: Box::new(OperationSelection {
@@ -1900,20 +1997,17 @@ impl Context {
     /// Gives each folder made the mode of the folder it copies, deepest
     /// first: one that takes away writing comes after all it holds is in.
     async fn give_made_dirs_modes(&mut self) -> Result<(), OperationError> {
-        let mut made = std::mem::take(&mut self.made_dirs);
-        made.sort_by_key(|(path, _)| std::cmp::Reverse(path.components().count()));
-        compio::runtime::spawn_blocking(move || {
-            use std::os::unix::fs::PermissionsExt;
-            for (path, mode) in made {
-                if let Err(err) = fs::set_permissions(&path, fs::Permissions::from_mode(mode)) {
-                    return Err((path, err));
-                }
-            }
-            Ok(())
+        let made = std::mem::take(&mut self.made_dirs);
+        let unkept = compio::runtime::spawn_blocking(move || {
+            give_modes(made, |path, mode| {
+                use std::os::unix::fs::PermissionsExt;
+                fs::set_permissions(path, fs::Permissions::from_mode(mode))
+            })
         })
         .await
-        .map_err(super::wrap_compio_spawn_error)?
-        .map_err(|(path, err): (PathBuf, std::io::Error)| OperationError::at(&path, &err))
+        .map_err(super::wrap_compio_spawn_error)?;
+        self.op_sel.warnings.extend(unkept);
+        Ok(())
     }
 
     /// Flushes to disk the files written since the last flush, and the
@@ -1975,7 +2069,14 @@ impl Context {
                 if apply_to_all {
                     self.replace_result_opt = Some(replace_result);
                 }
-                self.trash_replaced(&op.to, true).await?;
+                match self.clear_for_replacing(&op.to).await? {
+                    Cleared::Trashed => {}
+                    Cleared::ForGood => self.remove_for_good(&op.to).await?,
+                    Cleared::LeftOut => {
+                        op.skipped.normal.set(true);
+                        return Ok(ControlFlow::Break(true));
+                    }
+                }
                 Ok(ControlFlow::Continue(op.to.clone()))
             }
             ReplaceResult::KeepBoth => match op.to.parent() {
@@ -2025,7 +2126,7 @@ async fn same_file(a: &Path, b: &Path) -> bool {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Progress {
     pub current_ops: usize,
     pub total_ops: usize,
@@ -2168,13 +2269,16 @@ impl Op {
                 }
                 // To the trash, as any replaced file; only one this user may
                 // not move there is removed by root, and that is for good
-                if let Err(err) = ctx.trash_replaced(&self.to, false).await {
-                    log::info!(
-                        "removing {} as root: it could not go to the trash: {err}",
-                        self.to.display()
-                    );
-                    ctx.root_call(Request::Remove(self.to.clone())).await?;
-                    ctx.replaced_now = true;
+                match ctx.clear_for_replacing(&self.to).await? {
+                    Cleared::Trashed => {}
+                    Cleared::ForGood => {
+                        ctx.root_call(Request::Remove(self.to.clone())).await?;
+                        ctx.replaced_now = true;
+                    }
+                    Cleared::LeftOut => {
+                        self.skipped.normal.set(true);
+                        return Ok(ControlFlow::Break(true));
+                    }
                 }
                 Ok(ControlFlow::Continue(()))
             }
@@ -2646,14 +2750,49 @@ impl Op {
     async fn gio_file_copy(
         &self,
         ctx: &mut Context,
-        mut progress: Progress,
+        progress: Progress,
     ) -> Result<(), GioCopyError> {
         _ = compio::fs::remove_file(&self.to).await;
         // Removed and written again here, so the destination is this copy's.
         self.created_to.set(true);
 
-        let from = gio::File::for_path(&self.from);
-        let to = gio::File::for_path(&self.to);
+        match self
+            .gio_copy(ctx, progress.clone(), &self.from, &self.to)
+            .await
+        {
+            // A drive that cannot copy within itself, as MTP: by way of here
+            Err(GioCopyError::GLib(err)) if err.matches(gio::IOErrorEnum::NotSupported) => {
+                let name = self.to.file_name().unwrap_or_default().to_owned();
+                let stage = super::local_stage_root()
+                    .and_then(|root| super::staging_dir(&root, &name))
+                    .map_err(GioCopyError::Controller)?;
+                let local = stage.join(&name);
+                let copied = match self
+                    .gio_copy(ctx, progress.clone(), &self.from, &local)
+                    .await
+                {
+                    Ok(()) => self.gio_copy(ctx, progress, &local, &self.to).await,
+                    Err(err) => Err(err),
+                };
+                let _ = compio::runtime::spawn_blocking(move || fs::remove_dir_all(stage)).await;
+                copied?;
+            }
+            other => other?,
+        }
+        ctx.written.push(self.to.clone());
+        Ok(())
+    }
+
+    #[cfg(feature = "gvfs")]
+    async fn gio_copy(
+        &self,
+        ctx: &mut Context,
+        mut progress: Progress,
+        from: &Path,
+        to: &Path,
+    ) -> Result<(), GioCopyError> {
+        let from = gio::File::for_path(from);
+        let to = gio::File::for_path(to);
         let (progress_tx, mut progress_rx) = tokio::sync::mpsc::unbounded_channel();
         let (tx, rx) = tokio::sync::oneshot::channel();
         let (pause_tx, mut pause_rx) = tokio::sync::watch::channel(false);
@@ -2738,13 +2877,7 @@ impl Op {
                     }
                 }
 
-                result = rx => {
-                    let result = result.unwrap();
-                    if result.is_ok() {
-                        ctx.written.push(self.to.clone());
-                    }
-                    return result;
-                }
+                result = rx => return result.unwrap(),
 
                 _ = task => (),
 
@@ -2773,6 +2906,41 @@ mod tests {
     use std::fs;
     use std::path::Path;
     use test_log::test;
+
+    /// A drive that keeps no modes, as MTP does, answers `EOPNOTSUPP`: not a
+    /// failure, and nothing to tell. Any other refusal is told, and the rest
+    /// still get theirs, deepest first.
+    #[test]
+    fn a_folder_mode_refused_does_not_fail_the_copy() {
+        use std::cell::RefCell;
+        let tried = RefCell::new(Vec::new());
+        let unkept = super::give_modes(
+            vec![
+                ("/d".into(), 0o755),
+                ("/d/e/f".into(), 0o750),
+                ("/d/e".into(), 0o700),
+            ],
+            |path, mode| {
+                tried.borrow_mut().push((path.to_path_buf(), mode));
+                match path.to_str() {
+                    Some("/d/e/f") => Err(std::io::Error::from_raw_os_error(libc::EOPNOTSUPP)),
+                    Some("/d/e") => Err(std::io::Error::from_raw_os_error(libc::EPERM)),
+                    _ => Ok(()),
+                }
+            },
+        );
+        assert_eq!(
+            *tried.borrow(),
+            [
+                ("/d/e/f".into(), 0o750),
+                ("/d/e".into(), 0o700),
+                ("/d".into(), 0o755),
+            ]
+            .map(|(path, mode): (std::path::PathBuf, u32)| (path, mode))
+        );
+        let told: Vec<_> = unkept.iter().map(|warning| warning.path.clone()).collect();
+        assert_eq!(told, [std::path::PathBuf::from("/d/e")]);
+    }
 
     /// A journal of `done`, as steps that transferred nothing.
     fn steps(done: impl IntoIterator<Item = Done>) -> Vec<Effect> {
@@ -3634,6 +3802,100 @@ mod tests {
         assert!(!to.join("c").exists(), "the old folder is gone");
         assert_eq!(op_sel.trash_items.len(), 1);
         assert_eq!(op_sel.trash_items[0].named_path(), to);
+    }
+
+    /// Replacing where there is no trash, answered with `answer`: what was
+    /// asked, how it ended, and the place the copy goes.
+    async fn replacing_without_a_trash(
+        folder: bool,
+        answer: crate::operation::BlockedAnswer,
+    ) -> (
+        Vec<crate::operation::Blocked>,
+        Result<(), crate::operation::OperationError>,
+        tempfile::TempDir,
+    ) {
+        use crate::operation::{Ask, ReplaceResult};
+        use std::sync::{Arc, Mutex};
+        let dir = tempfile::tempdir().expect("tempdir");
+        let (from, to) = (dir.path().join("from"), dir.path().join("to"));
+        fs::create_dir_all(&from).expect("mkdir");
+        fs::create_dir_all(&to).expect("mkdir");
+        if folder {
+            fs::create_dir_all(from.join("d")).expect("mkdir");
+            fs::write(from.join("d/new"), "new").expect("write");
+            fs::create_dir_all(to.join("d")).expect("mkdir");
+            fs::write(to.join("d/old"), "old").expect("write");
+        } else {
+            fs::write(from.join("d"), "new").expect("write");
+            fs::write(to.join("d"), "old").expect("write");
+        }
+        let asked = Arc::new(Mutex::new(Vec::new()));
+        let told = Arc::clone(&asked);
+        let mut ctx = Context::new(Controller::default())
+            .on_replace(|_op, _count| Box::pin(async { ReplaceResult::Replace(false) }))
+            .on_blocked(move |blocked, _ask: Ask| {
+                told.lock().expect("lock").push(blocked);
+                Box::pin(async move { answer })
+            });
+        ctx.trash.delete = |_| Err("no trash here".into());
+        let result = ctx
+            .recursive_copy_or_move([(from.join("d"), to.join("d"))], Method::Copy)
+            .await
+            .map(|_| ());
+        let asked = asked.lock().expect("lock").clone();
+        (asked, result, dir)
+    }
+
+    /// Nothing is erased unasked: it asks, for a file and a folder alike
+    #[test(compio::test)]
+    async fn replacing_without_a_trash_asks_and_deletes_for_good() {
+        use crate::operation::{Blocked, BlockedAnswer};
+        for folder in [false, true] {
+            let (asked, result, dir) =
+                replacing_without_a_trash(folder, BlockedAnswer::Permanently(false)).await;
+            result.expect("copied");
+            let to = dir.path().join("to/d");
+            assert_eq!(
+                asked,
+                [Blocked::ReplaceNoTrash(to.clone())],
+                "folder: {folder}"
+            );
+            if folder {
+                assert_eq!(fs::read(to.join("new")).expect("new"), b"new");
+                assert!(!to.join("old").exists());
+            } else {
+                assert_eq!(fs::read(&to).expect("new"), b"new");
+            }
+        }
+    }
+
+    #[test(compio::test)]
+    async fn replacing_without_a_trash_can_keep_what_is_there() {
+        use crate::operation::BlockedAnswer;
+        for folder in [false, true] {
+            let (asked, result, dir) =
+                replacing_without_a_trash(folder, BlockedAnswer::Skip(false)).await;
+            result.expect("done");
+            assert_eq!(asked.len(), 1);
+            let to = dir.path().join("to/d");
+            let old = if folder { to.join("old") } else { to.clone() };
+            assert_eq!(fs::read(old).expect("old"), b"old", "folder: {folder}");
+        }
+    }
+
+    #[test(compio::test)]
+    async fn replacing_without_a_trash_can_be_cancelled() {
+        use crate::operation::BlockedAnswer;
+        for folder in [false, true] {
+            let (_, result, dir) = replacing_without_a_trash(folder, BlockedAnswer::Cancel).await;
+            assert!(
+                result.is_err_and(|err| err.is_cancelled()),
+                "folder: {folder}"
+            );
+            let to = dir.path().join("to/d");
+            let old = if folder { to.join("old") } else { to.clone() };
+            assert_eq!(fs::read(old).expect("old"), b"old", "folder: {folder}");
+        }
     }
 
     /// Keep both: the copy goes under a new name, and the folder there is

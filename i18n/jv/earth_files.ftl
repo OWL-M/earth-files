@@ -28,6 +28,8 @@ blocked-too-big = "{$name}" kegedhen kanggo drive iki ({$fs})
 blocked-bad-name = "{$name}" ngemot karakter sing ora bisa disimpen drive iki ({$fs})
 blocked-delete = Sampeyan ora duwe ijin kanggo mbusak "{$name}"
 blocked-no-trash = "{$name}" ana ing drive tanpa tempat sampah
+blocked-replace-no-trash = "{$name}" ora bisa mlebu tong sampah ing drive iki: ngganti bakal mbusak permanen
+delete-permanently-and-replace = Busak permanen lan ganti
 delete-permanently-as-root = Busak permanen minangka administrator
 deleted-for-good = {$more ->
     [0] Dibatalake, nanging "{$name}" wis dibusak permanen
@@ -40,6 +42,7 @@ reason-drive-full = drive kebak
 reason-read-only = drive mung kena diwaca
 reason-gone = wis ora ana
 reason-too-big = kegedhen kanggo drive iki
+reason-not-kept-there = drive ora nyimpen
 reason-damaged = datane rusak
 permissions-not-kept-one = Idin "{$name}" ora bisa dijaga: {$reason}
 permissions-not-kept-many = Idin {$count} item ora bisa dijaga: {$reason}

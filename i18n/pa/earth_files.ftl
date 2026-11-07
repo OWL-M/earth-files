@@ -60,6 +60,8 @@ blocked-too-big = "{$name}" ਇਸ ਡਰਾਇਵ ({$fs}) ਲਈ ਬਹੁਤ �
 blocked-bad-name = "{$name}" ਵਿੱਚ ਅਜਿਹੇ ਅੱਖਰ ਹਨ ਜੋ ਇਹ ਡਰਾਇਵ ({$fs}) ਨਹੀਂ ਰੱਖ ਸਕਦੀ
 blocked-delete = ਤੁਹਾਨੂੰ "{$name}" ਨੂੰ ਹਟਾਉਣ ਦੀ ਇਜਾਜ਼ਤ ਨਹੀਂ ਹੈ
 blocked-no-trash = "{$name}" ਅਜਿਹੀ ਡਰਾਈਵ ਉੱਤੇ ਹੈ ਜਿਸ ਵਿੱਚ ਰੱਦੀ ਨਹੀਂ ਹੈ
+blocked-replace-no-trash = "{$name}" ਇਸ ਡਰਾਈਵ ਤੇ ਰੱਦੀ ਵਿੱਚ ਨਹੀਂ ਜਾ ਸਕਦਾ, ਬਦਲਣ ਨਾਲ ਇਹ ਪੱਕੇ ਤੌਰ ਤੇ ਮਿਟ ਜਾਵੇਗਾ
+delete-permanently-and-replace = ਪੱਕੇ ਤੌਰ ਤੇ ਮਿਟਾਓ ਅਤੇ ਬਦਲੋ
 delete-permanently-as-root = ਪ੍ਰਬੰਧਕ ਵਜੋਂ ਪੱਕੇ ਤੌਰ ਉੱਤੇ ਹਟਾਓ
 deleted-for-good = {$more ->
     [0] ਰੱਦ ਕੀਤਾ, ਪਰ "{$name}" ਪਹਿਲਾਂ ਹੀ ਪੱਕੇ ਤੌਰ ਉੱਤੇ ਹਟਾਇਆ ਜਾ ਚੁੱਕਾ ਹੈ
@@ -72,6 +74,7 @@ reason-drive-full = ਡਰਾਇਵ ਭਰੀ ਹੋਈ ਹੈ
 reason-read-only = ਡਰਾਇਵ ਸਿਰਫ਼ ਪੜ੍ਹਨ ਲਈ ਹੈ
 reason-gone = ਇਹ ਹੁਣ ਮੌਜੂਦ ਨਹੀਂ ਹੈ
 reason-too-big = ਇਹ ਇਸ ਡਰਾਇਵ ਲਈ ਬਹੁਤ ਵੱਡੀ ਹੈ
+reason-not-kept-there = ਡਰਾਈਵ ਇਹਨਾਂ ਨੂੰ ਨਹੀਂ ਰੱਖਦੀ
 reason-damaged = ਡਾਟਾ ਖਰਾਬ ਹੈ
 permissions-not-kept-one = "{$name}" ਦੀਆਂ ਇਜਾਜ਼ਤਾਂ ਰੱਖੀਆਂ ਨਹੀਂ ਜਾ ਸਕੀਆਂ: {$reason}
 permissions-not-kept-many = {$count} ਆਈਟਮਾਂ ਦੀਆਂ ਇਜਾਜ਼ਤਾਂ ਰੱਖੀਆਂ ਨਹੀਂ ਜਾ ਸਕੀਆਂ: {$reason}

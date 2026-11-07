@@ -28,6 +28,8 @@ blocked-too-big = Masyadong malaki ang "{$name}" para sa drive na ito ({$fs})
 blocked-bad-name = May mga character ang "{$name}" na hindi kayang hawakan ng drive na ito ({$fs})
 blocked-delete = Wala kang pahintulot na burahin ang "{$name}"
 blocked-no-trash = Ang "{$name}" ay nasa drive na walang basurahan
+blocked-replace-no-trash = Hindi mailalagay ang "{$name}" sa trash sa drive na ito: kapag pinalitan, permanente itong mabubura
+delete-permanently-and-replace = Permanenteng burahin at palitan
 delete-permanently-as-root = Burahin nang permanente bilang administrator
 deleted-for-good = {$more ->
     [0] Kinansela, pero permanente nang nabura ang "{$name}"
@@ -40,6 +42,7 @@ reason-drive-full = puno na ang drive
 reason-read-only = read-only ang drive
 reason-gone = wala na ito
 reason-too-big = masyado itong malaki para sa drive na ito
+reason-not-kept-there = hindi ito iniingatan ng drive
 reason-damaged = sira ang data
 permissions-not-kept-one = Hindi napanatili ang mga pahintulot ng "{$name}": {$reason}
 permissions-not-kept-many = Hindi napanatili ang mga pahintulot ng {$count} na item: {$reason}

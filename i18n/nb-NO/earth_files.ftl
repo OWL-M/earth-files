@@ -85,6 +85,8 @@ blocked-too-big = «{$name}» er for stor for denne disken ({$fs})
 blocked-bad-name = «{$name}» har tegn som denne disken ({$fs}) ikke kan lagre
 blocked-delete = Du har ikke tillatelse til å slette «{$name}»
 blocked-no-trash = «{$name}» ligger på en stasjon uten papirkurv
+blocked-replace-no-trash = «{$name}» kan ikke legges i papirkurven på denne stasjonen: å erstatte den sletter den for godt
+delete-permanently-and-replace = Slett permanent og erstatt
 delete-permanently-as-root = Slett permanent som administrator
 deleted-for-good = {$more ->
     [0] Avbrutt, men «{$name}» var allerede slettet permanent
@@ -97,6 +99,7 @@ reason-drive-full = disken er full
 reason-read-only = disken er kun lesbar
 reason-gone = den finnes ikke lenger
 reason-too-big = den er for stor for denne disken
+reason-not-kept-there = stasjonen tar ikke vare på dem
 reason-damaged = dataene er skadet
 permissions-not-kept-one = Tillatelsene til «{$name}» kunne ikke beholdes: {$reason}
 permissions-not-kept-many = Tillatelsene til {$count} elementer kunne ikke beholdes: {$reason}

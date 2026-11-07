@@ -64,6 +64,8 @@ blocked-too-big = «{$name}» برای این درایو ({$fs}) بیش از ح�
 blocked-bad-name = «{$name}» نویسه‌هایی دارد که این درایو ({$fs}) نمی‌تواند نگه دارد
 blocked-delete = شما اجازهٔ حذف «{$name}» را ندارید
 blocked-no-trash = «{$name}» روی درایوی بدون زباله‌دان است
+blocked-replace-no-trash = «{$name}» روی این دیسک به زباله‌دان نمی‌رود و جایگزینی آن را برای همیشه حذف می‌کند
+delete-permanently-and-replace = حذف همیشگی و جایگزینی
 delete-permanently-as-root = حذف دائمی به‌عنوان مدیر
 deleted-for-good = {$more ->
     [0] لغو شد، اما «{$name}» پیش‌تر برای همیشه حذف شده بود
@@ -76,6 +78,7 @@ reason-drive-full = درایو پر است
 reason-read-only = درایو فقط خواندنی است
 reason-gone = دیگر وجود ندارد
 reason-too-big = برای این درایو بیش از حد بزرگ است
+reason-not-kept-there = دیسک آن‌ها را نگه نمی‌دارد
 reason-damaged = داده‌ها آسیب دیده‌اند
 permissions-not-kept-one = حفظ مجوزهای «{$name}» ممکن نبود: {$reason}
 permissions-not-kept-many = حفظ مجوزهای {$count} مورد ممکن نبود: {$reason}

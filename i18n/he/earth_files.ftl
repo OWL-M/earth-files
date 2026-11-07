@@ -30,6 +30,8 @@ blocked-too-big = "{$name}" גדול מדי עבור הכונן הזה ({$fs})
 blocked-bad-name = "{$name}" מכיל תווים שהכונן הזה ({$fs}) אינו יכול להכיל
 blocked-delete = אין לך הרשאה למחוק את "{$name}"
 blocked-no-trash = "{$name}" נמצא בכונן ללא פח אשפה
+blocked-replace-no-trash = לא ניתן להעביר את "{$name}" לאשפה בכונן זה: החלפה תמחק אותו לצמיתות
+delete-permanently-and-replace = מחיקה לצמיתות והחלפה
 delete-permanently-as-root = מחיקה לצמיתות כמנהל
 deleted-for-good = {$more ->
     [0] בוטל, אך "{$name}" כבר נמחק לצמיתות
@@ -42,6 +44,7 @@ reason-drive-full = הכונן מלא
 reason-read-only = הכונן לקריאה בלבד
 reason-gone = הוא כבר לא קיים
 reason-too-big = הוא גדול מדי עבור הכונן הזה
+reason-not-kept-there = הכונן לא שומר אותן
 reason-damaged = הנתונים פגומים
 permissions-not-kept-one = לא ניתן היה לשמור את ההרשאות של "{$name}": {$reason}
 permissions-not-kept-many = לא ניתן היה לשמור את ההרשאות של {$count} פריטים: {$reason}

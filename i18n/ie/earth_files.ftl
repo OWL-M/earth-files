@@ -28,6 +28,8 @@ blocked-too-big = "{$name}" es tro grand por ti-ci unité ({$fs})
 blocked-bad-name = "{$name}" contene caracteres queles ti-ci unité ({$fs}) ne posse contener
 blocked-delete = Tu ne have permission por deleter "{$name}"
 blocked-no-trash = "{$name}" es sur un disc sin paper-corb
+blocked-replace-no-trash = "{$name}" ne posse ear al paper-corb sur ti disco: substituer it deleta it por sempre
+delete-permanently-and-replace = Deletar por sempre e substituer
 delete-permanently-as-root = Deleter permanentmen quam administrator
 deleted-for-good = {$more ->
     [0] Anullat, ma "{$name}" esset ja deletet permanentmen
@@ -40,6 +42,7 @@ reason-drive-full = li unité es plen
 reason-read-only = li unité es solmen legibil
 reason-gone = it ne existe plu
 reason-too-big = it es tro grand por ti-ci unité
+reason-not-kept-there = li disco ne conserva les
 reason-damaged = li data es damageat
 permissions-not-kept-one = Li permissiones de "{$name}" ne posset esser conservat: {$reason}
 permissions-not-kept-many = Li permissiones de {$count} elementes ne posset esser conservat: {$reason}

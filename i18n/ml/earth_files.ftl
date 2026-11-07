@@ -28,6 +28,8 @@ blocked-too-big = "{$name}" ഈ ഡ്രൈവിന് ({$fs}) വളരെ �
 blocked-bad-name = ഈ ഡ്രൈവിന് ({$fs}) സൂക്ഷിക്കാൻ കഴിയാത്ത അക്ഷരങ്ങൾ "{$name}" എന്നതിലുണ്ട്
 blocked-delete = "{$name}" ഇല്ലാതാക്കാൻ നിങ്ങൾക്ക് അനുമതിയില്ല
 blocked-no-trash = "{$name}" ട്രാഷ് ഇല്ലാത്ത ഡ്രൈവിലാണ്
+blocked-replace-no-trash = "{$name}" ഈ ഡ്രൈവിൽ ട്രാഷിലേക്ക് പോകാനാവില്ല, മാറ്റിസ്ഥാപിച്ചാൽ ഇത് സ്ഥിരമായി ഇല്ലാതാകും
+delete-permanently-and-replace = സ്ഥിരമായി ഇല്ലാതാക്കി മാറ്റിസ്ഥാപിക്കുക
 delete-permanently-as-root = അഡ്മിനിസ്ട്രേറ്ററായി എന്നെന്നേക്കുമായി ഇല്ലാതാക്കുക
 deleted-for-good = {$more ->
     [0] റദ്ദാക്കി, പക്ഷേ "{$name}" ഇതിനകം എന്നെന്നേക്കുമായി ഇല്ലാതാക്കി
@@ -40,6 +42,7 @@ reason-drive-full = ഡ്രൈവ് നിറഞ്ഞിരിക്കു�
 reason-read-only = ഡ്രൈവ് വായിക്കാൻ മാത്രമുള്ളതാണ്
 reason-gone = ഇത് ഇപ്പോൾ നിലവിലില്ല
 reason-too-big = ഈ ഡ്രൈവിന് ഇത് വളരെ വലുതാണ്
+reason-not-kept-there = ഡ്രൈവ് ഇവ സൂക്ഷിക്കുന്നില്ല
 reason-damaged = ഡാറ്റ കേടായി
 permissions-not-kept-one = "{$name}"-ന്റെ അനുമതികൾ നിലനിർത്താനായില്ല: {$reason}
 permissions-not-kept-many = {$count} ഇനങ്ങളുടെ അനുമതികൾ നിലനിർത്താനായില്ല: {$reason}

@@ -213,6 +213,8 @@ blocked-too-big = "{$name}" ಈ ಡ್ರೈವ್‌ಗೆ ({$fs}) ತುಂಬ
 blocked-bad-name = "{$name}" ನಲ್ಲಿ ಈ ಡ್ರೈವ್ ({$fs}) ಹೊಂದಲು ಸಾಧ್ಯವಿಲ್ಲದ ಅಕ್ಷರಗಳಿವೆ
 blocked-delete = "{$name}" ಅನ್ನು ಅಳಿಸಲು ನಿಮಗೆ ಅನುಮತಿ ಇಲ್ಲ
 blocked-no-trash = "{$name}" ಕಸದ ಬುಟ್ಟಿ ಇಲ್ಲದ ಡ್ರೈವ್‌ನಲ್ಲಿದೆ
+blocked-replace-no-trash = "{$name}" ಈ ಡ್ರೈವ್‌ನಲ್ಲಿ ಕಸದ ಬುಟ್ಟಿಗೆ ಹೋಗಲು ಸಾಧ್ಯವಿಲ್ಲ, ಬದಲಿಸಿದರೆ ಶಾಶ್ವತವಾಗಿ ಅಳಿಸಲಾಗುತ್ತದೆ
+delete-permanently-and-replace = ಶಾಶ್ವತವಾಗಿ ಅಳಿಸಿ ಬದಲಿಸಿ
 delete-permanently-as-root = ನಿರ್ವಾಹಕರಾಗಿ ಶಾಶ್ವತವಾಗಿ ಅಳಿಸಿ
 deleted-for-good = {$more ->
     [0] ರದ್ದುಗೊಳಿಸಲಾಗಿದೆ, ಆದರೆ "{$name}" ಅನ್ನು ಈಗಾಗಲೇ ಶಾಶ್ವತವಾಗಿ ಅಳಿಸಲಾಗಿದೆ
@@ -225,6 +227,7 @@ reason-drive-full = ಡ್ರೈವ್ ತುಂಬಿದೆ
 reason-read-only = ಡ್ರೈವ್ ಓದಲು ಮಾತ್ರ
 reason-gone = ಇದು ಇನ್ನು ಮುಂದೆ ಅಸ್ತಿತ್ವದಲ್ಲಿಲ್ಲ
 reason-too-big = ಈ ಡ್ರೈವ್‌ಗೆ ಇದು ತುಂಬಾ ದೊಡ್ಡದಾಗಿದೆ
+reason-not-kept-there = ಡ್ರೈವ್ ಇವುಗಳನ್ನು ಇಡುವುದಿಲ್ಲ
 reason-damaged = ಡೇಟಾ ಹಾನಿಗೊಳಗಾಗಿದೆ
 permissions-not-kept-one = "{$name}" ಅನುಮತಿಗಳನ್ನು ಉಳಿಸಿಕೊಳ್ಳಲಾಗಲಿಲ್ಲ: {$reason}
 permissions-not-kept-many = {$count} ಐಟಂಗಳ ಅನುಮತಿಗಳನ್ನು ಉಳಿಸಿಕೊಳ್ಳಲಾಗಲಿಲ್ಲ: {$reason}

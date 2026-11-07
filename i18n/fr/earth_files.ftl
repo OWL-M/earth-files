@@ -67,6 +67,8 @@ blocked-too-big = « {$name} » est trop volumineux pour ce lecteur ({$fs})
 blocked-bad-name = « {$name} » contient des caractères que ce lecteur ({$fs}) ne peut pas accepter
 blocked-delete = Vous n'avez pas l'autorisation de supprimer « {$name} »
 blocked-no-trash = « {$name} » se trouve sur un disque sans corbeille
+blocked-replace-no-trash = « {$name} » ne peut pas aller à la corbeille sur ce disque : le remplacer le supprime définitivement
+delete-permanently-and-replace = Supprimer définitivement et remplacer
 delete-permanently-as-root = Supprimer définitivement en tant qu'administrateur
 deleted-for-good = {$more ->
     [0] Annulé, mais « {$name} » avait déjà été supprimé définitivement
@@ -79,6 +81,7 @@ reason-drive-full = le lecteur est plein
 reason-read-only = le lecteur est en lecture seule
 reason-gone = il n'existe plus
 reason-too-big = il est trop volumineux pour ce lecteur
+reason-not-kept-there = le disque ne les conserve pas
 reason-damaged = les données sont endommagées
 permissions-not-kept-one = Impossible de conserver les permissions de « {$name} » : {$reason}
 permissions-not-kept-many = Impossible de conserver les permissions de {$count} éléments : {$reason}

@@ -204,6 +204,8 @@ blocked-too-big = Položka „{$name}“ je pro tento disk ({$fs}) příliš vel
 blocked-bad-name = Položka „{$name}“ obsahuje znaky, které tento disk ({$fs}) uložit neumí
 blocked-delete = Nemáte oprávnění smazat položku „{$name}“
 blocked-no-trash = Položka „{$name}“ je na jednotce bez koše
+blocked-replace-no-trash = „{$name}“ nemůže na tomto disku do koše: nahrazením se trvale smaže
+delete-permanently-and-replace = Trvale smazat a nahradit
 delete-permanently-as-root = Smazat trvale jako správce
 deleted-for-good = {$more ->
     [0] Zrušeno, ale položka „{$name}“ už byla trvale smazána
@@ -217,6 +219,7 @@ reason-drive-full = disk je plný
 reason-read-only = disk je pouze pro čtení
 reason-gone = už neexistuje
 reason-too-big = je pro tento disk příliš velká
+reason-not-kept-there = disk je neukládá
 reason-damaged = data jsou poškozená
 permissions-not-kept-one = Oprávnění „{$name}“ se nepodařilo zachovat: {$reason}
 permissions-not-kept-many = Oprávnění položek (počet: {$count}) se nepodařilo zachovat: {$reason}

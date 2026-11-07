@@ -355,6 +355,8 @@ blocked-too-big = ”{$name}” on liian suuri tälle levylle ({$fs})
 blocked-bad-name = ”{$name}” sisältää merkkejä, joita tälle levylle ({$fs}) ei voi tallentaa
 blocked-delete = Ei oikeutta poistaa kohdetta ”{$name}”
 blocked-no-trash = Kohde ”{$name}” on asemalla, jolla ei ole roskakoria
+blocked-replace-no-trash = ”{$name}” ei voi mennä roskakoriin tällä asemalla: korvaaminen poistaa sen pysyvästi
+delete-permanently-and-replace = Poista pysyvästi ja korvaa
 delete-permanently-as-root = Poista pysyvästi pääkäyttäjänä
 deleted-for-good = {$more ->
     [0] Peruttu, mutta kohde ”{$name}” oli jo poistettu pysyvästi
@@ -367,6 +369,7 @@ reason-drive-full = levy on täynnä
 reason-read-only = levy on vain luku -tilassa
 reason-gone = sitä ei ole enää olemassa
 reason-too-big = se on liian suuri tälle levylle
+reason-not-kept-there = asema ei säilytä niitä
 reason-damaged = tiedot ovat vioittuneet
 permissions-not-kept-one = Kohteen ”{$name}” oikeuksia ei voitu säilyttää: {$reason}
 permissions-not-kept-many = Kohteiden oikeuksia ei voitu säilyttää (määrä: {$count}): {$reason}

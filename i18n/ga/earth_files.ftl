@@ -64,6 +64,8 @@ blocked-too-big = Tá "{$name}" rómhór don tiomántán seo ({$fs})
 blocked-bad-name = Tá carachtair in "{$name}" nach féidir leis an tiomántán seo ({$fs}) a choinneáil
 blocked-delete = Níl cead agat "{$name}" a scriosadh
 blocked-no-trash = Tá "{$name}" ar thiomántán gan bruscar
+blocked-replace-no-trash = Ní féidir le "{$name}" dul sa bhruscar ar an tiomántán seo: scriosfar go buan é má chuirtear ceann eile ina áit
+delete-permanently-and-replace = Scrios go buan agus cuir ina áit
 delete-permanently-as-root = Scrios go buan mar riarthóir
 deleted-for-good = {$more ->
     [0] Cealaithe, ach scriosadh "{$name}" go buan cheana féin
@@ -76,6 +78,7 @@ reason-drive-full = tá an tiomántán lán
 reason-read-only = léamh amháin atá sa tiomántán
 reason-gone = níl sé ann a thuilleadh
 reason-too-big = tá sé rómhór don tiomántán seo
+reason-not-kept-there = ní choinníonn an tiomántán iad
 reason-damaged = tá na sonraí truaillithe
 permissions-not-kept-one = Níorbh fhéidir ceadanna "{$name}" a choinneáil: {$reason}
 permissions-not-kept-many = Níorbh fhéidir ceadanna míreanna a choinneáil (líon: {$count}): {$reason}

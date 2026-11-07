@@ -66,6 +66,8 @@ blocked-too-big = „{$name}” túl nagy ehhez a meghajtóhoz ({$fs})
 blocked-bad-name = „{$name}” olyan karaktereket tartalmaz, amelyeket ez a meghajtó ({$fs}) nem tud tárolni
 blocked-delete = Nincs jogosultsága törölni: „{$name}”
 blocked-no-trash = „{$name}” kuka nélküli meghajtón van
+blocked-replace-no-trash = A(z) „{$name}” ezen a meghajtón nem kerülhet a kukába: a csere véglegesen törli
+delete-permanently-and-replace = Végleges törlés és csere
 delete-permanently-as-root = Végleges törlés rendszergazdaként
 deleted-for-good = {$more ->
     [0] Megszakítva, de „{$name}” már véglegesen törölve lett
@@ -78,6 +80,7 @@ reason-drive-full = a meghajtó megtelt
 reason-read-only = a meghajtó csak olvasható
 reason-gone = már nem létezik
 reason-too-big = túl nagy ehhez a meghajtóhoz
+reason-not-kept-there = a meghajtó nem tárolja őket
 reason-damaged = az adatok sérültek
 permissions-not-kept-one = „{$name}” jogosultságait nem sikerült megtartani: {$reason}
 permissions-not-kept-many = {$count} elem jogosultságait nem sikerült megtartani: {$reason}

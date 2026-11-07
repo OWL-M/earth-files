@@ -61,6 +61,8 @@ blocked-too-big = "{$name}" terlalu besar untuk drive ini ({$fs})
 blocked-bad-name = "{$name}" berisi karakter yang tidak dapat disimpan drive ini ({$fs})
 blocked-delete = Anda tidak memiliki izin untuk menghapus "{$name}"
 blocked-no-trash = "{$name}" berada di drive tanpa tempat sampah
+blocked-replace-no-trash = "{$name}" tidak dapat masuk ke tempat sampah di drive ini: menggantinya akan menghapusnya selamanya
+delete-permanently-and-replace = Hapus permanen dan ganti
 delete-permanently-as-root = Hapus secara permanen sebagai administrator
 deleted-for-good = {$more ->
     [0] Dibatalkan, tetapi "{$name}" sudah dihapus secara permanen
@@ -73,6 +75,7 @@ reason-drive-full = drive penuh
 reason-read-only = drive hanya baca
 reason-gone = sudah tidak ada
 reason-too-big = terlalu besar untuk drive ini
+reason-not-kept-there = drive tidak menyimpannya
 reason-damaged = datanya rusak
 permissions-not-kept-one = Izin "{$name}" tidak dapat dipertahankan: {$reason}
 permissions-not-kept-many = Izin {$count} item tidak dapat dipertahankan: {$reason}

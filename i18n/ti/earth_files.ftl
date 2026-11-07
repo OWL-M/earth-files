@@ -28,6 +28,8 @@ blocked-too-big = "{$name}" ነዚ ድራይቭ ({$fs}) ኣዝዩ ዓቢ እዩ
 blocked-bad-name = "{$name}" እዚ ድራይቭ ({$fs}) ክሕዞም ዘይክእል ፊደላት ኣለዎ
 blocked-delete = ነቲ "{$name}" ንምድምሳስ ፍቓድ የብልካን
 blocked-no-trash = "{$name}" ቆሻሻ ዘይብሉ ድራይቭ ኣሎ
+blocked-replace-no-trash = "{$name}" ኣብዚ ድራይቭ ናብ መጕሓፍ ክኸይድ ኣይክእልን፡ ምትካእ ንሓዋሩ ይድምስሶ
+delete-permanently-and-replace = ንሓዋሩ ደምስስን ተክእን
 delete-permanently-as-root = ከም ኣመሓዳሪ ንዘልኣለም ደምስስ
 deleted-for-good = {$more ->
     [0] ተሰሪዙ፣ ግን "{$name}" ኣቐዲሙ ንዘልኣለም ተደምሲሱ
@@ -40,6 +42,7 @@ reason-drive-full = እቲ ድራይቭ ምሉእ እዩ
 reason-read-only = እቲ ድራይቭ ንንባብ ጥራይ እዩ
 reason-gone = ደጊም የለን
 reason-too-big = ነዚ ድራይቭ ኣዝዩ ዓቢ እዩ
+reason-not-kept-there = ድራይቭ ኣይዕቅቦምን
 blocked-move = "{$name}" ክግዓዝ ኣይከኣልን
 blocked-move-reason = ካብ "{$folder}" እቶም መበቆላውያን ክእለዩ ኣይከኣሉን: {$reason}
 same-for-rest-count = ንዝተረፉ እውን ከምኡ ({$count})

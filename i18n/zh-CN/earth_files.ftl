@@ -64,6 +64,8 @@ blocked-too-big = “{$name}”太大，此驱动器（{$fs}）无法存放
 blocked-bad-name = “{$name}”包含此驱动器（{$fs}）无法存放的字符
 blocked-delete = 你没有删除“{$name}”的权限
 blocked-no-trash = “{$name}”所在的驱动器没有回收站
+blocked-replace-no-trash = “{$name}”在此驱动器上无法移到回收站，替换会将其永久删除
+delete-permanently-and-replace = 永久删除并替换
 delete-permanently-as-root = 以管理员身份永久删除
 deleted-for-good = {$more ->
     [0] 已取消，但“{$name}”已被永久删除
@@ -76,6 +78,7 @@ reason-drive-full = 驱动器已满
 reason-read-only = 驱动器为只读
 reason-gone = 已不存在
 reason-too-big = 对此驱动器来说太大
+reason-not-kept-there = 该驱动器不保留权限
 reason-damaged = 数据已损坏
 permissions-not-kept-one = 无法保留“{$name}”的权限：{$reason}
 permissions-not-kept-many = 无法保留 {$count} 个项目的权限：{$reason}

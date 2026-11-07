@@ -267,6 +267,8 @@ blocked-too-big = "{$name}" é demasiado grande para esta unidade ({$fs})
 blocked-bad-name = "{$name}" tem caracteres que esta unidade ({$fs}) não suporta
 blocked-delete = Não tem permissão para eliminar "{$name}"
 blocked-no-trash = "{$name}" está numa unidade sem lixo
+blocked-replace-no-trash = «{$name}» não pode ir para o lixo nesta unidade: substituí-lo elimina-o definitivamente
+delete-permanently-and-replace = Eliminar definitivamente e substituir
 delete-permanently-as-root = Eliminar permanentemente como administrador
 deleted-for-good = {$more ->
     [0] Cancelado, mas "{$name}" já foi eliminado permanentemente
@@ -279,6 +281,7 @@ reason-drive-full = a unidade está cheia
 reason-read-only = a unidade é apenas de leitura
 reason-gone = já não existe
 reason-too-big = é demasiado grande para esta unidade
+reason-not-kept-there = a unidade não os guarda
 reason-damaged = os dados estão danificados
 permissions-not-kept-one = Não foi possível manter as permissões de "{$name}": {$reason}
 permissions-not-kept-many = Não foi possível manter as permissões de {$count} itens: {$reason}

@@ -197,6 +197,8 @@ blocked-too-big = «{$name}» كبير جدًا على هذا القرص ({$fs})
 blocked-bad-name = «{$name}» يحتوي على أحرف لا يدعمها هذا القرص ({$fs})
 blocked-delete = ليس لديك إذن لحذف «{$name}»
 blocked-no-trash = «{$name}» موجود على محرك أقراص بلا سلة مهملات
+blocked-replace-no-trash = لا يمكن نقل "{$name}" إلى المهملات على هذا القرص، واستبداله يحذفه نهائيًا
+delete-permanently-and-replace = حذف نهائي واستبدال
 delete-permanently-as-root = احذف نهائيًا كمدير
 deleted-for-good = {$more ->
     [0] أُلغِيَ، لكن «{$name}» حُذف نهائيًا بالفعل
@@ -212,6 +214,7 @@ reason-drive-full = القرص ممتلئ
 reason-read-only = القرص للقراءة فقط
 reason-gone = لم يعد موجودًا
 reason-too-big = حجمه أكبر مما يتسع له هذا القرص
+reason-not-kept-there = القرص لا يحتفظ بها
 reason-damaged = البيانات تالفة
 permissions-not-kept-one = تعذّر الاحتفاظ بأذونات «{$name}»: {$reason}
 permissions-not-kept-many = تعذّر الاحتفاظ بأذونات العناصر (العدد: {$count}): {$reason}

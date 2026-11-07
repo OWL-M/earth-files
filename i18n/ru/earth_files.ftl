@@ -331,6 +331,8 @@ blocked-too-big = «{$name}» слишком велик для этого дис
 blocked-bad-name = «{$name}» содержит символы, которые этот диск ({$fs}) не поддерживает
 blocked-delete = У вас нет прав на удаление объекта «{$name}»
 blocked-no-trash = Объект «{$name}» находится на диске без корзины
+blocked-replace-no-trash = «{$name}» нельзя отправить в корзину на этом диске: замена удалит его навсегда
+delete-permanently-and-replace = Удалить навсегда и заменить
 delete-permanently-as-root = Удалить навсегда от имени администратора
 deleted-for-good = {$more ->
     [0] Отменена, но объект «{$name}» уже удалён навсегда
@@ -346,6 +348,7 @@ reason-drive-full = диск заполнен
 reason-read-only = диск доступен только для чтения
 reason-gone = больше не существует
 reason-too-big = размер слишком велик для этого диска
+reason-not-kept-there = диск их не хранит
 reason-damaged = данные повреждены
 permissions-not-kept-one = Не удалось сохранить права доступа «{$name}»: {$reason}
 permissions-not-kept-many = Не удалось сохранить права доступа элементов (количество: {$count}): {$reason}

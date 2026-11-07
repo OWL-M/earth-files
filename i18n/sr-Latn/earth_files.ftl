@@ -100,6 +100,8 @@ blocked-too-big = Stavka „{$name}“ je prevelika za ovaj uređaj ({$fs})
 blocked-bad-name = Stavka „{$name}“ sadrži znakove koje ovaj uređaj ({$fs}) ne može da sačuva
 blocked-delete = Nemate dozvolu da obrišete stavku „{$name}“
 blocked-no-trash = Stavka „{$name}“ se nalazi na disku bez otpada
+blocked-replace-no-trash = „{$name}“ na ovom disku ne može u smeće: zamena ga trajno briše
+delete-permanently-and-replace = Trajno obriši i zameni
 delete-permanently-as-root = Obriši trajno kao administrator
 deleted-for-good = {$more ->
     [0] Otkazano, ali je stavka „{$name}“ već trajno obrisana
@@ -114,6 +116,7 @@ reason-drive-full = uređaj je pun
 reason-read-only = uređaj je samo za čitanje
 reason-gone = više ne postoji
 reason-too-big = preveliko je za ovaj uređaj
+reason-not-kept-there = disk ih ne čuva
 reason-damaged = podaci su oštećeni
 permissions-not-kept-one = Ovlašćenja za „{$name}“ nije moguće zadržati: {$reason}
 permissions-not-kept-many = Ovlašćenja stavki nije moguće zadržati (broj: {$count}): {$reason}

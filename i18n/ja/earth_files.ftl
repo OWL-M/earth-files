@@ -316,6 +316,8 @@ blocked-too-big = 「{$name}」はこのドライブ（{$fs}）には大きす�
 blocked-bad-name = 「{$name}」にはこのドライブ（{$fs}）で使用できない文字が含まれています
 blocked-delete = 「{$name}」を削除する権限がありません
 blocked-no-trash = 「{$name}」はゴミ箱のないドライブにあります
+blocked-replace-no-trash = 「{$name}」はこのドライブではゴミ箱に移動できないため、置き換えると完全に削除されます
+delete-permanently-and-replace = 完全に削除して置き換え
 delete-permanently-as-root = 管理者として完全に削除する
 deleted-for-good = {$more ->
     [0] キャンセルされましたが、「{$name}」はすでに完全に削除されています
@@ -328,6 +330,7 @@ reason-drive-full = ドライブがいっぱいです
 reason-read-only = ドライブは読み取り専用です
 reason-gone = もう存在しません
 reason-too-big = このドライブには大きすぎます
+reason-not-kept-there = このドライブは保持しません
 reason-damaged = データが破損しています
 permissions-not-kept-one = 「{$name}」のアクセス権を保持できませんでした: {$reason}
 permissions-not-kept-many = {$count} 個のアイテムのアクセス権を保持できませんでした: {$reason}

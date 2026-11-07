@@ -74,6 +74,8 @@ blocked-too-big = Položka „{$name}“ je pre tento disk ({$fs}) príliš veľ
 blocked-bad-name = Položka „{$name}“ obsahuje znaky, ktoré tento disk ({$fs}) nedokáže uložiť
 blocked-delete = Nemáte oprávnenie odstrániť položku „{$name}“
 blocked-no-trash = Položka „{$name}“ je na jednotke bez koša
+blocked-replace-no-trash = „{$name}“ nemôže na tomto disku ísť do koša: nahradením sa natrvalo odstráni
+delete-permanently-and-replace = Natrvalo odstrániť a nahradiť
 delete-permanently-as-root = Trvalo odstrániť ako správca
 deleted-for-good = {$more ->
     [0] Zrušené, ale položka „{$name}“ už bola natrvalo odstránená
@@ -87,6 +89,7 @@ reason-drive-full = disk je plný
 reason-read-only = disk je len na čítanie
 reason-gone = už neexistuje
 reason-too-big = je príliš veľký pre tento disk
+reason-not-kept-there = disk ich neukladá
 reason-damaged = údaje sú poškodené
 permissions-not-kept-one = Oprávnenia „{$name}“ sa nepodarilo zachovať: {$reason}
 permissions-not-kept-many = Oprávnenia položiek (počet: {$count}) sa nepodarilo zachovať: {$reason}

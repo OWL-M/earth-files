@@ -28,6 +28,8 @@ blocked-too-big = "{$name}" quá lớn đối với ổ đĩa này ({$fs})
 blocked-bad-name = "{$name}" có ký tự mà ổ đĩa này ({$fs}) không thể chứa
 blocked-delete = Bạn không có quyền xóa "{$name}"
 blocked-no-trash = "{$name}" nằm trên ổ đĩa không có thùng rác
+blocked-replace-no-trash = "{$name}" không thể vào thùng rác trên ổ này: thay thế sẽ xóa vĩnh viễn
+delete-permanently-and-replace = Xóa vĩnh viễn và thay thế
 delete-permanently-as-root = Xóa vĩnh viễn với quyền quản trị
 deleted-for-good = {$more ->
     [0] Đã hủy, nhưng "{$name}" đã bị xóa vĩnh viễn
@@ -40,6 +42,7 @@ reason-drive-full = ổ đĩa đã đầy
 reason-read-only = ổ đĩa chỉ đọc
 reason-gone = không còn tồn tại
 reason-too-big = quá lớn đối với ổ đĩa này
+reason-not-kept-there = ổ đĩa không lưu giữ chúng
 reason-damaged = dữ liệu bị hỏng
 permissions-not-kept-one = Không thể giữ quyền của "{$name}": {$reason}
 permissions-not-kept-many = Không thể giữ quyền của {$count} mục: {$reason}

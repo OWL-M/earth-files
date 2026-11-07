@@ -28,6 +28,8 @@ blocked-too-big = Predmet „{$name}“ je prevelik za ta pogon ({$fs})
 blocked-bad-name = Predmet „{$name}“ vsebuje znake, ki jih ta pogon ({$fs}) ne more hraniti
 blocked-delete = Nimate dovoljenja za brisanje predmeta „{$name}“
 blocked-no-trash = Predmet „{$name}“ je na pogonu brez koša
+blocked-replace-no-trash = "{$name}" na tem pogonu ne more v smeti: zamenjava ga trajno izbriše
+delete-permanently-and-replace = Trajno izbriši in zamenjaj
 delete-permanently-as-root = Trajno izbriši kot skrbnik
 deleted-for-good = {$more ->
     [0] Preklicano, vendar je bil predmet „{$name}“ že trajno izbrisan
@@ -43,6 +45,7 @@ reason-drive-full = pogon je poln
 reason-read-only = pogon je samo za branje
 reason-gone = ne obstaja več
 reason-too-big = je prevelik za ta pogon
+reason-not-kept-there = pogon jih ne hrani
 reason-damaged = podatki so poškodovani
 permissions-not-kept-one = Dovoljenj za „{$name}“ ni bilo mogoče ohraniti: {$reason}
 permissions-not-kept-many = Dovoljenj predmetov ni bilo mogoče ohraniti (število: {$count}): {$reason}

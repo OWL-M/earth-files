@@ -64,6 +64,8 @@ blocked-too-big = "{$name}" ใหญ่เกินไปสำหรับไ�
 blocked-bad-name = "{$name}" มีอักขระที่ไดร์ฟนี้ ({$fs}) ไม่รองรับ
 blocked-delete = คุณไม่มีสิทธิ์ลบ "{$name}"
 blocked-no-trash = "{$name}" อยู่ในไดรฟ์ที่ไม่มีถังขยะ
+blocked-replace-no-trash = "{$name}" ไม่สามารถไปที่ถังขยะบนไดรฟ์นี้ได้ การแทนที่จะลบอย่างถาวร
+delete-permanently-and-replace = ลบถาวรและแทนที่
 delete-permanently-as-root = ลบถาวรในฐานะผู้ดูแลระบบ
 deleted-for-good = {$more ->
     [0] ยกเลิกแล้ว แต่ "{$name}" ถูกลบถาวรไปแล้ว
@@ -76,6 +78,7 @@ reason-drive-full = ไดร์ฟเต็ม
 reason-read-only = ไดร์ฟเป็นแบบอ่านอย่างเดียว
 reason-gone = ไม่มีอยู่แล้ว
 reason-too-big = ใหญ่เกินไปสำหรับไดร์ฟนี้
+reason-not-kept-there = ไดรฟ์ไม่เก็บสิทธิ์เหล่านี้
 reason-damaged = ข้อมูลเสียหาย
 permissions-not-kept-one = ไม่สามารถคงสิทธิ์ของ "{$name}" ไว้ได้: {$reason}
 permissions-not-kept-many = ไม่สามารถคงสิทธิ์ของ {$count} รายการไว้ได้: {$reason}

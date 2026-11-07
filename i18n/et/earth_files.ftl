@@ -97,6 +97,8 @@ blocked-too-big = „{$name}“ on selle ketta ({$fs}) jaoks liiga suur
 blocked-bad-name = „{$name}“ sisaldab märke, mida see ketas ({$fs}) ei saa hoida
 blocked-delete = Puudub luba kustutada „{$name}“
 blocked-no-trash = „{$name}“ asub kettal, millel pole prügikasti
+blocked-replace-no-trash = „{$name}“ ei saa sellel kettal prügikasti minna: asendamine kustutab selle jäädavalt
+delete-permanently-and-replace = Kustuta jäädavalt ja asenda
 delete-permanently-as-root = Kustuta jäädavalt administraatorina
 deleted-for-good = {$more ->
     [0] Katkestatud, kuid „{$name}“ on juba jäädavalt kustutatud
@@ -109,6 +111,7 @@ reason-drive-full = ketas on täis
 reason-read-only = ketas on ainult loetav
 reason-gone = seda pole enam olemas
 reason-too-big = see on selle ketta jaoks liiga suur
+reason-not-kept-there = ketas ei säilita neid
 reason-damaged = andmed on rikutud
 permissions-not-kept-one = „{$name}“ õigusi ei õnnestunud säilitada: {$reason}
 permissions-not-kept-many = {$count} üksuse õigusi ei õnnestunud säilitada: {$reason}

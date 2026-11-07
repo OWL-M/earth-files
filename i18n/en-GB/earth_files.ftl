@@ -129,6 +129,8 @@ blocked-too-big = "{$name}" is too big for this drive ({$fs})
 blocked-bad-name = "{$name}" has characters this drive ({$fs}) can't hold
 blocked-delete = You don't have permission to delete "{$name}"
 blocked-no-trash = "{$name}" is on a drive without a rubbish bin
+blocked-replace-no-trash = "{$name}" can't go to the trash on this drive, so replacing it deletes it for good
+delete-permanently-and-replace = Delete permanently and replace
 delete-permanently-as-root = Delete permanently as root
 deleted-for-good = {$more ->
     [0] Cancelled, but "{$name}" was already deleted for good
@@ -141,6 +143,7 @@ reason-drive-full = the drive is full
 reason-read-only = the drive is read-only
 reason-gone = it no longer exists
 reason-too-big = it is too big for this drive
+reason-not-kept-there = the drive does not keep them
 reason-damaged = the data is damaged
 permissions-not-kept-one = The permissions of "{$name}" could not be kept: {$reason}
 permissions-not-kept-many = The permissions of {$count} items could not be kept: {$reason}

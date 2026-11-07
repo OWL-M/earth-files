@@ -132,6 +132,143 @@ async fn handle_blocked(
     rx.recv().await.unwrap_or(BlockedAnswer::Cancel)
 }
 
+/// `text` without the marks Fluent puts around each value it fills in. These
+/// lines hold values within values, and with the marks a line does not break
+/// where it should: its end runs past the row it is in.
+fn without_isolates(text: String) -> String {
+    text.replace(['\u{2068}', '\u{2069}'], "")
+}
+
+/// Where work is staged for a drive that cannot be written piece by piece.
+pub(crate) fn local_stage_root() -> Result<PathBuf, OperationError> {
+    let root = crate::xdg_dirs::BASE_DIRS
+        .as_ref()
+        .map_or_else(std::env::temp_dir, |dirs| dirs.cache_home().to_path_buf())
+        .join("earth-files")
+        .join("staging");
+    fs::create_dir_all(&root).map_err(OperationError::from_err)?;
+    Ok(root)
+}
+
+/// Whether `dir` is on a gvfs drive: through its FUSE bridge a file is often
+/// taken only whole, as MTP does and WebDAV, so what is written piece by piece
+/// is made locally and copied over by gio.
+fn writes_through_gio_sync(dir: &Path) -> bool {
+    #[cfg(feature = "gvfs")]
+    {
+        fs::metadata(dir).is_ok_and(|meta| crate::tab::fs_kind(&meta) == crate::tab::FsKind::Gvfs)
+    }
+    #[cfg(not(feature = "gvfs"))]
+    {
+        let _ = dir;
+        false
+    }
+}
+
+/// [`writes_through_gio_sync`] off the operation thread: on a remote drive a
+/// stat is a round trip.
+async fn writes_through_gio(dir: &Path) -> bool {
+    let dir = dir.to_path_buf();
+    compio::runtime::spawn_blocking(move || writes_through_gio_sync(&dir))
+        .await
+        .unwrap_or(false)
+}
+
+/// Moves `made` to `to`, its place on a gvfs drive. What it says it did is what
+/// the move did: left out, nothing was made; kept both, the one made has its own
+/// name; replaced, what was there went to the trash, to come back on undo.
+async fn bring_over(
+    made: PathBuf,
+    to: &Path,
+    ignored: Vec<PathBuf>,
+    prompts: &Prompts,
+    controller: &Controller,
+) -> Result<OperationSelection, OperationError> {
+    let parent = to
+        .parent()
+        .ok_or_else(|| OperationError::from_msg("no folder to put it in"))?;
+    let moved = copy_or_move(
+        vec![made],
+        parent.to_path_buf(),
+        Method::Move {
+            cross_device_copy: false,
+        },
+        false,
+        prompts,
+        controller.clone(),
+    )
+    .await?;
+    Ok(OperationSelection {
+        ignored,
+        ..landed(moved)
+    })
+}
+
+/// What a move by way of local staging made, as what the operation made: the
+/// places it moved to are new there.
+fn landed(moved: OperationSelection) -> OperationSelection {
+    let mut created = moved.created;
+    for (_, to) in &moved.moved {
+        if !created.contains(to) {
+            created.push(to.clone());
+        }
+    }
+    OperationSelection {
+        selected: moved.selected,
+        created,
+        trash_items: moved.trash_items,
+        skipped: moved.skipped,
+        warnings: moved.warnings,
+        ..OperationSelection::default()
+    }
+}
+
+/// The entries of an archive staged locally, copied into a new folder of its
+/// name on a gvfs drive. Failing, the folder goes, unless the user aborted.
+async fn copy_into_new_folder(
+    entries: Vec<PathBuf>,
+    to: &Path,
+    dir_name: &OsStr,
+    file_name: &OsStr,
+    prompts: &Prompts,
+    controller: &Controller,
+) -> Result<OperationSelection, OperationError> {
+    let new_dir = extract_dir(to, dir_name, file_name)?;
+    let moved = copy_or_move(
+        entries,
+        new_dir.clone(),
+        Method::Move {
+            cross_device_copy: false,
+        },
+        false,
+        prompts,
+        controller.clone(),
+    )
+    .await;
+    match moved {
+        Ok(moved) => {
+            // The folder is new, and what is in it with it
+            let moved = landed(moved);
+            Ok(OperationSelection {
+                selected: vec![new_dir.clone()],
+                created: vec![new_dir],
+                trash_items: moved.trash_items,
+                skipped: moved.skipped,
+                warnings: moved.warnings,
+                ..OperationSelection::default()
+            })
+        }
+        Err(err) if controller.is_aborted() => Err(err.after(OperationSelection {
+            created: vec![new_dir],
+            ..OperationSelection::default()
+        })),
+        Err(err) => {
+            let _ = compio::runtime::spawn_blocking(move || fs::remove_dir_all(new_dir)).await;
+            Err(err)
+        }
+    }
+}
+
 /// Asks whether to go on with an archive growing suspiciously, from a worker,
 /// and waits. Any answer but going on cancels the operation.
 fn ask_on_growth(
@@ -193,6 +330,7 @@ async fn extract_archive(
     only: Option<crate::archive::index::Only>,
     controller: &Controller,
     prompts: &Prompts,
+    dest: PathBuf,
 ) -> Result<Vec<Warning>, OperationError> {
     use crate::archive::{Expected, Watch, check_room, expected_size, extract_watched, suspicious};
     let password = password.clone();
@@ -205,6 +343,9 @@ async fn extract_archive(
         let mut asked = false;
         if let Some(Expected { size, .. }) = expected {
             check_room(size, &dir)?;
+            // Stages elsewhere for a drive that cannot be written piece by
+            // piece: it has to fit there too
+            check_room(size, &dest)?;
             if suspicious(size, archive_size) {
                 if !ask_on_growth(&prompts, &controller, &path, size, archive_size, false) {
                     return Err(OperationError::from_state(ControllerState::Cancelled));
@@ -478,6 +619,9 @@ pub enum Blocked {
     /// An item to trash on a drive with no trash of its own that can be used
     /// or made: nothing is ever copied into another drive's trash.
     NoTrash(PathBuf),
+    /// What a copy or move is to replace cannot go to the trash: replacing it
+    /// deletes it for good, if the user agrees.
+    ReplaceNoTrash(PathBuf),
     /// An archive that expands to `expanded` from `archive_size`, far more
     /// than archives do unless they were made to fill a drive; `so_far`: it is
     /// being written, and has come this far.
@@ -498,7 +642,8 @@ impl Blocked {
             | Self::Remove(path)
             | Self::Destination(path)
             | Self::Delete(path)
-            | Self::NoTrash(path) => path,
+            | Self::NoTrash(path)
+            | Self::ReplaceNoTrash(path) => path,
             Self::Link { path, .. }
             | Self::Failed { path, .. }
             | Self::TooBig { path, .. }
@@ -523,6 +668,7 @@ impl Blocked {
             | Self::BadName { .. }
             | Self::Failed { .. }
             | Self::NoTrash(_)
+            | Self::ReplaceNoTrash(_)
             | Self::Suspicious { .. } => false,
         }
     }
@@ -539,6 +685,7 @@ impl Blocked {
                 | Self::Destination(_)
                 | Self::Delete(_)
                 | Self::NoTrash(_)
+                | Self::ReplaceNoTrash(_)
                 | Self::Suspicious { .. }
         )
     }
@@ -659,6 +806,7 @@ impl Cause {
             Some(io::ErrorKind::ReadOnlyFilesystem) => fl!("reason-read-only"),
             Some(io::ErrorKind::NotFound) => fl!("reason-gone"),
             Some(io::ErrorKind::FileTooLarge) => fl!("reason-too-big"),
+            Some(io::ErrorKind::Unsupported) => fl!("reason-not-kept-there"),
             _ => self.message.clone(),
         }
     }
@@ -814,6 +962,11 @@ pub(crate) fn free_space(dir: &Path) -> Option<u64> {
     }
     // SAFETY: `statvfs` returned 0, so it filled `stat`
     let stat = unsafe { stat.assume_init() };
+    // No blocks at all is a drive that does not say, as many gvfs ones, not a
+    // full one
+    if stat.f_blocks == 0 {
+        return None;
+    }
     #[allow(clippy::useless_conversion)]
     Some(u64::from(stat.f_bavail).saturating_mul(u64::from(stat.f_frsize)))
 }
@@ -1491,7 +1644,12 @@ impl Operation {
             // replaced or merged into existing files is still recoverable
             // The copies go to the trash, those that replaced files too; then
             // the replaced files come back from it, in their place
-            Self::Copy { .. } | Self::Extract { .. }
+            // A compress or a new file made by way of local staging is a move
+            // there, Keep Both and Replace included: undone by what it made
+            Self::Copy { .. }
+            | Self::Extract { .. }
+            | Self::Compress { .. }
+            | Self::NewFile { .. }
                 if !created_only(result).is_empty() || !result.trash_items.is_empty() =>
             {
                 let mut paths = created_only(result);
@@ -1521,7 +1679,7 @@ impl Operation {
             }
             // A new folder may have been filled since it was created, so an
             // undo trashes it rather than destroying it and its contents
-            Self::NewFile { path } | Self::NewFolder { path } => vec![Self::Delete {
+            Self::NewFolder { path } => vec![Self::Delete {
                 paths: vec![path.clone()],
             }],
             // Pasted content is the only copy of what was on the clipboard, so
@@ -1553,9 +1711,6 @@ impl Operation {
                 }
                 undo
             }
-            Self::Compress { to, .. } => vec![Self::Delete {
-                paths: vec![to.clone()],
-            }],
             _ => Vec::new(),
         }
     }
@@ -2100,19 +2255,20 @@ impl Operation {
 
     pub fn pending_text(&self, ratio: f32, state: ControllerState) -> String {
         let percent = (ratio * 100.0) as i32;
-        self.pending_text_with(match state {
+        let text = self.pending_text_with(match state {
             ControllerState::Running => fl!("progress", percent = percent),
             ControllerState::Paused => fl!("progress-paused", percent = percent),
             ControllerState::Cancelled => fl!("progress-cancelled", percent = percent),
             ControllerState::Failed => fl!("progress-failed", percent = percent),
-        })
+        });
+        without_isolates(text)
     }
 
     /// What the operation is doing while it waits on the user about a path it
     /// may not touch: no percentage, since how far it got says little then
     /// (a move whose one original cannot be removed has copied everything).
     pub fn pending_text_asking(&self) -> String {
-        self.pending_text_with(fl!("progress-asking"))
+        without_isolates(self.pending_text_with(fl!("progress-asking")))
     }
 
     fn pending_text_with(&self, progress: String) -> String {
@@ -2323,6 +2479,32 @@ impl Operation {
         let controller_clone = controller.clone();
 
         let paths: Result<OperationSelection, OperationError> = match self {
+            Self::Compress {
+                paths,
+                to,
+                archive_type,
+                password,
+            } if to.parent().is_some() && writes_through_gio_sync(to.parent().unwrap_or(&to)) => {
+                // Made here, and brought over whole
+                let name = to.file_name().map(OsStr::to_owned).unwrap_or_default();
+                let stage = local_stage_root().and_then(|root| staging_dir(&root, &name))?;
+                let made = Box::pin(
+                    Self::Compress {
+                        paths: paths.clone(),
+                        to: stage.join(&name),
+                        archive_type,
+                        password,
+                    }
+                    .perform(prompts, controller.clone()),
+                )
+                .await;
+                let brought = match made {
+                    Ok(_) => bring_over(stage.join(&name), &to, paths, prompts, &controller).await,
+                    Err(err) => Err(err),
+                };
+                let _ = compio::runtime::spawn_blocking(move || fs::remove_dir_all(stage)).await;
+                brought
+            }
             Self::Compress {
                 paths,
                 to,
@@ -2667,7 +2849,8 @@ impl Operation {
                         };
                         let dir_name = get_directory_name(file_name).to_os_string();
 
-                        if into == ExtractInto::Folder && only.is_none() {
+                        let through_local = writes_through_gio(&to).await;
+                        if into == ExtractInto::Folder && only.is_none() && !through_local {
                             let new_dir = extract_dir(&to, &dir_name, file_name)
                                 .map_err(|err| err.after(done()))?;
                             let extracted = extract_archive(
@@ -2677,6 +2860,7 @@ impl Operation {
                                 None,
                                 &controller,
                                 &prompts,
+                                to.clone(),
                             )
                             .await;
                             if let Err(err) = &extracted {
@@ -2716,8 +2900,13 @@ impl Operation {
                             // named after the archive; otherwise they move into place through
                             // the same replace dialog as copy/move, so existing files are
                             // never overwritten silently.
-                            let staging =
-                                staging_dir(&to, &dir_name).map_err(|err| err.after(done()))?;
+                            let stage_in = if through_local {
+                                local_stage_root().map_err(|err| err.after(done()))?
+                            } else {
+                                to.clone()
+                            };
+                            let staging = staging_dir(&stage_in, &dir_name)
+                                .map_err(|err| err.after(done()))?;
                             // Only some of it: they come out of where they
                             // sit in the archive into a staging directory of
                             // their own, what is left being the same
@@ -2730,10 +2919,11 @@ impl Operation {
                                     only.clone(),
                                     &controller,
                                     &prompts,
+                                    to.clone(),
                                 )
                                 .await?;
                                 let staging = if let Some(only) = &only {
-                                    let out = staging_dir(&to, &dir_name)?;
+                                    let out = staging_dir(&stage_in, &dir_name)?;
                                     picked = Some(out.clone());
                                     let (from, into_picked, tops) =
                                         (staging.clone(), out.clone(), only.tops());
@@ -2762,7 +2952,17 @@ impl Operation {
                                     .map_err(OperationError::from_err)?;
                                 let gather = into == ExtractInto::Folder
                                     || (into == ExtractInto::FolderIfSeveral && entries.len() > 1);
-                                let mut moved = if gather {
+                                let mut moved = if gather && through_local {
+                                    copy_into_new_folder(
+                                        entries.clone(),
+                                        &to,
+                                        &dir_name,
+                                        file_name,
+                                        &prompts,
+                                        &controller,
+                                    )
+                                    .await?
+                                } else if gather {
                                     publish_gathered(
                                         staging.clone(),
                                         to.clone(),
@@ -2877,6 +3077,7 @@ impl Operation {
             .map_err(wrap_compio_spawn_error)?,
             Self::NewFile { path } => {
                 let controller_clone = controller.clone();
+                let prompts = prompts.clone();
                 compio::runtime::spawn(async move {
                     let controller = controller_clone;
                     controller
@@ -2888,12 +3089,38 @@ impl Operation {
                     // warns about a name that is taken, but that warning is a
                     // snapshot of a directory anything else may write to, so
                     // the refusal has to be here, where the file is made.
-                    compio::fs::OpenOptions::new()
+                    let made = compio::fs::OpenOptions::new()
                         .write(true)
                         .create_new(true)
                         .open(&path)
-                        .await
-                        .map_err(OperationError::from_err)?;
+                        .await;
+                    match made {
+                        Ok(_) => {}
+                        // A drive that takes whole files only, as MTP: made
+                        // here and brought over
+                        Err(err)
+                            if err.kind() == io::ErrorKind::Unsupported
+                                && path.symlink_metadata().is_err() =>
+                        {
+                            let name = path.file_name().map(OsStr::to_owned).unwrap_or_default();
+                            let stage =
+                                local_stage_root().and_then(|root| staging_dir(&root, &name))?;
+                            fs::write(stage.join(&name), b"").map_err(OperationError::from_err)?;
+                            let brought = bring_over(
+                                stage.join(&name),
+                                &path,
+                                Vec::new(),
+                                &prompts,
+                                &controller,
+                            )
+                            .await;
+                            let _ =
+                                compio::runtime::spawn_blocking(move || fs::remove_dir_all(stage))
+                                    .await;
+                            return brought;
+                        }
+                        Err(err) => return Err(OperationError::from_err(err)),
+                    }
                     Result::<_, OperationError>::Ok(OperationSelection {
                         ignored: Vec::new(),
                         selected: vec![path.clone()],
@@ -3152,25 +3379,38 @@ impl Operation {
 
                 let controller_clone = controller.clone();
                 let path_clone = path.clone();
-                compio::runtime::spawn_blocking(move || -> Result<(), OperationError> {
-                    let controller = controller_clone;
-                    let path = path_clone;
-                    use std::os::unix::fs::PermissionsExt;
-                    // One change at a time to a file: each reads what the
-                    // one before left, so changes made in quick succession
-                    // all hold. Other files do not wait on it
-                    let _one = PermissionsTurn::take(&path);
-                    // Cancelled while it waited its turn: nothing changes
-                    if controller.is_cancelled() || controller.is_failed() {
-                        return Err(OperationError::from_state(controller.state()));
-                    }
-                    let at = |err| OperationError::at(&path, &err);
-                    let now = fs::metadata(&path).map_err(at)?.permissions().mode();
-                    let perms = fs::Permissions::from_mode((now & !mask & 0o7777) | (mode & mask));
-                    fs::set_permissions(&path, perms).map_err(at)?;
-
-                    Ok(())
-                })
+                let unkept = compio::runtime::spawn_blocking(
+                    move || -> Result<Option<Warning>, OperationError> {
+                        let controller = controller_clone;
+                        let path = path_clone;
+                        use std::os::unix::fs::PermissionsExt;
+                        // One change at a time to a file: each reads what the
+                        // one before left, so changes made in quick succession
+                        // all hold. Other files do not wait on it
+                        let _one = PermissionsTurn::take(&path);
+                        // Cancelled while it waited its turn: nothing changes
+                        if controller.is_cancelled() || controller.is_failed() {
+                            return Err(OperationError::from_state(controller.state()));
+                        }
+                        let at = |err| OperationError::at(&path, &err);
+                        let now = fs::metadata(&path).map_err(at)?.permissions().mode();
+                        let perms =
+                            fs::Permissions::from_mode((now & !mask & 0o7777) | (mode & mask));
+                        match fs::set_permissions(&path, perms) {
+                            Ok(()) => Ok(None),
+                            // A drive that keeps none, as MTP or WebDAV: nothing
+                            // went wrong, the drive just has no such thing
+                            Err(err) if err.kind() == io::ErrorKind::Unsupported => {
+                                Ok(Some(Warning {
+                                    cause: Cause::of(&err),
+                                    path,
+                                    unkept: Unkept::Permissions,
+                                }))
+                            }
+                            Err(err) => Err(at(err)),
+                        }
+                    },
+                )
                 .await
                 .map_err(wrap_compio_spawn_error)??;
                 Ok(OperationSelection {
@@ -3180,7 +3420,7 @@ impl Operation {
                     moved: Vec::new(),
                     trash_items: Vec::new(),
                     skipped: Vec::new(),
-                    warnings: Vec::new(),
+                    warnings: unkept.into_iter().collect(),
                 })
             }
         };
@@ -4203,6 +4443,23 @@ mod tests {
         future::join(handle_messages, handle_extract).await.1
     }
 
+    /// The marks kept these lines from breaking, and from staying in their row
+    #[test]
+    fn what_a_running_operation_says_holds_no_isolates() {
+        let operation = Operation::Copy {
+            paths: vec!["/a/Internal shared storage/f".into()],
+            to: "/a/Documents".into(),
+        };
+        for text in [
+            operation.pending_text(0.5, super::ControllerState::Running),
+            operation.pending_text(1.0, super::ControllerState::Cancelled),
+            operation.pending_text_asking(),
+        ] {
+            assert!(!text.contains(['\u{2068}', '\u{2069}']), "{text:?}");
+            assert!(text.contains("Internal shared storage"), "{text:?}");
+        }
+    }
+
     /// A zip whose list says its one entry expands to `stated`, whatever it holds.
     fn zip_stating(path: &std::path::Path, stated: u32) {
         use std::io::Write;
@@ -4256,6 +4513,102 @@ mod tests {
         let (_, asked) = perform_blocked(operation(), |_, _, _| BlockedAnswer::Skip(false)).await;
         assert_eq!(asked.len(), 1);
         assert!(to.join("big").exists());
+    }
+
+    /// [`super::bring_over`] onto a name that is taken, answered with
+    /// `answer`: what it says it did, and the folder it worked in.
+    async fn bringing_over_onto(
+        answer: ReplaceResult,
+    ) -> (
+        Result<OperationSelection, OperationError>,
+        tempfile::TempDir,
+    ) {
+        let tmp = tempfile::tempdir().unwrap();
+        let made = tmp.path().join("stage/made.zip");
+        fs::create_dir_all(made.parent().unwrap()).unwrap();
+        fs::write(&made, b"new").unwrap();
+        let to = tmp.path().join("to/made.zip");
+        fs::create_dir_all(to.parent().unwrap()).unwrap();
+        fs::write(&to, b"old").unwrap();
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        let target = to.clone();
+        let run = async move {
+            let controller = Controller::default();
+            super::bring_over(made, &target, Vec::new(), &tx, &controller).await
+        };
+        let answers = async move {
+            while let Some(msg) = rx.recv().await {
+                match msg {
+                    super::Prompt::Replace { answer: reply, .. } => {
+                        let _ = reply.send(answer).await;
+                    }
+                    super::Prompt::Blocked { answer: reply, .. } => {
+                        let _ = reply.send(BlockedAnswer::Cancel).await;
+                    }
+                }
+            }
+        };
+        let (result, ()) = future::join(run, answers).await;
+        (result, tmp)
+    }
+
+    /// Skipped, nothing was made there: nothing for Undo to take away
+    #[compio::test]
+    async fn bringing_over_skipped_claims_nothing() {
+        let (result, tmp) = bringing_over_onto(ReplaceResult::Skip(false)).await;
+        let done = result.unwrap();
+        let to = tmp.path().join("to/made.zip");
+        assert_eq!(fs::read(&to).unwrap(), b"old");
+        assert!(!done.created.contains(&to), "{done:?}");
+        let compress = Operation::Compress {
+            paths: Vec::new(),
+            to: to.clone(),
+            archive_type: ArchiveType::Zip,
+            password: None,
+        };
+        let undo = compress.undo(&done);
+        assert!(
+            undo.iter()
+                .all(|op| !matches!(op, Operation::Delete { paths } if paths.contains(&to))),
+            "{undo:?}"
+        );
+    }
+
+    /// Kept both, the one made has a name of its own, and it is that one
+    #[compio::test]
+    async fn bringing_over_kept_both_claims_the_new_name() {
+        let (result, tmp) = bringing_over_onto(ReplaceResult::KeepBoth).await;
+        let done = result.unwrap();
+        let to = tmp.path().join("to/made.zip");
+        assert_eq!(fs::read(&to).unwrap(), b"old");
+        let [made] = done.created.as_slice() else {
+            panic!("{done:?}");
+        };
+        assert_ne!(made, &to);
+        assert_eq!(fs::read(made).unwrap(), b"new");
+    }
+
+    /// Replaced, what was there is in the trash, and Undo brings it back
+    #[compio::test]
+    async fn bringing_over_replaced_keeps_what_it_replaced() {
+        let (result, tmp) = bringing_over_onto(ReplaceResult::Replace(false)).await;
+        let done = result.unwrap();
+        let to = tmp.path().join("to/made.zip");
+        assert_eq!(fs::read(&to).unwrap(), b"new");
+        assert_eq!(done.trash_items.len(), 1, "{done:?}");
+        let compress = Operation::Compress {
+            paths: Vec::new(),
+            to,
+            archive_type: ArchiveType::Zip,
+            password: None,
+        };
+        assert!(
+            compress
+                .undo(&done)
+                .iter()
+                .any(|op| matches!(op, Operation::Restore { .. })),
+            "nothing brings back what it replaced"
+        );
     }
 
     /// Asked up front, with a size not known to be all of it, the watch that
@@ -5217,6 +5570,10 @@ mod tests {
             "a created path inside another created path is covered by it"
         );
         // A new file or folder goes to the trash, not straight to oblivion
+        let made = OperationSelection {
+            created: vec!["/a/new".into()],
+            ..OperationSelection::default()
+        };
         for op in [
             Operation::NewFile {
                 path: "/a/new".into(),
@@ -5226,24 +5583,39 @@ mod tests {
             },
         ] {
             assert_eq!(
-                op.undo(&OperationSelection::default()),
+                op.undo(&made),
                 vec![Operation::Delete {
                     paths: vec!["/a/new".into()]
                 }]
             );
         }
+        // A new file that made nothing, left out where the name was taken:
+        // nothing to take away
+        assert!(
+            Operation::NewFile {
+                path: "/a/new".into()
+            }
+            .undo(&OperationSelection::default())
+            .is_empty()
+        );
         let compress = Operation::Compress {
             paths: vec!["/a/one".into()],
             to: "/a/one.zip".into(),
             archive_type: ArchiveType::Zip,
             password: None,
         };
+        let archived = OperationSelection {
+            created: vec!["/a/one.zip".into()],
+            ..OperationSelection::default()
+        };
         assert_eq!(
-            compress.undo(&OperationSelection::default()),
+            compress.undo(&archived),
             vec![Operation::Delete {
                 paths: vec!["/a/one.zip".into()]
             }]
         );
+        // Made nothing, it takes nothing away: the archive there was not its
+        assert!(compress.undo(&OperationSelection::default()).is_empty());
 
         // Not undoable
         assert!(

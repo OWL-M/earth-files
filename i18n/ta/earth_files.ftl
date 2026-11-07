@@ -28,6 +28,8 @@ blocked-too-big = "{$name}" இந்த இயக்ககத்துக்க
 blocked-bad-name = இந்த இயக்ககத்தால் ({$fs}) வைத்திருக்க முடியாத எழுத்துகள் "{$name}" இல் உள்ளன
 blocked-delete = "{$name}" ஐ நீக்க உங்களுக்கு அனுமதி இல்லை
 blocked-no-trash = "{$name}" குப்பைத்தொட்டி இல்லாத இயக்ககத்தில் உள்ளது
+blocked-replace-no-trash = "{$name}" இந்த இயக்ககத்தில் குப்பைக்குச் செல்ல முடியாது, மாற்றினால் நிரந்தரமாக நீக்கப்படும்
+delete-permanently-and-replace = நிரந்தரமாக நீக்கி மாற்று
 delete-permanently-as-root = நிர்வாகியாக நிரந்தரமாக நீக்கு
 deleted-for-good = {$more ->
     [0] ரத்துசெய்யப்பட்டது, ஆனால் "{$name}" ஏற்கனவே நிரந்தரமாக நீக்கப்பட்டது
@@ -40,6 +42,7 @@ reason-drive-full = இயக்ககம் நிரம்பியுள்�
 reason-read-only = இயக்ககம் படிக்க மட்டுமே
 reason-gone = அது இனி இல்லை
 reason-too-big = இந்த இயக்ககத்திற்கு அது மிகப் பெரியது
+reason-not-kept-there = இயக்ககம் இவற்றை வைத்திருப்பதில்லை
 reason-damaged = தரவு சேதமடைந்துள்ளது
 permissions-not-kept-one = "{$name}" இன் அனுமதிகளைத் தக்கவைக்க முடியவில்லை: {$reason}
 permissions-not-kept-many = {$count} உருப்படிகளின் அனுமதிகளைத் தக்கவைக்க முடியவில்லை: {$reason}

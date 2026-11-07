@@ -67,6 +67,8 @@ blocked-too-big = „{$name}“ е твърде голям за това уст�
 blocked-bad-name = „{$name}“ съдържа знаци, които това устройство ({$fs}) не може да съхрани
 blocked-delete = Нямате разрешение да изтриете „{$name}“
 blocked-no-trash = „{$name}“ е на устройство без кошче
+blocked-replace-no-trash = „{$name}“ не може да отиде в кошчето на този диск: замяната го изтрива окончателно
+delete-permanently-and-replace = Изтриване окончателно и замяна
 delete-permanently-as-root = Изтриване завинаги като администратор
 deleted-for-good = {$more ->
     [0] Отменена, но „{$name}“ вече е изтрит завинаги
@@ -79,6 +81,7 @@ reason-drive-full = устройството е пълно
 reason-read-only = устройството е само за четене
 reason-gone = вече не съществува
 reason-too-big = твърде голям е за това устройство
+reason-not-kept-there = дискът не ги пази
 reason-damaged = данните са повредени
 permissions-not-kept-one = Правата на „{$name}“ не можаха да бъдат запазени: {$reason}
 permissions-not-kept-many = Правата на елементите (брой: {$count}) не можаха да бъдат запазени: {$reason}

@@ -83,6 +83,8 @@ blocked-too-big = „{$name}“ er of stórt fyrir þetta drif ({$fs})
 blocked-bad-name = „{$name}“ inniheldur stafi sem þetta drif ({$fs}) getur ekki geymt
 blocked-delete = Þú hefur ekki heimild til að eyða „{$name}“
 blocked-no-trash = „{$name}“ er á drifi án ruslafötu
+blocked-replace-no-trash = „{$name}“ getur ekki farið í ruslið á þessu drifi: ef henni er skipt út eyðist hún endanlega
+delete-permanently-and-replace = Eyða endanlega og skipta út
 delete-permanently-as-root = Eyða varanlega sem kerfisstjóri
 deleted-for-good = {$more ->
     [0] Hætt við, en „{$name}“ var þegar eytt varanlega
@@ -95,6 +97,7 @@ reason-drive-full = drifið er fullt
 reason-read-only = drifið er skrifvarið
 reason-gone = það er ekki lengur til
 reason-too-big = það er of stórt fyrir þetta drif
+reason-not-kept-there = drifið geymir þau ekki
 reason-damaged = gögnin eru skemmd
 permissions-not-kept-one = Ekki tókst að halda heimildum „{$name}“: {$reason}
 permissions-not-kept-many = Ekki tókst að halda heimildum atriða (fjöldi: {$count}): {$reason}

@@ -28,6 +28,8 @@ blocked-too-big = “{$name}” is te groot veur deze sjijf ({$fs})
 blocked-bad-name = “{$name}” haet teikens die deze sjijf ({$fs}) neet kin bewaare
 blocked-delete = Doe höbs gein toestemming om “{$name}” te wisse
 blocked-no-trash = “{$name}” steit op ein drive zonder prullenbak
+blocked-replace-no-trash = "{$name}" kan op dees sjijf neet nao de prullebak: vervange wis t veur altied
+delete-permanently-and-replace = Veur altied wisse en vervange
 delete-permanently-as-root = Permanent wisse es beheerder
 deleted-for-good = {$more ->
     [0] Geannuleerd, mer “{$name}” is al permanent gewis
@@ -40,6 +42,7 @@ reason-drive-full = de sjijf is vol
 reason-read-only = de sjijf is allein-leze
 reason-gone = 't besteit neet mieë
 reason-too-big = 't is te groet veur deze sjijf
+reason-not-kept-there = de sjijf bewaart ze neet
 reason-damaged = de gegaeves zien besjaodig
 permissions-not-kept-one = De rechte van “{$name}” kóste neet bewaard waere: {$reason}
 permissions-not-kept-many = De rechte van {$count} items kóste neet bewaard waere: {$reason}

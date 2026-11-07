@@ -66,6 +66,8 @@ blocked-too-big = «{$name}» è troppo grande per questo dispositivo ({$fs})
 blocked-bad-name = «{$name}» contiene caratteri che questo dispositivo ({$fs}) non può contenere
 blocked-delete = Non hai il permesso di eliminare «{$name}»
 blocked-no-trash = «{$name}» si trova su un disco senza cestino
+blocked-replace-no-trash = «{$name}» non può andare nel cestino su questo disco: sostituirlo lo elimina definitivamente
+delete-permanently-and-replace = Elimina definitivamente e sostituisci
 delete-permanently-as-root = Elimina definitivamente come amministratore
 deleted-for-good = {$more ->
     [0] Annullato, ma «{$name}» era già stato eliminato definitivamente
@@ -78,6 +80,7 @@ reason-drive-full = il dispositivo è pieno
 reason-read-only = il dispositivo è di sola lettura
 reason-gone = non esiste più
 reason-too-big = è troppo grande per questo dispositivo
+reason-not-kept-there = il disco non li conserva
 reason-damaged = i dati sono danneggiati
 permissions-not-kept-one = Impossibile mantenere i permessi di «{$name}»: {$reason}
 permissions-not-kept-many = Impossibile mantenere i permessi di {$count} elementi: {$reason}

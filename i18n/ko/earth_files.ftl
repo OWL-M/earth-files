@@ -182,6 +182,8 @@ blocked-too-big = "{$name}"은(는) 이 드라이브({$fs})에 비해 너무 큽
 blocked-bad-name = "{$name}"에 이 드라이브({$fs})가 저장할 수 없는 문자가 있습니다
 blocked-delete = "{$name}"을(를) 삭제할 권한이 없습니다
 blocked-no-trash = "{$name}"은(는) 휴지통이 없는 드라이브에 있습니다
+blocked-replace-no-trash = "{$name}"은(는) 이 드라이브에서 휴지통으로 보낼 수 없어 바꾸면 영구히 삭제됩니다
+delete-permanently-and-replace = 영구 삭제 후 바꾸기
 delete-permanently-as-root = 관리자 권한으로 완전히 삭제
 deleted-for-good = {$more ->
     [0] 취소되었지만 "{$name}"은(는) 이미 완전히 삭제되었습니다
@@ -194,6 +196,7 @@ reason-drive-full = 드라이브가 가득 참
 reason-read-only = 드라이브가 읽기 전용임
 reason-gone = 더 이상 존재하지 않음
 reason-too-big = 이 드라이브에 비해 너무 큼
+reason-not-kept-there = 이 드라이브는 이를 유지하지 않습니다
 reason-damaged = 데이터가 손상되었습니다
 permissions-not-kept-one = "{$name}"의 권한을 유지할 수 없습니다: {$reason}
 permissions-not-kept-many = 항목 {$count}개의 권한을 유지할 수 없습니다: {$reason}

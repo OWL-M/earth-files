@@ -71,6 +71,8 @@ blocked-too-big = „{$name}” jest za duży dla tego dysku ({$fs})
 blocked-bad-name = „{$name}” zawiera znaki, których ten dysk ({$fs}) nie obsługuje
 blocked-delete = Nie masz uprawnień do usunięcia „{$name}”
 blocked-no-trash = „{$name}” znajduje się na dysku bez kosza
+blocked-replace-no-trash = „{$name}” nie może trafić do kosza na tym dysku: zastąpienie usunie je na stałe
+delete-permanently-and-replace = Usuń trwale i zastąp
 delete-permanently-as-root = Usuń definitywnie jako administrator
 deleted-for-good = {$more ->
     [0] Anulowano, ale „{$name}” zostało już definitywnie usunięte
@@ -86,6 +88,7 @@ reason-drive-full = dysk jest pełny
 reason-read-only = dysk jest tylko do odczytu
 reason-gone = już nie istnieje
 reason-too-big = jest za duży dla tego dysku
+reason-not-kept-there = dysk ich nie przechowuje
 reason-damaged = dane są uszkodzone
 permissions-not-kept-one = Nie udało się zachować uprawnień „{$name}”: {$reason}
 permissions-not-kept-many = Nie udało się zachować uprawnień elementów (liczba: {$count}): {$reason}

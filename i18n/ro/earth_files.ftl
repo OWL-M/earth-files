@@ -68,6 +68,8 @@ blocked-too-big = „{$name}” este prea mare pentru această unitate ({$fs})
 blocked-bad-name = „{$name}” conține caractere pe care această unitate ({$fs}) nu le poate stoca
 blocked-delete = Nu ai permisiunea de a șterge „{$name}”
 blocked-no-trash = „{$name}” se află pe o unitate fără coș de gunoi
+blocked-replace-no-trash = „{$name}” nu poate ajunge la coșul de gunoi pe această unitate: înlocuirea îl șterge definitiv
+delete-permanently-and-replace = Șterge definitiv și înlocuiește
 delete-permanently-as-root = Șterge definitiv ca administrator
 deleted-for-good = {$more ->
     [0] Anulat, dar „{$name}” a fost deja șters definitiv
@@ -81,6 +83,7 @@ reason-drive-full = unitatea este plină
 reason-read-only = unitatea este doar pentru citire
 reason-gone = nu mai există
 reason-too-big = este prea mare pentru această unitate
+reason-not-kept-there = unitatea nu le păstrează
 reason-damaged = datele sunt deteriorate
 permissions-not-kept-one = Permisiunile pentru „{$name}” nu au putut fi păstrate: {$reason}
 permissions-not-kept-many = Permisiunile pentru elemente (număr: {$count}) nu au putut fi păstrate: {$reason}

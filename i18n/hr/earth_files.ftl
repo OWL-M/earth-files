@@ -28,6 +28,8 @@ blocked-too-big = „{$name}” je prevelik za ovaj pogon ({$fs})
 blocked-bad-name = „{$name}” sadrži znakove koje ovaj pogon ({$fs}) ne može pohraniti
 blocked-delete = Nemate dopuštenje za brisanje stavke „{$name}”
 blocked-no-trash = Stavka „{$name}” nalazi se na pogonu bez koša za smeće
+blocked-replace-no-trash = "{$name}" ne može u smeće na ovom disku: zamjena ga trajno briše
+delete-permanently-and-replace = Trajno izbriši i zamijeni
 delete-permanently-as-root = Izbriši trajno kao administrator
 deleted-for-good = {$more ->
     [0] Otkazano, ali je stavka „{$name}” već trajno izbrisana
@@ -42,6 +44,7 @@ reason-drive-full = pogon je pun
 reason-read-only = pogon je samo za čitanje
 reason-gone = više ne postoji
 reason-too-big = ne stane na ovaj pogon
+reason-not-kept-there = disk ih ne čuva
 reason-damaged = podaci su oštećeni
 permissions-not-kept-one = Dozvole za „{$name}” nije bilo moguće zadržati: {$reason}
 permissions-not-kept-many = Dozvole stavki nije bilo moguće zadržati (broj: {$count}): {$reason}

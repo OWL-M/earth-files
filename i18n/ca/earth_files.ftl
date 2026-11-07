@@ -67,6 +67,8 @@ blocked-too-big = «{$name}» és massa gran per a aquesta unitat ({$fs})
 blocked-bad-name = «{$name}» té caràcters que aquesta unitat ({$fs}) no pot contenir
 blocked-delete = No tens permís per suprimir «{$name}»
 blocked-no-trash = «{$name}» és en una unitat sense paperera
+blocked-replace-no-trash = «{$name}» no pot anar a la paperera en aquesta unitat: substituir-lo l’elimina definitivament
+delete-permanently-and-replace = Elimina definitivament i substitueix
 delete-permanently-as-root = Suprimeix permanentment com a administrador
 deleted-for-good = {$more ->
     [0] Cancel·lat, però «{$name}» ja s'ha suprimit definitivament
@@ -79,6 +81,7 @@ reason-drive-full = la unitat és plena
 reason-read-only = la unitat és només de lectura
 reason-gone = ja no existeix
 reason-too-big = és massa gran per a aquesta unitat
+reason-not-kept-there = la unitat no els conserva
 reason-damaged = les dades estan malmeses
 permissions-not-kept-one = No s'han pogut conservar els permisos de «{$name}»: {$reason}
 permissions-not-kept-many = No s'han pogut conservar els permisos de {$count} elements: {$reason}

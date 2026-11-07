@@ -67,6 +67,8 @@ blocked-too-big = “{$name}” is te groot voor deze schijf ({$fs})
 blocked-bad-name = “{$name}” bevat tekens die deze schijf ({$fs}) niet kan opslaan
 blocked-delete = Je hebt geen toestemming om “{$name}” te verwijderen
 blocked-no-trash = “{$name}” staat op een schijf zonder prullenbak
+blocked-replace-no-trash = "{$name}" kan op deze schijf niet naar de prullenbak: vervangen verwijdert het definitief
+delete-permanently-and-replace = Definitief verwijderen en vervangen
 delete-permanently-as-root = Permanent verwijderen als beheerder
 deleted-for-good = {$more ->
     [0] Geannuleerd, maar “{$name}” was al permanent verwijderd
@@ -79,6 +81,7 @@ reason-drive-full = de schijf is vol
 reason-read-only = de schijf is alleen-lezen
 reason-gone = het bestaat niet meer
 reason-too-big = het is te groot voor deze schijf
+reason-not-kept-there = de schijf bewaart ze niet
 reason-damaged = de gegevens zijn beschadigd
 permissions-not-kept-one = De rechten van “{$name}” konden niet worden behouden: {$reason}
 permissions-not-kept-many = De rechten van {$count} items konden niet worden behouden: {$reason}

@@ -31,6 +31,8 @@ blocked-too-big = "{$name}" ᱫᱚ ᱱᱚᱶᱟ ᱰᱨᱟᱭᱤᱵ ({$fs}) ᱞ�
 blocked-bad-name = "{$name}" ᱨᱮ ᱢᱮᱱᱟᱜ ᱚᱠᱷᱚᱨ ᱠᱚ ᱱᱚᱶᱟ ᱰᱨᱟᱭᱤᱵ ({$fs}) ᱫᱚᱦᱚ ᱵᱟᱝ ᱜᱟᱱᱚᱜ ᱠᱟᱱᱟ
 blocked-delete = ᱟᱢ ᱥᱟᱶᱛᱮ "{$name}" ᱚᱪᱚᱜ ᱞᱟᱹᱜᱤᱫ ᱪᱷᱚᱴ ᱵᱟᱝ ᱢᱮᱱᱟᱜ-ᱟ
 blocked-no-trash = "{$name}" ᱴᱨᱟᱥ ᱵᱟᱹᱱᱩᱜ ᱰᱨᱟᱭᱣ ᱨᱮ ᱢᱮᱱᱟᱜ-ᱟ
+blocked-replace-no-trash = "{$name}" ᱫᱚ ᱱᱚᱶᱟ ᱰᱨᱟᱭᱤᱵ ᱨᱮ ᱴᱨᱮᱥ ᱨᱮ ᱵᱟᱭ ᱪᱟᱞᱟᱜᱼᱟ, ᱵᱚᱫᱚᱞ ᱞᱮᱠᱷᱟᱱ ᱡᱟᱣᱜᱮ ᱞᱟᱹᱜᱤᱫ ᱜᱮᱫ ᱜᱟᱱᱟ
+delete-permanently-and-replace = ᱡᱟᱣᱜᱮ ᱞᱟᱹᱜᱤᱫ ᱜᱮᱫ ᱟᱨ ᱵᱚᱫᱚᱞ
 delete-permanently-as-root = ᱮᱰᱢᱤᱱᱤᱥᱴᱨᱮᱴᱚᱨ ᱞᱮᱠᱟᱛᱮ ᱥᱚᱫᱚᱢ ᱞᱟᱹᱜᱤᱫ ᱚᱪᱚᱜ ᱢᱮ
 deleted-for-good = {$more ->
     [0] ᱵᱟᱹᱛᱤᱞ ᱮᱱᱟ ᱢᱮᱱᱠᱷᱟᱱ "{$name}" ᱫᱚ ᱵᱟᱝ ᱥᱟᱹᱜᱷᱟᱱ ᱥᱚᱫᱚᱢ ᱞᱟᱹᱜᱤᱫ ᱚᱪᱚᱜ ᱦᱚᱪᱚᱭ ᱮᱱᱟ
@@ -43,6 +45,7 @@ reason-drive-full = ᱰᱨᱟᱭᱤᱵ ᱯᱮᱨᱮᱡ ᱜᱮᱭᱟ
 reason-read-only = ᱰᱨᱟᱭᱤᱵ ᱫᱚ ᱥᱩᱢᱩᱝ ᱯᱟᱲᱦᱟᱣ ᱞᱟᱹᱜᱤᱫ
 reason-gone = ᱱᱚᱶᱟ ᱫᱚ ᱱᱤᱛ ᱵᱟᱹᱱᱩᱜᱼᱟ
 reason-too-big = ᱱᱚᱶᱟ ᱰᱨᱟᱭᱤᱵ ᱞᱟᱹᱜᱤᱫ ᱟᱹᱰᱤ ᱢᱟᱨᱟᱝ ᱜᱮᱭᱟ
+reason-not-kept-there = ᱰᱨᱟᱭᱤᱵ ᱫᱚ ᱱᱚᱶᱟ ᱵᱟᱭ ᱫᱚᱦᱚᱭᱟ
 blocked-move = "{$name}" ᱩᱪᱟᱹᱲ ᱵᱟᱝ ᱜᱟᱱᱚᱜ ᱠᱟᱱᱟ
 blocked-move-reason = "{$folder}" ᱠᱷᱚᱱ ᱢᱩᱞ ᱨᱮᱫ ᱠᱚ ᱚᱪᱚᱜ ᱵᱟᱝ ᱜᱟᱱᱚᱜ ᱠᱟᱱᱟ: {$reason}
 same-for-rest-count = ᱮᱴᱟᱜ ᱠᱚ ᱞᱟᱹᱜᱤᱫ ᱦᱚᱸ ᱚᱱᱟ ᱜᱮ ({$count})

@@ -30,6 +30,8 @@ blocked-too-big = "{$name}" estas tro granda por ĉi tiu disko ({$fs})
 blocked-bad-name = "{$name}" havas signojn, kiujn ĉi tiu disko ({$fs}) ne povas enhavi
 blocked-delete = Vi ne havas permeson forigi "{$name}"
 blocked-no-trash = "{$name}" estas sur disko sen rubujo
+blocked-replace-no-trash = "{$name}" ne povas iri en la rubujon sur ĉi tiu disko: anstataŭigi ĝin forigas ĝin por ĉiam
+delete-permanently-and-replace = Forigi por ĉiam kaj anstataŭigi
 delete-permanently-as-root = Forigi porĉiame kiel administranto
 deleted-for-good = {$more ->
     [0] Nuligita, sed "{$name}" jam estis porĉiame forigita
@@ -42,6 +44,7 @@ reason-drive-full = la disko estas plena
 reason-read-only = la disko estas nurlega
 reason-gone = ĝi ne plu ekzistas
 reason-too-big = ĝi estas tro granda por ĉi tiu disko
+reason-not-kept-there = la disko ne konservas ilin
 reason-damaged = la datumoj estas difektitaj
 permissions-not-kept-one = Ne eblis konservi la permesojn de "{$name}": {$reason}
 permissions-not-kept-many = Ne eblis konservi la permesojn de {$count} eroj: {$reason}

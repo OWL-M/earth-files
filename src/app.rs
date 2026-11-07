@@ -4,6 +4,7 @@
 use crate::trashing::TrashItem;
 use crate::ui::app::{self, Task};
 use crate::ui::clipboard;
+use crate::ui::iced::advanced::text::Wrapping;
 use crate::ui::iced::futures::{self, SinkExt};
 use crate::ui::iced::keyboard::key::Physical;
 use crate::ui::iced::keyboard::{Event as KeyEvent, Key, Modifiers};
@@ -618,6 +619,8 @@ pub enum Message {
     /// The user closed the progress card's row with this id, which stayed
     /// for the paths its operation skipped.
     ProgressDismiss(u64),
+    /// Takes a failed operation out of the edit history, and its card row too.
+    ForgetFailed(u64),
     PermanentlyDelete(Option<Entity>),
     /// Shows the details if hidden, hides them if shown
     Preview,
@@ -2439,7 +2442,14 @@ impl App {
         let mut commands = Vec::with_capacity(4 * completed.len());
         commands.push(self.refresh_trash_bins());
         let mut op_sel = OperationSelection::default();
-        for (id, op_sel_pending) in completed {
+        for (id, mut op_sel_pending) in completed {
+            // Permissions a drive has no place for are said only if asked for
+            if !self.config.warn_unkept_permissions {
+                op_sel_pending.warnings.retain(|warning| {
+                    !(warning.unkept == crate::operation::Unkept::Permissions
+                        && warning.cause.io == Some(std::io::ErrorKind::Unsupported))
+                });
+            }
             commands.push(self.drop_question(id));
             // Done: its drive is not asked about any more
             commands.push(self.dialog_pages.remove_stalled(id));
@@ -3724,7 +3734,7 @@ impl App {
             notification.action(NOTICE_ABORT, &fl!("abort"));
         }
         if question.ask.permanently {
-            notification.action(NOTICE_PERMANENTLY, &fl!("delete-permanently"));
+            notification.action(NOTICE_PERMANENTLY, &permanently_label(&question.blocked));
         }
         if let Some(again) = question.ask.root {
             notification.action(NOTICE_ROOT, &root_label(&question.blocked, again));
@@ -4563,7 +4573,7 @@ impl App {
         let mut others: Vec<Element<'_, Message>> = Vec::new();
         if question.ask.permanently {
             others.push(
-                widget::button::standard(fl!("delete-permanently"))
+                widget::button::standard(permanently_label(&question.blocked))
                     .on_press_maybe(answer(BlockedAnswer::Permanently(same_for_rest)))
                     .into(),
             );
@@ -4601,16 +4611,26 @@ impl App {
     /// Try again. It stays until closed.
     fn failed_row<'a>(id: u64, row: &progress::Row<'a>, reason: &'a str) -> Element<'a, Message> {
         let space_xxs = spacing().space_xxs.to_pixels();
-        widget::Column::with_capacity(2)
+        // The label can take every line it needs: the buttons have their own,
+        // so a long one does not push them off the card
+        widget::Column::with_capacity(3)
             .push(
-                widget::Row::with_capacity(4)
-                    .push(widget::text::body(row.label))
-                    .push(widget::space::horizontal())
+                widget::text::body(row.label)
+                    .width(Length::Fill)
+                    .wrapping(Wrapping::WordOrGlyph),
+            )
+            .push(
+                widget::text::caption(reason)
+                    .width(Length::Fill)
+                    .wrapping(Wrapping::WordOrGlyph),
+            )
+            .push(
+                widget::Row::with_capacity(3)
                     .push(
-                        widget::button::link(fl!("try-again"))
-                            .on_press(Message::RetryFailed(id))
-                            .padding(0),
+                        widget::button::standard(fl!("try-again"))
+                            .on_press(Message::RetryFailed(id)),
                     )
+                    .push(widget::space::horizontal())
                     .push(widget::tooltip(
                         widget::button::icon(icon::from_name("window-close-symbolic"))
                             .on_press(Message::ProgressDismiss(row.id))
@@ -4618,10 +4638,8 @@ impl App {
                         widget::text::body(fl!("close")),
                         widget::tooltip::Position::Top,
                     ))
-                    .spacing(space_xxs)
                     .align_y(Alignment::Center),
             )
-            .push(widget::text::caption(reason))
             .spacing(space_xxs)
             .into()
     }
@@ -4671,9 +4689,13 @@ impl App {
                     .width(Length::Fill)
                     .girth(Length::Fixed(4.0))
                     .into(),
-                widget::text::body(op.pending_text_asking()).into(),
+                widget::text::body(op.pending_text_asking())
+                    .width(Length::Fill)
+                    .wrapping(Wrapping::WordOrGlyph)
+                    .into(),
             ])
             .spacing(spacing().space_xxs.to_pixels())
+            .width(Length::Fill)
             .into();
         }
         let pause = if controller.is_paused() {
@@ -4737,8 +4759,11 @@ impl App {
             } else {
                 op.pending_text(progress, controller.state())
             })
+            .width(Length::Fill)
+            .wrapping(Wrapping::WordOrGlyph)
             .into(),
         ])
+        .width(Length::Fill)
         .into()
     }
 
@@ -4772,17 +4797,36 @@ impl App {
                 let progress = controller.progress();
                 // Its row's Try again, here too: the row may be closed
                 let retry = (!failed.released).then(|| {
-                    widget::button::link(fl!("try-again"))
-                        .on_press(Message::RetryFailed(id))
-                        .padding(0)
+                    widget::button::standard(fl!("try-again")).on_press(Message::RetryFailed(id))
                 });
                 section = section.add(
-                    widget::Column::with_capacity(3)
-                        .push(widget::text::body(
-                            op.pending_text(progress, controller.state()),
+                    widget::Row::with_capacity(2)
+                        .push(
+                            widget::Column::with_capacity(3)
+                                .push(
+                                    widget::text::body(
+                                        op.pending_text(progress, controller.state()),
+                                    )
+                                    .width(Length::Fill)
+                                    .wrapping(Wrapping::WordOrGlyph),
+                                )
+                                .push(
+                                    widget::text::body(error)
+                                        .width(Length::Fill)
+                                        .wrapping(Wrapping::WordOrGlyph),
+                                )
+                                .push_maybe(retry)
+                                .spacing(spacing().space_xxs.to_pixels())
+                                .width(Length::Fill),
+                        )
+                        .push(widget::tooltip(
+                            widget::button::icon(icon::from_name("window-close-symbolic"))
+                                .on_press(Message::ForgetFailed(id))
+                                .padding(8),
+                            widget::text::body(fl!("close")),
+                            widget::tooltip::Position::Top,
                         ))
-                        .push(widget::text::body(error))
-                        .push_maybe(retry),
+                        .spacing(spacing().space_xxs.to_pixels()),
                 );
             }
             children.push(section.into());
@@ -4797,9 +4841,22 @@ impl App {
                 let skipped = skipped_text(&completed.skipped);
                 section = section.add(
                     widget::Column::with_capacity(3)
-                        .push(widget::text::body(completed.op.completed_text()))
-                        .push_maybe(warnings.map(widget::text::caption))
-                        .push_maybe(skipped.map(widget::text::caption)),
+                        .push(
+                            widget::text::body(completed.op.completed_text())
+                                .width(Length::Fill)
+                                .wrapping(Wrapping::WordOrGlyph),
+                        )
+                        .push_maybe(warnings.map(|text| {
+                            widget::text::caption(text)
+                                .width(Length::Fill)
+                                .wrapping(Wrapping::WordOrGlyph)
+                        }))
+                        .push_maybe(skipped.map(|text| {
+                            widget::text::caption(text)
+                                .width(Length::Fill)
+                                .wrapping(Wrapping::WordOrGlyph)
+                        }))
+                        .width(Length::Fill),
                 );
             }
             children.push(section.into());
@@ -7382,6 +7439,10 @@ impl Application for App {
                 {
                     failed.released |= failed.op.release_payload();
                 }
+            }
+            Message::ForgetFailed(id) => {
+                self.operations.take_failed(id);
+                self.progress.remove(&progress::Key::Operation(id));
             }
             Message::ProgressHover(row, over) => {
                 self.progress.hover(row, over, Instant::now());
@@ -10630,6 +10691,7 @@ fn question_text(blocked: &Blocked) -> (String, String) {
         ),
         Blocked::Delete(_) => (fl!("blocked-delete", name = name), fl!("skip")),
         Blocked::NoTrash(_) => (fl!("blocked-no-trash", name = name), fl!("skip")),
+        Blocked::ReplaceNoTrash(_) => (fl!("blocked-replace-no-trash", name = name), fl!("skip")),
         Blocked::Suspicious {
             expanded,
             archive_size,
@@ -10740,6 +10802,15 @@ fn question_detail(blocked: &Blocked) -> Option<String> {
 /// What the root button says: asking for the password the first time,
 /// using what was granted after. Deleting with root is always for good, and
 /// says so.
+/// The label of a question's answer that deletes for good.
+fn permanently_label(blocked: &Blocked) -> String {
+    if matches!(blocked, Blocked::ReplaceNoTrash(_)) {
+        fl!("delete-permanently-and-replace")
+    } else {
+        fl!("delete-permanently")
+    }
+}
+
 fn root_label(blocked: &Blocked, again: bool) -> String {
     if matches!(blocked, Blocked::Delete(_)) {
         fl!("delete-permanently-as-root")

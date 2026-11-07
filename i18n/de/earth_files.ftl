@@ -67,6 +67,8 @@ blocked-too-big = „{$name}“ ist zu groß für dieses Laufwerk ({$fs})
 blocked-bad-name = „{$name}“ enthält Zeichen, die dieses Laufwerk ({$fs}) nicht speichern kann
 blocked-delete = Keine Berechtigung zum Löschen von „{$name}“
 blocked-no-trash = „{$name}“ befindet sich auf einem Laufwerk ohne Papierkorb
+blocked-replace-no-trash = „{$name}“ kann auf diesem Laufwerk nicht in den Papierkorb, Ersetzen löscht es endgültig
+delete-permanently-and-replace = Endgültig löschen und ersetzen
 delete-permanently-as-root = Als Administrator endgültig löschen
 deleted-for-good = {$more ->
     [0] Abgebrochen, aber „{$name}“ wurde bereits endgültig gelöscht
@@ -79,6 +81,7 @@ reason-drive-full = das Laufwerk ist voll
 reason-read-only = das Laufwerk ist schreibgeschützt
 reason-gone = es existiert nicht mehr
 reason-too-big = es ist zu groß für dieses Laufwerk
+reason-not-kept-there = das Laufwerk speichert sie nicht
 reason-damaged = die Daten sind beschädigt
 permissions-not-kept-one = Die Berechtigungen von „{$name}“ konnten nicht beibehalten werden: {$reason}
 permissions-not-kept-many = Die Berechtigungen von {$count} Elementen konnten nicht beibehalten werden: {$reason}

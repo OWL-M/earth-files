@@ -247,8 +247,16 @@ impl Tasks {
     }
 
     /// Task `key` completed with `note` to read, such as what it could not
-    /// keep: its row says so and stays until closed.
+    /// keep: its row says so and stays until closed. A task too quick to have
+    /// shown a row gets one, as a failure does: the note is not lost.
     pub(crate) fn finish_noted(&mut self, key: &Key, label: String, note: String, now: Instant) {
+        let shown = self
+            .entries
+            .iter()
+            .any(|entry| entry.key == *key && entry.ended.is_none() && entry.is_shown(now));
+        if !shown {
+            self.start(key.clone(), label.clone(), Duration::ZERO, now);
+        }
         self.finish_kept(key, true, true, Some(label), now);
         if let Some(entry) = self.ended_now(key, now) {
             entry.note = Some(note);
@@ -566,6 +574,19 @@ mod tests {
 
     /// A task completed with a note keeps its row, note and all, until it
     /// is closed; started again, its row has no note
+    /// A task too quick to have shown a row still has its note to read
+    #[test]
+    fn a_note_without_a_row_gets_one() {
+        let now = Instant::now();
+        let mut tasks = Tasks::default();
+        tasks.start(op(1), "working".into(), Duration::from_secs(1), now);
+        tasks.finish_noted(&op(1), "done".into(), "not kept".into(), now);
+        let visible = tasks.visible(now);
+        assert_eq!(visible.rows.len(), 1);
+        assert_eq!(visible.rows[0].label, "done");
+        assert_eq!(visible.rows[0].note, Some("not kept"));
+    }
+
     #[test]
     fn a_noted_row_stays_until_dismissed() {
         let now = Instant::now();

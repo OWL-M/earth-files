@@ -28,6 +28,8 @@ blocked-too-big = 「{$name}」太大，呢個磁碟機（{$fs}）放唔落
 blocked-bad-name = 「{$name}」有啲字元呢個磁碟機（{$fs}）存唔到
 blocked-delete = 你冇權限刪除「{$name}」
 blocked-no-trash = 「{$name}」喺冇垃圾桶嘅磁碟機上
+blocked-replace-no-trash = 「{$name}」喺呢個磁碟機冇得放入垃圾桶，取代會永久刪除
+delete-permanently-and-replace = 永久刪除並取代
 delete-permanently-as-root = 以管理員身分永久刪除
 deleted-for-good = {$more ->
     [0] 已經取消，但係「{$name}」早已永久刪除咗
@@ -40,6 +42,7 @@ reason-drive-full = 磁碟機滿咗
 reason-read-only = 磁碟機係唯讀
 reason-gone = 已經唔存在
 reason-too-big = 對呢個磁碟機嚟講太大
+reason-not-kept-there = 呢個磁碟機唔保留權限
 reason-damaged = 資料損壞咗
 permissions-not-kept-one = 保留唔到「{$name}」嘅權限：{$reason}
 permissions-not-kept-many = 保留唔到 {$count} 個項目嘅權限：{$reason}

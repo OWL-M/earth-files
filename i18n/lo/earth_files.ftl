@@ -28,6 +28,8 @@ blocked-too-big = "{$name}" ໃຫຍ່ເກີນໄປສຳລັບໄດ�
 blocked-bad-name = "{$name}" ມີຕົວອັກສອນທີ່ໄດຣຟ໌ນີ້ ({$fs}) ບໍ່ສາມາດເກັບໄດ້
 blocked-delete = ທ່ານບໍ່ມີສິດລຶບ "{$name}"
 blocked-no-trash = "{$name}" ຢູ່ໃນໄດຣຟ໌ທີ່ບໍ່ມີຖັງຂີ້ເຫຍື້ອ
+blocked-replace-no-trash = "{$name}" ບໍ່ສາມາດໄປຖັງຂີ້ເຫຍື້ອໃນໄດຣຟນີ້, ການແທນທີ່ຈະລຶບມັນຖາວອນ
+delete-permanently-and-replace = ລຶບຖາວອນແລະແທນທີ່
 delete-permanently-as-root = ລຶບຖາວອນໃນຖານະຜູ້ເບິ່ງແຍງລະບົບ
 deleted-for-good = {$more ->
     [0] ຍົກເລີກແລ້ວ ແຕ່ "{$name}" ຖືກລຶບຖາວອນໄປແລ້ວ
@@ -40,6 +42,7 @@ reason-drive-full = ໄດຣຟ໌ເຕັມແລ້ວ
 reason-read-only = ໄດຣຟ໌ອ່ານໄດ້ຢ່າງດຽວ
 reason-gone = ມັນບໍ່ມີຢູ່ແລ້ວ
 reason-too-big = ມັນໃຫຍ່ເກີນໄປສຳລັບໄດຣຟ໌ນີ້
+reason-not-kept-there = ໄດຣຟບໍ່ເກັບສິ່ງເຫຼົ່ານີ້
 reason-damaged = ຂໍ້ມູນເສຍຫາຍ
 permissions-not-kept-one = ບໍ່ສາມາດຮັກສາສິດຂອງ "{$name}" ໄດ້: {$reason}
 permissions-not-kept-many = ບໍ່ສາມາດຮັກສາສິດຂອງ {$count} ລາຍການໄດ້: {$reason}

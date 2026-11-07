@@ -67,6 +67,8 @@ blocked-too-big = “{$name}” er for stor til dette drev ({$fs})
 blocked-bad-name = “{$name}” har tegn, som dette drev ({$fs}) ikke kan indeholde
 blocked-delete = Du har ikke tilladelse til at slette “{$name}”
 blocked-no-trash = “{$name}” ligger på et drev uden papirkurv
+blocked-replace-no-trash = "{$name}" kan ikke lægges i papirkurven på dette drev: at erstatte den sletter den permanent
+delete-permanently-and-replace = Slet permanent og erstat
 delete-permanently-as-root = Slet permanent som administrator
 deleted-for-good = {$more ->
     [0] Annulleret, men “{$name}” var allerede slettet permanent
@@ -79,6 +81,7 @@ reason-drive-full = drevet er fuldt
 reason-read-only = drevet er skrivebeskyttet
 reason-gone = det findes ikke længere
 reason-too-big = det er for stort til dette drev
+reason-not-kept-there = drevet gemmer dem ikke
 reason-damaged = dataene er beskadigede
 permissions-not-kept-one = Tilladelserne for “{$name}” kunne ikke bevares: {$reason}
 permissions-not-kept-many = Tilladelserne for {$count} elementer kunne ikke bevares: {$reason}

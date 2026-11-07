@@ -380,6 +380,8 @@ blocked-too-big = "{$name}" इस ड्राइव ({$fs}) के लिए �
 blocked-bad-name = "{$name}" में ऐसे अक्षर हैं जिन्हें यह ड्राइव ({$fs}) नहीं रख सकती
 blocked-delete = आपके पास "{$name}" को हटाने की अनुमति नहीं है
 blocked-no-trash = "{$name}" ऐसी ड्राइव पर है जिसमें कचरा नहीं है
+blocked-replace-no-trash = "{$name}" इस ड्राइव पर ट्रैश में नहीं जा सकता, बदलने से यह स्थायी रूप से हट जाएगा
+delete-permanently-and-replace = स्थायी रूप से हटाएँ और बदलें
 delete-permanently-as-root = व्यवस्थापक के रूप में स्थायी रूप से हटाएँ
 deleted-for-good = {$more ->
     [0] रद्द किया गया, लेकिन "{$name}" पहले ही स्थायी रूप से हटाया जा चुका है
@@ -392,6 +394,7 @@ reason-drive-full = ड्राइव भरी हुई है
 reason-read-only = ड्राइव केवल पढ़ने के लिए है
 reason-gone = यह अब मौजूद नहीं है
 reason-too-big = यह इस ड्राइव के लिए बहुत बड़ा है
+reason-not-kept-there = ड्राइव इन्हें नहीं रखता
 reason-damaged = डेटा क्षतिग्रस्त है
 permissions-not-kept-one = "{$name}" की अनुमतियाँ नहीं रखी जा सकीं: {$reason}
 permissions-not-kept-many = {$count} आइटम की अनुमतियाँ नहीं रखी जा सकीं: {$reason}

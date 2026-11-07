@@ -28,6 +28,8 @@ blocked-too-big = "{$name}" handiegia da unitate honentzat ({$fs})
 blocked-bad-name = "{$name}" elementuak unitate honek ({$fs}) gorde ezin dituen karaktereak ditu
 blocked-delete = Ez duzu "{$name}" ezabatzeko baimenik
 blocked-no-trash = "{$name}" zakarontzirik gabeko unitate batean dago
+blocked-replace-no-trash = "{$name}" ezin da unitate honetan zakarrontzira joan: ordezteak betiko ezabatzen du
+delete-permanently-and-replace = Ezabatu betiko eta ordeztu
 delete-permanently-as-root = Ezabatu betiko administratzaile gisa
 deleted-for-good = {$more ->
     [0] Bertan behera utzi da, baina "{$name}" jada betiko ezabatu da
@@ -40,6 +42,7 @@ reason-drive-full = unitatea beteta dago
 reason-read-only = unitatea irakurtzeko soilik da
 reason-gone = jada ez da existitzen
 reason-too-big = handiegia da unitate honetarako
+reason-not-kept-there = unitateak ez ditu gordetzen
 reason-damaged = datuak hondatuta daude
 permissions-not-kept-one = Ezin izan dira "{$name}"(r)en baimenak mantendu: {$reason}
 permissions-not-kept-many = Ezin izan dira {$count} elementuren baimenak mantendu: {$reason}

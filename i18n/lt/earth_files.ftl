@@ -67,6 +67,8 @@ blocked-too-big = „{$name}“ per didelis šiai kaupyklei ({$fs})
 blocked-bad-name = „{$name}“ turi simbolių, kurių ši kaupyklė ({$fs}) negali saugoti
 blocked-delete = Neturite leidimo ištrinti „{$name}“
 blocked-no-trash = „{$name}“ yra diske be šiukšlinės
+blocked-replace-no-trash = „{$name}“ šiame diske negali patekti į šiukšlinę: pakeitimas ištrins jį visam laikui
+delete-permanently-and-replace = Ištrinti visam laikui ir pakeisti
 delete-permanently-as-root = Ištrinti visam laikui kaip administratorius
 deleted-for-good = {$more ->
     [0] Atšaukta, bet „{$name}“ jau ištrintas visam laikui
@@ -82,6 +84,7 @@ reason-drive-full = kaupyklė pilna
 reason-read-only = kaupyklė tik skaitoma
 reason-gone = jo nebėra
 reason-too-big = jis per didelis šiai kaupyklei
+reason-not-kept-there = diskas jų nesaugo
 reason-damaged = duomenys sugadinti
 permissions-not-kept-one = Nepavyko išsaugoti „{$name}“ leidimų: {$reason}
 permissions-not-kept-many = Nepavyko išsaugoti elementų leidimų (kiekis: {$count}): {$reason}

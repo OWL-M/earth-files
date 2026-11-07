@@ -28,6 +28,8 @@ blocked-too-big = "{$name}" এই ড্রাইভের ({$fs}) জন্য
 blocked-bad-name = "{$name}"-এ এমন অক্ষর আছে যা এই ড্রাইভে ({$fs}) রাখা যায় না
 blocked-delete = "{$name}" মুছে ফেলার অনুমতি আপনার নেই
 blocked-no-trash = "{$name}" এমন ড্রাইভে আছে যাতে ট্র্যাশ নেই
+blocked-replace-no-trash = "{$name}" এই ড্রাইভে ট্র্যাশে যেতে পারে না, প্রতিস্থাপন করলে এটি স্থায়ীভাবে মুছে যাবে
+delete-permanently-and-replace = স্থায়ীভাবে মুছে প্রতিস্থাপন করুন
 delete-permanently-as-root = প্রশাসক হিসেবে স্থায়ীভাবে মুছুন
 deleted-for-good = {$more ->
     [0] বাতিল করা হয়েছে, কিন্তু "{$name}" আগেই স্থায়ীভাবে মুছে ফেলা হয়েছে
@@ -40,6 +42,7 @@ reason-drive-full = ড্রাইভটি পূর্ণ
 reason-read-only = ড্রাইভটি শুধু-পঠনযোগ্য
 reason-gone = এটি আর নেই
 reason-too-big = এটি এই ড্রাইভের জন্য অনেক বড়
+reason-not-kept-there = ড্রাইভ এগুলি রাখে না
 reason-damaged = ডেটা ক্ষতিগ্রস্ত
 permissions-not-kept-one = "{$name}"-এর অনুমতি রাখা যায়নি: {$reason}
 permissions-not-kept-many = {$count}টি আইটেমের অনুমতি রাখা যায়নি: {$reason}

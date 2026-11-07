@@ -63,6 +63,8 @@ blocked-too-big = "{$name}" meqqer aṭas i umeɣri-a ({$fs})
 blocked-bad-name = "{$name}" yesεa isekkilen ur yezmir ara ad yeṭṭef umeɣri-a ({$fs})
 blocked-delete = Ulac turagt-ik ad tekkseḍ "{$name}"
 blocked-no-trash = "{$name}" yella ɣef uḍebsi war iḍumman
+blocked-replace-no-trash = "{$name}" ur yezmir ara ad yeddu ɣer tqecwalt deg uḍebsi-a: asnifel ad t-yekkes i lebda
+delete-permanently-and-replace = Kkes i lebda u snifel
 delete-permanently-as-root = Kkes i lebda am unedbal
 deleted-for-good = {$more ->
     [0] Yettwasefsex, maca "{$name}" yettwakkes yakan i lebda
@@ -75,6 +77,7 @@ reason-drive-full = ameɣri yeččur
 reason-read-only = ameɣri i tɣuri kan
 reason-gone = ur yelli ara ultah
 reason-too-big = meqqer aṭas i umeɣri-a
+reason-not-kept-there = aḍebsi ur ten-yeḥraz ara
 reason-damaged = isefka ttwaxesren
 permissions-not-kept-one = Ur yezmir ara ad yeǧǧ tisirag n "{$name}": {$reason}
 permissions-not-kept-many = Ur yezmir ara ad yeǧǧ tisirag n yiferdisen (amḍan: {$count}): {$reason}

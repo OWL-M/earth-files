@@ -68,6 +68,8 @@ blocked-too-big = Το «{$name}» είναι πολύ μεγάλο για αυ�
 blocked-bad-name = Το «{$name}» περιέχει χαρακτήρες που αυτή η μονάδα ({$fs}) δεν μπορεί να αποθηκεύσει
 blocked-delete = Δεν έχετε άδεια διαγραφής του «{$name}»
 blocked-no-trash = Το «{$name}» βρίσκεται σε μονάδα χωρίς απορρίμματα
+blocked-replace-no-trash = Το «{$name}» δεν μπορεί να πάει στα απορρίμματα σε αυτόν τον δίσκο: η αντικατάσταση το διαγράφει οριστικά
+delete-permanently-and-replace = Οριστική διαγραφή και αντικατάσταση
 delete-permanently-as-root = Οριστική διαγραφή ως διαχειριστής
 deleted-for-good = {$more ->
     [0] Ακυρώθηκε, αλλά το «{$name}» είχε ήδη διαγραφεί οριστικά
@@ -80,6 +82,7 @@ reason-drive-full = η μονάδα είναι πλήρης
 reason-read-only = η μονάδα είναι μόνο για ανάγνωση
 reason-gone = δεν υπάρχει πλέον
 reason-too-big = είναι πολύ μεγάλο για αυτή τη μονάδα
+reason-not-kept-there = ο δίσκος δεν τα διατηρεί
 reason-damaged = τα δεδομένα είναι κατεστραμμένα
 permissions-not-kept-one = Δεν ήταν δυνατή η διατήρηση των δικαιωμάτων του «{$name}»: {$reason}
 permissions-not-kept-many = Δεν ήταν δυνατή η διατήρηση των δικαιωμάτων {$count} στοιχείων: {$reason}

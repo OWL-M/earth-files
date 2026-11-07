@@ -61,6 +61,8 @@ blocked-too-big = "{$name}" бұл диск ({$fs}) үшін тым үлкен
 blocked-bad-name = "{$name}" ішінде бұл диск ({$fs}) сақтай алмайтын таңбалар бар
 blocked-delete = "{$name}" элементін өшіруге рұқсатыңыз жоқ
 blocked-no-trash = "{$name}" қоқыс шелегі жоқ дискіде тұр
+blocked-replace-no-trash = «{$name}» бұл дискіде қоқыс шелегіне түсе алмайды: ауыстыру оны біржола жояды
+delete-permanently-and-replace = Біржола жою және ауыстыру
 delete-permanently-as-root = Әкімші ретінде біржолата өшіру
 deleted-for-good = {$more ->
     [0] Бас тартылды, бірақ "{$name}" бұрыннан біржолата өшірілген
@@ -73,6 +75,7 @@ reason-drive-full = диск толы
 reason-read-only = диск тек оқуға арналған
 reason-gone = ол енді жоқ
 reason-too-big = ол бұл диск үшін тым үлкен
+reason-not-kept-there = диск оларды сақтамайды
 reason-damaged = деректер зақымдалған
 permissions-not-kept-one = "{$name}" рұқсаттарын сақтау мүмкін болмады: {$reason}
 permissions-not-kept-many = {$count} элементтің рұқсаттарын сақтау мүмкін болмады: {$reason}
