@@ -95,6 +95,8 @@ same-for-rest-count = El mateix per a la resta ({$count})
 not-enough-space = Calen {$needed}, però només hi ha {$free} lliures
 in-use = «{$name}» està en ús per una altra operació: {$operation}
 checking = S'està comprovant… fitxers: {$files}, {$size}
+transfer-speed = {$size}/s
+files-transferred = {$done} de {$total} fitxers transferits
 rollback-failed = {$more ->
     [0] Cancel·lat, però no s'ha pogut restaurar «{$name}»
     *[other] Cancel·lat, però no s'han pogut restaurar «{$name}» i {$more} més

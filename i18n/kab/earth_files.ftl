@@ -91,6 +91,8 @@ same-for-rest-count = Akken i wiyaḍ ({$count})
 not-enough-space = Ilaq {$needed}, maca d {$free} kan i yellan d ilelli
 in-use = "{$name}" yettwaseqdac s tamahilt-nniḍen: {$operation}
 checking = Asenqed… ifuyla: {$files}, {$size}
+transfer-speed = {$size}/s
+files-transferred = {$done} seg {$total} n yifuyla ttwaznen
 rollback-failed = {$more ->
     [0] Yettwasefsex, maca "{$name}" ur d-yettwarra ara
     *[other] Yettwasefsex, maca "{$name}" d {$more} nniḍen ur d-ttwarran ara

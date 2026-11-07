@@ -92,6 +92,8 @@ same-for-rest-count = An rud céanna don chuid eile ({$count})
 not-enough-space = Teastaíonn {$needed}, ach níl ach {$free} saor
 in-use = Tá "{$name}" in úsáid ag oibríocht eile: {$operation}
 checking = Á sheiceáil… comhaid: {$files}, {$size}
+transfer-speed = {$size}/s
+files-transferred = {$done} as {$total} comhad aistrithe
 rollback-failed = {$more ->
     [0] Cealaithe, ach níorbh fhéidir "{$name}" a chur ar ais
     *[other] Cealaithe, ach níorbh fhéidir "{$name}" agus {$more} eile a chur ar ais

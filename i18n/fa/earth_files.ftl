@@ -92,6 +92,8 @@ same-for-rest-count = برای بقیه هم همین ({$count})
 not-enough-space = این کار به {$needed} نیاز دارد، اما فقط {$free} آزاد است
 in-use = «{$name}» توسط عملیات دیگری در حال استفاده است: {$operation}
 checking = در حال بررسی… فایل: {$files}، {$size}
+transfer-speed = {$size}/s
+files-transferred = {$done} از {$total} پرونده منتقل شد
 rollback-failed = {$more ->
     [0] لغو شد، اما «{$name}» به جای قبلی بازگردانده نشد
     *[other] لغو شد، اما «{$name}» و {$more} مورد دیگر به جای قبلی بازگردانده نشدند

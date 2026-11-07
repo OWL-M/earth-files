@@ -113,6 +113,8 @@ same-for-rest-count = Samme for resten ({$count})
 not-enough-space = Dette krever {$needed}, men bare {$free} er ledig
 in-use = «{$name}» er i bruk av en annen operasjon: {$operation}
 checking = Kontrollerer… filer: {$files}, {$size}
+transfer-speed = {$size}/s
+files-transferred = {$done} av {$total} filer overført
 rollback-failed = {$more ->
     [0] Avbrutt, men «{$name}» kunne ikke legges tilbake
     *[other] Avbrutt, men «{$name}» og {$more} til kunne ikke legges tilbake

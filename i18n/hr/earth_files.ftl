@@ -58,6 +58,8 @@ same-for-rest-count = Isto za ostale ({$count})
 not-enough-space = Potrebno je {$needed}, ali slobodno je samo {$free}
 in-use = „{$name}” koristi druga operacija: {$operation}
 checking = Provjera… datoteke: {$files}, {$size}
+transfer-speed = {$size}/s
+files-transferred = Preneseno datoteka: {$done} od {$total}
 rollback-failed = {$more ->
     [0] Otkazano, ali „{$name}” nije moguće vratiti
     [one] Otkazano, ali „{$name}” i još {$more} stavku nije moguće vratiti

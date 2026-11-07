@@ -52,6 +52,8 @@ same-for-rest-count = ᱮᱴᱟᱜ ᱠᱚ ᱞᱟᱹᱜᱤᱫ ᱦᱚᱸ ᱚᱱᱟ
 not-enough-space = ᱱᱚᱶᱟ ᱞᱟᱹᱜᱤᱫ {$needed} ᱞᱟᱹᱠᱛᱤ, ᱢᱮᱱᱠᱷᱟᱱ ᱥᱩᱢᱩᱝ {$free} ᱠᱷᱟᱹᱞᱤ ᱢᱮᱱᱟᱜᱼᱟ
 in-use = "{$name}" ᱮᱴᱟᱜ ᱠᱟᱹᱢᱤ ᱨᱮ ᱵᱮᱵᱷᱟᱨ ᱦᱩᱭ ᱠᱟᱱᱟ: {$operation}
 checking = ᱧᱮᱞ ᱧᱟᱢ ᱠᱟᱱᱟ… ᱨᱮᱫ ᱠᱚ: {$files}, {$size}
+transfer-speed = {$size}/s
+files-transferred = {$total} ᱨᱮᱭᱟᱜ {$done} ᱨᱮᱫ ᱵᱚᱫᱚᱞ ᱮᱱᱟ
 rollback-failed = {$more ->
     [0] ᱵᱟᱹᱛᱤᱞ ᱮᱱᱟ ᱢᱮᱱᱠᱷᱟᱱ "{$name}" ᱨᱩᱣᱟᱹᱲ ᱫᱚᱦᱚ ᱵᱟᱝ ᱜᱟᱱᱚᱜ ᱠᱟᱱᱟ
     [two] ᱵᱟᱹᱛᱤᱞ ᱮᱱᱟ ᱢᱮᱱᱠᱷᱟᱱ "{$name}" ᱟᱨ ᱦᱚᱸ {$more} ᱨᱩᱣᱟᱹᱲ ᱫᱚᱦᱚ ᱵᱟᱝ ᱜᱟᱱᱚᱜ ᱠᱟᱱᱟ

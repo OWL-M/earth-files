@@ -95,6 +95,8 @@ same-for-rest-count = Für alle weiteren übernehmen ({$count})
 not-enough-space = Benötigt werden {$needed}, aber nur {$free} sind frei
 in-use = „{$name}“ wird von einem anderen Vorgang verwendet: {$operation}
 checking = Wird geprüft… Dateien: {$files}, {$size}
+transfer-speed = {$size}/s
+files-transferred = {$done} von {$total} Dateien übertragen
 rollback-failed = {$more ->
     [0] Abgebrochen, aber „{$name}“ konnte nicht wiederhergestellt werden
     *[other] Abgebrochen, aber „{$name}“ und {$more} weitere konnten nicht wiederhergestellt werden

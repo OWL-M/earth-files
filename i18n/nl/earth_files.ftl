@@ -95,6 +95,8 @@ same-for-rest-count = Hetzelfde voor de rest ({$count})
 not-enough-space = Hiervoor is {$needed} nodig, maar er is maar {$free} vrij
 in-use = “{$name}” wordt gebruikt door een andere bewerking: {$operation}
 checking = Controleren… bestanden: {$files}, {$size}
+transfer-speed = {$size}/s
+files-transferred = {$done} van {$total} bestanden overgezet
 rollback-failed = {$more ->
     [0] Geannuleerd, maar “{$name}” kon niet worden teruggezet
     *[other] Geannuleerd, maar “{$name}” en nog {$more} konden niet worden teruggezet

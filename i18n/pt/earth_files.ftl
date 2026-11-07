@@ -295,6 +295,8 @@ same-for-rest-count = Igual para os restantes ({$count})
 not-enough-space = São necessários {$needed}, mas só há {$free} livres
 in-use = "{$name}" está em uso por outra operação: {$operation}
 checking = A verificar… ficheiros: {$files}, {$size}
+transfer-speed = {$size}/s
+files-transferred = {$done} de {$total} ficheiros transferidos
 rollback-failed = {$more ->
     [0] Cancelado, mas não foi possível restaurar "{$name}"
     *[other] Cancelado, mas não foi possível restaurar "{$name}" e mais {$more}

@@ -56,6 +56,8 @@ same-for-rest-count = Qolganlari uchun ham shunday ({$count})
 not-enough-space = Buning uchun {$needed} kerak, lekin faqat {$free} bo‘sh
 in-use = “{$name}” boshqa amal tomonidan ishlatilmoqda: {$operation}
 checking = Tekshirilmoqda… fayllar: {$files}, {$size}
+transfer-speed = {$size}/s
+files-transferred = {$total} tadan {$done} fayl o‘tkazildi
 rollback-failed = {$more ->
     [0] Bekor qilindi, lekin “{$name}”ni joyiga qaytarib bo‘lmadi
     *[other] Bekor qilindi, lekin “{$name}” va yana {$more} ta elementni joyiga qaytarib bo‘lmadi

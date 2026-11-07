@@ -56,6 +56,8 @@ same-for-rest-count = Hetzelfde veur de res ({$count})
 not-enough-space = Dit haet {$needed} nuudig, mer d'r is mer {$free} vrij
 in-use = “{$name}” weurt gebruuk door ee angere bewerking: {$operation}
 checking = Controlere… bestenj: {$files}, {$size}
+transfer-speed = {$size}/s
+files-transferred = {$done} van {$total} bestenj euvergezat
 rollback-failed = {$more ->
     [0] Geannuleerd, mer “{$name}” kós neet trökgezat waere
     *[other] Geannuleerd, mer “{$name}” en nog {$more} kóste neet trökgezat waere

@@ -383,6 +383,8 @@ same-for-rest-count = Sama muille ({$count})
 not-enough-space = Tarvitaan {$needed}, mutta vapaana on vain {$free}
 in-use = Kohde ”{$name}” on toisen toiminnon käytössä: {$operation}
 checking = Tarkistetaan… tiedostoja: {$files}, {$size}
+transfer-speed = {$size}/s
+files-transferred = {$done}/{$total} tiedostoa siirretty
 rollback-failed = {$more ->
     [0] Peruttu, mutta kohdetta ”{$name}” ei voitu palauttaa
     *[other] Peruttu, mutta kohdetta ”{$name}” ja {$more} muuta ei voitu palauttaa

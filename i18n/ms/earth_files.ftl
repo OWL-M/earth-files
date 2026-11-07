@@ -56,6 +56,8 @@ same-for-rest-count = Sama untuk yang selebihnya ({$count})
 not-enough-space = Ini memerlukan {$needed}, tetapi hanya {$free} yang kosong
 in-use = "{$name}" sedang digunakan oleh operasi lain: {$operation}
 checking = Menyemak… fail: {$files}, {$size}
+transfer-speed = {$size}/s
+files-transferred = {$done} daripada {$total} fail dipindahkan
 rollback-failed = {$more ->
     [0] Dibatalkan, tetapi "{$name}" tidak dapat dikembalikan
     *[other] Dibatalkan, tetapi "{$name}" dan {$more} lagi tidak dapat dikembalikan

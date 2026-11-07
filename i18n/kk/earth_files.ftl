@@ -89,6 +89,8 @@ same-for-rest-count = Қалғандары үшін де осылай ({$count})
 not-enough-space = {$needed} қажет, бірақ тек {$free} бос
 in-use = "{$name}" басқа әрекетте қолданылуда: {$operation}
 checking = Тексерілуде… файлдар: {$files}, {$size}
+transfer-speed = {$size}/s
+files-transferred = Жіберілген файлдар: {$done}/{$total}
 rollback-failed = {$more ->
     [0] Бас тартылды, бірақ "{$name}" орнына қайтару мүмкін болмады
     *[other] Бас тартылды, бірақ "{$name}" және тағы {$more} элементті орнына қайтару мүмкін болмады

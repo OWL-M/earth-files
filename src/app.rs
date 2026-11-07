@@ -4763,6 +4763,16 @@ impl App {
             .wrapping(Wrapping::WordOrGlyph)
             .into(),
         ])
+        .push_maybe(
+            (stalled.is_none() && !controller.is_checking())
+                .then(|| transfer_text(op, controller))
+                .flatten()
+                .map(|text| {
+                    widget::text::caption(text)
+                        .width(Length::Fill)
+                        .wrapping(Wrapping::WordOrGlyph)
+                }),
+        )
         .width(Length::Fill)
         .into()
     }
@@ -10802,6 +10812,32 @@ fn question_detail(blocked: &Blocked) -> Option<String> {
 /// What the root button says: asking for the password the first time,
 /// using what was granted after. Deleting with root is always for good, and
 /// says so.
+/// How fast a copy or move goes and how many of its files are done, as
+/// "100 KB/s · 8 of 80 files transferred": the files the checks counted, not
+/// the folders chosen. Nothing for an operation that transfers no files, or
+/// before the checks have counted any.
+fn transfer_text(op: &Operation, controller: &Controller) -> Option<String> {
+    if !matches!(op, Operation::Copy { .. } | Operation::Move { .. }) {
+        return None;
+    }
+    let (total, _) = controller.checked();
+    if total == 0 {
+        return None;
+    }
+    let (done, _) = controller.done();
+    let files = fl!("files-transferred", done = done.min(total), total = total);
+    let paused = controller.is_paused();
+    Some(
+        match controller.speed().filter(|speed| *speed > 0 && !paused) {
+            Some(speed) => format!(
+                "{} · {files}",
+                fl!("transfer-speed", size = crate::tab::format_size(speed))
+            ),
+            None => files,
+        },
+    )
+}
+
 /// The label of a question's answer that deletes for good.
 fn permanently_label(blocked: &Blocked) -> String {
     if matches!(blocked, Blocked::ReplaceNoTrash(_)) {

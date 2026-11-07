@@ -241,6 +241,8 @@ same-for-rest-count = ಉಳಿದವುಗಳಿಗೂ ಇದೇ ({$count})
 not-enough-space = ಇದಕ್ಕೆ {$needed} ಬೇಕು, ಆದರೆ ಕೇವಲ {$free} ಖಾಲಿ ಇದೆ
 in-use = "{$name}" ಅನ್ನು ಬೇರೊಂದು ಕಾರ್ಯಾಚರಣೆ ಬಳಸುತ್ತಿದೆ: {$operation}
 checking = ಪರಿಶೀಲಿಸಲಾಗುತ್ತಿದೆ… ಫೈಲ್‌ಗಳು: {$files}, {$size}
+transfer-speed = {$size}/s
+files-transferred = {$total} ರಲ್ಲಿ {$done} ಕಡತಗಳು ವರ್ಗಾಯಿಸಲಾಗಿದೆ
 rollback-failed = {$more ->
     [0] ರದ್ದುಗೊಳಿಸಲಾಗಿದೆ, ಆದರೆ "{$name}" ಅನ್ನು ಮರಳಿ ಇರಿಸಲು ಸಾಧ್ಯವಾಗಲಿಲ್ಲ
     *[other] ರದ್ದುಗೊಳಿಸಲಾಗಿದೆ, ಆದರೆ "{$name}" ಮತ್ತು ಇನ್ನೂ {$more} ಅನ್ನು ಮರಳಿ ಇರಿಸಲು ಸಾಧ್ಯವಾಗಲಿಲ್ಲ

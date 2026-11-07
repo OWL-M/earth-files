@@ -56,6 +56,8 @@ same-for-rest-count = Padha kanggo liyane ({$count})
 not-enough-space = Iki butuh {$needed}, nanging mung {$free} sing kosong
 in-use = "{$name}" lagi dienggo operasi liyane: {$operation}
 checking = Mriksa… berkas: {$files}, {$size}
+transfer-speed = {$size}/s
+files-transferred = {$done} saka {$total} berkas dikirim
 rollback-failed = {$more ->
     [0] Dibatalake, nanging "{$name}" ora bisa dibalekake
     *[other] Dibatalake, nanging "{$name}" lan {$more} liyane ora bisa dibalekake

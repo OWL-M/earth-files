@@ -94,6 +94,8 @@ same-for-rest-count = A többire is ugyanez ({$count})
 not-enough-space = Ehhez {$needed} szükséges, de csak {$free} szabad
 in-use = A(z) „{$name}” használatban van egy másik művelet által: {$operation}
 checking = Ellenőrzés… fájlok: {$files}, {$size}
+transfer-speed = {$size}/s
+files-transferred = {$done}/{$total} fájl átvitelve
 rollback-failed = {$more ->
     [0] Megszakítva, de „{$name}” visszaállítása nem sikerült
     *[other] Megszakítva, de „{$name}” és még {$more} elem visszaállítása nem sikerült

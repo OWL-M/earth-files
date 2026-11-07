@@ -286,6 +286,8 @@ impl Walk<'_> {
         })?;
         let to = self.to(&from)?;
         let mut visited = Visited::default();
+        // Counted with the files, as its step counts once done
+        self.controller.add_checked(1, 0);
         if !self.target.holds_links() {
             visited.problems.push(Blocked::Link {
                 path: from.clone(),

@@ -362,6 +362,8 @@ same-for-rest-count = Для всех остальных ({$count})
 not-enough-space = Требуется {$needed}, но свободно только {$free}
 in-use = «{$name}» используется другой операцией: {$operation}
 checking = Проверка… файлов: {$files}, {$size}
+transfer-speed = {$size}/s
+files-transferred = Передано файлов: {$done} из {$total}
 rollback-failed = {$more ->
     [0] Отменена, но «{$name}» не удалось вернуть на место
     [one] Отменена, но «{$name}» и ещё {$more} объект не удалось вернуть на место

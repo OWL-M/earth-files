@@ -190,6 +190,8 @@ same-for-rest-count = Samma för resten ({$count})
 not-enough-space = Detta kräver {$needed}, men bara {$free} är ledigt
 in-use = "{$name}" används av en annan åtgärd: {$operation}
 checking = Kontrollerar… filer: {$files}, {$size}
+transfer-speed = {$size}/s
+files-transferred = {$done} av {$total} filer överförda
 rollback-failed = {$more ->
     [0] Avbruten, men "{$name}" kunde inte läggas tillbaka
     *[other] Avbruten, men "{$name}" och {$more} till kunde inte läggas tillbaka

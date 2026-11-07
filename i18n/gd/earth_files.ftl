@@ -59,6 +59,8 @@ same-for-rest-count = An aon rud dhan chòrr ({$count})
 not-enough-space = Tha feum air {$needed} ach chan eil ach {$free} saor
 in-use = Tha “{$name}” ga chleachdadh le gnìomh eile: {$operation}
 checking = Ga sgrùdadh… faidhlichean: {$files}, {$size}
+transfer-speed = {$size}/s
+files-transferred = {$done} à {$total} faidhle air an gluasad
 rollback-failed = {$more ->
     [0] Air a sgur dheth, ach cha b’ urrainn “{$name}” a chur air ais
     [one] Air a sgur dheth, ach cha b’ urrainn “{$name}” agus {$more} eile a chur air ais

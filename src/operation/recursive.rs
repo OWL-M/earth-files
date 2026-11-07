@@ -215,6 +215,20 @@ pub enum Method {
 mod check;
 mod delete;
 
+/// Whether a step carries a file, a link counted as one: what "files
+/// transferred" counts, both in the total and in what is done.
+fn is_a_file(kind: &OpKind) -> bool {
+    matches!(
+        kind,
+        OpKind::Copy | OpKind::Move { .. } | OpKind::Symlink { .. }
+    )
+}
+
+/// How many files `planned` carries, by [`is_a_file`].
+fn files_in(planned: &[PlannedOp]) -> u64 {
+    planned.iter().filter(|op| is_a_file(&op.kind)).count() as u64
+}
+
 /// What became of something in the way of a replacement.
 enum Cleared {
     Trashed,
@@ -1665,6 +1679,10 @@ impl Context {
                                                 *needed += found.size;
                                                 grew = true;
                                             }
+                                            // Counted as the checks count:
+                                            // done, each counts once more
+                                            self.controller
+                                                .add_checked(files_in(&found.planned), found.size);
                                             items[item].planned.extend(found.planned);
                                             problems.extend(found.problems.into_iter().map(
                                                 |blocked| (Some(item), Problem::Blocked(blocked)),
@@ -1910,6 +1928,11 @@ impl Context {
                 );
                 OperationError::at(&op.from, &*err)
             })? {
+                // A file whole where it went counts towards how many are done
+                if !op.is_cleanup && !op.skipped.normal.get() && !left_alone && is_a_file(&op.kind)
+                {
+                    self.controller.add_done_file();
+                }
                 // What was written no longer needs keeping room for
                 if !op.is_cleanup
                     && !op.skipped.normal.get()
@@ -2791,6 +2814,7 @@ impl Op {
         from: &Path,
         to: &Path,
     ) -> Result<(), GioCopyError> {
+        let from_path = from.to_path_buf();
         let from = gio::File::for_path(from);
         let to = gio::File::for_path(to);
         let (progress_tx, mut progress_rx) = tokio::sync::mpsc::unbounded_channel();
@@ -2877,7 +2901,20 @@ impl Op {
                     }
                 }
 
-                result = rx => return result.unwrap(),
+                result = rx => {
+                    let result = result.unwrap();
+                    // gio says nothing at the end, and its updates come at most
+                    // every 50 ms: a small file finishes before any. What was
+                    // copied is all of it
+                    if result.is_ok() {
+                        let size = compio::fs::metadata(&from_path)
+                            .await
+                            .map_or(progress.current_bytes, |meta| meta.len());
+                        progress.current_bytes = progress.current_bytes.max(size);
+                        (ctx.on_progress)(self, &progress);
+                    }
+                    return result;
+                }
 
                 _ = task => (),
 
@@ -2940,6 +2977,85 @@ mod tests {
         );
         let told: Vec<_> = unkept.iter().map(|warning| warning.path.clone()).collect();
         assert_eq!(told, [std::path::PathBuf::from("/d/e")]);
+    }
+
+    /// What root lists joins the total by the rule the steps count by: files
+    /// and links, not folders
+    #[test]
+    fn a_root_listing_counts_its_files_and_links() {
+        let step = |kind| PlannedOp {
+            kind,
+            from: "/a".into(),
+            to: "/b".into(),
+        };
+        let planned = [
+            step(OpKind::Mkdir),
+            step(OpKind::Copy),
+            step(OpKind::Copy),
+            step(OpKind::Symlink { target: "x".into() }),
+            step(OpKind::Move {
+                cross_device_copy: false,
+            }),
+        ];
+        assert_eq!(super::files_in(&planned), 4);
+    }
+
+    /// Files done and files counted follow one rule: a link counts in both
+    #[test(compio::test)]
+    async fn files_done_and_counted_agree_with_links() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let (from, to) = (dir.path().join("from"), dir.path().join("to"));
+        fs::create_dir_all(from.join("sub")).expect("mkdir");
+        fs::write(from.join("a"), "a").expect("write");
+        fs::write(from.join("sub/b"), "b").expect("write");
+        std::os::unix::fs::symlink("a", from.join("link")).expect("symlink");
+        fs::create_dir_all(&to).expect("mkdir");
+        let controller = Controller::default();
+        let mut ctx = Context::new(controller.clone());
+        ctx.recursive_copy_or_move([(from.clone(), to.join("from"))], Method::Copy)
+            .await
+            .expect("copied");
+        assert_eq!(controller.done().0, 3, "a, b and the link are done");
+        assert_eq!(controller.checked().0, controller.done().0);
+    }
+
+    /// A gio copy's bytes are all told, a small file's too, which finishes
+    /// before any progress is due
+    #[cfg(feature = "gvfs")]
+    #[test(compio::test)]
+    async fn a_gio_copy_tells_all_its_bytes() {
+        use std::cell::Cell;
+        use std::rc::Rc;
+        let dir = tempfile::tempdir().expect("tempdir");
+        let (from, to) = (dir.path().join("a"), dir.path().join("b"));
+        fs::write(&from, vec![7; 4096]).expect("write");
+        let told = Rc::new(Cell::new(0_u64));
+        let seen = Rc::clone(&told);
+        let mut ctx = Context::new(Controller::default()).on_progress(move |_op, progress| {
+            seen.set(progress.current_bytes);
+        });
+        let op = super::Op {
+            kind: OpKind::Copy,
+            from,
+            to: to.clone(),
+            skipped: Rc::new(super::Skip {
+                normal: Cell::new(false),
+                cleanup: Cell::new(false),
+            }),
+            is_cleanup: false,
+            created_to: Cell::new(false),
+            moved: Cell::new(false),
+            root: false,
+        };
+        let progress = super::Progress {
+            current_ops: 0,
+            total_ops: 1,
+            current_bytes: 0,
+            total_bytes: Some(4096),
+        };
+        op.gio_file_copy(&mut ctx, progress).await.expect("copied");
+        assert_eq!(fs::read(&to).expect("read").len(), 4096);
+        assert_eq!(told.get(), 4096);
     }
 
     /// A journal of `done`, as steps that transferred nothing.

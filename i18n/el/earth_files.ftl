@@ -96,6 +96,8 @@ same-for-rest-count = Το ίδιο για τα υπόλοιπα ({$count})
 not-enough-space = Απαιτούνται {$needed}, αλλά είναι ελεύθερα μόνο {$free}
 in-use = Το «{$name}» χρησιμοποιείται από άλλη λειτουργία: {$operation}
 checking = Έλεγχος… αρχεία: {$files}, {$size}
+transfer-speed = {$size}/s
+files-transferred = Μεταφέρθηκαν {$done} από {$total} αρχεία
 rollback-failed = {$more ->
     [0] Ακυρώθηκε, αλλά δεν ήταν δυνατή η επαναφορά του «{$name}»
     *[other] Ακυρώθηκε, αλλά δεν ήταν δυνατή η επαναφορά του «{$name}» και {$more} ακόμη

@@ -92,6 +92,8 @@ same-for-rest-count = Geri kalanlar için de aynısı ({$count})
 not-enough-space = Bunun için {$needed} gerekiyor, ancak yalnızca {$free} boş
 in-use = "{$name}" başka bir işlem tarafından kullanılıyor: {$operation}
 checking = Denetleniyor… dosyalar: {$files}, {$size}
+transfer-speed = {$size}/s
+files-transferred = {$total} dosyadan {$done} tanesi aktarıldı
 rollback-failed = {$more ->
     [0] İptal edildi, ancak "{$name}" geri konulamadı
     *[other] İptal edildi, ancak "{$name}" ve {$more} tane daha geri konulamadı

@@ -383,6 +383,8 @@ same-for-rest-count = 其餘項目也套用相同操作 ({$count})
 not-enough-space = 需要 {$needed}，但只有 {$free} 可用
 in-use = 「{$name}」正被另一項操作使用：{$operation}
 checking = 正在檢查… {$files} 個檔案，{$size}
+transfer-speed = {$size}/s
+files-transferred = 已傳輸 {$done}/{$total} 個檔案
 rollback-failed = {$more ->
     [0] 已取消，但無法將「{$name}」放回原處
     *[other] 已取消，但無法將「{$name}」及另外 {$more} 項放回原處

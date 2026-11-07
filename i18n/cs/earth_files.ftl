@@ -233,6 +233,8 @@ same-for-rest-count = Totéž pro zbývající ({$count})
 not-enough-space = Je potřeba {$needed}, ale volné je jen {$free}
 in-use = Položku „{$name}“ používá jiná operace: {$operation}
 checking = Kontrola… souborů: {$files}, {$size}
+transfer-speed = {$size}/s
+files-transferred = Přeneseno souborů: {$done} z {$total}
 rollback-failed = {$more ->
     [0] Zrušeno, ale položku „{$name}“ nelze vrátit zpět
     [few] Zrušeno, ale položku „{$name}“ a {$more} další nelze vrátit zpět

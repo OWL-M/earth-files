@@ -210,6 +210,8 @@ same-for-rest-count = 나머지에도 적용 ({$count})
 not-enough-space = {$needed}이(가) 필요하지만 여유 공간은 {$free}뿐입니다
 in-use = "{$name}"은(는) 다른 작업에서 사용 중입니다: {$operation}
 checking = 확인 중… 파일 {$files}개, {$size}
+transfer-speed = {$size}/s
+files-transferred = 파일 {$total}개 중 {$done}개 전송됨
 rollback-failed = {$more ->
     [0] 취소되었지만 "{$name}"을(를) 되돌려 놓을 수 없습니다
     *[other] 취소되었지만 "{$name}" 외 {$more}개를 되돌려 놓을 수 없습니다

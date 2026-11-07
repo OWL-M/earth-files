@@ -344,6 +344,8 @@ same-for-rest-count = 残りにも適用 ({$count})
 not-enough-space = {$needed} が必要ですが、空き容量は {$free} しかありません
 in-use = 「{$name}」は別の操作で使用中です: {$operation}
 checking = 確認中… {$files} 個のファイル、{$size}
+transfer-speed = {$size}/s
+files-transferred = {$total} 個中 {$done} 個のファイルを転送済み
 rollback-failed = {$more ->
     [0] キャンセルされましたが、「{$name}」を元に戻せませんでした
     *[other] キャンセルされましたが、「{$name}」と他 {$more} 件を元に戻せませんでした

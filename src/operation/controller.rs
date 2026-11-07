@@ -31,6 +31,14 @@ impl TryFrom<u16> for ControllerState {
     }
 }
 
+/// The speed is what was written over this long, so it does not jump with each
+/// small file.
+const SPEED_WINDOW: std::time::Duration = std::time::Duration::from_secs(4);
+/// How far apart the samples it goes by are.
+const SAMPLE_EVERY: std::time::Duration = std::time::Duration::from_millis(100);
+/// Nothing written for this long and the speed is nothing.
+const SPEED_STALE: std::time::Duration = std::time::Duration::from_secs(2);
+
 #[derive(Debug)]
 struct ControllerInner {
     state: AtomicU16,
@@ -45,6 +53,11 @@ struct ControllerInner {
     /// What the checks have walked so far: files, and their size in bytes.
     checked_files: AtomicU64,
     checked_bytes: AtomicU64,
+    /// What has been transferred so far: files whole, and bytes.
+    done_files: AtomicU64,
+    done_bytes: AtomicU64,
+    /// Recent `(when, bytes so far)`, for the speed.
+    samples: std::sync::Mutex<std::collections::VecDeque<(std::time::Instant, u64)>>,
     notify: Notify,
 }
 
@@ -67,6 +80,9 @@ impl Default for Controller {
                 cancel_asked: AtomicBool::new(false),
                 checked_files: AtomicU64::new(0),
                 checked_bytes: AtomicU64::new(0),
+                done_files: AtomicU64::new(0),
+                done_bytes: AtomicU64::new(0),
+                samples: std::sync::Mutex::new(std::collections::VecDeque::new()),
                 notify: Notify::new(),
             }),
         }
@@ -121,6 +137,81 @@ impl Controller {
         self.inner
             .checked_bytes
             .fetch_add(bytes, atomic::Ordering::Relaxed);
+    }
+
+    /// `bytes` more were written.
+    pub fn add_done_bytes(&self, bytes: u64) {
+        self.add_done_bytes_at(bytes, std::time::Instant::now());
+    }
+
+    fn add_done_bytes_at(&self, bytes: u64, now: std::time::Instant) {
+        let total = self
+            .inner
+            .done_bytes
+            .fetch_add(bytes, atomic::Ordering::Relaxed)
+            + bytes;
+        let mut samples = self
+            .inner
+            .samples
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        // One sample in each tenth of a second is plenty
+        if samples
+            .back()
+            .is_some_and(|(at, _)| now.duration_since(*at) < SAMPLE_EVERY)
+        {
+            if let Some(last) = samples.back_mut() {
+                last.1 = total;
+            }
+        } else {
+            samples.push_back((now, total));
+        }
+        while samples
+            .front()
+            .is_some_and(|(at, _)| now.duration_since(*at) > SPEED_WINDOW)
+        {
+            samples.pop_front();
+        }
+    }
+
+    /// One more file is whole where it went.
+    pub fn add_done_file(&self) {
+        self.inner
+            .done_files
+            .fetch_add(1, atomic::Ordering::Relaxed);
+    }
+
+    /// What has been transferred so far: files, and bytes.
+    pub fn done(&self) -> (u64, u64) {
+        (
+            self.inner.done_files.load(atomic::Ordering::Relaxed),
+            self.inner.done_bytes.load(atomic::Ordering::Relaxed),
+        )
+    }
+
+    /// Bytes a second over the last few seconds, once there are enough of
+    /// them to tell. Nothing written for a while, as when paused or waiting
+    /// on a slow drive, is no speed at all.
+    pub fn speed(&self) -> Option<u64> {
+        self.speed_at(std::time::Instant::now())
+    }
+
+    fn speed_at(&self, now: std::time::Instant) -> Option<u64> {
+        let samples = self
+            .inner
+            .samples
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let (&(last_at, last), &(first_at, first)) = (samples.back()?, samples.front()?);
+        if now.duration_since(last_at) > SPEED_STALE {
+            return Some(0);
+        }
+        let span = now.duration_since(first_at).as_secs_f64();
+        // Too little to go by yet
+        if span < SAMPLE_EVERY.as_secs_f64() * 5.0 {
+            return None;
+        }
+        Some(((last - first) as f64 / span) as u64)
     }
 
     /// What the checks have walked so far: files, and their size in bytes.
@@ -376,6 +467,36 @@ mod tests {
         assert_eq!(controller.state(), ControllerState::Running);
         drop(CancelOnDrop::new(controller.clone()));
         assert!(controller.is_cancelled());
+    }
+
+    #[test]
+    fn speed_is_what_was_written_over_the_last_seconds() {
+        use std::time::{Duration, Instant};
+        let controller = Controller::default();
+        let start = Instant::now();
+        assert_eq!(controller.speed_at(start), None, "nothing written yet");
+        // 100 KB a second for three seconds
+        for tenth in 0..=30 {
+            controller.add_done_bytes_at(10_000, start + Duration::from_millis(tenth * 100));
+        }
+        let speed = controller
+            .speed_at(start + Duration::from_millis(3000))
+            .unwrap();
+        assert!((95_000..=105_000).contains(&speed), "{speed}");
+        assert_eq!(controller.done().1, 310_000);
+        // Long after, nothing more written: no speed
+        assert_eq!(
+            controller.speed_at(start + Duration::from_secs(10)),
+            Some(0)
+        );
+    }
+
+    #[test]
+    fn files_done_are_counted() {
+        let controller = Controller::default();
+        controller.add_done_file();
+        controller.add_done_file();
+        assert_eq!(controller.done().0, 2);
     }
 
     #[test]

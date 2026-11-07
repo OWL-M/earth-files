@@ -228,6 +228,8 @@ same-for-rest-count = نفس الخيار للبقية ({$count})
 not-enough-space = يتطلب هذا {$needed}، لكن المساحة الحرة {$free} فقط
 in-use = «{$name}» قيد الاستخدام من عملية أخرى: {$operation}
 checking = جارٍ التحقق… الملفات: {$files}، {$size}
+transfer-speed = {$size}/s
+files-transferred = نُقل {$done} من {$total} ملفًا
 rollback-failed = {$more ->
     [0] أُلغِيَ، لكن تعذّرت إعادة «{$name}» إلى مكانه
     [two] أُلغِيَ، لكن تعذّرت إعادة «{$name}» و{$more} أخرى إلى أماكنها

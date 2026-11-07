@@ -56,6 +56,8 @@ same-for-rest-count = ເຮັດແບບດຽວກັນກັບສ່ວ�
 not-enough-space = ຕ້ອງການ {$needed}, ແຕ່ວ່າງພຽງ {$free}
 in-use = "{$name}" ກຳລັງຖືກໃຊ້ໂດຍການດຳເນີນການອື່ນ: {$operation}
 checking = ກຳລັງກວດສອບ… ໄຟລ໌: {$files}, {$size}
+transfer-speed = {$size}/s
+files-transferred = ໂອນແລ້ວ {$done} ຈາກ {$total} ໄຟລ໌
 rollback-failed = {$more ->
     [0] ຍົກເລີກແລ້ວ ແຕ່ບໍ່ສາມາດນຳ "{$name}" ກັບຄືນບ່ອນເດີມໄດ້
     *[other] ຍົກເລີກແລ້ວ ແຕ່ບໍ່ສາມາດນຳ "{$name}" ແລະ ອີກ {$more} ລາຍການກັບຄືນບ່ອນເດີມໄດ້

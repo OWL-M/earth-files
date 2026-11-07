@@ -56,6 +56,8 @@ same-for-rest-count = বাকিগুলোর জন্যও একই ({$c
 not-enough-space = এর জন্য {$needed} প্রয়োজন, কিন্তু মাত্র {$free} খালি আছে
 in-use = "{$name}" অন্য একটি অপারেশন ব্যবহার করছে: {$operation}
 checking = যাচাই করা হচ্ছে… ফাইল: {$files}, {$size}
+transfer-speed = {$size}/s
+files-transferred = {$total}টির মধ্যে {$done}টি ফাইল স্থানান্তরিত
 rollback-failed = {$more ->
     [0] বাতিল করা হয়েছে, কিন্তু "{$name}" আগের জায়গায় ফেরানো যাচ্ছে না
     *[other] বাতিল করা হয়েছে, কিন্তু "{$name}" এবং আরও {$more}টি আগের জায়গায় ফেরানো যাচ্ছে না

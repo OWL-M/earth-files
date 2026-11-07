@@ -111,6 +111,8 @@ same-for-rest-count = Sama fyrir afganginn ({$count})
 not-enough-space = Þetta þarf {$needed}, en aðeins {$free} er laust
 in-use = „{$name}“ er í notkun hjá annarri aðgerð: {$operation}
 checking = Athuga… skrár: {$files}, {$size}
+transfer-speed = {$size}/s
+files-transferred = {$done} af {$total} skrám flutt
 rollback-failed = {$more ->
     [0] Hætt við, en ekki tókst að setja „{$name}“ aftur á sinn stað
     [one] Hætt við, en ekki tókst að setja „{$name}“ og {$more} í viðbót aftur á sinn stað

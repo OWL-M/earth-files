@@ -92,6 +92,8 @@ same-for-rest-count = 对其余项目执行相同操作 ({$count})
 not-enough-space = 需要 {$needed}，但只有 {$free} 可用
 in-use = “{$name}”正被另一项操作使用：{$operation}
 checking = 正在检查… {$files} 个文件，{$size}
+transfer-speed = {$size}/s
+files-transferred = 已传输 {$done}/{$total} 个文件
 rollback-failed = {$more ->
     [0] 已取消，但无法将“{$name}”放回原处
     *[other] 已取消，但无法将“{$name}”及另外 {$more} 项放回原处

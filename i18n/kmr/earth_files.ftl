@@ -312,6 +312,8 @@ same-for-rest-count = Ji bo yên mayî jî wisa ({$count})
 not-enough-space = Ji bo vê {$needed} hewce ye, lê tenê {$free} vala ye
 in-use = "{$name}" ji aliyê karekî din ve tê bikaranîn: {$operation}
 checking = Tê kontrolkirin… pel: {$files}, {$size}
+transfer-speed = {$size}/s
+files-transferred = {$done} ji {$total} pelan hatin veguhestin
 rollback-failed = {$more ->
     [0] Têkbirî, lê "{$name}" nehat vegerandin
     *[other] Têkbirî, lê "{$name}" û {$more} zêdetir nehatin vegerandin

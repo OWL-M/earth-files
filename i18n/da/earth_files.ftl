@@ -95,6 +95,8 @@ same-for-rest-count = Samme for resten ({$count})
 not-enough-space = Dette kræver {$needed}, men kun {$free} er ledig
 in-use = “{$name}” bruges af en anden handling: {$operation}
 checking = Kontrollerer… filer: {$files}, {$size}
+transfer-speed = {$size}/s
+files-transferred = {$done} af {$total} filer overført
 rollback-failed = {$more ->
     [0] Annulleret, men “{$name}” kunne ikke lægges tilbage
     *[other] Annulleret, men “{$name}” og {$more} mere kunne ikke lægges tilbage

@@ -56,6 +56,8 @@ same-for-rest-count = იგივე დანარჩენებისთვ
 not-enough-space = საჭიროა {$needed}, მაგრამ თავისუფალია მხოლოდ {$free}
 in-use = „{$name}“ გამოიყენება სხვა ოპერაციის მიერ: {$operation}
 checking = მოწმდება… ფაილები: {$files}, {$size}
+transfer-speed = {$size}/s
+files-transferred = გადაიცა {$done} ფაილი {$total}-დან
 rollback-failed = {$more ->
     [0] გაუქმდა, მაგრამ „{$name}“-ის დაბრუნება ვერ მოხერხდა
     *[other] გაუქმდა, მაგრამ „{$name}“-ის და კიდევ {$more} ელემენტის დაბრუნება ვერ მოხერხდა

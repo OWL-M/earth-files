@@ -67,6 +67,8 @@ same-for-rest-count = Itselde foar de rest ({$count})
 not-enough-space = Dit hat {$needed} nedich, mar der is mar {$free} frij
 in-use = “{$name}” wurdt brûkt troch in oare bewurking: {$operation}
 checking = Kontrolearje… bestannen: {$files}, {$size}
+transfer-speed = {$size}/s
+files-transferred = {$done} fan {$total} triemmen oerbrocht
 rollback-failed = {$more ->
     [0] Annulearre, mar “{$name}” koe net weromset wurde
     *[other] Annulearre, mar “{$name}” en noch {$more} koene net weromset wurde

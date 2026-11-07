@@ -56,6 +56,8 @@ same-for-rest-count = Li sam por li altris ({$count})
 not-enough-space = To besona {$needed}, ma solmen {$free} es líber
 in-use = "{$name}" es in usage de un altri operation: {$operation}
 checking = Controlante… files: {$files}, {$size}
+transfer-speed = {$size}/s
+files-transferred = {$done} de {$total} files transferet
 rollback-failed = {$more ->
     [0] Anullat, ma "{$name}" ne posset esser restituet
     *[other] Anullat, ma "{$name}" e {$more} altris ne posset esser restituet

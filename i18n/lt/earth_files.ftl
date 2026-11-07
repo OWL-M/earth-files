@@ -98,6 +98,8 @@ same-for-rest-count = Taip pat ir likusiems ({$count})
 not-enough-space = Reikia {$needed}, bet laisva tik {$free}
 in-use = „{$name}“ naudojamas kitos operacijos: {$operation}
 checking = Tikrinama… failų: {$files}, {$size}
+transfer-speed = {$size}/s
+files-transferred = Perkelta failų: {$done} iš {$total}
 rollback-failed = {$more ->
     [0] Atšaukta, bet „{$name}“ nepavyko grąžinti atgal
     [one] Atšaukta, bet „{$name}“ ir dar {$more} elemento nepavyko grąžinti atgal

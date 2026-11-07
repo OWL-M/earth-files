@@ -1442,7 +1442,17 @@ async fn recursive_pairs(
     context.renamed_before(renamed);
     context.merge_folders = merge_folders;
 
+    // Each step's bytes as it goes, told to the controller as they are added
+    let last_bytes = std::cell::Cell::new((usize::MAX, 0_u64));
     context = context.on_progress(move |_op, progress| {
+        let (step, before) = last_bytes.get();
+        let before = if step == progress.current_ops {
+            before
+        } else {
+            0
+        };
+        controller.add_done_bytes(progress.current_bytes.saturating_sub(before));
+        last_bytes.set((progress.current_ops, progress.current_bytes));
         let item_progress = match progress.total_bytes {
             Some(total_bytes) => {
                 if total_bytes == 0 {

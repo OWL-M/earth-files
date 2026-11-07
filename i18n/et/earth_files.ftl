@@ -125,6 +125,8 @@ same-for-rest-count = Sama ülejäänutele ({$count})
 not-enough-space = Vaja on {$needed}, kuid vaba on ainult {$free}
 in-use = „{$name}“ on teise toimingu kasutuses: {$operation}
 checking = Kontrollimine… faile: {$files}, {$size}
+transfer-speed = {$size}/s
+files-transferred = {$done} faili {$total}-st üle kantud
 rollback-failed = {$more ->
     [0] Katkestatud, kuid „{$name}“ ei õnnestunud taastada
     *[other] Katkestatud, kuid „{$name}“ ja veel {$more} ei õnnestunud taastada

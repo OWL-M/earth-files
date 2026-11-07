@@ -58,6 +58,8 @@ same-for-rest-count = Same por la ceteraj ({$count})
 not-enough-space = Necesas {$needed}, sed nur {$free} estas libera
 in-use = "{$name}" estas uzata de alia operacio: {$operation}
 checking = Kontrolado… dosieroj: {$files}, {$size}
+transfer-speed = {$size}/s
+files-transferred = {$done} el {$total} dosieroj transigitaj
 rollback-failed = {$more ->
     [0] Nuligita, sed ne eblis remeti "{$name}"
     *[other] Nuligita, sed ne eblis remeti "{$name}" kaj {$more} pliajn

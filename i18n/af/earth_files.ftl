@@ -101,6 +101,8 @@ same-for-rest-count = Dieselfde vir die res ({$count})
 not-enough-space = Dit benodig {$needed}, maar slegs {$free} is vry
 in-use = "{$name}" word deur 'n ander bewerking gebruik: {$operation}
 checking = Kontroleer… lêers: {$files}, {$size}
+transfer-speed = {$size}/s
+files-transferred = {$done} van {$total} lêers oorgedra
 rollback-failed = {$more ->
     [0] Gekanselleer, maar "{$name}" kon nie teruggesit word nie
     *[other] Gekanselleer, maar "{$name}" en nog {$more} kon nie teruggesit word nie

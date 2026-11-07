@@ -92,6 +92,8 @@ same-for-rest-count = ใช้กับรายการที่เหลื�
 not-enough-space = ต้องใช้ {$needed} แต่มีพื้นที่ว่างเพียง {$free}
 in-use = "{$name}" กำลังถูกใช้งานโดยการดำเนินการอื่น: {$operation}
 checking = กำลังตรวจสอบ… ไฟล์: {$files}, {$size}
+transfer-speed = {$size}/s
+files-transferred = โอนแล้ว {$done} จาก {$total} ไฟล์
 rollback-failed = {$more ->
     [0] ยกเลิกแล้ว แต่ไม่สามารถนำ "{$name}" กลับที่เดิมได้
     *[other] ยกเลิกแล้ว แต่ไม่สามารถนำ "{$name}" และอีก {$more} รายการกลับที่เดิมได้

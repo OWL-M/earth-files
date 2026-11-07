@@ -58,6 +58,8 @@ same-for-rest-count = אותו הדבר לשאר ({$count})
 not-enough-space = נדרשים {$needed}, אך רק {$free} פנויים
 in-use = "{$name}" נמצא בשימוש על ידי פעולה אחרת: {$operation}
 checking = בבדיקה… קבצים: {$files}, {$size}
+transfer-speed = {$size}/s
+files-transferred = הועברו {$done} מתוך {$total} קבצים
 rollback-failed = {$more ->
     [0] בוטל, אך לא ניתן היה להחזיר את "{$name}" למקומו
     [two] בוטל, אך לא ניתן היה להחזיר את "{$name}" ועוד {$more} למקומם

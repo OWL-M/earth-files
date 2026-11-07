@@ -56,6 +56,8 @@ same-for-rest-count = Ganito rin sa natitira ({$count})
 not-enough-space = Kailangan nito ng {$needed}, pero {$free} lang ang bakante
 in-use = Ginagamit ang "{$name}" ng ibang operasyon: {$operation}
 checking = Sinusuri… mga file: {$files}, {$size}
+transfer-speed = {$size}/s
+files-transferred = {$done} sa {$total} file ang nailipat
 rollback-failed = {$more ->
     [0] Kinansela, pero hindi naibalik ang "{$name}"
     [one] Kinansela, pero hindi naibalik ang "{$name}" at {$more} pa

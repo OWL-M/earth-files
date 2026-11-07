@@ -56,6 +56,8 @@ same-for-rest-count = Áp dụng cho các mục còn lại ({$count})
 not-enough-space = Cần {$needed}, nhưng chỉ còn trống {$free}
 in-use = "{$name}" đang được một thao tác khác sử dụng: {$operation}
 checking = Đang kiểm tra… tệp: {$files}, {$size}
+transfer-speed = {$size}/s
+files-transferred = Đã chuyển {$done}/{$total} tệp
 rollback-failed = {$more ->
     [0] Đã hủy, nhưng không thể đưa "{$name}" trở lại chỗ cũ
     *[other] Đã hủy, nhưng không thể đưa "{$name}" và {$more} mục khác trở lại chỗ cũ

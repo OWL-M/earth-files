@@ -59,6 +59,8 @@ same-for-rest-count = Enako za ostale ({$count})
 not-enough-space = Potrebno je {$needed}, prostega pa je le {$free}
 in-use = „{$name}“ uporablja druga operacija: {$operation}
 checking = Preverjanje… datoteke: {$files}, {$size}
+transfer-speed = {$size}/s
+files-transferred = Prenesenih datotek: {$done} od {$total}
 rollback-failed = {$more ->
     [0] Preklicano, vendar predmeta „{$name}“ ni bilo mogoče vrniti
     [one] Preklicano, vendar predmeta „{$name}“ in še {$more} ni bilo mogoče vrniti

@@ -56,6 +56,8 @@ same-for-rest-count = ബാക്കിയുള്ളവയ്ക്കും 
 not-enough-space = ഇതിന് {$needed} വേണം, പക്ഷേ {$free} മാത്രമേ ഒഴിവുള്ളൂ
 in-use = "{$name}" മറ്റൊരു പ്രവർത്തനം ഉപയോഗിക്കുന്നു: {$operation}
 checking = പരിശോധിക്കുന്നു… ഫയലുകൾ: {$files}, {$size}
+transfer-speed = {$size}/s
+files-transferred = {$total}-ൽ {$done} ഫയലുകൾ കൈമാറി
 rollback-failed = {$more ->
     [0] റദ്ദാക്കി, പക്ഷേ "{$name}" തിരികെ വയ്ക്കാൻ കഴിഞ്ഞില്ല
     *[other] റദ്ദാക്കി, പക്ഷേ "{$name}" ഉം കൂടാതെ {$more} എണ്ണം കൂടിയും തിരികെ വയ്ക്കാൻ കഴിഞ്ഞില്ല

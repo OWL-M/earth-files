@@ -88,6 +88,8 @@ same-for-rest-count = ਬਾਕੀਆਂ ਲਈ ਵੀ ਇਹੀ ({$count})
 not-enough-space = ਇਸ ਲਈ {$needed} ਚਾਹੀਦਾ ਹੈ, ਪਰ ਸਿਰਫ਼ {$free} ਖਾਲੀ ਹੈ
 in-use = "{$name}" ਕਿਸੇ ਹੋਰ ਕਾਰਵਾਈ ਵੱਲੋਂ ਵਰਤੋਂ ਵਿੱਚ ਹੈ: {$operation}
 checking = ਜਾਂਚ ਹੋ ਰਹੀ ਹੈ… ਫ਼ਾਈਲਾਂ: {$files}, {$size}
+transfer-speed = {$size}/s
+files-transferred = {$total} ਵਿੱਚੋਂ {$done} ਫ਼ਾਈਲਾਂ ਭੇਜੀਆਂ
 rollback-failed = {$more ->
     [0] ਰੱਦ ਕੀਤਾ, ਪਰ "{$name}" ਨੂੰ ਵਾਪਸ ਨਹੀਂ ਰੱਖਿਆ ਜਾ ਸਕਿਆ
     *[other] ਰੱਦ ਕੀਤਾ, ਪਰ "{$name}" ਅਤੇ {$more} ਹੋਰ ਨੂੰ ਵਾਪਸ ਨਹੀਂ ਰੱਖਿਆ ਜਾ ਸਕਿਆ

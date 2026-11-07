@@ -195,6 +195,8 @@ same-for-rest-count = Исто за остале ({$count})
 not-enough-space = Потребно је {$needed}, али је слободно само {$free}
 in-use = „{$name}“ користи друга операција: {$operation}
 checking = Провера… датотеке: {$files}, {$size}
+transfer-speed = {$size}/s
+files-transferred = Пренето датотека: {$done} од {$total}
 rollback-failed = {$more ->
     [0] Отказано, али ставку „{$name}“ није могуће вратити
     [one] Отказано, али ставку „{$name}“ и још {$more} ставку није могуће вратити

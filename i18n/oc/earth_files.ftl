@@ -89,6 +89,8 @@ same-for-rest-count = Parièr per la rèsta ({$count})
 not-enough-space = Cal {$needed}, mas i a pas que {$free} de liure
 in-use = « {$name} » es utilizat per una autra operacion : {$operation}
 checking = Verificacion… fichièrs: {$files}, {$size}
+transfer-speed = {$size}/s
+files-transferred = {$done} fichièrs sus {$total} transferits
 rollback-failed = {$more ->
     [0] Anullat, mas « {$name} » a pas pogut èsser restablit
     *[other] Anullat, mas « {$name} » e {$more} de mai an pas pogut èsser restablits

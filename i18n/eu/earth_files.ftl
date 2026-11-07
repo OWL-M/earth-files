@@ -56,6 +56,8 @@ same-for-rest-count = Berdin gainerakoentzat ({$count})
 not-enough-space = {$needed} behar dira, baina {$free} bakarrik dago libre
 in-use = "{$name}" beste eragiketa batek erabiltzen ari da: {$operation}
 checking = Egiaztatzen… fitxategiak: {$files}, {$size}
+transfer-speed = {$size}/s
+files-transferred = {$total} fitxategitik {$done} transferituta
 rollback-failed = {$more ->
     [0] Bertan behera utzi da, baina ezin izan da "{$name}" leheneratu
     *[other] Bertan behera utzi da, baina ezin izan dira "{$name}" eta beste {$more} leheneratu

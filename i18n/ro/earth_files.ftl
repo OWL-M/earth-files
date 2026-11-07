@@ -97,6 +97,8 @@ same-for-rest-count = La fel pentru restul ({$count})
 not-enough-space = Sunt necesari {$needed}, dar doar {$free} sunt liberi
 in-use = „{$name}” este folosit de o altă operațiune: {$operation}
 checking = Se verifică… fișiere: {$files}, {$size}
+transfer-speed = {$size}/s
+files-transferred = {$done} din {$total} fișiere transferate
 rollback-failed = {$more ->
     [0] Anulat, dar „{$name}” nu a putut fi pus la loc
     [few] Anulat, dar „{$name}” și încă {$more} elemente nu au putut fi puse la loc

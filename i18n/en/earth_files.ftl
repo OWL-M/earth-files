@@ -98,6 +98,11 @@ same-for-rest-count = Same for the rest ({$count})
 not-enough-space = This needs {$needed}, but only {$free} is free
 in-use = "{$name}" is in use by another operation: {$operation}
 checking = Checking… {$files} files, {$size}
+transfer-speed = {$size}/s
+files-transferred = {$done} of {$total} {$total ->
+    [one] file
+   *[other] files
+} transferred
 rollback-failed = Cancelled, but "{$name}" {$more ->
     [0] could not be put back
     *[other] and {$more} more could not be put back
