@@ -552,6 +552,7 @@ pub enum Message {
     OpenWithDialog(Option<Entity>),
     OpenWithSelection(usize),
     OpenWithSearchClear,
+    OpenWithSetDefault(bool),
     Paste(Option<Entity>),
     PasteContents(PathBuf, ClipboardPaste),
     PasteImage(PathBuf),
@@ -871,11 +872,15 @@ pub enum DialogPage {
         paths: Box<[PathBuf]>,
     },
     OpenWith {
-        path: PathBuf,
+        /// The files to open, all of type `mime`
+        paths: Vec<PathBuf>,
         mime: Mime,
         selected: usize,
         store_opt: Option<Arc<MimeApp>>,
         search_app_name: String,
+        /// Whether the app chosen becomes the default for `mime`; `None`
+        /// when the lists cannot be changed, and nothing is offered
+        set_default: Option<bool>,
     },
     /// "Open with" for a path whose type is still being worked out on a
     /// worker. Shown at once, so the click is seen to have landed and can be
@@ -1608,17 +1613,131 @@ impl App {
 
     /// Open files whose types are now known: the second half of
     /// [`Self::open_file`], reached once a worker has read them.
+    ///
+    /// Archives too go to the application xdg names for their type; only when
+    /// that application is this one are they opened here, in this window.
     fn open_resolved(&mut self, resolved: Vec<(Mime, PathBuf)>) -> Task<Message> {
-        let supported_archive_types = crate::archive::SUPPORTED_ARCHIVE_TYPES;
-        if resolved
-            .iter()
-            .all(|(mime, _)| supported_archive_types.contains(&mime.as_str()))
-        {
-            // Use extract to dialog if all selected paths are supported archives
-            let all_paths: Vec<PathBuf> = resolved.into_iter().map(|(_, path)| path).collect();
-            return self.extract_to(&all_paths);
+        let (here, elsewhere): (Vec<_>, Vec<_>) = resolved
+            .into_iter()
+            .partition(|(mime, _)| self.opens_archives_of(mime));
+        Task::batch([self.open_archives(here), self.launch_resolved(elsewhere)])
+    }
+
+    /// Makes `id` the default application for `mime`, then reloads the
+    /// associations.
+    ///
+    /// Queued here, in the order the user made the choices. Handing the
+    /// queueing itself to a worker would let two choices race to reach the
+    /// writer, and the earlier one could land second and win. Only the
+    /// waiting goes to a worker: the write is a read-modify-write of
+    /// `mimeapps.list`, which is disk work however small the file is.
+    fn set_default_app(mime: Mime, id: String) -> Task<Message> {
+        let Some(ack) = MimeAppCache::queue_default(mime, id) else {
+            return Task::none();
+        };
+        Task::future(async move {
+            match tokio::task::spawn_blocking(move || MimeAppCache::await_association(ack)).await {
+                Ok(true) => crate::ui::action::app(Message::ReloadMimeAppCache),
+                Ok(false) => crate::ui::action::none(),
+                Err(err) => {
+                    log::warn!("failed to set the default application: {err}");
+                    crate::ui::action::none()
+                }
+            }
+        })
+    }
+
+    /// Opens `paths` with `app`: one launch for them all, or one each when
+    /// the app takes a single file at a time.
+    fn launch_with(&self, app: &MimeApp, paths: &[PathBuf]) {
+        let targets: Vec<Target> = paths.iter().cloned().map(Target::Path).collect();
+        let Some(commands) = app.commands(&targets, &self.mime_app_cache.launch_options()) else {
+            log::warn!(
+                "failed to open {paths:?} with {:?}: failed to get command",
+                app.id
+            );
+            return;
+        };
+        for mut command in commands {
+            if let Err(err) = spawn_detached(&mut command) {
+                log::warn!("failed to open {paths:?} with {:?}: {err}", app.id);
+                return;
+            }
         }
-        self.launch_resolved(resolved)
+        if self.config.show_recents {
+            for path in paths {
+                crate::recents::record(
+                    path.clone(),
+                    Self::APP_ID.to_string(),
+                    "earth-files".to_string(),
+                );
+            }
+        }
+    }
+
+    /// The "Open with" dialog for `paths`, all of type `mime`: nothing
+    /// chosen yet, and the default left as it is unless asked.
+    fn open_with_page(&self, paths: Vec<PathBuf>, mime: Mime) -> DialogPage {
+        DialogPage::OpenWith {
+            paths,
+            mime,
+            selected: 0,
+            store_opt: self
+                .mime_app_cache
+                .get(&Mime::from_static("x-scheme-handler/mime"))
+                .first()
+                .cloned(),
+            search_app_name: String::new(),
+            set_default: MimeAppCache::defaults_writable().then_some(false),
+        }
+    }
+
+    /// Whether this app is the one chosen to open archives of `mime` with.
+    fn opens_archives_of(&self, mime: &Mime) -> bool {
+        crate::archive::SUPPORTED_ARCHIVE_TYPES.contains(&mime.as_str())
+            && self.mime_app_cache.has_default(mime)
+            && self
+                .mime_app_cache
+                .get(mime)
+                .first()
+                .is_some_and(|app| app.id == Self::APP_ID)
+    }
+
+    /// Opens `archives` in this window, as several folders open: one that
+    /// can be browsed is browsed in the active tab, several each in a tab of
+    /// their own; those that can only be extracted are asked about together,
+    /// in one Extract To.
+    fn open_archives(&mut self, archives: Vec<(Mime, PathBuf)>) -> Task<Message> {
+        let (browse, extract): (Vec<_>, Vec<_>) = archives
+            .into_iter()
+            .partition(|(mime, _)| crate::archive::index::BROWSABLE_TYPES.contains(&mime.as_str()));
+        let mut tasks = Vec::new();
+        if let [(_, archive)] = browse.as_slice() {
+            tasks.push(self.browse_archive(self.tab_model.active(), archive.clone(), None));
+        } else {
+            for (_, archive) in browse {
+                tasks.push(self.browse_in_new_tab(archive, false));
+            }
+        }
+        if !extract.is_empty() {
+            let paths: Vec<PathBuf> = extract.into_iter().map(|(_, path)| path).collect();
+            tasks.push(self.extract_to(&paths));
+        }
+        Task::batch(tasks)
+    }
+
+    /// Browses `archive` in a new tab, made at its folder with it selected,
+    /// so stopping the read leaves the tab there.
+    fn browse_in_new_tab(&mut self, archive: PathBuf, activate: bool) -> Task<Message> {
+        let parent = archive.parent().unwrap_or(&archive).to_path_buf();
+        let (entity, opened) = self.open_tab_entity(
+            Location::Path(parent),
+            activate,
+            Some(vec![archive.clone()]),
+            self.scrollable_name.clone(),
+            None,
+        );
+        Task::batch([opened, self.browse_archive(entity, archive, None)])
     }
 
     /// Launches the application for each of these files, by the type given.
@@ -1674,6 +1793,14 @@ impl App {
                     };
                     tasks.push(self.push_dialog(page, Some(button_id)));
                 }
+                continue;
+            }
+
+            // Nothing chosen for the type: ask, once for all its files
+            if !self.mime_app_cache.has_default(&mime) {
+                let page = self.open_with_page(paths, mime);
+                tasks.push(self.push_dialog(page, Some(CONFIRM_OPEN_WITH_BUTTON_ID.clone())));
+                tasks.push(widget::text_input::focus(self.dialog_text_input.clone()));
                 continue;
             }
 
@@ -5257,19 +5384,35 @@ impl Application for App {
             app.refresh_trash_bins(),
         ];
 
+        let mut to_extract = Vec::new();
         for location in flags.locations {
             if let Some(path) = location.path_opt()
                 && path.is_file()
                 && let Some(parent) = path.parent()
             {
-                commands.push(app.open_tab(
+                let (entity, task) = app.open_tab_entity(
                     Location::Path(parent.to_path_buf()),
                     true,
                     Some(vec![path.clone()]),
-                ));
+                    app.scrollable_name.clone(),
+                    None,
+                );
+                commands.push(task);
+                // An archive given to this app, as its xdg handler, is opened
+                // here: browsed, or extracted when it cannot be browsed
+                let mime = mime_icon::mime_for_path(path, false);
+                if crate::archive::index::BROWSABLE_TYPES.contains(&mime.as_str()) {
+                    commands.push(app.browse_archive(entity, path.clone(), None));
+                } else if crate::archive::SUPPORTED_ARCHIVE_TYPES.contains(&mime.as_str()) {
+                    // Asked about together once every argument has its tab
+                    to_extract.push(path.clone());
+                }
                 continue;
             }
             commands.push(app.open_tab(location, true, None));
+        }
+        if !to_extract.is_empty() {
+            commands.push(app.extract_to(&to_extract));
         }
         for location in flags.uris {
             if let Some(e) = app.nav_model.iter().find(|e| {
@@ -6059,10 +6202,11 @@ impl Application for App {
                             context_action::run(&self.config.context_actions, action, &paths);
                         }
                         DialogPage::OpenWith {
-                            path,
+                            paths,
                             mime,
                             selected,
                             search_app_name,
+                            set_default,
                             ..
                         } => {
                             let mut available_apps =
@@ -6075,38 +6219,9 @@ impl Application for App {
                             });
 
                             if let Some((app, _)) = available_apps.get(selected) {
-                                if let Some(mut command) = app
-                                    .commands(
-                                        &[Target::Path(path.clone())],
-                                        &self.mime_app_cache.launch_options(),
-                                    )
-                                    .and_then(|v| v.into_iter().next())
-                                {
-                                    match spawn_detached(&mut command) {
-                                        Ok(()) => {
-                                            if self.config.show_recents {
-                                                crate::recents::record(
-                                                    path.clone(),
-                                                    Self::APP_ID.to_string(),
-                                                    "earth-files".to_string(),
-                                                );
-                                            }
-                                        }
-                                        Err(err) => {
-                                            log::warn!(
-                                                "failed to open {} with {:?}: {}",
-                                                path.display(),
-                                                app.id,
-                                                err
-                                            );
-                                        }
-                                    }
-                                } else {
-                                    log::warn!(
-                                        "failed to open {} with {:?}: failed to get command",
-                                        path.display(),
-                                        app.id
-                                    );
+                                self.launch_with(app, &paths);
+                                if set_default == Some(true) {
+                                    tasks.push(Self::set_default_app(mime, app.id.clone()));
                                 }
                             }
                         }
@@ -6944,17 +7059,7 @@ impl Application for App {
                 )) {
                     return Task::none();
                 }
-                let page = DialogPage::OpenWith {
-                    path: path.clone(),
-                    mime,
-                    selected: 0,
-                    store_opt: self
-                        .mime_app_cache
-                        .get(&Mime::from_static("x-scheme-handler/mime"))
-                        .first()
-                        .cloned(),
-                    search_app_name: String::new(),
-                };
+                let page = self.open_with_page(vec![path], mime);
                 // From a loading page: fill that page in if it is still up,
                 // and otherwise do nothing at all -- it was cancelled while
                 // this waited, and a dialog reappearing after Cancel is worse
@@ -6981,6 +7086,15 @@ impl Application for App {
             Message::OpenWithSelection(index) => {
                 if let Some(DialogPage::OpenWith { selected, .. }) = self.dialog_pages.front_mut() {
                     *selected = index;
+                }
+            }
+            Message::OpenWithSetDefault(value) => {
+                if let Some(DialogPage::OpenWith {
+                    set_default: Some(set_default),
+                    ..
+                }) = self.dialog_pages.front_mut()
+                {
+                    *set_default = value;
                 }
             }
             Message::OpenWithSearchClear => {
@@ -8142,30 +8256,7 @@ impl Application for App {
                             );
                         }
                         tab::Command::SetOpenWith(mime, id) => {
-                            // Queued here, in the order the user made the
-                            // choices. Handing the queueing itself to a worker
-                            // would let two choices race to reach the writer,
-                            // and the earlier one could land second and win.
-                            // Only the waiting goes to a worker: the write is
-                            // a read-modify-write of `mimeapps.list`, which is
-                            // disk work however small the file is.
-                            let Some(ack) = MimeAppCache::queue_default(mime, id) else {
-                                continue;
-                            };
-                            commands.push(Task::future(async move {
-                                match tokio::task::spawn_blocking(move || {
-                                    MimeAppCache::await_association(ack)
-                                })
-                                .await
-                                {
-                                    Ok(true) => crate::ui::action::app(Message::ReloadMimeAppCache),
-                                    Ok(false) => crate::ui::action::none(),
-                                    Err(err) => {
-                                        log::warn!("failed to set the default application: {err}");
-                                        crate::ui::action::none()
-                                    }
-                                }
-                            }));
+                            commands.push(Self::set_default_app(mime, id));
                         }
                         tab::Command::SetPermissions(path, mode, mask) => {
                             commands.push(self.operation(Operation::SetPermissions {
@@ -9493,16 +9584,22 @@ impl Application for App {
                     )
             }
             DialogPage::OpenWith {
-                path,
+                paths,
                 mime,
                 selected,
                 store_opt,
                 search_app_name,
-                ..
+                set_default,
             } => {
-                let name = match path.file_name() {
-                    Some(file_name) => file_name.to_str(),
-                    None => path.as_os_str().to_str(),
+                let title = match paths.as_slice() {
+                    [path] => fl!(
+                        "open-with-title",
+                        name = path
+                            .file_name()
+                            .unwrap_or(path.as_os_str())
+                            .to_string_lossy()
+                    ),
+                    _ => fl!("open-with-title-many", items = paths.len()),
                 };
 
                 let mut column = widget::list_column();
@@ -9537,7 +9634,10 @@ impl Application for App {
                             widget::button::custom(
                                 widget::Row::with_children([
                                     icon(app.icon()).size(32).into(),
+                                    // Only a default someone chose: with none, the
+                                    // spec's stand-in is not called one
                                     if self.mime_app_cache.is_default(app, mime)
+                                        && self.mime_app_cache.has_default(mime)
                                         && !displayed_default
                                     {
                                         displayed_default = true;
@@ -9572,7 +9672,7 @@ impl Application for App {
                 }
 
                 let mut dialog = widget::dialog()
-                    .title(fl!("open-with-title", name = name))
+                    .title(title)
                     .primary_action(
                         widget::button::suggested(fl!("open"))
                             .on_press(Message::DialogComplete)
@@ -9590,7 +9690,7 @@ impl Application for App {
                         .on_clear(Message::OpenWithSearchClear)
                         .on_input(move |search_app_name| {
                             Message::DialogUpdate(DialogPage::OpenWith {
-                                path: path.clone(),
+                                paths: paths.clone(),
                                 mime: mime.clone(),
                                 // The selection is a place in the filtered
                                 // list, which the new filter rearranges: the
@@ -9598,6 +9698,7 @@ impl Application for App {
                                 selected: 0,
                                 store_opt: store_opt.clone(),
                                 search_app_name,
+                                set_default: *set_default,
                             })
                         })
                         .on_submit(|_| Message::DialogComplete),
@@ -9616,6 +9717,14 @@ impl Application for App {
                             Length::Shrink
                         }
                     }));
+
+                if let Some(set_default) = set_default {
+                    dialog = dialog.control(
+                        widget::checkbox(*set_default)
+                            .label(fl!("open-with-set-default", mime = mime.as_str()))
+                            .on_toggle(Message::OpenWithSetDefault),
+                    );
+                }
 
                 if let Some(app) = store_opt {
                     dialog = dialog.tertiary_action(

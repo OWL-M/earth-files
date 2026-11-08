@@ -66,6 +66,8 @@ save-file = Spara fil
 ## Öppna med dialogruta
 
 open-with-title = Hur vill du öppna "{ $name }"?
+open-with-title-many = Hur vill du öppna de här { $items } filerna?
+open-with-set-default = Använd som standard för { $mime }
 browse-store = Bläddra i { $store }
 
 ## Byt namn dialogruta

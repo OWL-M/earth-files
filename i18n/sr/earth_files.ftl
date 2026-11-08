@@ -359,6 +359,8 @@ folder-totals = { $files ->
    *[other] { $files } датотека, { $size }
 }
 open-with-title = Како желите да отворите „{ $name }“?
+open-with-title-many = Како желите да отворите ових { $items } датотека?
+open-with-set-default = Користи као подразумевану за { $mime }
 extracting =
     Извлачење { $items } { $items ->
         [one] ставке

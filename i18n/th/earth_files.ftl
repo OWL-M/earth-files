@@ -151,6 +151,8 @@ save-file = บักทึกไฟล์
 ## Open With Dialog
 
 open-with-title = คุณจะเปิดไฟล์ "{ $name }" อย่างไร
+open-with-title-many = คุณต้องการเปิดไฟล์ { $items } ไฟล์นี้อย่างไร?
+open-with-set-default = ใช้เป็นค่าเริ่มต้นสำหรับ { $mime }
 browse-store = เรียกดูใน { $store }
 
 ## Rename Dialog

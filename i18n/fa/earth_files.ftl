@@ -176,6 +176,8 @@ save-file = ذخیره فایل
 ## Open With Dialog
 
 open-with-title = چگونه می‌خواهید "{ $name }" را باز کنید؟
+open-with-title-many = می‌خواهید این { $items } پرونده را چگونه باز کنید؟
+open-with-set-default = استفاده به‌عنوان پیش‌فرض برای { $mime }
 browse-store = مرور { $store }
 other-apps = برنامه‌های دیگر
 related-apps = برنامه‌های مرتبط

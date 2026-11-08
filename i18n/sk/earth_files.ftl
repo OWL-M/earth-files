@@ -189,6 +189,8 @@ save-file = Uložiť súbor
 ## Open With Dialog
 
 open-with-title = Ako chcete otvoriť "{ $name }"?
+open-with-title-many = Ako chcete otvoriť tieto súbory ({ $items })?
+open-with-set-default = Použiť ako predvolenú pre { $mime }
 browse-store = Prehľadávať { $store }
 other-apps = Iné aplikácie
 related-apps = Súvisiace aplikácie

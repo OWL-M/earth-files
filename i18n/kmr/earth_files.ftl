@@ -186,6 +186,8 @@ extract-drive-nearly-full = Derxistin rawestiya: tenê {$free} li ser ajokarê m
 size-unknown = Mezinahiya nenas
 size-at-least = Herî kêm {$size}
 open-with-title = Tu çawa dixwazî "{ $name }" vekî?
+open-with-title-many = Tu dixwazî van { $items } pelan çawa vekî?
+open-with-set-default = Ji bo { $mime } wekî standard bi kar bîne
 extracting =
     { $items } { $items ->
         [one] hêman

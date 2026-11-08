@@ -296,6 +296,8 @@ folder-totals = { $files ->
    *[other] 파일 { $files }개, { $size }
 }
 open-with-title = "{ $name }"을(를) 어떻게 열까요?
+open-with-title-many = 이 파일 { $items }개를 어떻게 여시겠습니까?
+open-with-set-default = { $mime }의 기본값으로 사용
 write-execute = 쓰기 및 실행
 extract-password-required = 암호 필요
 no-history = 기록된 항목이 없습니다.

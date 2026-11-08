@@ -175,6 +175,8 @@ save-file = 保存文件
 ## Open With Dialog
 
 open-with-title = 您想要如何打开 “{ $name }”？
+open-with-title-many = 您想如何打开这 { $items } 个文件？
+open-with-set-default = 设为 { $mime } 的默认应用
 browse-store = 浏览 { $store }
 other-apps = 其他应用程序
 related-apps = 相关应用程序

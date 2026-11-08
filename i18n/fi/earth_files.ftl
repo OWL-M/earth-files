@@ -81,6 +81,8 @@ save-file = Tallenna tiedosto
 ## Open With Dialog
 
 open-with-title = Miten haluat avata kohteen "{ $name }"?
+open-with-title-many = Miten haluat avata nämä { $items } tiedostoa?
+open-with-set-default = Käytä oletuksena tyypille { $mime }
 browse-store = Selaa { $store }a
 
 ## Rename Dialog

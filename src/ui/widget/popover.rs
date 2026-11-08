@@ -338,6 +338,9 @@ pub struct Overlay<'a, 'b, Message, Renderer> {
     modal: bool,
 }
 
+/// Room kept between a centred popup and the window's top and bottom.
+const CENTERED_GAP: f32 = 5.0;
+
 impl<Message, Renderer> overlay::Overlay<Message, crate::ui::Theme, Renderer>
     for Overlay<'_, '_, Message, Renderer>
 where
@@ -350,7 +353,16 @@ where
         // which panics, so the far end is held at 0 and the content starts
         // at the window's edge
         let mut position = self.pos;
-        let limits = layout::Limits::new(Size::UNIT, bounds);
+        // Something centred, such as a dialog, keeps clear of the window's
+        // top and bottom edges
+        let gap = match self.position {
+            Position::Center | Position::CenterOn(_) => CENTERED_GAP,
+            _ => 0.0,
+        };
+        let limits = layout::Limits::new(
+            Size::UNIT,
+            Size::new(bounds.width, (bounds.height - 2.0 * gap).max(1.0)),
+        );
         let node = self
             .content
             .as_widget_mut()
@@ -362,7 +374,7 @@ where
                 let height = node.size().height;
                 position.x = (position.x - width / 2.0).clamp(0.0, (bounds.width - width).max(0.0));
                 position.y =
-                    (position.y - height / 2.0).clamp(0.0, (bounds.height - height).max(0.0));
+                    (position.y - height / 2.0).clamp(gap, (bounds.height - height - gap).max(gap));
             }
             Position::Top => {
                 let width = node.size().width;

@@ -1353,6 +1353,22 @@ pub fn system_time_to_zip_date_time(system_time: SystemTime) -> Option<zip::Date
 mod tests {
     use super::*;
 
+    /// The desktop file offers this app for every type it can open, so xdg
+    /// can hand it any archive it extracts
+    #[test]
+    fn the_desktop_file_offers_every_archive_type() {
+        let desktop = include_str!("../res/com.owlm.EarthFiles.desktop");
+        let offered: Vec<&str> = desktop
+            .lines()
+            .find_map(|line| line.strip_prefix("MimeType="))
+            .unwrap()
+            .split(';')
+            .collect();
+        for mime in SUPPORTED_ARCHIVE_TYPES {
+            assert!(offered.contains(mime), "{mime} is not offered");
+        }
+    }
+
     fn zip_options() -> zip::write::SimpleFileOptions {
         zip::write::SimpleFileOptions::default()
     }

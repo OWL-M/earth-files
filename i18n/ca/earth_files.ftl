@@ -159,6 +159,8 @@ save-file = Desa el fitxer
 ## Open With Dialog
 
 open-with-title = Com voleu obrir "{ $name }"?
+open-with-title-many = Com voleu obrir aquests { $items } fitxers?
+open-with-set-default = Usa com a predeterminada per a { $mime }
 browse-store = Navega { $store }
 
 ## Rename Dialog

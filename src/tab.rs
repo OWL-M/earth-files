@@ -2139,8 +2139,16 @@ fn network_item(
                 .handle(),
             )
     };
-    // Directories keep the mime every directory item carries
-    let mime = if metadata.is_dir() { None } else { entry.mime }.unwrap_or(Mime::INODE_DIRECTORY);
+    // A file gio could not type is read in the background, as a local file
+    // typed by name is, so the listing never waits on the device for it
+    let type_checked = metadata.is_dir() || entry.mime.is_some() || location.path_opt().is_none();
+    // Directories keep the mime every directory item carries; a file gio
+    // could not type is a file of unknown type, as gio's own guess says
+    let mime = if metadata.is_dir() {
+        Mime::INODE_DIRECTORY
+    } else {
+        entry.mime.unwrap_or(Mime::APPLICATION_OCTET_STREAM)
+    };
     let (icon_handle_grid, icon_handle_list) = (file_icon(sizes.grid()), file_icon(sizes.list()));
     Item {
         name: entry.name,
@@ -2153,7 +2161,7 @@ fn network_item(
         details: MetadataState::Pending,
         details_epoch: 0,
         mime,
-        type_checked: true,
+        type_checked,
         icon_handle_grid,
         icon_handle_list,
         thumbnail_opt: Some(ItemThumbnail::NotImage),
@@ -11775,6 +11783,62 @@ fn text_editor_class(
 
 #[cfg(test)]
 mod tests {
+    /// A phone file gio could not type, such as a gzip backup with an
+    /// extension nobody registered, stays a file: typed as a file, so it gets
+    /// a file's icon and not a folder's, and read in the background for what
+    /// it is, so its menu and opening know it is an archive
+    #[cfg(feature = "gvfs")]
+    #[test]
+    fn a_network_file_without_a_type_is_not_typed_a_folder() {
+        use std::io::Write;
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("x.tachibk");
+        let mut gz = flate2::write::GzEncoder::new(
+            std::fs::File::create(&path).unwrap(),
+            flate2::Compression::default(),
+        );
+        gz.write_all(b"backup").unwrap();
+        gz.finish().unwrap();
+        let entry = |mime: Option<crate::mime_app::Mime>| crate::mounter::NetworkEntry {
+            name: "x.tachibk".into(),
+            display_name: "x.tachibk".into(),
+            uri: "mtp://phone/x.tachibk".into(),
+            path: Some(path.clone()),
+            is_dir: false,
+            size: Some(3),
+            mtime: 0,
+            mime,
+            hidden: false,
+            icon: Default::default(),
+        };
+        let sizes = super::IconSizes::default();
+        let mut item = super::network_item(entry(None), false, true, sizes);
+        assert!(!item.metadata.is_dir());
+        assert_eq!(item.mime, crate::mime_app::Mime::APPLICATION_OCTET_STREAM);
+        assert!(!item.type_checked, "left for the background check");
+
+        let checked = crate::type_check::check(
+            &crate::type_check::Unchecked {
+                index: 0,
+                path: path.clone(),
+                name: item.name.clone(),
+                mime: item.mime.clone(),
+            },
+            sizes,
+        );
+        assert!(item.take_check(checked));
+        assert_eq!(item.mime.as_str(), "application/gzip");
+
+        // A file gio typed is not read again
+        let typed = super::network_item(
+            entry(Some(crate::mime_app::Mime::TEXT_PLAIN)),
+            false,
+            true,
+            sizes,
+        );
+        assert!(typed.type_checked);
+    }
+
     /// Inside an archive: the breadcrumbs run from the folder in it, through
     /// the archive, to the real folders holding it, and Up follows them
     #[test]

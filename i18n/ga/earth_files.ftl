@@ -176,6 +176,8 @@ save-file = Sábháil comhad
 ## Open With Dialog
 
 open-with-title = Conas is mian leat "{ $name }" a oscailt?
+open-with-title-many = Conas is mian leat na { $items } comhad seo a oscailt?
+open-with-set-default = Úsáid mar réamhshocrú do { $mime }
 browse-store = Brabhsáil { $store }
 
 ## Rename Dialog

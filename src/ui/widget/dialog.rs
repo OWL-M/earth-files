@@ -131,7 +131,14 @@ impl<'a, Message: Clone + 'static> From<Dialog<'a, Message>> for Element<'a, Mes
         let mut should_space = false;
 
         if let Some(title) = dialog.title {
-            content_col = content_col.push(widget::text::title3(title));
+            // A title often names a file. Without Fluent's marks around the
+            // name, the line breaks between words; and a name too long for a
+            // line breaks inside itself, rather than running out of the dialog
+            let title = title.replace(['\u{2068}', '\u{2069}'], "");
+            content_col = content_col.push(
+                widget::text::title3(title)
+                    .wrapping(crate::ui::iced::advanced::text::Wrapping::WordOrGlyph),
+            );
             should_space = true;
         }
         if let Some(body) = dialog.body {
@@ -171,10 +178,13 @@ impl<'a, Message: Clone + 'static> From<Dialog<'a, Message>> for Element<'a, Mes
             button_row = button_row.push(button);
         }
 
-        let mut container = widget::container(
-            widget::Column::with_children([content_row.into(), button_row.into()])
-                .spacing(space_l.to_pixels()),
-        )
+        // The buttons keep their height in a window too short for the whole
+        // dialog; what is above them scrolls instead
+        let mut container = widget::container(widget::footer_first::footer_first(
+            widget::scrollable(content_row),
+            button_row,
+            f32::from(space_l),
+        ))
         .class(style::Container::Dialog(dialog.is_overlay))
         .padding(space_m)
         .width(dialog.width.unwrap_or(Length::Fixed(570.0)));

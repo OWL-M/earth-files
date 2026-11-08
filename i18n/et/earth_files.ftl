@@ -207,6 +207,8 @@ batch-rename-conflicts = {$count ->
   }
 replace-title = „{ $filename }“ fail juba on selles asukohas olemas.
 open-with-title = Kuidas sa sooviksid avada „{ $name }“ faili?
+open-with-title-many = Kuidas soovid neid { $items } faili avada?
+open-with-set-default = Kasuta vaikimisi tüübi { $mime } jaoks
 browse-store = Vaata siia: { $store }
 other-apps = Muud rakendused
 selected-items = { $items } valitud objekt(i)

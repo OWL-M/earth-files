@@ -178,6 +178,8 @@ save-file = Fájl mentése
 ## Open With Dialog
 
 open-with-title = Hogyan szeretnéd megnyitni a(z) „{ $name }” fájlt?
+open-with-title-many = Hogyan szeretné megnyitni ezt a(z) { $items } fájlt?
+open-with-set-default = Alapértelmezett ehhez: { $mime }
 browse-store = { $store } böngészése
 other-apps = Egyéb alkalmazások
 related-apps = Hasonló alkalmazások

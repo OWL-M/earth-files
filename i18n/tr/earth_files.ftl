@@ -152,6 +152,8 @@ save-file = Dosyayı kaydet
 ## Open With Dialog
 
 open-with-title = "{ $name }" dosyasını nasıl açmak istersiniz?
+open-with-title-many = Bu { $items } dosyayı nasıl açmak istersiniz?
+open-with-set-default = { $mime } için varsayılan olarak kullan
 browse-store = { $store }'sını gezin
 
 ## Rename Dialog

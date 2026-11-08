@@ -49,6 +49,7 @@ pub use context_drawer::{ContextDrawer, context_drawer};
 pub mod context_menu;
 
 pub mod crop_top;
+pub mod footer_first;
 pub use context_menu::{ContextMenu, context_menu};
 pub use crop_top::{CropTop, Top};
 

@@ -79,6 +79,8 @@ save-file = ಫೈಲ್ ಉಳಿಸಿ
 ## Open With Dialog
 
 open-with-title = "{ $name }" ಅನ್ನು ಹೇಗೆ ತೆರೆಯಲು ನೀವು ಬಯಸುತ್ತೀರಿ?
+open-with-title-many = ಈ { $items } ಕಡತಗಳನ್ನು ಹೇಗೆ ತೆರೆಯಲು ಬಯಸುತ್ತೀರಿ?
+open-with-set-default = { $mime } ಗಾಗಿ ಪೂರ್ವನಿಯೋಜಿತವಾಗಿ ಬಳಸಿ
 browse-store = { $store } ಅಲ್ಲಿ ಹುಡುಕಿ
 
 ## Rename Dialog

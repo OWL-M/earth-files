@@ -185,6 +185,8 @@ save-file = Save file
 
 ## Open With Dialog
 open-with-title = How do you want to open "{$name}"?
+open-with-title-many = How do you want to open these { $items } files?
+open-with-set-default = Use as default for { $mime }
 browse-store = Browse {$store}
 other-apps = Other applications
 related-apps = Related applications

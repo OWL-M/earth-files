@@ -169,6 +169,8 @@ folder-totals = { $files ->
    *[other] { $files } αρχεία, { $size }
 }
 open-with-title = Πώς θέλετε να ανοίξετε το «{ $name }»;
+open-with-title-many = Πώς θέλετε να ανοίξετε αυτά τα { $items } αρχεία;
+open-with-set-default = Χρήση ως προεπιλογή για { $mime }
 extract-password-required = Απαιτείται κωδικός πρόσβασης
 rename-file = Μετονομασία αρχείου
 file-name = Όνομα αρχείου

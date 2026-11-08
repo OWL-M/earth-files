@@ -179,6 +179,8 @@ save-file = Enregistrer le fichier
 ## Open With Dialog
 
 open-with-title = Comment souhaitez-vous ouvrir "{ $name }" ?
+open-with-title-many = Comment voulez-vous ouvrir ces { $items } fichiers ?
+open-with-set-default = Utiliser par défaut pour { $mime }
 browse-store = Parcourir { $store }
 
 ## Permanently delete Dialog

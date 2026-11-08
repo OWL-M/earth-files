@@ -183,6 +183,8 @@ save-file = Salvează fișier
 ## Open With Dialog
 
 open-with-title = Cum dorești să deschizi „{ $name }”?
+open-with-title-many = Cum vrei să deschizi aceste { $items } fișiere?
+open-with-set-default = Folosește ca implicită pentru { $mime }
 browse-store = Răsfoiește în { $store }
 
 ## Rename Dialog

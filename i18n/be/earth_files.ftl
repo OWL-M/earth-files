@@ -185,6 +185,8 @@ save-file = Захаваць файл
 ## Open With Dialog
 
 open-with-title = Як вы хочаце адкрыць "{ $name }"?
+open-with-title-many = Як вы хочаце адкрыць гэтыя файлы ({ $items })?
+open-with-set-default = Выкарыстоўваць па змаўчанні для { $mime }
 browse-store = Прагляд { $store }
 other-apps = Іншыя праграмы
 related-apps = Звязаныя праграмы

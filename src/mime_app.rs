@@ -384,6 +384,9 @@ pub struct MimeAppCache {
     by_type: Mutex<FxHashMap<Mime, Arc<TypeApps>>>,
     /// The `mimeapps.list` default for `x-scheme-handler/terminal`.
     default_terminal: Option<String>,
+    /// The type patterns the lists name an installed default for under
+    /// `[Default Applications]`, as written (`image/png`, `image/*`).
+    chosen: FxHashSet<String>,
     locales: Locales,
     /// Whether this holds a real answer. See [`Self::empty`].
     loaded: bool,
@@ -403,6 +406,7 @@ impl MimeAppCache {
             associations: None,
             by_type: Mutex::default(),
             default_terminal: None,
+            chosen: FxHashSet::default(),
             locales: Locales::untranslated(),
             loaded: false,
         }
@@ -590,6 +594,71 @@ impl MimeAppCache {
         self.type_apps(mime).default.as_deref() == Some(app.id.as_str())
     }
 
+    /// Whether a list names an installed default for `mime`, or for a type
+    /// it is a kind of: what opening a file of it goes to unasked.
+    ///
+    /// A kind of, as the resolver walks it: every ancestor, and `text/plain`
+    /// for text, but not `application/octet-stream`, which every file is:
+    /// a default for it would answer for every type, and a type nothing was
+    /// chosen for is asked about. An application that merely lists the type
+    /// is not chosen either, though the spec lets it stand in as the default.
+    pub fn has_default(&self, mime: &Mime) -> bool {
+        let database = &crate::mime_icon::SHARED_MIME_INFO;
+        let any_data = database.canonical(&Mime::APPLICATION_OCTET_STREAM);
+        // Skipped only as an ancestor: a file that is just data, with a
+        // default chosen for that, has one
+        std::iter::once(database.canonical(mime))
+            .chain(
+                database
+                    .ancestors(mime)
+                    .into_iter()
+                    .filter(|ancestor| *ancestor != any_data),
+            )
+            .any(|mime| {
+                let named = [
+                    mime.as_str().to_owned(),
+                    format!("{}/*", mime.media()),
+                    "*/*".to_owned(),
+                ]
+                .iter()
+                .any(|pattern| self.chosen.contains(pattern));
+                named && self.type_apps(&mime).default.is_some()
+            })
+    }
+
+    /// Whether [`Self::set_default`] could write the user's lists, as far
+    /// as can be told without writing: each is replaced through a file
+    /// beside the one a link names, so that file's folder must take new
+    /// entries. A list kept elsewhere, such as a link into a read-only
+    /// store, cannot be changed from here.
+    pub fn defaults_writable() -> bool {
+        let Some(base_dirs) = crate::xdg_dirs::BASE_DIRS.as_ref() else {
+            return false;
+        };
+        let (plain, path) =
+            Self::default_lists(base_dirs, &xdg_kit::desktop_entry::Desktops::from_env());
+        [plain, path].iter().all(|list| list_writable(list))
+    }
+
+    /// The lists [`Self::set_default_in`] edits: the plain one, and the one
+    /// the default is written to, which may be the same.
+    fn default_lists(
+        base_dirs: &xdg_kit::basedir::BaseDirs,
+        desktops: &xdg_kit::desktop_entry::Desktops,
+    ) -> (PathBuf, PathBuf) {
+        use xdg_kit::mime_apps::MIMEAPPS_LIST;
+        let config_home = base_dirs.config_home();
+        let plain = config_home.join(MIMEAPPS_LIST);
+        let path = desktops
+            .names()
+            .iter()
+            .filter(|name| !name.is_empty() && !name.contains(['/', '\0']))
+            .map(|name| config_home.join(format!("{}-{MIMEAPPS_LIST}", name.to_ascii_lowercase())))
+            .find(|path| path.exists())
+            .unwrap_or_else(|| plain.clone());
+        (plain, path)
+    }
+
     /// Reload the installed applications and their associations and
     /// defaults.
     pub fn reload(&mut self) {
@@ -617,6 +686,7 @@ impl MimeAppCache {
         self.by_type.get_mut().unwrap().clear();
         self.associations = None;
         self.default_terminal = None;
+        self.chosen.clear();
         self.locales = Locales::from_env();
 
         let index = Arc::new(AppIndex::load(base_dirs));
@@ -661,6 +731,7 @@ impl MimeAppCache {
             .sort_by(|a, b| LANGUAGE_SORTER.compare(&a.name, &b.name));
 
         self.default_terminal = self.configured_terminal(&associations);
+        self.chosen = self.chosen_patterns(&associations);
         self.associations = Some(associations);
 
         let elapsed = start.elapsed();
@@ -693,6 +764,29 @@ impl MimeAppCache {
         associations
             .default_for(&TERMINAL_MIME)
             .map(|entry| app_id(entry.id()).to_owned())
+    }
+
+    /// The patterns some list names an installed default for.
+    fn chosen_patterns(&self, associations: &MimeApps) -> FxHashSet<String> {
+        use xdg_kit::mime_apps::{Group, MimeAppsList, TypePattern};
+        let mut chosen = FxHashSet::default();
+        for file in associations.files() {
+            let Ok(list) = MimeAppsList::open(file) else {
+                continue;
+            };
+            for (pattern, ids) in list.entries(Group::Defaults) {
+                if ids.iter().any(|id| self.by_id.contains_key(app_id(id))) {
+                    // An alias names the type it stands for
+                    chosen.insert(match pattern {
+                        TypePattern::Exact(mime) => crate::mime_icon::SHARED_MIME_INFO
+                            .canonical(&mime)
+                            .to_string(),
+                        pattern => pattern.to_string(),
+                    });
+                }
+            }
+        }
+        chosen
     }
 
     pub fn apps(&self) -> &[Arc<MimeApp>] {
@@ -817,17 +911,9 @@ impl MimeAppCache {
         mime: Mime,
         mut id: String,
     ) -> bool {
-        use xdg_kit::mime_apps::{MIMEAPPS_LIST, TypePattern};
+        use xdg_kit::mime_apps::TypePattern;
 
-        let config_home = base_dirs.config_home();
-        let plain = config_home.join(MIMEAPPS_LIST);
-        let path = desktops
-            .names()
-            .iter()
-            .filter(|name| !name.is_empty() && !name.contains(['/', '\0']))
-            .map(|name| config_home.join(format!("{}-{MIMEAPPS_LIST}", name.to_ascii_lowercase())))
-            .find(|path| path.exists())
-            .unwrap_or_else(|| plain.clone());
+        let (plain, path) = Self::default_lists(base_dirs, desktops);
 
         let suffix = ".desktop";
         if !id.ends_with(suffix) {
@@ -844,6 +930,24 @@ impl MimeAppCache {
         }
         edit_list(&path, |list| list.set_default(&pattern, &id))
     }
+}
+
+/// Whether the list at `path` can be replaced: the folder of the file it
+/// names, once links are followed, takes new entries. A list not there yet
+/// is made in its folder, or the nearest one above that exists.
+fn list_writable(path: &Path) -> bool {
+    let target = std::fs::canonicalize(path).unwrap_or_else(|_| {
+        // Absent, or a link to something absent: the link's target is what
+        // gets written
+        std::fs::read_link(path).map_or_else(
+            |_| path.to_path_buf(),
+            |target| path.parent().unwrap_or(Path::new("/")).join(target),
+        )
+    });
+    let Some(dir) = target.ancestors().skip(1).find(|dir| dir.is_dir()) else {
+        return false;
+    };
+    crate::fs_at::cannot_write(dir).is_none()
 }
 
 /// Reads the list at `path`, applies `edit` and writes it back; whether all
@@ -990,6 +1094,64 @@ mod tests {
             "new".to_owned(),
         ));
         assert!(home.path().join("config/mimeapps.list").exists());
+    }
+
+    /// A type has a default when it names one, or a type it is a kind of
+    /// does; an application merely listing it is not one
+    #[test]
+    fn a_default_is_its_own_or_its_parents() {
+        let home = tempfile::tempdir().unwrap();
+        install(home.path(), "editor", "MimeType=text/plain;\n");
+        install(home.path(), "squeezer", "MimeType=application/gzip;\n");
+        write_list(
+            home.path(),
+            "mimeapps.list",
+            "[Default Applications]\ntext/plain=editor.desktop\n",
+        );
+        let mut cache = super::MimeAppCache::empty();
+        cache.reload_from(&base_dirs(home.path()));
+        assert!(cache.has_default(&super::Mime::TEXT_PLAIN));
+        // text/x-nix is a kind of text/plain
+        assert!(cache.has_default(&super::Mime::from_static("text/x-nix")));
+        // A C header is a C source, which is text: the chain is followed
+        assert!(cache.has_default(&super::Mime::from_static("text/x-chdr")));
+        assert!(!cache.has_default(&super::Mime::from_static("application/gzip")));
+
+        // A default for any data does not answer for every type
+        write_list(
+            home.path(),
+            "mimeapps.list",
+            // As choosing a default writes it: associated, then the default
+            "[Default Applications]\ntext/plain=editor.desktop\napplication/octet-stream=editor.desktop\n\n[Added Associations]\napplication/octet-stream=editor.desktop\n",
+        );
+        let mut cache = super::MimeAppCache::empty();
+        cache.reload_from(&base_dirs(home.path()));
+        assert!(!cache.has_default(&super::Mime::from_static("application/gzip")));
+        // But it does for a file that is only data
+        assert!(cache.has_default(&super::Mime::APPLICATION_OCTET_STREAM));
+    }
+
+    /// A list can be changed where its file, or the one its link names, sits
+    /// in a folder that takes new entries; not through a link into a
+    /// read-only folder
+    #[test]
+    fn a_list_is_writable_where_its_folder_is() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let plain = dir.path().join("mimeapps.list");
+        assert!(super::list_writable(&plain), "absent, in a writable folder");
+        std::fs::write(&plain, "").unwrap();
+        assert!(super::list_writable(&plain));
+
+        let store = dir.path().join("store");
+        std::fs::create_dir(&store).unwrap();
+        std::fs::write(store.join("mimeapps.list"), "").unwrap();
+        std::fs::set_permissions(&store, std::fs::Permissions::from_mode(0o555)).unwrap();
+        let linked = dir.path().join("linked.list");
+        std::os::unix::fs::symlink(store.join("mimeapps.list"), &linked).unwrap();
+        let writable = super::list_writable(&linked);
+        std::fs::set_permissions(&store, std::fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(!writable, "a link into a folder that takes no new entries");
     }
 
     /// A terminal chosen as the default for `x-scheme-handler/terminal`

@@ -186,6 +186,8 @@ save-file = Zapisz plik
 ## Open With Dialog
 
 open-with-title = Czym chcesz otworzyć „{ $name }”?
+open-with-title-many = Jak chcesz otworzyć te pliki ({ $items })?
+open-with-set-default = Użyj jako domyślnej dla { $mime }
 browse-store = Przeglądaj { $store }
 other-apps = Inne aplikacje
 related-apps = Pokrewne aplikacje

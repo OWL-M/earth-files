@@ -155,6 +155,8 @@ save-file = Gem fil
 ## Open With Dialog
 
 open-with-title = Hvordan vil du åbne "{ $name }"?
+open-with-title-many = Hvordan vil du åbne disse { $items } filer?
+open-with-set-default = Brug som standard for { $mime }
 browse-store = Gennemse { $store }
 
 ## Rename Dialog

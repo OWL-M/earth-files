@@ -8,4 +8,4 @@ StartupNotify=true
 Icon=com.owlm.EarthFiles
 Categories=Utility;FileManager;
 Keywords=Folder;Manager;
-MimeType=inode/directory;
+MimeType=inode/directory;application/gzip;application/x-compressed-tar;application/x-tar;application/zip;application/x-7z-compressed;application/zstd;application/x-zstd-compressed-tar;application/x-bzip;application/x-bzip-compressed-tar;application/x-bzip2;application/x-bzip2-compressed-tar;application/x-xz;application/x-xz-compressed-tar;application/x-lzma;application/x-lzma-compressed-tar;

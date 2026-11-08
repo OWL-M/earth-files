@@ -179,6 +179,8 @@ save-file = Bestand opslaan
 ## Open With Dialog
 
 open-with-title = Hoe wilt u “{ $name }” openen?
+open-with-title-many = Hoe wil je deze { $items } bestanden openen?
+open-with-set-default = Als standaard gebruiken voor { $mime }
 browse-store = { $store } verkennen
 other-apps = Andere toepassingen
 related-apps = Gerelateerde toepassingen

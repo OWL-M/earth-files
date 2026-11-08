@@ -170,6 +170,16 @@ async fn items(monitor: &gio::VolumeMonitor, sizes: IconSizes) -> MounterItems {
 /// thread for as long as the server takes, and that thread is what dispatches
 /// every other network command and mount callback: one slow listing used to
 /// stop all of them. Awaited, the thread stays free to run the rest.
+/// The content type gio settled on, if any.
+///
+/// gio leaves it out when it is unsure, as gvfs does for a phone file with an
+/// unknown extension, and asking for a missing one prints a GLib critical.
+fn known_content_type(info: &gio::FileInfo) -> Option<glib::GString> {
+    info.has_attribute(gio::FILE_ATTRIBUTE_STANDARD_CONTENT_TYPE)
+        .then(|| info.content_type())
+        .flatten()
+}
+
 async fn network_scan(uri: &str) -> Result<NetworkListing, String> {
     let all_dirs = uri.starts_with("network:///");
     let (_, file) = resolve_uri(uri).await;
@@ -238,7 +248,7 @@ async fn network_scan(uri: &str) -> Result<NetworkListing, String> {
             let is_dir = all_dirs || matches!(info.file_type(), gio::FileType::Directory);
             // gio reports the content type per entry; a folder has none
             let mime = (!is_dir)
-                .then(|| info.content_type())
+                .then(|| known_content_type(&info))
                 .flatten()
                 .and_then(|t| Mime::from_media_type(&t).ok());
             let hidden = name.starts_with('.')
@@ -884,5 +894,42 @@ impl Mounter for Gvfs {
                 return Some(message);
             }
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    #[test]
+    fn a_file_gio_is_unsure_of_has_no_type_and_logs_nothing() {
+        static CRITICALS: AtomicUsize = AtomicUsize::new(0);
+        let handler = glib::log_set_handler(
+            Some("GLib-GIO"),
+            glib::LogLevels::LEVEL_CRITICAL,
+            false,
+            false,
+            |_, _, _| {
+                CRITICALS.fetch_add(1, Ordering::SeqCst);
+            },
+        );
+        // What gvfs's MTP backend gives for `x.tachibk`: a fast guess only
+        let unsure = gio::FileInfo::new();
+        unsure.set_file_type(gio::FileType::Regular);
+        unsure.set_attribute_string(
+            gio::FILE_ATTRIBUTE_STANDARD_FAST_CONTENT_TYPE,
+            "application/octet-stream",
+        );
+        let known = gio::FileInfo::new();
+        known.set_content_type("image/png");
+
+        let unsure_type = known_content_type(&unsure);
+        let known_type = known_content_type(&known);
+        glib::log_remove_handler(Some("GLib-GIO"), handler);
+
+        assert_eq!(unsure_type, None);
+        assert_eq!(known_type.as_deref(), Some("image/png"));
+        assert_eq!(CRITICALS.load(Ordering::SeqCst), 0);
     }
 }

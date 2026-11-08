@@ -180,6 +180,8 @@ save-file = Salvar arquivo
 ## Open With Dialog
 
 open-with-title = Como deseja abrir "{ $name }"?
+open-with-title-many = Como você quer abrir estes { $items } arquivos?
+open-with-set-default = Usar como padrão para { $mime }
 browse-store = Procurar em { $store }
 other-apps = Outros aplicativos
 related-apps = Aplicativos relacionados

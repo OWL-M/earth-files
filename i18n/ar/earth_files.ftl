@@ -277,6 +277,8 @@ favorite-path-error-description =
 
     أترغب في إزالته من الشريط الجانبي؟
 open-with-title = كيف تريد فتح «{ $name }»؟
+open-with-title-many = كيف تريد فتح هذه الملفات ({ $items })؟
+open-with-set-default = استخدامه افتراضيًا لـ { $mime }
 read-execute = قراءة وتنفيذ
 read-write = قراءة وكتابة
 read-write-execute = قراءة وكتابة وتنفيذ
