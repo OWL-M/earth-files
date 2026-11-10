@@ -5,3 +5,5 @@ extend-exclude = ["i18n/"]
 overlayed = "overlayed"
 leafs = "leafs"
 thumbnailers = "thumbnailers"
+# "café" in test data, spelled with a byte escape: `caf\xe9`
+caf = "caf"

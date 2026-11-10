@@ -904,14 +904,14 @@ mod tests {
 
     #[test]
     fn a_file_gio_is_unsure_of_has_no_type_and_logs_nothing() {
-        static CRITICALS: AtomicUsize = AtomicUsize::new(0);
+        static CRITICAL_COUNT: AtomicUsize = AtomicUsize::new(0);
         let handler = glib::log_set_handler(
             Some("GLib-GIO"),
             glib::LogLevels::LEVEL_CRITICAL,
             false,
             false,
             |_, _, _| {
-                CRITICALS.fetch_add(1, Ordering::SeqCst);
+                CRITICAL_COUNT.fetch_add(1, Ordering::SeqCst);
             },
         );
         // What gvfs's MTP backend gives for `x.tachibk`: a fast guess only
@@ -930,6 +930,6 @@ mod tests {
 
         assert_eq!(unsure_type, None);
         assert_eq!(known_type.as_deref(), Some("image/png"));
-        assert_eq!(CRITICALS.load(Ordering::SeqCst), 0);
+        assert_eq!(CRITICAL_COUNT.load(Ordering::SeqCst), 0);
     }
 }

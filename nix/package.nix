@@ -14,6 +14,7 @@
   wayland,
   vulkan-loader,
   xdg-utils,
+  zstd,
 }:
 let
   manifest = builtins.fromTOML (builtins.readFile ../Cargo.toml);
@@ -66,6 +67,9 @@ rustPlatform.buildRustPackage rec {
     adwaita-icon-theme
     hicolor-icon-theme
     shared-mime-info
+    # `zstd-sys` links the system libzstd when nixpkgs' cargo setup hook
+    # sets ZSTD_SYS_USE_PKG_CONFIG, as it does from nixpkgs 26.11.
+    zstd
   ]
   ++ runtimeLibraries;
 
